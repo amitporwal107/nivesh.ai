@@ -66,7 +66,6 @@ function pageLabelFor(pathname: string): string | null {
     "/goals": "Goals",
     "/tax": "Tax",
     "/plan": "Plan board",
-    "/pro-trader": "Pro Trader",
     "/settings": "Settings",
   };
   return map[pathname] ?? null;

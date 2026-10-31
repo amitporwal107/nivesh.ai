@@ -392,17 +392,38 @@ _SCANNER_SQL = """
            AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = $7)
            AND symbol <> 'DUMMYHEG'
     ),
-    mf AS (
-        SELECT d.security_isin,
-               sum(d.shares_delta)                                              AS net_shares_delta,
-               sum(d.previous_shares)                                           AS previous_shares,
-               count(DISTINCT d.scheme_code) FILTER (WHERE d.shares_delta > 0)    AS schemes_up,
-               count(DISTINCT d.scheme_code) FILTER (WHERE d.shares_delta < 0)    AS schemes_dn,
-               count(DISTINCT m.amc_id)      FILTER (WHERE d.shares_delta > 0)    AS amcs_up
+    -- Per house first, so "how many houses raised" means their NET and not "had any scheme raise".
+    -- GLENMARK is why: 9 houses had a scheme raise, but on net 3 raised and 6 cut, and one house
+    -- (quant, +11,650,536) exceeded the entire +9,602,244 net on its own.
+    mf_amc AS (
+        SELECT d.security_isin, m.amc_id,
+               sum(d.shares_delta) AS amc_delta,
+               count(DISTINCT d.scheme_code) FILTER (WHERE d.shares_delta > 0) AS schemes_up,
+               count(DISTINCT d.scheme_code) FILTER (WHERE d.shares_delta < 0) AS schemes_dn
           FROM nidp.mf_holdings_deltas d
           JOIN nidp.mf_scheme_master m ON m.scheme_code = d.scheme_code
          WHERE d.current_month = $1 AND d.previous_month = $2 AND d.shares_delta IS NOT NULL
-         GROUP BY d.security_isin
+         GROUP BY d.security_isin, m.amc_id
+    ),
+    mf AS (
+        SELECT a.security_isin,
+               sum(a.amc_delta)                                     AS net_shares_delta,
+               sum(a.schemes_up)                                    AS schemes_up,
+               sum(a.schemes_dn)                                    AS schemes_dn,
+               count(*) FILTER (WHERE a.amc_delta > 0)              AS amcs_up,
+               count(*) FILTER (WHERE a.amc_delta < 0)              AS amcs_dn,
+               count(*)                                             AS amcs_holding,
+               -- The largest single contribution, as a share of the net move. Above 100% means one
+               -- house more than accounts for it and the rest are net sellers.
+               round(100.0 * max(a.amc_delta) / NULLIF(sum(a.amc_delta), 0), 0) AS top_amc_pct_of_move
+          FROM mf_amc a
+         GROUP BY a.security_isin
+    ),
+    mf_prev AS (
+        SELECT security_isin, sum(previous_shares) AS previous_shares
+          FROM nidp.mf_holdings_deltas
+         WHERE current_month = $1 AND previous_month = $2 AND shares_delta IS NOT NULL
+         GROUP BY security_isin
     ),
     -- shareholding_pattern is NOT unique on (symbol, period_end): two sources, ~100 duplicate rows
     -- per quarter. Order by value-presence, not by source name: NSE_SHP holds NULL institutional
@@ -412,6 +433,19 @@ _SCANNER_SQL = """
           FROM nidp.shareholding_pattern
          WHERE period_end IN ($3, $4)
          ORDER BY symbol, period_end, (fii_pct IS NOT NULL) DESC, ingested_at DESC
+    ),
+    -- Where BOTH sources carry a figure they can disagree, and picking the most recently ingested
+    -- is arbitrary. Measured on 2026-09-30: 103 of 129 agree exactly, 21 within 0.5pp, but 5
+    -- differ by more and ICICIBANK differs by 15.76pp (NSE_SHP 50.44 vs screener_in 34.68). The
+    -- spread rides with the row so a contested figure can be shown as contested, not as fact.
+    shp_spread AS (
+        SELECT symbol, max(spread) AS fii_spread_pp
+          FROM (SELECT symbol, period_end, max(fii_pct) - min(fii_pct) AS spread
+                  FROM nidp.shareholding_pattern
+                 WHERE period_end IN ($3, $4) AND fii_pct IS NOT NULL
+                 GROUP BY symbol, period_end
+                HAVING count(DISTINCT source) > 1) z
+         GROUP BY symbol
     ),
     inst AS (
         SELECT c.symbol, c.fii_pct - p.fii_pct AS fii_delta_pp, c.dii_pct - p.dii_pct AS dii_delta_pp
@@ -453,7 +487,8 @@ _SCANNER_SQL = """
     ),
     base AS (
         SELECT n5.symbol, n5.industry,
-               mf.net_shares_delta, mf.previous_shares, mf.schemes_up, mf.schemes_dn, mf.amcs_up,
+               mf.net_shares_delta, mp.previous_shares, mf.schemes_up, mf.schemes_dn, mf.amcs_up,
+               mf.amcs_dn, mf.amcs_holding, mf.top_amc_pct_of_move,
                inst.fii_delta_pp, inst.dii_delta_pp,
                deals.deal_net_qty, deals.deal_gross_inr, deals.deal_legs, deals.matched_legs,
                deals.deal_days, deals.transfer_days,
@@ -461,6 +496,7 @@ _SCANNER_SQL = """
                dl.deliv_10d, dl.deliv_60d,
                px.close_price, px.prev_close,
                fr.freshness_status, fr.single_amc_signal, fr.latest_reporting_date,
+               round(sp.fii_spread_pp, 2) AS fii_spread_pp,
                CASE
                  WHEN coalesce(mf.net_shares_delta, 0) <> 0 AND coalesce(deals.deal_net_qty, 0) <> 0 THEN 'D'
                  WHEN coalesce(mf.net_shares_delta, 0) <> 0 THEN 'A'
@@ -470,12 +506,14 @@ _SCANNER_SQL = """
                END AS evidence
           FROM n5
           LEFT JOIN mf      ON mf.security_isin = n5.isin
+          LEFT JOIN mf_prev mp ON mp.security_isin = n5.isin
           LEFT JOIN inst    ON inst.symbol      = n5.symbol
           LEFT JOIN deals   ON deals.symbol     = n5.symbol
           LEFT JOIN checked ON checked.symbol   = n5.symbol
           LEFT JOIN dl      ON dl.symbol        = n5.symbol
           LEFT JOIN px      ON px.symbol        = n5.symbol
           LEFT JOIN fr      ON fr.symbol        = n5.symbol
+          LEFT JOIN shp_spread sp ON sp.symbol = n5.symbol
     ),
     -- The lane counts are computed BEFORE the lane filter, so an empty lane can say "none in this
     -- universe" instead of looking broken. In Nifty 500 the proxy lane is legitimately 0: every
@@ -499,7 +537,8 @@ _SCANNER_SQL = """
     )
     SELECT symbol, industry,
            round(100.0 * net_shares_delta / NULLIF(previous_shares, 0), 2) AS mf_shares_pct_chg,
-           net_shares_delta, schemes_up, schemes_dn, amcs_up,
+           net_shares_delta, schemes_up, schemes_dn, amcs_up, amcs_dn, amcs_holding,
+           top_amc_pct_of_move,
            round(fii_delta_pp, 2) AS fii_delta_pp, round(dii_delta_pp, 2) AS dii_delta_pp,
            deal_net_qty, deal_gross_inr, deal_legs, matched_legs, deal_days, transfer_days,
            deals_checked,
@@ -508,6 +547,7 @@ _SCANNER_SQL = """
            close_price, prev_close,
            round(100.0 * (close_price - prev_close) / NULLIF(prev_close, 0), 2) AS change_pct,
            freshness_status, single_amc_signal, latest_reporting_date,
+           fii_spread_pp,
            evidence,
            matched_total, lane_disclosed, lane_proxy, class_a, class_b, class_c, class_d,
            count(*) OVER () AS lane_total
@@ -544,7 +584,9 @@ async def smart_money_scanner(
                        "then by how many AMCs raised the holding, which is a disclosure count. A null deal "
                        "column with deals_checked=false means the symbol was never queried, NOT that nothing "
                        "happened. Deal legs carry no counterparty classification: a leg may be a market maker, "
-                       "and matched same-day transfers are already netted out by the view."),
+                       "and matched same-day transfers are already netted out by the view. Where two sources "
+                       "disclose different FII percentages for the same quarter, `fii_spread_pp` carries the gap "
+                       "and the figure is contested, not settled."),
         "count": 0, "total": 0, "matched": 0,
         "lanes": {"disclosed": 0, "proxy": 0, "all": 0},
         "classes": {"A": 0, "B": 0, "C": 0, "D": 0},

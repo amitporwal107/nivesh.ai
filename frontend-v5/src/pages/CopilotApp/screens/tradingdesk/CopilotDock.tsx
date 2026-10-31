@@ -20,6 +20,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { Markdown } from "@/components/chat/Markdown";
 import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
+import { TradePlanChatCard, type TradeIdeaData } from "@/components/chat/TradePlanChatCard";
+import { VisualAnswer } from "@/components/chat/visual/VisualAnswer";
+import { DAILY_TILES } from "../../components/DailyTraderPanel";
+import { DailyQuestionBar } from "../../components/DailyQuestionBar";
+import { CompletionList, applyCompletion, useStockCompletion, type StockSuggestion } from "../../lib/stock-completion";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
 import { useThreadTurns, type Turn } from "../../lib/use-thread-turns";
@@ -90,9 +95,14 @@ function Typing() {
   );
 }
 
-function DockTurn({ turn, busy, page, onRetry, onOpenThread }: { turn: Turn; busy: boolean; page: boolean; onRetry: (q: string) => void; onOpenThread: () => void }) {
+function DockTurn({ turn, busy, page, onRetry, onAsk, onOpenThread }: { turn: Turn; busy: boolean; page: boolean; onRetry: (q: string) => void; onAsk: (q: string) => void; onOpenThread: () => void }) {
   const working = turn.state === "streaming";
   const card = !!turn.widget?.widget_type && WIDGET_TYPES.has(turn.widget.widget_type);
+  // A stock's trade idea is the desk's own plan card: shown here, beside the desk, not only in the full thread.
+  const tradePlan = turn.widget?.widget_type === "trade_plan" && turn.widget.data && typeof turn.widget.data === "object"
+    ? (turn.widget.data as TradeIdeaData) : null;
+  // The visual answer (charts, tables, the plan) is shown here too, compact, beside the desk.
+  const visual = turn.widget?.widget_type === "visual_answer" && turn.widget.data != null;
   return (
     <div data-testid="dock-turn" data-state={turn.state} className="flex flex-col" style={{ gap: 14, flex: "none" }}>
       {turn.question && (
@@ -110,7 +120,9 @@ function DockTurn({ turn, busy, page, onRetry, onOpenThread }: { turn: Turn; bus
               </div>
             )}
             {working && !turn.text && <Typing />}
-            {card && (
+            {tradePlan !== null && <TradePlanChatCard data={tradePlan} onAction={(a) => { if (a.query && !busy) onAsk(a.query); }} />}
+            {visual && <VisualAnswer data={turn.widget?.data} compact onAction={(a) => { if (a.query && !busy) onAsk(a.query); }} />}
+            {card && !tradePlan && !visual && (
               <button type="button" onClick={onOpenThread} style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--mint)", cursor: "pointer" }}>
                 This answer has a result card — open the full thread ›
               </button>
@@ -133,7 +145,14 @@ function DockTurn({ turn, busy, page, onRetry, onOpenThread }: { turn: Turn; bus
  * The Copilot panel. `chips` are questions about what the desk is showing now.
  * variant "dock" = the card beside the desk; "page" = full height in the page on a phone.
  */
-export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; height: string; variant?: "dock" | "page" }>(function CopilotDock({ chips, height, variant = "dock" }, ref) {
+export const CopilotDock = forwardRef<CopilotDockHandle, {
+  chips: string[]; height: string; variant?: "dock" | "page";
+  /** The docked Copilot as a window (copilot-window.tsx): locked in the right column, or floating over the desk. */
+  windowMode?: "locked" | "floating";
+  onToggleWindow?: () => void;
+  /** Floating: a pointer-down on the header starts moving the window. */
+  onHeaderPointerDown?: (e: React.PointerEvent) => void;
+}>(function CopilotDock({ chips, height, variant = "dock", windowMode, onToggleWindow, onHeaderPointerDown }, ref) {
   const { go } = useCopilotShell();
   const { persona } = useDesk();
   const engine = useThreadEngine();
@@ -143,6 +162,30 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Stock autocomplete at the cursor (lib/stock-completion.tsx): the same completions as the app's ask box.
+  const [caret, setCaret] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const completion = useStockCompletion(draft.slice(0, caret), focused && !engine.busy);
+  const completions = completion.data;
+  const complete = (st: StockSuggestion) => {
+    if (!completions) return;
+    const next = applyCompletion(draft, inputRef.current?.selectionStart ?? caret, completions, st);
+    setDraft(next.text);
+    setCaret(next.caret);
+    setHi(-1);
+    requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(next.caret, next.caret); } });
+  };
+  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const n = completions?.stocks.length ?? 0;
+    if (e.key === "Escape") { setHi(-1); setFocused(false); return; }
+    if (!n) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => (h + 1) % n); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => (h <= 0 ? n - 1 : h - 1)); return; }
+    if (e.key === "Tab") { e.preventDefault(); complete(completions!.stocks[hi >= 0 ? hi : 0]); return; }
+    // Enter on a highlighted stock completes it; Enter with nothing highlighted asks, as before.
+    if (e.key === "Enter" && hi >= 0 && !e.nativeEvent.isComposing) { e.preventDefault(); complete(completions!.stocks[hi]); }
+  };
   const page = variant === "page";
 
   const ask = (question: string) => {
@@ -194,12 +237,29 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
             <span style={{ fontSize: page ? 12.5 : 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
               Answers come from the same data the desk shows, with sources. The Copilot explains evidence and risk; it does not tell you to buy or sell, and it cannot place orders.
             </span>
+            {/* The Daily Trader Copilot's six entry points (owner, 30 Oct): a pick puts its lead question in the box. */}
+            <div data-testid="dock-daily" role="group" aria-label="What to ask about" className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6, marginTop: 4 }}>
+              {DAILY_TILES.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button key={t.key} type="button" data-testid={`dock-daily-${t.key}`} title={t.questions[0]}
+                    onClick={() => { const q = t.questions[0]; setDraft(q); setCaret(q.length); setHi(-1); inputRef.current?.focus(); }}
+                    className="flex min-w-0 items-center"
+                    style={{ gap: 8, padding: "9px 10px", borderRadius: 10, border: "1px solid var(--cp-line)", background: "var(--bg-2)", color: "var(--cp-ink)", cursor: "pointer", fontFamily: "var(--sans)", fontSize: 12.5, textAlign: "left" }}>
+                    <Icon aria-hidden size={15} strokeWidth={1.8} style={{ flex: "none", color: "var(--cp-ink-2)" }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
       {turns.map((t) => (
-        <DockTurn key={t.key} turn={t} busy={engine.busy} page={page} onRetry={(q) => { engine.clearLocal(); ask(q); }} onOpenThread={openThread} />
+        <DockTurn key={t.key} turn={t} busy={engine.busy} page={page} onRetry={(q) => { engine.clearLocal(); ask(q); }} onAsk={ask} onOpenThread={openThread} />
       ))}
+      {/* The six entry points leave with the empty state; their question sets stay one tap away under the answers. */}
+      {turns.length > 0 && <DailyQuestionBar onAsk={ask} busy={engine.busy} mobile={false} />}
       <div ref={endRef} aria-hidden style={{ scrollMarginBottom: page ? 140 : 0 }} />
     </>
   );
@@ -211,15 +271,23 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
   ));
 
   const input = (placeholder: string) => (
-    <input
-      ref={inputRef}
-      data-testid="dock-input"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      placeholder={placeholder}
-      aria-label="Ask the Copilot"
-      style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13.5 }}
-    />
+    <div style={{ position: "relative", flex: 1, minWidth: 0, display: "flex", alignSelf: "stretch", alignItems: "center" }}>
+      {focused && completions && <CompletionList completion={completions} hi={hi} onPick={complete} testId="dock-complete" />}
+      <input
+        ref={inputRef}
+        data-testid="dock-input"
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setHi(-1); setFocused(true); }}
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? draft.length)}
+        onKeyDown={onInputKey}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); setHi(-1); }}
+        placeholder={placeholder}
+        aria-label="Ask the Copilot"
+        autoComplete="off"
+        style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13.5 }}
+      />
+    </div>
   );
 
   if (page) {
@@ -253,18 +321,28 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
   }
 
   return (
-    <aside data-testid="desk-dock" data-variant="dock" aria-label="Nivesh Copilot" className="cp-card flex flex-col" style={{ height, minHeight: 420, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
+    <aside data-testid="desk-dock" data-variant="dock" data-window={windowMode ?? "locked"} aria-label="Nivesh Copilot" className="cp-card flex flex-col" style={{ height, minHeight: 420, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
       <style>{DOCK_STYLE}</style>
-      <div data-testid="dock-header" className="flex items-center" style={{ gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
+      <div data-testid="dock-header" className="flex items-center" onPointerDown={windowMode === "floating" ? onHeaderPointerDown : undefined}
+        title={windowMode === "floating" ? "Drag to move the Copilot" : undefined}
+        style={{ gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)", cursor: windowMode === "floating" ? "move" : undefined, touchAction: windowMode === "floating" ? "none" : undefined, userSelect: windowMode === "floating" ? "none" : undefined }}>
         <Mark size={28} />
         <div className="flex min-w-0 flex-col" style={{ gap: 4 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1 }}>Nivesh Copilot</span>
-          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}><span style={{ color: "var(--mint)" }}>06</span> · Conversational intelligence</span>
+          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}>Conversational intelligence</span>
         </div>
         <span style={{ flex: 1 }} />
         <span className="cp-pill" data-tone="mint" title="Answers read the Nivesh data platform (NIDP), the same data the desk shows" style={{ background: "var(--mint-soft)" }}>
           <span className="nv-dot" style={{ background: "var(--mint)" }} />NIDP
         </span>
+        {onToggleWindow && (
+          <button type="button" data-testid="dock-window-toggle" onClick={onToggleWindow} className="cp-pill"
+            aria-label={windowMode === "floating" ? "Lock the Copilot to the right of the desk" : "Float the Copilot as a window you can move and resize"}
+            title={windowMode === "floating" ? "Lock to the right of the desk" : "Float: move and resize it over the desk"}
+            style={{ flex: "none", cursor: "pointer", background: "transparent" }}>
+            {windowMode === "floating" ? "Lock" : "Float"}
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} data-testid="dock-thread" className="cp-scroll flex flex-col" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 18, gap: 20 }}>

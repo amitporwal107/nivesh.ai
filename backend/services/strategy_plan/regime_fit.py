@@ -32,13 +32,18 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .candidates import _neighbour, _option_leg, condor_ok, iv_fences, leg_view, spread_strike
 
 logger = logging.getLogger(__name__)
 
-REGIME_FIT_VERSION = "regime-fit-v1 (2026-10-22)"
+REGIME_FIT_VERSION = "regime-fit-v1.1 (2026-10-27)"
+
+# The fewest sessions an offered contract must still run after the chain's own day. 1 = the expiry is strictly after
+# the chain date, so a contract expiring on the chain's day (or before it) is never offered. The owner may raise it.
+MIN_SESSIONS_TO_EXPIRY = 1
 
 RANKING_NOTE = (
     "Ranked by fit to the market regime measured on the dates shown and by the live end-of-day "
@@ -63,6 +68,10 @@ GAPS = [
     "End of day only: the chain is the NSE F&O bhavcopy close. There is no intraday option data.",
     "An index has no cash leg: NIFTY and BANKNIFTY cannot be held, so covered calls, protective "
     "puts and collars are offered for stocks only.",
+    f"Expiry rule: no contract expiring on or before the chain's own day is offered. An idea needs at "
+    f"least {MIN_SESSIONS_TO_EXPIRY} session(s) to expiry after the chain date, so on an expiry day the "
+    f"next listed expiry is used, and an underlying with no such expiry is listed as unavailable with "
+    f"the reason. Sessions are counted as weekdays: exchange holidays are not known here.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -348,8 +357,8 @@ def metrics_for(underlying: str, legs: Sequence[Dict[str, Any]], spot: float,
     calculation POST /api/desk/strategy/payoff runs, so a structure priced here and in the shipped
     plan engine cannot disagree. Returns {ok: False, ...} when the request does not validate.
 
-    Margin is deliberately absent: engine.MARGIN_REASON records that no margin source exists in this
-    system (no SPAN/exposure feed, broker margin APIs are account-level), so nothing is estimated.
+    Margin is deliberately absent: engine.MARGIN_REASON records that the payoff calculation does not
+    estimate margin (only Zerodha's margin calculator gives it, through the platform's Kite login).
     For the defined-risk structures offered here, max loss IS the capital at risk."""
     from .engine import compute_payoff
 
@@ -456,10 +465,37 @@ def _why(e: BaseException) -> str:
     return f"{type(e).__name__}: {str(e)[:160]}"
 
 
+def sessions_to_expiry(chain_day: str, expiry: str) -> int:
+    """Sessions from the chain's day to the expiry: the weekdays after `chain_day` up to and including `expiry`, so 0
+    when the expiry is on or before the chain day. Exchange holidays are not known here and count as sessions."""
+    start, end = date.fromisoformat(chain_day), date.fromisoformat(expiry)
+    days = (end - start).days
+    if days <= 0:
+        return 0
+    weeks, rest = divmod(days, 7)
+    return weeks * 5 + sum(1 for i in range(1, rest + 1) if (start.weekday() + i) % 7 < 5)
+
+
+def expiry_refusal(chain_day: Optional[str], expiry: Optional[str]) -> Optional[str]:
+    """Why a contract expiring on `expiry` is not offered from a chain dated `chain_day` (MIN_SESSIONS_TO_EXPIRY), or
+    None when it may be."""
+    if not chain_day or not expiry:
+        return "the chain carries no day or no expiry, so its time to expiry cannot be checked"
+    n = sessions_to_expiry(chain_day, expiry)
+    if n >= MIN_SESSIONS_TO_EXPIRY:
+        return None
+    return (f"expiry {expiry} is {n} session(s) after the chain date {chain_day}; "
+            f"at least {MIN_SESSIONS_TO_EXPIRY} needed")
+
+
 async def _chain_for(request: Any, symbol: str, expiry: Optional[str]) -> Dict[str, Any]:
     """The chain for one underlying, shaped the way candidates.py shapes it (`asof` alongside `summary`).
     Raises LookupError when the underlying lists no option expiries — which is also how a non-F&O
-    symbol is detected, without a second reference lookup."""
+    symbol is detected, without a second reference lookup.
+
+    This is the one place the board chooses an expiry, so the expiry rule lives here: the nearest listed expiry at
+    least MIN_SESSIONS_TO_EXPIRY sessions after the chain's day; the nearer ones are recorded under `expiries_skipped`
+    with the reason. LookupError when none qualifies, or when a requested expiry does not."""
     from datetime import date as _date
 
     from routes import fno
@@ -468,11 +504,27 @@ async def _chain_for(request: Any, symbol: str, expiry: Optional[str]) -> Dict[s
     rows = ex.get("expiries") or []
     if not rows:
         raise LookupError(f"{symbol} lists no option expiries on the latest trading day")
-    chosen = expiry or rows[0]["expiry"]
+    day = ex.get("as_of")
+    skipped = [{"expiry": r["expiry"], "reason": why} for r in rows if (why := expiry_refusal(day, r["expiry"]))]
+    if expiry:
+        why = expiry_refusal(day, expiry)
+        if why:
+            raise LookupError(f"the requested {why}")
+        chosen = expiry
+    else:
+        chosen = next((r["expiry"] for r in rows if not expiry_refusal(day, r["expiry"])), None)
+        if chosen is None:
+            raise LookupError(f"no listed expiry is at least {MIN_SESSIONS_TO_EXPIRY} session(s) after the chain "
+                              f"date {day} (listed: {', '.join(r['expiry'] for r in rows[:3])})")
     ch = dict(await fno.chain(request, symbol=symbol, expiry=_date.fromisoformat(chosen),
                               around=fno.DEFAULT_AROUND))
     ch["asof"] = (ch.get("summary") or {}).get("as_of")
+    # Checked again against the chain's own day: the data can move to a new session between the two reads.
+    why = expiry_refusal(ch["asof"], (ch.get("summary") or {}).get("expiry"))
+    if why:
+        raise LookupError(why)
     ch["expiries_listed"] = [r["expiry"] for r in rows]
+    ch["expiries_skipped"] = skipped
     return ch
 
 
@@ -489,6 +541,12 @@ def _expected_move_price(view: str, summary: Dict[str, Any]) -> Optional[float]:
     if move is None:
         return None
     return float(spot) + (float(move) if view == "up" else -float(move))
+
+
+def _rank_key(idea: Dict[str, Any]) -> Tuple[float, float]:
+    """The one ranking rule: best fit first; reward : risk breaks a tie. An idea with no reward:risk (unbounded
+    profit) sorts last within its fit band rather than being treated as infinitely good."""
+    return (-(idea["fit"]["score"]), -(idea["reward_risk"] or 0.0))
 
 
 def _short_at_wall(plan: Dict[str, Any]) -> Optional[bool]:
@@ -565,15 +623,14 @@ async def ideas_for_underlying(request: Any, symbol: str, regime: Dict[str, Any]
                 "price_source": f"NSE F&O bhavcopy close, {asof}",
             })
 
-    # Best fit first; reward : risk breaks a tie. An idea with no reward:risk (unbounded profit) sorts
-    # last within its fit band rather than being treated as infinitely good.
-    built.sort(key=lambda i: (-(i["fit"]["score"]), -(i["reward_risk"] or 0.0)))
+    built.sort(key=_rank_key)
     top = built[:limit]
     for i, it in enumerate(top, 1):
         it["rank"] = i
     return {
         "underlying": symbol, "available": True, "as_of": asof,
         "expiry": S.get("expiry"), "expiries_listed": chain.get("expiries_listed"),
+        "expiries_skipped": chain.get("expiries_skipped") or [],
         "spot": spot, "lot_size": lot,
         "chain_context": {"atm_strike": S.get("atm_strike"), "atm_iv": S.get("atm_iv"),
                           "pcr": S.get("pcr"), "max_pain": S.get("max_pain"),
@@ -589,20 +646,80 @@ INDEX_UNDERLYINGS = ["NIFTY", "BANKNIFTY"]
 # the best `limit` are kept, so this bounds the chain reads, not the answer.
 STOCK_FNO_SCAN = 8
 
+# One row per underlying (`distinct`): the F&O-listed scanner names to read chains for, enough that the
+# board still fills after the ones whose chain cannot be read; and how many of an underlying's other
+# structures ride along under its row.
+STOCK_FNO_SCAN_DISTINCT = 12
+ALTERNATIVES_MAX = 2
+# Scanner rows read to find those names: every merged watchlist + picks row the route sends
+# (selection.SCANNER_ROUTE_LIMIT from each), not the ideas board's cap of 15.
+DISTINCT_SETUPS_READ = 60
+
+NOT_FNO_REASON = "not in the NSE F&O list (scan snapshot), so no chain was read"
+
+
+def one_per_underlying(pool: Sequence[Dict[str, Any]], limit: int,
+                       alternatives_max: int = ALTERNATIVES_MAX) -> List[Dict[str, Any]]:
+    """The pool ranked by `_rank_key` and cut to one idea per underlying: its best structure, with the next
+    `alternatives_max` structures of the same underlying (in the same order) under `alternatives`. Ranks run
+    1..n over underlyings; an alternative carries no rank of its own."""
+    lead: Dict[str, Dict[str, Any]] = {}
+    alts: Dict[str, List[Dict[str, Any]]] = {}
+    for idea in sorted(pool, key=_rank_key):
+        u = idea["underlying"]
+        if u not in lead:
+            lead[u], alts[u] = idea, []
+        elif len(alts[u]) < alternatives_max:
+            alts[u].append(idea)
+    out: List[Dict[str, Any]] = []
+    for i, u in enumerate(list(lead)[:limit], 1):
+        out.append({**lead[u], "rank": i, "alternatives": [{**a, "rank": None} for a in alts[u]]})
+    return out
+
+
+def order_fno_names(setups: Sequence[Dict[str, Any]], want: int) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """Scanner setups (in the scanner's order) -> the names to read chains for, and the names skipped.
+
+    A name the scan snapshot marks as not F&O-listed is skipped before any chain read and reported with the
+    reason; names it marks F&O-listed come first, then names whose eligibility it does not know. The walk
+    stops once `want` F&O-listed names are found, so only names actually passed over are reported."""
+    known: List[str] = []
+    unknown: List[str] = []
+    skipped: List[Dict[str, Any]] = []
+    seen: set = set()
+    for s in setups:
+        if len(known) >= want:
+            break
+        sym = str(s.get("symbol") or "").upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        flag = s.get("fno_eligible")
+        if flag is False:
+            skipped.append({"underlying": sym, "reason": NOT_FNO_REASON})
+        elif flag is True:
+            known.append(sym)
+        else:
+            unknown.append(sym)
+    return (known + unknown)[:want], skipped
+
 
 async def _pooled(request: Any, symbols: Sequence[str], regime: Dict[str, Any],
-                  expiry: Optional[str], limit: int) -> Dict[str, Any]:
-    """Build every underlying in the list, pool the ideas and keep the best `limit` overall."""
+                  expiry: Optional[str], limit: int, distinct: bool = False) -> Dict[str, Any]:
+    """Build every underlying in the list, pool the ideas and keep the best `limit` overall — or, with
+    `distinct`, the best idea of each of the best `limit` underlyings (one_per_underlying)."""
     import asyncio
 
+    per_underlying = 1 + ALTERNATIVES_MAX if distinct else limit
     results = await asyncio.gather(
-        *[ideas_for_underlying(request, s, regime, expiry=expiry, limit=limit) for s in symbols],
+        *[ideas_for_underlying(request, s, regime, expiry=expiry, limit=per_underlying) for s in symbols],
         return_exceptions=True,
     )
     pool: List[Dict[str, Any]] = []
     unavailable: List[Dict[str, Any]] = []
     as_of: Optional[str] = None
     context: List[Dict[str, Any]] = []
+    priced = 0
     for sym, r in zip(symbols, results):
         if isinstance(r, BaseException):
             unavailable.append({"underlying": sym, "reason": _why(r)})
@@ -612,9 +729,14 @@ async def _pooled(request: Any, symbols: Sequence[str], regime: Dict[str, Any],
             continue
         as_of = as_of or r.get("as_of")
         context.append({"underlying": sym, "spot": r.get("spot"), "expiry": r.get("expiry"),
-                        **(r.get("chain_context") or {})})
+                        "expiries_skipped": r.get("expiries_skipped") or [], **(r.get("chain_context") or {})})
         pool.extend(r["ideas"])
-    pool.sort(key=lambda i: (-(i["fit"]["score"]), -(i["reward_risk"] or 0.0)))
+        priced += int(r.get("considered") or 0)
+    if distinct:
+        # `considered` is every structure that priced on the underlyings read, not only the three kept per underlying.
+        return {"as_of": as_of, "ideas": one_per_underlying(pool, limit), "considered": priced, "distinct": True,
+                "underlyings": context, "unavailable": unavailable}
+    pool.sort(key=_rank_key)
     top = pool[:limit]
     for i, it in enumerate(top, 1):
         it["rank"] = i
@@ -636,42 +758,77 @@ async def _stock_fno_symbols(request: Any, want: int) -> Tuple[List[str], Option
         return [], _why(e)
 
 
+async def _stock_fno_names_distinct(request: Any, want: int) -> Tuple[List[str], List[Dict[str, Any]], Optional[str]]:
+    """The same scanner universe, read wider and with non-F&O names dropped before any chain read
+    (order_fno_names). Returns ([], [], reason) when the scanner cannot be read."""
+    try:
+        from .selection import eligible_setups
+
+        sel = await eligible_setups(request, DISTINCT_SETUPS_READ)
+        syms, skipped = order_fno_names(sel.get("setups") or [], want)
+        return syms, skipped, None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("regime_fit: scanner selection unavailable: %s", _why(e))
+        return [], [], _why(e)
+
+
+_NO_REGIME = "the market regime is unavailable, so fit cannot be scored"
+
+
+async def _index_class(request: Any, regime: Dict[str, Any], expiry: Optional[str], limit: int,
+                       distinct: bool) -> Dict[str, Any]:
+    if not regime.get("available"):
+        return {"ideas": [], "considered": 0, "underlyings": [],
+                "unavailable": [{"underlying": s, "reason": _NO_REGIME} for s in INDEX_UNDERLYINGS]}
+    return await _pooled(request, INDEX_UNDERLYINGS, regime, expiry, limit, distinct)
+
+
+async def _stock_class(request: Any, regime: Dict[str, Any], expiry: Optional[str], limit: int,
+                       distinct: bool) -> Dict[str, Any]:
+    if not regime.get("available"):
+        return {"ideas": [], "considered": 0, "underlyings": [],
+                "unavailable": [{"underlying": None, "reason": _NO_REGIME}]}
+    if distinct:
+        syms, skipped, why = await _stock_fno_names_distinct(request, STOCK_FNO_SCAN_DISTINCT)
+        source = ("the AI scanner's merged setup list, F&O-listed names only "
+                  "(services/strategy_plan/selection.eligible_setups)")
+    else:
+        (syms, why), skipped = await _stock_fno_symbols(request, STOCK_FNO_SCAN), []
+        source = "the AI scanner's merged setup list (services/strategy_plan/selection.select_opportunities)"
+    if not syms:
+        out: Dict[str, Any] = {"ideas": [], "considered": 0, "underlyings": [],
+                               "unavailable": [{"underlying": None, "reason": why or "the scanner returned no setups"}]}
+        if distinct:
+            out["universe"] = {"source": source, "symbols_tried": [], "skipped": skipped}
+        return out
+    out = await _pooled(request, syms, regime, expiry, limit, distinct)
+    out["universe"] = {"source": source, "symbols_tried": syms}
+    if distinct:
+        out["universe"]["skipped"] = skipped
+    return out
+
+
 async def build_top(request: Any, user_id: str, *, limit: int = 5,
                     classes: Optional[Sequence[str]] = None,
-                    expiry: Optional[str] = None) -> Dict[str, Any]:
-    """The whole answer: the regime, then the best `limit` ideas in each asset class.
+                    expiry: Optional[str] = None, distinct: bool = False) -> Dict[str, Any]:
+    """The whole answer: the regime, then the best `limit` ideas in each asset class — with `distinct`, the
+    best idea of each of the best `limit` underlyings in each option class (the cash class is one row per
+    stock already). The classes are built at the same time; each one catches its own failures.
 
     Reads only. Nothing is written and nothing is sent to a broker."""
+    import asyncio
     from datetime import datetime, timezone
 
     wanted = list(classes) if classes else ["index_options", "stock_fno", "cash"]
     regime = await read_regime()
-    out_classes: Dict[str, Any] = {}
-
-    if "index_options" in wanted:
-        if regime.get("available"):
-            out_classes["index_options"] = await _pooled(request, INDEX_UNDERLYINGS, regime, expiry, limit)
-        else:
-            out_classes["index_options"] = {"ideas": [], "considered": 0, "underlyings": [],
-                                            "unavailable": [{"underlying": s, "reason": "the market regime is unavailable, so fit cannot be scored"} for s in INDEX_UNDERLYINGS]}
-
-    if "stock_fno" in wanted:
-        if regime.get("available"):
-            syms, why = await _stock_fno_symbols(request, STOCK_FNO_SCAN)
-            if syms:
-                out_classes["stock_fno"] = await _pooled(request, syms, regime, expiry, limit)
-                out_classes["stock_fno"]["universe"] = {
-                    "source": "the AI scanner's merged setup list (services/strategy_plan/selection.select_opportunities)",
-                    "symbols_tried": syms}
-            else:
-                out_classes["stock_fno"] = {"ideas": [], "considered": 0, "underlyings": [],
-                                            "unavailable": [{"underlying": None, "reason": why or "the scanner returned no setups"}]}
-        else:
-            out_classes["stock_fno"] = {"ideas": [], "considered": 0, "underlyings": [],
-                                        "unavailable": [{"underlying": None, "reason": "the market regime is unavailable, so fit cannot be scored"}]}
-
-    if "cash" in wanted:
-        out_classes["cash"] = await _cash_class(request, user_id, limit)
+    builders = {
+        "index_options": lambda: _index_class(request, regime, expiry, limit, distinct),
+        "stock_fno": lambda: _stock_class(request, regime, expiry, limit, distinct),
+        "cash": lambda: _cash_class(request, user_id, limit),
+    }
+    names = [k for k in builders if k in wanted]
+    built = await asyncio.gather(*[builders[k]() for k in names])
+    out_classes: Dict[str, Any] = dict(zip(names, built))
 
     gap = None
     if regime.get("available"):
@@ -686,11 +843,12 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
             gap = (f"The option chain is from {newest} but the market regime was last classified on "
                    f"{regime_day}: the fit is scored against the older regime.")
 
-    return {
+    out_top = {
         "schema": "desk.strategy.top.v1",
         "rules_version": REGIME_FIT_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "limit": limit,
+        "distinct": distinct,
         "regime": regime,
         "staleness_note": gap,
         "classes": out_classes,
@@ -699,6 +857,57 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
         "gaps": GAPS,
         "sent_to_broker": False,
     }
+    flag_cash_conflicts(out_top)
+    await asyncio.to_thread(attach_trade_plans, out_top)
+    return out_top
+
+
+# ── one direction per instrument per day (N13), and the canonical plan of each idea (Phase 2.1) ──
+CONFLICT_RULE = ("One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's "
+                 "bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market "
+                 "regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded "
+                 "as a paper trade today.")
+
+
+def _all_ideas(top: Dict[str, Any], classes: Sequence[str] = ("index_options", "stock_fno")) -> List[Tuple[str, Dict[str, Any]]]:
+    out: List[Tuple[str, Dict[str, Any]]] = []
+    for cls in classes:
+        for i in ((top.get("classes") or {}).get(cls) or {}).get("ideas") or []:
+            out.append((cls, i))
+            out += [(cls, a) for a in i.get("alternatives") or []]
+    return out
+
+
+def flag_cash_conflicts(top: Dict[str, Any]) -> None:
+    """Mark a bearish stock F&O idea on a stock that is a bullish cash setup the same day (study B5: UNIONBANK, COFORGE,
+    LAURUSLABS, MPHASIS and FEDERALBNK on 26 Oct were bullish cash ideas and bearish F&O ideas)."""
+    for cls, idea in _all_ideas(top, ("stock_fno",)):
+        if idea.get("view") == "down":
+            idea["conflicts_with_cash_setup"] = {"cash_direction": "bullish", "fno_direction": "bearish",
+                                                 "source": "the AI scanner's setup list", "message": CONFLICT_RULE}
+
+
+def attach_trade_plans(top: Dict[str, Any]) -> None:
+    """Each option idea (and each alternative) carries its TradePlan: the legs, the strategy-levels engine's underlying
+    stop and target 1 with the premium stop / T1 / T2, computed with the same request and references the browser and
+    the AI watchlist job send (ai_watchlist_build.payoff_request_for / levels_refs_for), on the chain's own date."""
+    from datetime import date as _date
+
+    from services import ai_watchlist_build as awb
+
+    from . import trade_plan as tpm
+    for _cls, idea in _all_ideas(top):
+        chain_day = (idea.get("data_as_of") or {}).get("chain")
+        try:
+            tp = tpm.from_fno_idea(idea, board_rules_version=top.get("rules_version"),
+                                   refs=awb.levels_refs_for(top, idea.get("underlying")),
+                                   today=_date.fromisoformat(chain_day) if chain_day else _date.today(),
+                                   regime=top.get("regime"))
+        except Exception as e:  # noqa: BLE001 — one idea's plan failing is reported on the idea, never drops the board
+            logger.warning("regime_fit: trade plan for %s failed: %s", idea.get("underlying"), _why(e))
+            tp = None
+        idea["trade_plan"] = tp
+        idea["trade_plan_id"] = tp["plan_id"] if tp else None
 
 
 async def _cash_class(request: Any, user_id: str, limit: int) -> Dict[str, Any]:

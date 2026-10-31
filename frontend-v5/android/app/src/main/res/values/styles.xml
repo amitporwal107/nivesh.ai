@@ -1,22 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <!-- Base application theme. -->
+    <!-- Base application theme: Nivesh V5 tokens (values/colors.xml), mapped as in the
+         Android design system's Theme.Nivesh: mint primary, bg0 behind the status bar. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-        <!-- Customize your theme here. -->
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
+        <item name="colorPrimary">@color/nv_mint</item>
+        <item name="colorPrimaryDark">@color/nv_bg_0</item>
+        <item name="colorAccent">@color/nv_mint</item>
     </style>
 
+    <!-- The WebView's window: status bar, navigation bar and the background behind the
+         page all on the design system's dark surface, so no white edge shows. -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/nv_bg_0</item>
+        <item name="android:statusBarColor">@color/nv_bg_0</item>
+        <item name="android:navigationBarColor">@color/nv_bg_0</item>
     </style>
 
 
+    <!-- Launch: the dark splash with the "न" mark. Android 12+ draws its own splash from
+         windowSplashScreenBackground and the launcher icon instead of the drawable. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/nv_bg_0</item>
     </style>
 </resources>

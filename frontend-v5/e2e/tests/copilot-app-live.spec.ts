@@ -25,7 +25,7 @@ const inr = (rupees: number) => `₹${new Intl.NumberFormat("en-IN").format(Math
 const shot = async (page: Page, name: string) => { if (OUT) await page.screenshot({ path: path.join(OUT, `${name}.png`) }); };
 
 const VIEWS = [
-  "tool/analysis", "tool/recommend", "tool/research", "tool/screener", "tool/markets", "tool/optlab", "trader",
+  "tool/analysis", "tool/recommend", "tool/research", "tool/screener", "tool/markets",
   "page/watchlist", "page/saved", "page/plan", "page/ledger", "page/paper", "page/brokers", "page/settings",
   "advisor", "builder", "ops/tools", "ops/feeds", "ops/audit", "ops/kpis",
   // the original v5 pages mounted in the shell, and the screens added with them

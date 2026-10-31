@@ -142,19 +142,29 @@ Server-sent events. Body: `message` (required), `session_id`, `page`, `agent`, `
 
 Platform-level Kite feed (`backend/services/kite_live_feed`): one leader process (Mongo lease `kite_live_lease`) keeps a quote cache from
 KiteTicker (REST `quote()` fallback) and publishes a snapshot every cadence to `kite_live_snapshot` (TTL 72 h). The API never calls Kite.
+The universe is indices, Nifty 500, F&O underlyings, the near-month futures and a window of index options (the nearest expiries of
+`LIVE_OPTION_UNDERLYINGS`, ATM ± `LIVE_OPTION_STRIKES_EACH_SIDE` strikes, CE and PE, re-centred on each 15-minute rebuild; futures and options
+in full mode). Every second the leader also writes the quotes that changed to Redis (`nivesh:quote:<NSE|NFO>:<SYMBOL>`, plus the hash
+`nivesh:quote:chain:<UNDERLYING>:<YYYY-MM-DD>` of `strike|CE/PE` -> key, TTL `LIVE_QUOTE_CACHE_TTL_S`), and at each minute of the open
+session one replay document to Mongo `kite_live_minute` (`_id` `YYYY-MM-DDTHH:MM` IST, compact rows `s p b a bq aq o v t` + `u x k ot` for
+derivatives, first write wins, TTL `LIVE_MINUTE_TTL_DAYS`). Redis is optional: when it is unset or down, reads fall back to the snapshot.
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/live/status` | `mode` (live / delayed / closed / expired / not_connected / disabled), `state`, `source` (ws / rest), `instrument_count`, `last_tick_age_seconds`, `session`, `cadence_seconds` |
-| `GET /api/live/quotes?symbols=A,B` | up to 600 symbols; also registers them with the leader (kept 30 min) |
+| `GET /api/live/quotes?symbols=A,B` | up to 600 symbols; also registers them with the leader (kept 30 min). Read from the Redis cache first (when at least as recent), the snapshot for the rest |
+| `GET /api/live/option-chain?underlying=NIFTY&expiry=YYYY-MM-DD` | the cached option window grouped by strike: `rows[{strike, CE, PE}]`, each side with `received_at`, `age_seconds`, `stale` (older than 2 cadences) or null; `cache` = ok / empty / unavailable (Redis down: 200 with `rows: []`) |
 | `GET /api/live/snapshot?universe=indices\|nifty500\|fno\|all` | a whole set |
 | `GET /api/live/stream?symbols=&universe=` | server-sent events: an immediate `snapshot` event, then one per cadence (`X-Accel-Buffering: no`) |
 
 Body: `as_of`, `data_at`, `age_seconds`, `stale` (market open and data older than 2.5 cadences, or not connected), `mode`, `session`, `source`, `final`,
-`quotes{SYMBOL:{ltp,change,change_pct,open,high,low,close,volume,oi,ts}}`, `missing[]`. A price is a number or absent, never 0. Symbols are NSE
+`quotes{SYMBOL:{ltp,change,change_pct,open,high,low,close,volume,oi,ts,bid,ask,bid_qty,ask_qty,exchange_ts,received_at,source}}` (top of book
+from Kite's depth, null without one; futures and options add `instrument`, `underlying`, `expiry`, `lot_size`, options `strike`, `option_type`), `missing[]`. A price is a number or absent, never 0. Symbols are NSE
 tradingsymbols, upper case (`NIFTY BANK`, `RELIANCE`); `NSE:` prefixes and NSE index spellings (`Nifty Financial Services`) are folded.
 Env: `KITE_LIVE_FEED_ENABLED` (default on; `0` stops the loop), `KITE_LIVE_FEED_CADENCE_SECONDS` (2-120, default 30; `stale` = newest data older than 2.5 cadences, so 75 s by default; clients follow `cadence_seconds`), `KITE_LIVE_FEED_FORCE_REST`,
-`KITE_ACCESS_TOKEN` / `KITE_ACCESS_TOKEN_FILE`, `KITE_API_KEY` / `KITE_API_KEY_FILE` (line 1 only; the API secret is never read).
+`KITE_ACCESS_TOKEN` / `KITE_ACCESS_TOKEN_FILE`, `KITE_API_KEY` / `KITE_API_KEY_FILE` (line 1 only; the API secret is never read),
+`LIVE_OPTION_UNDERLYINGS` (default `NIFTY,BANKNIFTY`; empty turns options off), `LIVE_OPTION_EXPIRIES` (0-4, default 2), `LIVE_OPTION_STRIKES_EACH_SIDE`
+(0-50, default 15), `LIVE_QUOTE_CACHE_TTL_S` (30-86400, default 600), `LIVE_MINUTE_TTL_DAYS` (1-400, default 90), `REDIS_URL`.
 
 ### Daily platform Kite login (admin, one human tap per day)
 
@@ -163,10 +173,83 @@ Kite has no supported way to log in without a human (Zerodha 2FA); no headless/T
 1. `POST /api/live/kite/login-url` (admin only) returns `login_url` = `https://kite.zerodha.com/connect/login?v=3&api_key=<key>&redirect_params=state%3Dkp.<nonce>.<sig>`. The `kp.` state is signed, single use and short lived (`KITE_LOGIN_STATE_TTL_MIN`, default 30); only its hash is kept, in Mongo `kite_platform_login_states`.
 2. Zerodha redirects to `GET /api/broker/native/callback?broker=zerodha&request_token=...&state=kp...` (the app's registered redirect URL). A `kp.` state is handled by `services/kite_live_feed/platform_token.py`; every other state keeps the per-user broker flow unchanged.
 3. The request_token is exchanged with the API key and secret (`KITE_API_KEY`/`KITE_API_SECRET`, else `BROKER_ZERODHA_API_KEY`/`SECRET`). The returned Kite user id MUST equal env `KITE_PLATFORM_USER_ID`, otherwise nothing is stored. The access token is stored AES-256-GCM encrypted (`services/pii_security`) in `kite_platform_token` with `expires_at` = next 06:00 IST, and is never returned by any API.
-4. The browser lands on `/v5/app/trader?kite=connected` (path from `KITE_LOGIN_RETURN_PATH`; the legacy `/dashboard` is a different app that reads no `kite=`), or `?kite=error&reason=<code>`; the Copilot shell shows a toast and, for admins, a Log in to Kite banner while the session is missing (`invalid_state`, `state_expired`, `state_used`, `denied`, `missing_params`, `platform_user_not_configured`, `credentials_missing`, `token_exchange_failed`, `wrong_account`, `server_error`).
+4. The browser lands on `/v5/app/trader?kite=connected` (path from `KITE_LOGIN_RETURN_PATH`; the legacy `/dashboard` is a different app that reads no `kite=`), or `?kite=error&reason=<code>`. Since the desk redesign's step 6 (2026-10-27) `/v5/app/trader` redirects to the Smart trading desk (`/v5/app/trader/desk`) with the query kept, so the in-app toast still reads it; the Copilot shell shows a toast and, for admins, a Log in to Kite banner while the session is missing (`invalid_state`, `state_expired`, `state_used`, `denied`, `missing_params`, `platform_user_not_configured`, `credentials_missing`, `token_exchange_failed`, `wrong_account`, `server_error`).
 5. `default_token()` prefers that stored token while unexpired, then `KITE_ACCESS_TOKEN`, `KITE_ACCESS_TOKEN_FILE`, the kite_bars file. The feed reloads it every pass (any container) and recovers without a restart.
 
 Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days from 08:30 IST until the 15:30 close, while the platform token is missing, expired or refused, an alert goes out every `KITE_TOKEN_ALERT_INTERVAL_MIN` minutes (default 30, 5-240) with a fresh login link and the time to the 09:15 open; when Kite connects, one "Kite connected" message is sent and reminders stop. Channels: `nidp/shared/notify.py` (email via `NIDP_ALERT_SMTP_*` + `NIDP_ALERT_EMAIL_TO`; Telegram via `NIDP_TELEGRAM_BOT_TOKEN` + `NIDP_TELEGRAM_CHAT_ID`), else the app mailer (`SMTP_*` secrets) to `KITE_TOKEN_ALERT_EMAIL_TO`. The channels that fired are logged; a failing channel never affects the feed. One Mongo doc (`kite_live_snapshot/token_alert`) makes it idempotent across containers. `GET /api/live/status` carries `alert_state` (`TOKEN_ALERT` or null), `token_alert{}` and `platform_token{stored, valid_until, expired}`.
+
+## F&O IV history and regime history (read-only, signed-in)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/fno/{symbol}/iv-history?days=1..1000 (252)&bucket=near_month\|next_month` | `series[]` (oldest first: `date, atm_iv, call_iv, put_iv, expiry, days_to_expiry, atm_strike, spot, future_settle, forward, forward_basis, rate_pct, calc_version, method, reason`), `sessions` (recorded sessions with an IV), `sessions_without_iv`, `current` (the latest recorded session, IV possibly null), `iv_rank`, `iv_percentile`, `window{sessions,from,to,min,max,calendar_days}`, `reason`, `methods{recorded,backfill}` |
+| `GET /api/macro/regime-history?days=1..260 (60)` | `points[]` (oldest first: `date, rule_version, key, label, inputs{…}, skipped[{check,reason}], reason`), `sessions, complete, partial, unclassified, missing[]` (what the stored inputs lack, in sentences), `non_session_rows`, `rule`, `basis` |
+
+- IV history: the chain route's own ATM IV (Black-76 on the forward) per session, recorded from the NSE F&O bhavcopy
+  (`nidp.fno_bhavcopy` via DaaS `/v1/fno/{symbol}?on=<day>`) by `scripts/record_iv_history.py` into Mongo `fno_iv_history`.
+  `near_month` / `next_month` = the 1st / 2nd futures expiry strictly after the session. `iv_rank` = (current − min) ÷
+  (max − min) × 100 and `iv_percentile` = share of the earlier sessions below the current × 100, both over the latest 252
+  sessions with an IV; null with a `reason` (how many sessions exist) until 252 exist. Sessions not recorded are absent,
+  never estimated. Nothing recorded is 200 with `sessions: 0`; an unreadable store is 502 `upstream_unavailable`.
+- Regime history: `desk-regime-v1` (the same rule and notes as `/api/macro/today`) recomputed per stored session from
+  `macro_daily` (Nifty 50 close, India VIX), `macro_features` (50-session average, else the warehouse Nifty 50 closes) and
+  `stock_ohlcv` breadth. Not a record of what the desk showed that day. A missing input skips its check and says so; no
+  trend inputs means `key: null`. An unreadable store is 502 `macro_unavailable`.
+
+## Trade plans, lifecycle and F&O roll (`/api/desk`, signed-in; Phase 2.1 / 2.2)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/desk/trade-plans/{plan_id}` | `plan` (TradePlan `trade-plan-v1`: entry + order type, stop + method, `r_per_unit`, targets with `r_multiple`, size, desk-cost-v2 costs, `exit_plan`, eligibility, data timestamps), `lifecycle.status` DERIVED from your trades (`proposed` → `approved` / `triggered` / `open` / `closed` / `rejected`), `versions[]`. 404 `plan_not_found` |
+| `POST /api/desk/paper-trades` + `plan_ref {plan_id, candidate_id?, rules_version?}` | as before; the levels must be the plan's: 404 `plan_not_found`, 409 `plan_ref_mismatch` / `plan_not_eligible` / `plan_levels_mismatch`. Every trade now carries `state` and `transitions[]` (lifecycle `trade-lifecycle-v1`) |
+| `GET /api/desk/paper-trades/{id}/roll?strike_mode=distance\|same` | `{eligible, preview \| refusal}`: both legs at session D's NSE bhavcopy `close_price`, the next listed expiry, desk-cost-v2 costs. Read only |
+| `POST /api/desk/paper-trades/{id}/roll` `{strike_mode?}` | 201 `{old, new}` (old `exit_reason: roll`, `rolled_to`; new `rolled_from`); a repeat answers 200 `replayed`. 409 `roll_chain_not_ready` (before the 22:15 IST F&O bhavcopy), `strike_not_listed`, `roll_not_due`, `exit_rule_fired`, `insufficient_paper_funds`, the kill switch / risk gate refusals |
+
+`POST /api/desk/strategy/plan`, `/ideas` and `/top` now carry each candidate's / idea's `trade_plan` (+ `trade_plan_id`) and
+store it insert-once in Mongo `trade_plans` (their only write). `/top` flags a bearish stock F&O idea on a bullish cash setup
+the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing here places an order.
+
+## Strategy store v2 (`/api/strategy-builder`, signed-in; Strategy Copilot Phase 1.1)
+
+One store for everything that can be backtested (owner decision D1, 2026-10-28), including Strategy Lab's saved
+structures. A v2 document (`definition.schema_version: "2"`: underlying, 1–4 legs, entry/exit, build constraints, sizing;
+validator `backend/services/strategy_store.py`) is told apart from the v1 equity DSL, whose routes and answers are unchanged.
+Before migration `026_strategy_store_v2.sql` is applied every route below answers 503 `store_not_migrated`.
+
+| Endpoint | Returns |
+|---|---|
+| `POST /strategies` (v2 definition) + `Idempotency-Key` | 201 `{strategy_id, version_id, version_no: 1, schema_version, asset_class (from the legs), source, checks[], replayed}`; same key + same body → 200 `replayed: true`; same key, other body → 409 `idempotency_conflict`. 422 `{code: invalid_definition, problems: [{field, code, message}]}` lists every problem. 409 `strategy_limit` (200) |
+| `POST /strategies/{id}/versions` `{definition, parent_version_id, change_summary?}` + `Idempotency-Key` | 201 `{version_id, version_no, parent_version_id, diff: [{path, before, after}], checks[]}`; 409 `stale_parent` `{active_version_id, active_version_no}`; 409 `version_limit` (50); 422 `no_change` / `schema_mismatch` |
+| `GET /strategies/{id}/versions`, `GET /strategies/{id}/versions/{version_id}` | newest first; one version with its `definition` (+ `checks` for v2) |
+| `POST /strategies/{id}/clone` `{name?, version_id?}` | 201 a new strategy you own, `source: "clone"`, `cloned_from {strategy_id, version_id, version_no}`; from your own strategy or a public template |
+| `GET /strategies?include=summary` | every own strategy (v1 and v2) + `source, template_id, underlying, schema_version, latest_version, last_backtest {run_id, status, finished_at, version_no, is_current_version}, paper_live {open}`. Without `include` the legacy list is unchanged (STOCK/MF rows, old keys) |
+
+- `checks[]` are derived on every read, never stored: `{code, severity blocking|warning|info, blocking_for, field, message}`
+  from the desk's defined-risk rule. A naked short option, short straddle, short futures-only or calendar structure is
+  saved as a draft with `blocking_for: ["backtest", "paper"]` (owner decision D2).
+- Not yours, archived or unknown → 404 (never 403). Version rows are immutable (database trigger; only `is_active` changes).
+- `PATCH /strategies/{id}` on a v2 strategy → 422 `use_versions_route`; `POST /strategies/{id}/backtest` on a v2 strategy →
+  422 `backtest_not_available` (options engine: Phase 2), no run recorded.
+- `POST /api/desk/paper-trades` takes an optional `strategy_ref {strategy_id, version_id}` (PAPER LIVE): one of your own
+  versions or 422 `invalid_strategy_ref`; a v2 version of another underlying → 409 `strategy_ref_mismatch`. The trade
+  stores and returns it with `version_no`; a roll carries it; `/paper-trades/check` ignores it.
+
+## Results week — earnings vs historical trend (`/api/desk/results-week`, signed-in, read-only)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/desk/results-week?date=YYYY-MM-DD` (default today IST) | the week's (Mon–Sat) results meetings from DaaS `/desk/events-calendar/expectations` (universe all): per row `status` declared / pending / upcoming, `verdict` vs historical trend (not analyst consensus; `null` with its `reason` when not rated), the Earnings Intelligence `score` with `coverage`, `components` (surprise, trend, outlook = filing analysis, quality, past_reactions), `reaction` vs Nifty, `fno_buildup` (total OI across every expiry, by expiry, rollover, options; F&O names only), `technical`, your `chartink` scans; plus `counts`, `ideas {fno, all, note, tested: false}`, `sources`, `gaps`. Full shape: `docs/EARNINGS_SURPRISE_TRACKER.md` §5 |
+
+- Today is built live and cached ≤ 10 min; a build longer than 45 s answers with the previous build, or 503 `{code: building,
+  retry_after_s}` (Retry-After) before the first. A past date answers from the nightly snapshot (Mongo `results_week_days`,
+  `scripts/build_results_week.py`, insert-once): 404 `not_stored` when none. Malformed or future date → 422 `invalid_date`.
+  401 signed out. The results calendar unreadable → 502 `upstream_unavailable`; any other failing source nulls its block and
+  is named in `gaps`. Market strip and macro calendar are NOT here: the screen uses the desk's existing routes.
+- Ideas are ordered for review, not a prediction, and not yet tested. Nothing places an order.
+- `GET /api/positional/picks` and `/watchlist` rows also carry `results_signal` (`{strength, points, basis, reasons,
+  filed_at, sessions_since}` or null) and `base_final_score`; `final_score` = clamp(base + points/100, 0, 1), applied before
+  each route's sort, `min_score` and limit; each response carries `results_signal {rule, tested, signals, applied, gap,
+  source}`. Rules: `docs/EARNINGS_SURPRISE_TRACKER.md` §4d.
 
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.
@@ -175,3 +258,15 @@ Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days fr
 Request/response shapes are defined in code (Pydantic v2 backend; Zod on frontend) and the
 OpenAPI specs above — those are authoritative. Document only endpoints that exist; mark
 `PLANNED` otherwise.
+
+### GET /api/desk/results-week/stock/{symbol}?date=YYYY-MM-DD — one stock's results file (signed in)
+Spec: docs/EARNINGS_SURPRISE_TRACKER.md §9b. Read-only. 401 signed out · 422 `invalid_symbol` / bad or future date ·
+404 `no_results_meeting` (no results meeting in the week of `date`) · 404 `not_stored` (a past day with no snapshot).
+Body `results-stock-v1`: the week's `row` for the stock; `preview` (deterministic lines: baseline range, latest quarter,
+past reactions, positioning going in; `last_quarters`, `past_reactions`, `expected`); `commentary` {pre, results, post,
+sentiment, coverage} from stored filing analyses only (Mongo event_ai_analysis), each item with summary, positives,
+negatives, amounts, open questions and the exchange attachment link; `analyst_views` {available: false, note} (no source
+connected); `track` {sessions rel −5…+4 with cash close, change, vs Nifty, volume ×, futures total OI / price / state,
+next-month premium and PCR (session before the result and latest only), expiry flag, `carry_vs_usual_pp`; before; after;
+notes}. Across a monthly expiry total OI is not compared; the standard rollover % vs the stock's own past expiries is used.
+The list (GET /api/desk/results-week) rows gain `fno_track` {before, after} for F&O names (§9a).

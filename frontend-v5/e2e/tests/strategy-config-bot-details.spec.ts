@@ -17,7 +17,9 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi } from "../helpers/api-mock";
 
-const PAGE_URL = "/v5/strategy-builder";
+// The Strategy Builder page inside the Copilot shell. The standalone /v5/strategy-builder URL was removed in the desk
+// redesign's step 6 (2026-10-27); it now redirects to the desk's Trade Desk.
+const PAGE_URL = "/v5/app/trader/strategy";
 const STRATEGY_ID = "11111111-2222-3333-4444-555555555555";
 
 const json = (page: Page, pattern: string | RegExp, body: unknown, status = 200) =>

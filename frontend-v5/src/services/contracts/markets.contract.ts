@@ -17,6 +17,9 @@ export const MarketIndexC = z.object({
   trend:      z.string().nullable().optional(),
   /** Daily-close sparkline (~24 sessions); empty when history is unavailable. */
   spark:      z.array(z.number()).default([]),
+  /** The date (YYYY-MM-DD) of this tile's own latest daily bar; null when the value is a live quote or the date is unknown. A screen compares
+   * Kite's closing quote with THIS, never with another table's date. */
+  as_of:      z.string().nullable().optional(),
 });
 
 export const MarketBreadthC = z.object({

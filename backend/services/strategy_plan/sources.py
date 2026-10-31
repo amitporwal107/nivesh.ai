@@ -185,7 +185,7 @@ async def _corporate_actions(sym: str, today: date) -> Dict[str, Any]:
 
 async def _buildup(sym: str) -> Dict[str, Any]:
     from routes import fno
-    body = await fno._daas("/desk/fno-buildup", {}, sym)
+    body = await fno._buildup_scan(None)   # the latest scan, refused when older than the previous session
     rows = [r for r in (body.get("rows") or []) + (body.get("indices") or []) if str(r.get("symbol") or "").upper() == sym]
     if not rows:
         return src_fail(f"{sym} has no futures row on {body.get('as_of')}", "DaaS /v1/desk/fno-buildup")
@@ -232,8 +232,12 @@ def scanner_snapshot(sym: str, bucket: Optional[str], watch_item: Optional[Dict[
             item = data["item"] = {"nse_symbol": sym, "trigger_price": entry}
         if item is not None and stop and stop > 0:
             item["stop_price"] = stop
+        raw = pick.get("features_raw") if isinstance(pick.get("features_raw"), dict) else {}
         data["pick"] = {"stage": pick.get("stage"), "entry_price": entry, "stoploss": stop, "target_price": num(pick.get("target_price")),
-                        "final_score": num(pick.get("final_score")), "signal_date": str(pick.get("signal_date"))[:10] if pick.get("signal_date") else None}
+                        "final_score": num(pick.get("final_score")), "signal_date": str(pick.get("signal_date"))[:10] if pick.get("signal_date") else None,
+                        # how the pick's stop was set (N13): the features it was scored on, and the stored method when the row has one
+                        "atr_14": num(raw.get("atr_14")), "swing_low_20": num(raw.get("swing_low_20")),
+                        "timeframe_days_min": pick.get("timeframe_days_min"), "timeframe_days_max": pick.get("timeframe_days_max")}
         if bucket is None:
             data["pick_stage"] = pick.get("stage")
     return src_ok(data, SCANNER_SOURCE, as_of, version)

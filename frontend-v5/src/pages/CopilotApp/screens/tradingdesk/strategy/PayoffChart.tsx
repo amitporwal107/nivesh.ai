@@ -13,7 +13,8 @@
  *
  * Pointing at the chart (or touching it), or focusing it and pressing the left / right arrow keys
  * (Shift for ten steps, Home / End), prints the price, gross and net P&L and, on the pre-expiry
- * estimate, the Greeks in the line above it; nothing is on hover only.
+ * estimate, the Greeks in the line above it; nothing is on hover only. The estimate also lists each
+ * leg's Greeks from the answer (`per_leg_greeks`) in a small table, labelled as the model's estimate.
  *
  * Unbounded ends are labelled with an arrow and words ("Profit unbounded"); max profit and max
  * loss print "Unlimited" when the response's flag says so and "—" when the figure is null.
@@ -106,12 +107,14 @@ export function PayoffChart({
     const ys = basis === "net" ? series.net : series.gross;
     if (ys.length !== series.grid.length) return null;
     const legYs = legsOn && expiry ? expiry.per_leg.map((l) => l.gross.filter((v): v is number => v != null)) : [];
-    const all = [...ys, ...legYs.flat(), 0];
+    // On the estimate the payoff at expiry is drawn behind it (the same grid), so the scale must hold both.
+    const behind = mode === "pre" && expiry && expiry.grid.length === series.grid.length ? (basis === "net" ? expiry.net : expiry.gross) : [];
+    const all = [...ys, ...legYs.flat(), ...behind, 0];
     const lo = Math.min(...all);
     const hi = Math.max(...all);
     const pad = (hi - lo || 1) * 0.1;
     return { ys, lo: lo - (lo < 0 ? pad : 0), hi: hi + (hi > 0 ? pad : 0), x0: series.grid[0], x1: series.grid[series.grid.length - 1] };
-  }, [series, basis, legsOn, expiry]);
+  }, [series, basis, legsOn, expiry, mode]);
 
   if (!series || !model) {
     return (
@@ -336,6 +339,11 @@ export function PayoffChart({
           return <path key={l.index} data-testid={`payoff-leg-line-${l.index}`} d={pathOf(expiry.grid, l.gross)} fill="none" style={{ stroke: st.color }} strokeWidth={1.1} strokeDasharray={st.dash} opacity={0.7} />;
         })}
 
+        {/* on the estimate, the payoff at expiry behind it (same grid): "today" against "at expiry" */}
+        {mode === "pre" && expiry && expiry.grid.length === series.grid.length && (
+          <path data-testid="payoff-line-expiry" d={pathOf(expiry.grid, basis === "net" ? expiry.net : expiry.gross)} fill="none" style={{ stroke: LINE }} strokeWidth={1.6} opacity={0.85} strokeLinejoin="round" />
+        )}
+
         {/* the payoff */}
         <path data-testid="payoff-line" d={line} fill="none" style={{ stroke: mode === "pre" ? ESTIMATE : LINE }} strokeWidth={2} strokeDasharray={mode === "pre" ? "6 3" : undefined} strokeLinejoin="round" />
 
@@ -395,8 +403,9 @@ export function PayoffChart({
 
       <div data-testid="payoff-legend" className="flex flex-wrap items-center" style={{ gap: "6px 14px", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--cp-ink-3)" }}>
         <LegendKey color={mode === "pre" ? ESTIMATE : LINE} dash={mode === "pre" ? "6 3" : undefined}>
-          {mode === "pre" ? "Estimate (model)" : "Payoff at expiry"} · {basis === "net" ? "after costs" : "before costs"}
+          {mode === "pre" ? "Today (model estimate)" : "Payoff at expiry"} · {basis === "net" ? "after costs" : "before costs"}
         </LegendKey>
+        {mode === "pre" && expiry && expiry.grid.length === series.grid.length && <LegendKey color={LINE}>Payoff at expiry</LegendKey>}
         <span className="inline-flex items-center" style={{ gap: 6 }}><span aria-hidden style={{ width: 10, height: 10, background: "color-mix(in srgb, var(--mint) 25%, transparent)", border: "1px solid var(--mint)" }} />Profit zone</span>
         <span className="inline-flex items-center" style={{ gap: 6 }}><svg width={10} height={10} aria-hidden><rect width={10} height={10} style={{ fill: `color-mix(in srgb, ${LOSS} 22%, transparent)`, stroke: LOSS }} /><path d="M0 10 L10 0" style={{ stroke: LOSS }} strokeWidth={1} /></svg>Loss zone</span>
         {legsOn && expiry && expiry.per_leg.map((l, i) => (
@@ -420,6 +429,7 @@ export function PayoffChart({
           ))}
         </ul>
       )}
+      {mode === "pre" && preExpiry && <LegGreeks pre={preExpiry} referencePrice={referencePrice} />}
       {mode === "pre" && preExpiry && <PreNote pre={preExpiry} />}
     </div>
   );
@@ -442,6 +452,47 @@ function LegendKey({ color, dash, children }: { color: string; dash?: string; ch
       <svg width={16} height={6} aria-hidden><line x1={0} y1={3} x2={16} y2={3} style={{ stroke: color }} strokeWidth={2} strokeDasharray={dash} /></svg>
       {children}
     </span>
+  );
+}
+
+const GREEK_COLS: Array<{ key: "delta" | "gamma" | "theta" | "vega" | "rho"; label: string }> = [
+  { key: "delta", label: "Δ" }, { key: "gamma", label: "Γ" }, { key: "theta", label: "Θ/day" }, { key: "vega", label: "Vega" }, { key: "rho", label: "ρ" },
+];
+
+/** Each leg's Greeks at the reference price, as the answer gives them, with the answer's net row. A leg or a value the model could not price prints "—". */
+function LegGreeks({ pre, referencePrice }: { pre: PayoffPreExpiry; referencePrice: number }) {
+  const rows = pre.per_leg_greeks;
+  const caption = `Greeks per leg at ${rs(referencePrice)} · model estimate (${pre.model}, end-of-day inputs), not a quote`;
+  const note: CSSProperties = { fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" };
+  if (!rows.length) return <p data-testid="payoff-leg-greeks-none" className="m-0" style={note}>Greeks per leg: {DASH} (not in this answer).</p>;
+  const cell: CSSProperties = { padding: "3px 6px", textAlign: "right", whiteSpace: "nowrap", fontWeight: 400 };
+  const head: CSSProperties = { ...cell, textAlign: "left", whiteSpace: "normal" };
+  return (
+    <div data-testid="payoff-leg-greeks" className="min-w-0" style={{ overflowX: "auto" }}>
+      <table className="cp-num" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "var(--cp-ink-2)" }}>
+        <caption style={{ ...note, captionSide: "top", textAlign: "left", paddingBottom: 4 }}>{caption}</caption>
+        <thead>
+          <tr style={{ color: "var(--cp-ink-3)" }}>
+            <th scope="col" style={head}>Leg</th>
+            {GREEK_COLS.map((c) => <th key={c.key} scope="col" style={cell}>{c.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.leg} data-testid="payoff-leg-greeks-row" style={{ borderTop: "1px solid var(--line-2)" }}>
+              <th scope="row" style={head}>{r.label || `Leg ${r.leg + 1}`}</th>
+              {GREEK_COLS.map((c) => <td key={c.key} style={cell}>{greek(r.greeks?.[c.key])}</td>)}
+            </tr>
+          ))}
+          {pre.greeks && (
+            <tr data-testid="payoff-leg-greeks-net" style={{ borderTop: "1px solid var(--line-3)", color: "var(--cp-ink)" }}>
+              <th scope="row" style={head}>Net</th>
+              {GREEK_COLS.map((c) => <td key={c.key} style={cell}>{greek(pre.greeks?.[c.key])}</td>)}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

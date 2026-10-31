@@ -45,3 +45,8 @@ export function useCopilotShell(): CopilotShell {
   if (!v) throw new Error("useCopilotShell must be used inside the Copilot app shell");
   return v;
 }
+
+/** The shell when there is one, else null: a visual answer also renders in chat surfaces outside the app shell. */
+export function useOptionalCopilotShell(): CopilotShell | null {
+  return useContext(Ctx);
+}

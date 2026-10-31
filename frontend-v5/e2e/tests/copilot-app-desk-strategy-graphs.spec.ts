@@ -13,7 +13,10 @@
  * any plotted point is off by more than a few rupees.
  *
  * The graphs are reached through the test-only route ?tab=more&view=strategy-graphs, which exists only in a
- * build with VITE_STRATEGY_HARNESS=1 (fe-run-stgraph.sh sets it) and reads window.__STRATEGY_FIXTURE__.
+ * build with VITE_STRATEGY_HARNESS=1 and reads window.__STRATEGY_FIXTURE__. A normal build never sets the flag,
+ * so this spec fails under the standard pw.copilot-app.config.ts recipe by design. Run it with
+ * `bash frontend-v5/e2e/fe-run-stgraph.sh`, which builds with the flag into a throwaway directory, serves that
+ * build and runs only this spec (its header has the docker command for a host without Node).
  *
  * Cases: SG-1 bull call spread (+ the engine's nine-point example) · SG-2 long future · SG-3 short future · SG-4 long put (costs, net/gross), cash ·
  * SG-5 iron condor (per-leg lines) · SG-6 pre-expiry toggle · SG-7 scenario controls · SG-8 failures ·
@@ -122,7 +125,7 @@ function refPayoff(req: Req, fx: Fixture) {
       per_leg: req.legs.map((l, i) => ({ index: i, entry: r2(entryCost(l, req.costs)), exit_at_expiry: r2(exitCost(l, req.reference_price, req.costs)), round_trip: r2(entryCost(l, req.costs) + exitCost(l, req.reference_price, req.costs)) })),
       excluded: ["taxes", "STT", "exchange and statutory charges", "dividends", "funding"],
     },
-    margin: null, margin_reason: "No margin source exists in this system (MOCK reason): nothing is estimated.",
+    margin: null, margin_reason: "This payoff calculation does not estimate margin. The margin for a structure comes only from Zerodha's margin calculator (MOCK reason).",
     capital_at_risk: up < 0 ? null : r2(-Math.min(worstNet, 0)), capital_at_risk_basis: "worst net loss over all prices (MOCK)",
     loss_can_exceed_margin: hasFuture,
     caveats: ["Margin is not the maximum loss.", ...(hasFuture ? ["Futures losses can exceed the initial margin (MOCK caveat)."] : [])],
@@ -366,7 +369,19 @@ test.describe("MOCK — not real data: payoff shapes", () => {
     await expect(page.getByTestId("payoff-trust")).toContainText("End of day");
     await expect(page.getByTestId("payoff-broker-line")).toContainText("Nothing was sent to a broker");
     await expect(sum(page, "margin")).toHaveText("—");
-    await expect(page.getByTestId("sum-margin-note")).toContainText("No margin source exists");
+    await expect(page.getByTestId("sum-margin-note")).toContainText("does not estimate margin");
+  });
+
+  test("SG-1c an answer with no margin reason: the summary says the payoff calculation does not estimate margin, never that no source exists", async ({ page }) => {
+    await mount(page, BCS);
+    await page.route(PAYOFF, (route) => {
+      const req = route.request().postDataJSON() as Req;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...(refPayoff(req, BCS) as object), margin: null, margin_reason: null }) });
+    });
+    await page.goto(URL);
+    await expect(sum(page, "margin")).toHaveText("—");
+    await expect(page.getByTestId("sum-margin-note")).toHaveText("the payoff calculation does not estimate margin");
+    await expect(page.getByTestId("payoff-summary")).not.toContainText(/no margin source/i);
   });
 
   test("SG-1b the engine's nine-point worked example, numbers as the route returns them", async ({ page }) => {
@@ -415,7 +430,7 @@ test.describe("MOCK — not real data: payoff shapes", () => {
     await expect(page.getByTestId("payoff-futures-warning")).toContainText("Futures losses can exceed the initial margin");
     await expect(sum(page, "capital-at-risk")).toHaveText("₹3,04,053.75");
     await expect(sum(page, "margin")).toHaveText("—");
-    await expect(page.getByTestId("sum-margin-note")).toContainText("No margin source exists");
+    await expect(page.getByTestId("sum-margin-note")).toContainText("does not estimate margin");
     await expect(page.getByTestId("payoff-caveats")).not.toContainText("exceed the initial margin"); // said once, in the warning box
     await expect(page.getByTestId("payoff-caveats")).toContainText("Margin is not the maximum loss");
     await expect(sum(page, "net-premium")).toHaveText("—");
@@ -699,7 +714,7 @@ test.describe("MOCK — not real data: failures", () => {
   test("SG-8 rejected structure (valid false): the problem is shown and no chart is drawn as success", async ({ page }) => {
     const body = {
       valid: false, problems: [{ field: "legs", code: "undefined_risk_not_supported", message: "A short call with no long call above it has unlimited risk; this release allows defined-risk options only." }],
-      warnings: [], calculation_version: "payoff-v1", expiry: null, pre_expiry: null, costs: null, margin: null, margin_reason: "No margin source exists.",
+      warnings: [], calculation_version: "payoff-v1", expiry: null, pre_expiry: null, costs: null, margin: null, margin_reason: "This payoff calculation does not estimate margin (MOCK).",
       capital_at_risk: null, loss_can_exceed_margin: false, caveats: [], sent_to_broker: false,
     };
     await open(page, BCS, "", { body });

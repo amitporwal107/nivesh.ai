@@ -14,6 +14,7 @@
  * and the route checks its fingerprint, so nothing is stripped from it here).
  */
 import { z } from "zod";
+import { TradePlanOrNull } from "./trade-plan";
 import { ExpirySchema, PreExpirySchema, CostsSchema, MarginSchema, type PayoffLeg } from "./strategy-contract";
 
 const numOrNull = z.number().nullable().catch(null);
@@ -94,6 +95,12 @@ const SizingSchema = z.object({
   by_allocation_cap: numOrNull.optional(),
   binding: strOrNull.optional(),
   risk_at_stop_inr: numOrNull.optional(),
+  /** For a cash or futures candidate: the estimated round-trip costs at the stop and the loss at the stop after them
+   *  (the quantity is sized on that, backend services/strategy_plan/candidates.size_position). */
+  costs_at_stop_inr: numOrNull.optional(),
+  /** Those costs by component (brokerage, STT, exchange, SEBI, stamp, GST, slippage; the desk cost card). */
+  costs_breakdown_at_stop: z.record(z.number()).nullish(),
+  risk_at_stop_net_inr: numOrNull.optional(),
   deployed_inr: numOrNull.optional(),
 }).passthrough();
 export type Sizing = z.infer<typeof SizingSchema>;
@@ -199,6 +206,8 @@ export const CandidateSchema = z.object({
   warnings: z.array(z.string()).catch([]),
   actionable: z.boolean().catch(false),
   sent_to_broker: z.boolean().catch(false),
+  /** Phase 2.1: the candidate's canonical TradePlan; the paper trade cites it and records its levels. */
+  trade_plan: TradePlanOrNull,
 }).passthrough();
 export type Candidate = z.infer<typeof CandidateSchema>;
 
@@ -210,6 +219,9 @@ export const AlternativeSchema = z.object({
   status: z.string(),
   max_loss: numOrNull,
   max_loss_basis: strOrNull,
+  /** "stop": `max_loss` is the loss at the stop (cash, futures, and shares or a future with no long put under them, e.g. the
+   *  covered call); "expiry": the expiry payoff's defined worst case. Absent from an engine older than 30 Oct 2026. */
+  max_loss_at: z.enum(["stop", "expiry"]).nullable().catch(null).optional(),
   capital_at_risk: numOrNull,
   breakeven: z.array(z.number()).nullable().catch(null),
   reward_risk_net: numOrNull,

@@ -2,7 +2,7 @@
  * Smart trading desk — 06 Options & futures lab. Design: "Smart Trading Desk",
  * Options & futures lab (design-spec §8): header with the underlying's spot,
  * the underlying row with the expiry switch, the stats card, then four
- * sub-tabs — OI build-up · F&O stocks, NIFTY & BANKNIFTY, Option chain OI and
+ * sub-tabs — OI build-up · F&O stocks, Candidates, NIFTY & BANKNIFTY, Option chain OI and
  * Paper strategies. Analysis only: nothing here places an order.
  *
  * Data (all end of day, one NSE F&O bhavcopy a day):
@@ -24,6 +24,10 @@
  * nearest other expiry before the farthest listed future (long-dated quarterly
  * options lie beyond it). Stocks have no weekly expiry, so that choice is off.
  *
+ * The view, the loaded underlying and a Top 10 F&O idea in focus are in the URL (?lab=&lab_sym=&lab_focus=): the
+ * Scanner's Top 10 board opens the lab on a view with an idea in focus (LabFocus.tsx, above the underlying row), and
+ * the desk's breadcrumb returns to the same view. The expiry and the paper-strategies mode stay local.
+ *
  * Index futures build-up comes from the scan's `indices` rows (the near future's
  * price change × OI summed over every expiry, with the index close as the cash
  * side). F&O eligibility of a loaded stock is the NSE F&O master's (the scan row's
@@ -35,28 +39,43 @@
  *                                  shown on the card as the cash side of the build-up)
  *   15-minute confirmation         no intraday OI is collected (FnoBuildup.tsx shows the route's reason)
  */
-import { useState, type FormEvent, type ReactNode } from "react";
+import { Suspense, lazy, useState, type FormEvent, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { StockIcon } from "../../components/EntityIcon";
 import { LoadingBlock, Pill, TONE_COLOR, fmtNum, signTone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { closeLabel, useLiveOverlay } from "../../lib/useLiveQuotes";
 import { useMarketOverview } from "../markets/hooks";
 import { modelLabel } from "../trading/ModelViews";
 import { fmtLevel } from "../trading/PayoffResult";
 import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, useFnoFutures, useOptionChain, type ChainState, type FnoFutures, type FnoResult, type FnoSummary } from "../trading/fno";
 import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
-import { useDesk } from "./context";
+import { isLabView, useDesk, type LabView } from "./context";
 import { BuildupView } from "./FnoBuildup";
+import CandidatesView from "./FnoCandidates";
+import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
+import { BUILDER_EXPIRY_DAYS, BuilderView } from "./FnoBuilder";
+import { ChainWithAnalyse } from "./FnoChainAnalyse";
+import { CompareView } from "./FnoCompare";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
 import { HEURISTIC_NOTE } from "./FnoBuildup";
 import { SymbolSearch } from "./SymbolSearch";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 import {
-  CardHead, CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
-  basisWords, buildupWhy, chainTiles, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
+  CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
+  basisWords, buildupWhy, chainTiles, wallsOf, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
 } from "./fno-parts";
 
-type FnoView = "buildup" | "indices" | "chain" | "strategies";
+/** The focus panel, only with ?lab_focus=: its own chunk (it carries the Strategy Builder's idea card and payoff chart). */
+const LabFocus = lazy(() => import("./LabFocus").then((m) => ({ default: m.LabFocus })));
+
+/** An underlying the URL may name: the F&O routes' own rule (letters, digits, & and -). */
+const labSymbol = (v: string | null): string | null => {
+  const s = (v ?? "").toUpperCase();
+  return /^[A-Z0-9&-]{1,20}$/.test(s) ? s : null;
+};
 
 // ── header ───────────────────────────────────────────────────────────────
 
@@ -78,6 +97,10 @@ function SpotBlock({ symbol, state, futures }: { symbol: string; state: ChainSta
   const spot = summary?.spot ?? fut?.spot ?? null;
   const asOf = summary?.as_of ?? fut?.as_of ?? null;
   const vix = vixLine(home.data);
+  // Kite's live spot while the feed is LIVE (the index by its tape name, a stock by its symbol). Only the headline
+  // number changes: the chain, walls and the model read below stay the bhavcopy's, and the label says so.
+  // After the close, Kite's closing quote shows until the bhavcopy of that day is loaded (the overlay compares it with `asOf`).
+  const live = useLiveOverlay(indexNameForSymbol(symbol) ?? symbol, asOf);
   if (state.status === "loading" && !fut) return <div style={{ flex: "0 1 220px", minWidth: 0 }}><LoadingBlock label={`Loading the ${symbol} spot`} rows={1} /></div>;
   if (spot == null) return null;
   return (
@@ -86,10 +109,11 @@ function SpotBlock({ symbol, state, futures }: { symbol: string; state: ChainSta
         {!isIndexUnderlying(symbol) && <StockIcon symbol={symbol} size={16} />}
         {symbol} · spot
       </span>
-      <span data-testid="desk-fno-spot" className="cp-num" style={{ fontFamily: "var(--display)", fontSize: mobile ? 34 : 40, lineHeight: 1, letterSpacing: "-0.03em" }}>{fmtNum(spot, 2)}</span>
+      <span data-testid="desk-fno-spot" data-live={live ? "true" : undefined} data-kind={live?.kind} className="cp-num" style={{ fontFamily: "var(--display)", fontSize: mobile ? 34 : 40, lineHeight: 1, letterSpacing: "-0.03em" }}>{fmtNum(live ? live.ltp : spot, 2)}</span>
       <span className="cp-num flex flex-col" style={{ gap: 2, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)", alignItems: mobile ? "flex-start" : "flex-end" }}>
-        {asOf && <span data-testid="desk-fno-asof">Bhavcopy {fmtDay(asOf)} · end of day</span>}
-        {vix && <span data-testid="desk-fno-vix" title="India VIX from the markets tape (GET /api/markets/home)">{vix}</span>}
+        {live && <span data-testid="desk-fno-live" data-kind={live.kind} style={{ color: "var(--mint)" }}>{live.kind === "live" ? "Live · Kite" : closeLabel(live)}{live.changePct != null ? ` · ${live.changePct > 0 ? "+" : ""}${live.changePct.toFixed(2)}%` : ""}</span>}
+        {asOf && <span data-testid="desk-fno-asof">{live ? `Chain figures: bhavcopy ${fmtDay(asOf)}` : `Bhavcopy ${fmtDay(asOf)} · end of day`}</span>}
+        {vix && <span data-testid="desk-fno-vix" title="India VIX from the markets tape">{vix}</span>}
       </span>
     </div>
   );
@@ -326,17 +350,57 @@ function ExpiryChooser({ oc, futures, symbol, onPick }: { oc: ReturnType<typeof 
   // NSE lists futures for monthly expiries only, so an option expiry a future shares is a monthly one.
   const futDays = futures.data.futures.map((f) => f.expiry);
   const last = futDays.length ? futDays.reduce((a, b) => (a > b ? a : b)) : null;
-  const monthly = pool.find((e) => futDays.includes(e.expiry)) ?? null;
+  const months = pool.filter((e) => futDays.includes(e.expiry)).slice(0, 3);
+  const monthly = months[0] ?? null;
   const weekly = pool.find((e) => !futDays.includes(e.expiry) && (last == null || e.expiry < last)) ?? null;
+  const tag = (e: { expiry: string; days_to_expiry: number }) => `${fmtDay(e.expiry)} · ${fmtNum(e.days_to_expiry)} days`;
   const opts: Array<SegOption<string>> = [
     weekly
-      ? { value: weekly.expiry, key: "weekly", label: `Weekly · ${shortDay(weekly.expiry)}`, title: `${fmtDay(weekly.expiry)} · ${fmtNum(weekly.days_to_expiry)} days` }
+      ? { value: weekly.expiry, key: "weekly", label: `Weekly · ${shortDay(weekly.expiry)}`, title: tag(weekly) }
       : { value: "weekly-none", key: "weekly", label: "Weekly", disabled: true, title: `No weekly expiry is listed for ${symbol}` },
     monthly
-      ? { value: monthly.expiry, key: "monthly", label: `Monthly · ${shortDay(monthly.expiry)}`, title: `${fmtDay(monthly.expiry)} · ${fmtNum(monthly.days_to_expiry)} days` }
+      ? { value: monthly.expiry, key: "monthly", label: `Monthly · ${shortDay(monthly.expiry)}`, title: tag(monthly) }
       : { value: "monthly-none", key: "monthly", label: "Monthly", disabled: true, title: `No monthly expiry is listed for ${symbol}` },
+    ...months.slice(1).map((e, k) => ({ value: e.expiry, key: k === 0 ? "next" : "far", label: `${k === 0 ? "Next" : "Far"} · ${shortDay(e.expiry)}`, title: tag(e) })),
   ];
-  return <Segmented<string> label="Expiry" testId="desk-fno-expiry" value={expiry} onChange={onPick} options={opts} />;
+  return (
+    <span className="inline-flex flex-wrap items-center" style={{ gap: 8 }}>
+      <Segmented<string> label="Expiry" testId="desk-fno-expiry" value={expiry} onChange={onPick} options={opts} />
+      <select
+        aria-label="Pick an expiry date" data-testid="desk-fno-expiry-date" value={expiry} onChange={(e) => onPick(e.target.value)}
+        className="cp-num" style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid var(--cp-line, rgba(255,255,255,0.18))", background: "var(--bg-2)", color: "var(--cp-ink)", fontSize: 11 }}
+      >
+        {pool.map((e) => <option key={e.expiry} value={e.expiry}>{`${fmtDay(e.expiry)} · ${futDays.includes(e.expiry) ? "monthly" : "weekly"} · ${fmtNum(e.days_to_expiry)}d`}</option>)}
+      </select>
+    </span>
+  );
+}
+
+/** Every listed futures contract (the three monthly expiries) with its price, basis and OI change; a contract whose expiry also has options selects that expiry. */
+function FuturesStrip({ futures, optionExpiries, picked, onPick }: { futures: FnoResult<FnoFutures> | undefined; optionExpiries: string[]; picked: string | null; onPick: (e: string) => void }) {
+  if (futures?.kind !== "ok" || futures.data.futures.length === 0) return null;
+  const rows = futures.data.futures.filter((f) => f.expiry >= futures.data.as_of).slice(0, 3);
+  const names = ["Near", "Next", "Far"];
+  return (
+    <div data-testid="desk-fno-futures-strip" role="group" aria-label="Futures contracts" className="flex flex-wrap items-stretch" style={{ gap: 8 }}>
+      <span className="cp-eyebrow" style={{ alignSelf: "center" }}>Futures</span>
+      {rows.map((f, k) => {
+        const on = f.expiry === picked;
+        const linked = optionExpiries.includes(f.expiry);
+        return (
+          <button
+            key={f.expiry} type="button" data-testid={`desk-fno-future-${f.expiry}`} aria-pressed={on} disabled={!linked}
+            title={linked ? "Show the options for this expiry" : "No options are listed for this expiry"} onClick={() => onPick(f.expiry)}
+            className="cp-num flex flex-col" style={{ gap: 2, padding: "6px 12px", borderRadius: 10, textAlign: "left", cursor: linked ? "pointer" : "default", border: `1px solid ${on ? "var(--cp-ink-3)" : "var(--cp-line, rgba(255,255,255,0.18))"}`, background: on ? "var(--bg-4)" : "transparent", color: "var(--cp-ink)", fontSize: 11 }}
+          >
+            <span style={{ color: "var(--cp-ink-3)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>{names[k]} · {shortDay(f.expiry)}</span>
+            <span>{f.settle == null ? "—" : fmtNum(f.settle, 2)}{f.basis == null ? "" : ` · basis ${fmtSigned(f.basis)}`}</span>
+            <span style={{ color: "var(--cp-ink-3)" }}>OI {f.oi == null ? "—" : fmtQty(f.oi)}{f.change_in_oi == null ? "" : ` (${fmtQty(f.change_in_oi, { signed: true })})`}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── NIFTY & BANKNIFTY ────────────────────────────────────────────────────
@@ -350,8 +414,8 @@ function sameSessionChange(home: MarketsHome | undefined, symbol: string, asOf: 
 }
 
 function indexHeadline(s: FnoSummary, investor: boolean): string {
-  const put = s.max_put_oi?.strike;
-  const call = s.max_call_oi?.strike;
+  const put = wallsOf(s).put?.strike;
+  const call = wallsOf(s).call?.strike;
   if (put == null || call == null || s.spot == null) return "The chain has no open-interest walls to read.";
   if (investor) {
     return s.spot < put
@@ -373,6 +437,8 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
   const scan = useBuildup(true);
   const near = nearFutureOf(fq.data);
   const id = `desk-fno-card-${symbol}`;
+  // Kite's spot for the index while the feed is live, or its closing quote until the bhavcopy of that day is loaded; the card's chain figures stay the bhavcopy's.
+  const liveSpot = useLiveOverlay(indexNameForSymbol(symbol) ?? symbol, state.status === "ok" ? state.chain.summary.as_of : null);
   const futuresLine = fq.isPending ? "Loading" : fq.isError ? "Didn’t load" : fq.data.kind === "none" ? "No futures rows" : "No contract listed";
   const ix = indexRowFor(scan.data, symbol);
   const meta = ix?.label ? BUILDUP_META[ix.label] : null;
@@ -380,11 +446,13 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
     ? <span data-testid={`${id}-buildup`} className="cp-pill" data-tone={meta.tone === "ink" ? undefined : meta.tone} title={`${meta.rule} · index futures, ${scan.data?.asOf ? shortDay(scan.data.asOf) : "end of day"}`}>{meta.label}</span>
     : <span data-testid={`${id}-buildup`} className="cp-pill" title={scan.isPending ? "Reading the build-up scan" : scan.isError ? "The build-up scan didn’t load" : ix ? "A price or OI change is missing" : "The scan has no index futures row for it"}>Build-up —</span>;
   return (
-    <section data-testid={id} className="cp-card flex flex-col min-w-0" style={{ overflow: "hidden" }}>
-      <CardHead testId={`${id}-head`} meta={pill}>
-        {symbol}
-        {state.status === "ok" && <span style={{ color: "var(--cp-ink-4)" }}>{fmtDay(state.chain.summary.expiry)} expiry</span>}
-      </CardHead>
+    <Widget
+      id={`fno.index.${symbol}`}
+      testId={id}
+      headTestId={`${id}-head`}
+      title={<span className="inline-flex flex-wrap items-center" style={{ gap: 8 }}>{symbol}{state.status === "ok" && <span style={{ color: "var(--cp-ink-4)" }}>{fmtDay(state.chain.summary.expiry)} expiry</span>}</span>}
+      meta={pill}
+    >
       <div className="flex flex-col" style={{ gap: 14, padding: mobile ? 14 : 18 }}>
         <FnoGate symbol={symbol} state={state} testId={id}>
           {(chain) => {
@@ -404,6 +472,11 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
                     {chg ? `${fmtSigned(chg.change)}${chg.pct != null ? ` (${fmtSigned(chg.pct)}%)` : ""}` : "change —"}
                   </span>
                   <span className="cp-mono-note">end of day {fmtDay(s.as_of)}</span>
+                  {liveSpot && (
+                    <span data-testid={`${id}-live`} data-kind={liveSpot.kind} className="cp-mono-note" style={{ color: "var(--mint)" }}>
+                      {liveSpot.kind === "live" ? "Live · Kite" : closeLabel(liveSpot)} {fmtNum(liveSpot.ltp, 2)}{liveSpot.changePct != null ? ` (${fmtSigned(liveSpot.changePct)}%)` : ""}
+                    </span>
+                  )}
                 </div>
                 <span data-testid={`${id}-headline`} style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1.2, letterSpacing: "-0.01em" }}>{indexHeadline(s, investor)}</span>
                 <div className="flex flex-col" style={{ gap: 6 }}>
@@ -439,34 +512,63 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
           }}
         </FnoGate>
       </div>
-    </section>
+    </Widget>
   );
 }
 
 // ── tab ──────────────────────────────────────────────────────────────────
 
-export default function FnoTab() {
+/**
+ * `views` (the desk redesign of 2026-10-27): the lab views this host shows. Market Desk › Smart Money shows the build-up,
+ * candidates, index and chain views; Trade Desk › New trade shows the paper strategies (with one view there is no view
+ * row). A view the host does not show falls back to its first. `asSection`: the lab is a part of a page with its own
+ * headline, so its title is a level-2 heading (one h1 a page). `bare`: no lab eyebrow and headline at all ("Options &
+ * futures lab · Build, test and understand option trades" read as a leftover inside Market Desk › Smart Money, whose
+ * section already has its title; audit 2026-10-28).
+ */
+export default function FnoTab({ views: only, asSection = false, bare = false, builderCatalog }: {
+  views?: readonly LabView[];
+  asSection?: boolean;
+  bare?: boolean;
+  /** Trade Desk › New trade: the paper-strategy builder offers only these backend template names (FnoBuilder BuilderView `catalog`). */
+  builderCatalog?: readonly string[] | null;
+} = {}) {
   const { mobile } = useCopilotShell();
-  const { persona } = useDesk();
+  const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
-  const [symbol, setSymbol] = useState<string>(FNO_INDICES[0].symbol);
-  /** The expiry chosen for `symbol`; null = the nearest still to come. */
-  const [picked, setPicked] = useState<string | null>(null);
-  const [view, setView] = useState<FnoView>("buildup");
+  const Title = asSection ? "h2" : "h1";
+  // The view, the loaded underlying and a Top 10 idea in focus live in the URL (?lab=&lab_sym=&lab_focus=), so the
+  // Scanner can open the lab on any of them and the breadcrumb can come back to it.
+  const [params, setParams] = useSearchParams();
+  const rawView = params.get("lab");
+  const allowed = (v: LabView) => !only || only.includes(v);
+  const view: LabView = isLabView(rawView) && allowed(rawView) ? rawView : only?.[0] ?? "buildup";
+  const symbol = labSymbol(params.get("lab_sym")) ?? FNO_INDICES[0].symbol;
+  const focus = labSymbol(params.get("lab_focus"));
+  const setLab = (patch: { view?: LabView; symbol?: string; focus?: string | null }) => setParams((prev) => {
+    const p = new URLSearchParams(prev);
+    if (patch.view) {
+      if (patch.view === "buildup") p.delete("lab");
+      else p.set("lab", patch.view);
+    }
+    if (patch.symbol) p.set("lab_sym", patch.symbol.toUpperCase());
+    if (patch.focus === null) p.delete("lab_focus");
+    return p;
+  }, { replace: true });
+  const setView = (v: LabView) => setLab({ view: v });
+  /** The expiry chosen for `symbol`; none = the nearest still to come. Kept with its symbol, so loading another one resets it. */
+  const [pickedFor, setPickedFor] = useState<{ symbol: string; expiry: string } | null>(null);
+  const picked = pickedFor?.symbol === symbol ? pickedFor.expiry : null;
+  const setPicked = (expiry: string) => setPickedFor({ symbol, expiry });
+  const [stratMode, setStratMode] = useState<"builder" | "compare" | "ideas">("builder");
   const oc = useOptionChain(symbol, picked);
   const fq = useFnoFutures(symbol);
   const scan = useBuildup(true);
   const near = nearFutureOf(fq.data);
   const futuresNote = fq.isPending ? "Loading the futures" : fq.isError ? "The futures didn’t load" : fq.data.kind === "none" ? "No futures rows" : "No futures contract listed";
 
-  const pick = (s: string) => {
-    setSymbol(s);
-    setPicked(null);
-  };
-  const openChain = (s: string) => {
-    pick(s);
-    setView("chain");
-  };
+  const pick = (s: string) => setLab({ symbol: s });
+  const openChain = (s: string) => setLab({ symbol: s, view: "chain" });
   const chain = oc.state.status === "ok" ? oc.state.chain : null;
 
   const row = isIndexUnderlying(symbol) ? indexRowFor(scan.data, symbol) : buildupRowFor(scan.data, symbol);
@@ -477,35 +579,45 @@ export default function FnoTab() {
         : row ? { status: "ok", label: row.label, priceChgPct: row.priceChgPct, oiChgPct: row.oiChgPct, asOf: scan.data.asOf }
           : { status: "absent" };
 
-  const views: Array<{ key: FnoView; label: string }> = [
+  const views: Array<{ key: LabView; label: string }> = ([
     { key: "buildup", label: "OI build-up · F&O stocks" },
+    { key: "candidates", label: "Candidates" },
     { key: "indices", label: "NIFTY & BANKNIFTY" },
     { key: "chain", label: `Option chain OI · ${symbol}` },
     { key: "strategies", label: "Paper strategies" },
-  ];
+  ] as Array<{ key: LabView; label: string }>).filter((v) => allowed(v.key));
 
   return (
     <div data-testid="desk-fno" data-symbol={symbol} className="flex flex-col min-w-0" style={{ gap: mobile ? 16 : 20 }}>
       <div className="flex items-end justify-between" style={{ gap: 16, flexWrap: mobile ? "wrap" : "nowrap" }}>
         <div className="flex min-w-0 flex-col" style={{ gap: 12, flex: "1 1 auto" }}>
           <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-            <span className="cp-eyebrow">Options &amp; futures lab · NSE F&amp;O</span>
+            {!bare && <span className="cp-eyebrow">Options &amp; futures lab · NSE F&amp;O</span>}
             <Pill tone="mint">{investor ? "Investor mode" : "Trader mode"}</Pill>
             <Pill tone="indigo">Analysis only</Pill>
             <Pill>End of day</Pill>
           </span>
-          <h1 data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
-            Build, test and understand <em>option trades</em>.
-          </h1>
+          {!bare && (
+            <Title data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
+              Build, test and understand <em>option trades</em>.
+            </Title>
+          )}
         </div>
         <SpotBlock symbol={symbol} state={oc.state} futures={fq.data} />
       </div>
+
+      {focus && (
+        <Suspense fallback={<LoadingBlock label={`Loading the ${focus} idea`} rows={1} />}>
+          <LabFocus symbol={focus} view={view} onView={(v) => setLab({ view: v, symbol: focus })} onClose={() => setLab({ focus: null })} />
+        </Suspense>
+      )}
 
       <UnderlyingRow
         symbol={symbol}
         onPick={pick}
         expiry={oc.state.status !== "none" ? <ExpiryChooser oc={oc} futures={fq.data} symbol={symbol} onPick={setPicked} /> : <span className="cp-mono-note">—</span>}
       />
+      <FuturesStrip futures={fq.data} optionExpiries={oc.list.map((e) => e.expiry)} picked={oc.expiry} onPick={setPicked} />
 
       <FnoGate symbol={symbol} state={oc.state} testId="desk-fno-stats">
         {(c) => (
@@ -539,7 +651,7 @@ export default function FnoTab() {
         </div>
       )}
 
-      <UnderlineTabs<FnoView> tabs={views} value={view} onChange={setView} label="Options and futures views" idPrefix="desk-fno-view" />
+      {views.length > 1 && <UnderlineTabs<LabView> tabs={views} value={view} onChange={setView} label="Options and futures views" idPrefix="desk-fno-view" />}
 
       <div role="tabpanel" aria-label={views.find((v) => v.key === view)?.label} className="flex flex-col min-w-0" style={{ gap: 12 }}>
         {view === "buildup" && (
@@ -549,16 +661,50 @@ export default function FnoTab() {
             loaded={{ symbol, volume: near?.future.volume ?? null, pcr: chain?.summary.pcr ?? null, iv: chain?.summary.atm_iv ?? null }}
           />
         )}
-        {view === "indices" && (
-          <div data-testid="desk-fno-indices" className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(2,minmax(0,1fr))", gap: 16, alignItems: "start" }}>
-            {FNO_INDICES.map((i) => <IndexCard key={i.symbol} symbol={i.symbol} onOpen={openChain} />)}
-          </div>
+        {view === "candidates" && (
+          <CandidatesView
+            onOpen={openChain}
+            focus={focus}
+            onBuildup={(s) => setLab({ symbol: s, view: "buildup" })}
+            onStrategy={(s) => openStrategy(s, { kind: "lab" })}
+          />
         )}
+        {view === "indices" && (() => {
+          const ix = isIndexUnderlying(symbol) ? symbol : FNO_INDICES[0].symbol;
+          return (
+            <div data-testid="desk-fno-indices" data-index={ix} className="flex flex-col min-w-0" style={{ gap: 16 }}>
+              <Segmented<string>
+                label="Index workspace" testId="desk-fno-index-select" value={ix}
+                options={FNO_INDICES.map((i) => ({ value: i.symbol, label: i.symbol }))} onChange={pick}
+              />
+              <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(auto-fit,minmax(420px,1fr))", gap: 16, alignItems: "start" }}>
+                <IndexCard key={ix} symbol={ix} onOpen={openChain} />
+                <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
+                  <HistoryPanel key={`${ix}-hist`} symbol={ix} />
+                  <ExpiryPanel key={`${ix}-exp`} symbol={ix} />
+                </div>
+              </div>
+              <OiBarsPanel key={`${ix}-bars`} symbol={ix} />
+              <GreeksNotAvailable />
+              <IndexResearchNote />
+            </div>
+          );
+        })()}
         {view === "chain" && (chain
-          ? <ChainOiTable chain={chain} />
+          ? <ChainWithAnalyse chain={chain} state={oc.state} symbol={symbol} />
           : oc.state.status === "loading" ? <LoadingBlock label={`Loading the ${symbol} chain`} rows={4} />
             : <span data-testid="desk-fno-chain-missing" style={{ fontSize: 13, color: "var(--cp-ink-3)" }}>No option chain for {symbol}; see the note above.</span>)}
-        {view === "strategies" && <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}
+        {view === "strategies" && (
+          <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+            <Segmented<"builder" | "compare" | "ideas"> label="Paper strategies mode" testId="desk-strat-mode" value={stratMode} onChange={setStratMode}
+              options={[{ value: "builder", label: "Builder" }, { value: "compare", label: "Compare" }, { value: "ideas", label: "Rule-based ideas" }]} />
+            {stratMode === "builder"
+              ? <BuilderView symbol={symbol} state={oc.state} catalog={builderCatalog} expiryChoice={{ options: oc.list.filter((e) => e.days_to_expiry > 0 && e.days_to_expiry <= BUILDER_EXPIRY_DAYS), onPick: setPicked }} />
+              : stratMode === "compare"
+                ? <CompareView symbol={symbol} state={oc.state} />
+                : <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}
+          </div>
+        )}
       </div>
 
     </div>

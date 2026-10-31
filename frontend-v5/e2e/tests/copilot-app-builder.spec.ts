@@ -44,11 +44,12 @@ test.describe("Tool builder — templates and data source pool", () => {
     await expect(page.getByTestId("builder-template-gaps")).toHaveCount(0);
     await expect(page.getByTestId("builder-data-status")).toHaveCount(0);
 
-    // One template for each tool in the shell, grouped by who the tool is for.
-    await expect(page.getByTestId("builder-template")).toHaveCount(21);
+    // One template for each tool in the shell, grouped by who the tool is for. The Trader desk and Options lab templates
+    // left with those screens (the desk redesign's step 6, 2026-10-27).
+    await expect(page.getByTestId("builder-template")).toHaveCount(19);
     for (const id of [
       "portfolio-analysis", "recommendations", "risk", "goals", "tax",
-      "trader-desk", "options-lab", "strategy-builder",
+      "strategy-builder",
       "advisor-book", "advisor-workspace", "client-360",
       "research", "screener", "markets", "watchlist", "saved", "action-plan", "ledger", "paper-trades", "brokers", "copilot-chat",
     ]) {
@@ -171,8 +172,8 @@ test.describe("Tool builder — templates and data source pool", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await open(page);
     await noSidewaysPageScroll(page);
-    await template(page, "options-lab").click();
-    await expect(page.getByTestId("builder-name")).toHaveValue("Options lab");
+    await template(page, "strategy-builder").click();
+    await expect(page.getByTestId("builder-name")).toHaveValue("Strategy builder");
     await noSidewaysPageScroll(page);
     const box = page.getByRole("region", { name: "Data source pool table" });
     const m = await box.evaluate((el) => ({ scrollW: el.scrollWidth, clientW: el.clientWidth }));

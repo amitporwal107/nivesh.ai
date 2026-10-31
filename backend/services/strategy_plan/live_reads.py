@@ -20,7 +20,7 @@ from .rules import RULES
 MAX_MARGIN_CANDIDATES = 6
 CONCURRENCY = 3
 FNO_SEGMENTS = ("futures", "options")
-OLD_FUTURES_WARNING = "Futures losses can exceed the initial margin; no margin estimate exists in this system, so the notional is used for the allocation cap."
+OLD_FUTURES_WARNING = "Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap."
 NEW_FUTURES_WARNING = ("Futures losses can exceed the initial margin. The broker's margin estimate is shown separately and is not the maximum loss; "
                        "the notional is still used for the allocation cap.")
 

@@ -19,10 +19,14 @@
  * Every threshold shown comes from the route's `rules` block (backend setup_rules.py, versioned); none is kept here.
  * The category, the ranking and every filter live in the URL (sc_*), so a reload, a shared link or a trip to another
  * tab keeps them (PRD §5.8). Missing figures show "—" and a filter never treats them as passing.
+ *
+ * Above the list: the Top 10 stock and F&O ideas (ScannerTop10.tsx). Each loads on its own, from its own code chunk (the
+ * boards carry the Strategy Builder's payoff charts); the list never waits for them. The market pulse that sat above them
+ * (ScannerPulse.tsx) was removed in the desk redesign's step 6: Market Overview's market strip and events replaced it.
  */
 import { Flash } from "../../components/LiveBits";
 import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
-import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Btn, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtNum, fmtPct, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -33,14 +37,17 @@ import { AddToList } from "../workspace/PersonalLists";
 import { usePersonalList, usePersonalLists } from "../workspace/personal-lists";
 import { STATUS_LABEL, lastMove, oddsLabel, scanDateLabel, setupLabel, type UpHead } from "./chart-data";
 import { useDesk } from "./context";
+import { ResultsSignalTag } from "./ResultsSignalTag";
 import {
-  probabilityGate, riskClassOf, useDeskOdds, useDeskScanner, useScanUniverse,
+  probabilityGate, riskClassOf, scanBasisLine, useDeskOdds, useDeskScanner, useScanUniverse,
   type DeskOdds, type DeskSetup, type RiskClass, type ScanRules, type ScanUniverse, type SetupBucket, type UniverseCategory, type UniverseRow,
 } from "./desk-data";
-import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
+import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
+import { RiskReduceOffer } from "./RiskReduce";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 import { ChartinkTag, ChartinkTrust } from "./chartink/ChartinkParts";
 import { hitsBySymbol, useChartink, type ChartinkState } from "./chartink/chartink-data";
 import type { ChartinkHitSymbol } from "./chartink/chartink-contract";
@@ -295,6 +302,35 @@ function bucketRule(b: SetupBucket, rules: ScanRules | null): string {
   if (b === "pre_breakout") return `Within ${th(t, "dist_breakout_pct_min").replace(/^[−-]/, "")}% below resistance with volume at least ${th(t, "volume_spike_min")}× the 20-day average.`;
   if (b === "trend_continuation") return `Close above the 20-day EMA, which is above the 50-day average, and ${th(t, "dist_ema20_min_pct")}–${th(t, "dist_ema20_max_pct")}% above the 20-day EMA.`;
   return `15-day range under ${th(t, "range_15d_below_pct")}%, volume contracting, at least ${th(t, "higher_lows_min")} higher low and small upper wicks.`;
+}
+
+/**
+ * Trade Desk › AI Scanner › Signal library & sources: the scanner's signal categories, each with the rule and thresholds the
+ * route sent (GET /api/positional/watchlist + picks via useDeskScanner; the universe categories' thresholds come with the
+ * universe read when the list has loaded it). End of day; rules-based; not predictions.
+ */
+export function SignalCategories() {
+  const scan = useDeskScanner();
+  const rules = scan.data?.rules ?? null;
+  const cats = CATS.filter((c) => c.bucket || c.ucat);
+  return (
+    <section data-testid="desk-signal-categories" aria-label="The scanner's signal categories" className="flex min-w-0 flex-col" style={{ gap: 8 }}>
+      <h3 className="cp-eyebrow m-0">The scanner's signal categories · end of day, rules-based</h3>
+      {scan.isPending ? <LoadingBlock label="Reading the scanner's rules" rows={2} /> : (
+        <ul className="m-0 flex flex-col" style={{ gap: 6, padding: 0, listStyle: "none" }}>
+          {cats.map((c) => (
+            <li key={c.key} data-testid="desk-signal-category" data-key={c.key} className="flex min-w-0 flex-col" style={{ gap: 2, padding: "8px 12px", borderRadius: 10, border: "1px solid var(--cp-line)", background: "var(--bg-1)" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--cp-ink)" }}>{c.label}</span>
+              <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
+                {c.bucket ? bucketRule(c.bucket, rules) : c.ucat && rules?.categories[c.ucat] ? universeRule(c.ucat, rules) : "A universe category: its thresholds come with the full scanner list (Ranked candidates)."}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>A category says which rule a stock met at the close; it is not a prediction. Reversal candidates and results-day momentum have no published thresholds here.</span>
+    </section>
+  );
 }
 
 function universeRule(c: UniverseCategory, rules: ScanRules | null): string {
@@ -681,6 +717,10 @@ function StockCell({ r, size = 24 }: { r: Row; size?: number }) {
     <span className="block min-w-0">
       <SymbolCell symbol={r.symbol} name={r.name} sub={<StockSub r={r} />} testId="desk-scan-symbol" size={size}>
         <span style={{ fontFamily: "var(--mono)", fontSize: 12.5 }}>{r.symbol}</span>
+        {r.s?.priceBasis === "raw_no_factors" && (
+          <span data-testid="desk-scan-raw-prices" className="cp-mono-note" title="No split/bonus factors for this stock: the scanner scored it on raw NSE prices"
+            style={{ fontSize: 10, marginLeft: 6 }}>raw prices</span>
+        )}
       </SymbolCell>
     </span>
   );
@@ -713,11 +753,16 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
     return <span data-testid="desk-scan-paper-none" style={noteStyle}>Paper trade needs a scanner setup with an entry and a stop below it; {r.symbol} has none on this scan.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
+  const rule = entryRuleFor(entry, s.close, { stage: s.stage, bucket: s.bucket });
+  // The scanner's holding window (timeframe_days_max) is the time exit: closed at the close of that session held.
+  const maxHold = maxHoldFor(s.daysMax);
   const q = Number(qty.trim());
   const qtyOk = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
   const body: NewPaperTrade | null = qtyOk ? {
     symbol: r.symbol, quantity: q, entry_price: entry, stop_price: stop, target_price: sendTarget,
     source: { kind: "scanner", ...(s.bucket ? { bucket: s.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
+    entry_rule: rule,
+    ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
   } : null;
   const done = paper.variables?.symbol === r.symbol ? paper : null;
   return (
@@ -731,10 +776,14 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
         </Btn>
       </span>
       <span data-testid="desk-scan-paper-note" style={noteStyle}>
-        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)}, stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
+        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-scan-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{maxHoldNote(maxHold)}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
       </span>
       {done?.isSuccess && <span role="status" data-testid="desk-scan-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(done.variables?.quantity ?? null)} {r.symbol} at {fmtPrice(done.variables?.entry_price ?? null)}. No order is placed.</span>}
       {done?.isError && <span role="alert" data-testid="desk-scan-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(done.error)}</span>}
+      {done?.isError && (
+        <RiskReduceOffer error={done.error} testId="desk-scan-paper-reduce"
+          onAccept={(n) => { const last = done.variables; if (!last) return; setQty(String(n)); paper.mutate({ ...last, quantity: n }); }} />
+      )}
     </span>
   );
 }
@@ -745,7 +794,7 @@ function ActionPanel({ r, signalDate, onOpen, plain }: { r: Row; signalDate: str
     <div data-testid={`desk-scan-actions-${r.symbol}`} className="flex min-w-0 flex-col" style={{ gap: 10, padding: "10px 0 2px" }}>
       <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 12 }}>
         <Btn data-testid="desk-scan-act-open" onClick={() => onOpen(r.symbol)} style={{ padding: "6px 12px", fontSize: 12 }}>{plain ? "See the chart ›" : "Open analysis ›"}</Btn>
-        <Btn data-testid="desk-scan-act-strategy" onClick={() => openStrategy(r.symbol, { kind: "scanner", bucket: r.s?.bucket ?? null, date: signalDate })} style={{ padding: "6px 12px", fontSize: 12 }}>Build a strategy ›</Btn>
+        <Btn data-testid="desk-scan-act-strategy" onClick={() => openStrategy(r.symbol, { kind: "scanner", bucket: r.s?.bucket ?? null, date: signalDate })} style={{ padding: "6px 12px", fontSize: 12 }}>Chart & paper basket ›</Btn>
         <span data-testid="desk-scan-act-list" className="min-w-0"><AddToList symbol={r.symbol} name={r.name ?? r.symbol} /></span>
       </span>
       <PaperTrade r={r} signalDate={signalDate} />
@@ -904,6 +953,7 @@ function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
             </div>
             {isFno(r, fno) && <div style={{ padding: "0 18px 8px 50px" }}><FnoLine r={r} fno={fno} plain={plain} /></div>}
             {r.ck && <div style={{ padding: "0 18px 8px 50px" }}><ChartinkTag hit={r.ck} /></div>}
+            {r.s?.resultsSignal && <div style={{ padding: "0 18px 8px 50px" }}><ResultsSignalTag signal={r.s.resultsSignal} score={r.s.score} baseScore={r.s.baseScore} testId={`desk-scan-results-${r.symbol}`} /></div>}
             {expanded && (
               <div id={`desk-scan-actions-${r.symbol}`} style={{ padding: "0 18px 12px 50px" }}>
                 <ActionPanel r={r} signalDate={signalDate(r)} onOpen={onOpen} plain={plain} />
@@ -956,6 +1006,7 @@ function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
             </span>
             <FnoLine r={r} fno={fno} plain={plain} />
             {r.ck && <ChartinkTag hit={r.ck} />}
+            <ResultsSignalTag signal={r.s?.resultsSignal} score={r.s?.score} baseScore={r.s?.baseScore} testId={`desk-scan-results-${r.symbol}`} style={{ alignSelf: "flex-start" }} />
             <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 8 }}>
               <button type="button" data-testid="desk-scan-act" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : r.symbol)}
                 style={{ padding: "4px 10px", borderRadius: 999, border: "1px solid var(--line-2)", background: expanded ? "var(--bg-3)" : "transparent", color: "var(--cp-ink-2)", fontSize: 11.5, cursor: "pointer", fontFamily: "var(--sans)" }}>
@@ -1066,7 +1117,7 @@ function UniverseNote({ uni, uniError, onRetry, rules, minCr }: { uni: ScanUnive
       <span className="flex flex-col" style={{ gap: 4, paddingTop: 6 }}>
         {uniError && (
           <span role="alert" style={{ color: "var(--cp-danger)" }}>
-            GET /api/positional/scan-universe did not answer, so momentum, unusual volume, results-day and F&O candidates, the model rank and the exclusion counts are not shown.{" "}
+            The scanner’s universe read did not answer, so momentum, unusual volume, results-day and F&O candidates, the model rank and the exclusion counts are not shown.{" "}
             <button type="button" data-testid="desk-scan-universe-retry" onClick={onRetry} style={linkBtn}>Retry</button>
           </span>
         )}
@@ -1099,7 +1150,7 @@ function AboutModel({ odds, uni, engineVersions, classifier, rulesVersion }: { o
     <details data-testid="desk-scan-about-model" style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
       <summary data-testid="desk-scan-about-toggle" style={{ cursor: "pointer", color: "var(--cp-ink-2)" }}>About the model</summary>
       <span className="flex flex-col" style={{ gap: 6, paddingTop: 6 }}>
-        <span><b style={b}>Score</b> is the end-of-day positional scanner’s rules-based score (final_score × 100) from its trend, breakout, volume and accumulation checks. It ranks setups; it is not a probability.{engineVersions.length ? ` Engine ${engineVersions.join(", ")}.` : ""}{classifier ? ` Classifier ${classifier}.` : ""}{rulesVersion ? ` Rules ${rulesVersion}.` : ""} <span className="cp-mono-note">backend/services/positional_engine/ · setup_rules.py</span></span>
+        <span><b style={b}>Score</b> is the end-of-day positional scanner’s rules-based score (final_score × 100) from its trend, breakout, volume and accumulation checks. It ranks setups; it is not a probability. A row with a results chip (“Strong results +10”, “Weak results −10”) has that provisional, not yet tested results adjustment inside its score; the chip shows technical + results.{engineVersions.length ? ` Engine ${engineVersions.join(", ")}.` : ""}{classifier ? ` Classifier ${classifier}.` : ""}{rulesVersion ? ` Rules ${rulesVersion}.` : ""} <span className="cp-mono-note">backend/services/positional_engine/ · setup_rules.py</span></span>
         <span data-testid="desk-scan-about-odds"><b style={b}>Move-odds model</b> gives next-session estimates only: the chance the next session’s high reaches the previous close plus 5% or 10%. Each night’s estimates are frozen as a hashed snapshot and published unchanged; its record comes from a pre-registered test window.{run ? ` Published run: model ${run.model}${run.refit ? `, ${run.refit} refit` : ""}${run.train_end ? `, trained to ${fmtDay(run.train_end)}` : ""}, ${fmtNum(run.scored)} of ${fmtNum(run.universe_size)} stocks scored on data of ${fmtDay(run.data_as_of)}.` : " No published run is available to this view, so none of its figures are shown."}{record ? ` Out-of-sample window: ${record.window_label}.` : ""} <span className="cp-mono-note">backend/nidp/migrations/149_tpd_move_odds_publish.sql</span></span>
         <span><b style={b}>Model rank</b> is the stock’s estimate as a percentile among the eligible stocks the model scored{uni?.model.rankedEligible != null ? ` (${fmtNum(uni.model.rankedEligible)} on this scan)` : ""}. It is an order, not a probability. <span className="cp-mono-note">setup_rules.py · rank_percentiles</span></span>
         <span><b style={b}>Probability</b> is shown only when its route marks it calibrated (PRD §5.8). The move-odds route sends a band record but no calibration flag, so the column says “Withheld”.</span>
@@ -1111,13 +1162,34 @@ function AboutModel({ odds, uni, engineVersions, classifier, rulesVersion }: { o
 }
 
 const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
-  watchlist: "The setup watchlist (GET /api/positional/watchlist) did not answer, so only the scanner’s picks are listed.",
-  picks: "The scanner picks (GET /api/positional/picks) did not answer, so only the setup watchlist is listed and no stock has a target.",
+  watchlist: "The setup watchlist did not answer, so only the scanner’s ideas with targets are listed.",
+  picks: "The scanner’s target list did not answer, so only the setup watchlist is listed and no stock has a target.",
 };
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
-export default function ScannerTab() {
+const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+/** Results week ideas (docs/EARNINGS_SURPRISE_TRACKER.md §4c, §6): its own chunk and files (resultsweek/). */
+const ResultsWeekIdeas = lazy(() => import("./resultsweek/ResultsWeekIdeas"));
+
+/**
+ * The tab: the Top 10 boards and the results week ideas (each loads on its own), then the scanner list.
+ * `listOnly` (Market Overview, the desk redesign of 2026-10-27): the list alone, under "All scanner candidates"; the page
+ * shows the market strip and the Top 10 above it once.
+ */
+export default function ScannerTab({ listOnly = false }: { listOnly?: boolean } = {}) {
+  const { mobile } = useCopilotShell();
+  if (listOnly) return <ScannerList />;
+  return (
+    <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
+      <Suspense fallback={<LoadingBlock label="Loading the Top 10 ideas" rows={2} />}><ScannerTop10 /></Suspense>
+      <Suspense fallback={<LoadingBlock label="Loading the results week ideas" rows={2} />}><ResultsWeekIdeas /></Suspense>
+      <ScannerList />
+    </div>
+  );
+}
+
+function ScannerList() {
   const { mobile } = useCopilotShell();
   const { symbol, openChart, openTab, openChartink, persona } = useDesk();
   const plain = persona === "investor";
@@ -1228,7 +1300,7 @@ export default function ScannerTab() {
   if (scan.isError && uniError) {
     return (
       <div data-testid="desk-scan-error">
-        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner picks answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
+        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner’s target list answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
       </div>
     );
   }
@@ -1341,6 +1413,14 @@ export default function ScannerTab() {
     <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
       <TrustLine testId="desk-scan-trust" source="NSE end-of-day scanner · NIDP feature store" mode="eod" asOf={dayLabel} maker="rules"
         method={versions || null} status={scan.isError || uniError || (data?.partial.length ?? 0) > 0 ? "failed" : "ok"} />
+      {data && (
+        <span className="cp-mono-note" data-testid="desk-scan-basis" data-price-basis={data.scanBasis?.priceBasis ?? ""}
+          data-quality={data.scanBasis?.dataQuality ?? ""} style={{ lineHeight: 1.6, overflowWrap: "anywhere" }}
+          title={[data.scanBasis?.rawSymbols.length ? `On raw prices: ${data.scanBasis.rawSymbols.join(", ")}.` : "",
+            data.scanBasis?.notScored?.length ? `Not scored after a price break: ${data.scanBasis.notScored.join(", ")}.` : ""].filter(Boolean).join(" ") || undefined}>
+          {scanBasisLine(data.scanBasis, data.engineVersions)}
+        </span>
+      )}
       {ckHits && <ChartinkTrust hits={ckHits} testId="desk-scan-trust-ck" />}
       <TrustLine testId="desk-scan-trust-model" source="Move-odds model" mode="eod" asOf={runInfo ? fmtDay(runInfo.run.data_as_of) : null} maker="model"
         method={runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""} · probability withheld, not marked calibrated` : gate.reason}
@@ -1356,7 +1436,7 @@ export default function ScannerTab() {
           : <>Score: the end-of-day scanner’s rules-based score, 0–100; it ranks setups and it is not a probability. {oddsLabel(head, plain)}: the move-odds model’s estimate that the next session’s high reaches the previous close plus {head === "p_up10_1d" ? "10" : "5"}%, one session only — withheld unless the route marks it calibrated. Model rank: that estimate’s percentile among eligible stocks. Hit rate · n: no per-setup back-tested record is published.</>}
         {" "}Entry, stop and target are hypothetical and never sent to a broker.
       </span>
-      <span>Sources: NSE end-of-day scanner (GET /api/positional/watchlist, /picks) · NIDP feature store (GET /api/positional/scan-universe) · move-odds model (GET /api/move-odds/latest).</span>
+      <span>Sources: NSE end-of-day scanner (setup watchlist and target list) · NIDP feature store (scan universe) · move-odds model (latest estimates).</span>
       <UniverseNote uni={uni} uniError={uniError} onRetry={() => uniQ.refetch()} rules={rules} minCr={minCr} />
       <AboutModel odds={odds5Q.data} uni={uni} engineVersions={data?.engineVersions ?? []} classifier={data?.classifierVersion ?? null} rulesVersion={data?.rulesVersion ?? rules?.version ?? null} />
     </span>
@@ -1383,9 +1463,8 @@ export default function ScannerTab() {
         {ruleLine}
         {notes}
         <span data-testid="desk-scan-eyebrow" className="cp-eyebrow" style={{ fontSize: 9, color: "var(--cp-ink-4)" }}>NSE · end of day{dayLabel ? ` ${dayLabel}` : ""} · {shown}</span>
-        <section className="cp-card flex min-w-0 flex-col" aria-label="Scanner opportunities" style={{ overflow: "hidden" }}>{body}</section>
-        <section data-testid="desk-scan-insights" className="cp-card flex min-w-0 flex-col" style={{ gap: 8, padding: 14 }}>
-          <span className="cp-eyebrow">Scanner insights</span>
+        <Widget id="scanner.opps.phone" title="Scanner opportunities" data={{ "aria-label": "Scanner opportunities" }} headPad="12px 14px">{body}</Widget>
+        <Widget id="scanner.insights.phone" testId="desk-scan-insights" title="Scanner insights" headPad="12px 14px" bodyStyle={{ gap: 8, padding: 14 }}>
           <p className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
             {fmtNum(inCategory.length)} {plain ? "ideas" : "stocks"} in {plain ? catDef.plain : catDef.label} on the {dayLabel ?? "latest"} scan{confirmed ? `; ${fmtNum(confirmed)} confirmed ${confirmed === 1 ? "setup" : "setups"}` : ""}.
             {uni ? ` ${fmtNum(uni.universe.eligible)} of ${fmtNum(uni.universe.total)} stocks pass the eligibility gates.` : ""}
@@ -1395,28 +1474,32 @@ export default function ScannerTab() {
             <summary data-testid="desk-scan-footnote-toggle" style={{ cursor: "pointer", color: "var(--cp-ink-2)" }}>How these figures are worked out</summary>
             <span style={{ display: "block", paddingTop: 6 }}>{footnote}</span>
           </details>
-        </section>
+        </Widget>
       </div>
     );
   }
 
   // ── desk (design-spec §4) ──
   return (
-    <section data-testid="desk-scanner" data-layout="desk" className="cp-card flex min-w-0 flex-col">
-      <header className="flex flex-col" style={{ gap: 6, padding: "13px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)", borderRadius: "14px 14px 0 0" }}>
-        <span className="flex flex-wrap items-center" style={{ gap: "6px 14px" }}>
-          <span data-testid="desk-scan-title" className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>02</span> · AI Opportunity scanner</span>
-          <span data-testid="desk-scan-eyebrow" className="cp-eyebrow" style={{ ...eyebrow95, color: "var(--cp-ink-4)" }}>NSE · end of day{dayLabel ? ` ${dayLabel}` : ""} · {shown}</span>
-          <span data-testid="desk-scan-record" data-state={oddsQ.isError ? "error" : odds?.kind ?? "loading"} className="cp-eyebrow" style={{ ...eyebrow95, marginLeft: "auto", color: "var(--cp-ink-4)" }}>
-            {runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""}`
-              : odds?.kind === "no_access" ? "Move-odds · not enabled for this account"
-                : odds?.kind === "not_published" ? `Move-odds · not published for ${fmtDay(odds.expectedSession)}`
-                  : odds?.kind === "withheld" ? "Move-odds · run withheld"
-                    : oddsQ.isError ? "Move-odds didn’t load" : "Move-odds · loading"}
-          </span>
+    <Widget
+      id="scanner.opps"
+      testId="desk-scanner"
+      data={{ "data-layout": "desk" }}
+      num="02"
+      title="AI Opportunity scanner"
+      headTestId="desk-scan-title"
+      meta={<span data-testid="desk-scan-eyebrow" style={{ ...eyebrow95 }}>NSE · end of day{dayLabel ? ` ${dayLabel}` : ""} · {shown}</span>}
+      actions={
+        <span data-testid="desk-scan-record" data-state={oddsQ.isError ? "error" : odds?.kind ?? "loading"} className="cp-eyebrow" style={{ ...eyebrow95, color: "var(--cp-ink-4)" }}>
+          {runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""}`
+            : odds?.kind === "no_access" ? "Move-odds · not enabled for this account"
+              : odds?.kind === "not_published" ? `Move-odds · not published for ${fmtDay(odds.expectedSession)}`
+                : odds?.kind === "withheld" ? "Move-odds · run withheld"
+                  : oddsQ.isError ? "Move-odds didn’t load" : "Move-odds · loading"}
         </span>
-        {trust}
-      </header>
+      }
+    >
+      <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>{trust}</div>
 
       <div data-testid="desk-scan-controls" className="flex flex-wrap items-center" style={{ gap: 12, padding: "12px 18px", borderBottom: "1px solid var(--cp-line)" }}>
         <RankBySwitch value={rankBy} onChange={pickRank} ready={modelReady} plain={plain} />
@@ -1437,6 +1520,6 @@ export default function ScannerTab() {
       <div className="flex flex-col" style={{ gap: 4, padding: "12px 18px", borderTop: "1px solid var(--cp-line)", fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
         {footnote}
       </div>
-    </section>
+    </Widget>
   );
 }

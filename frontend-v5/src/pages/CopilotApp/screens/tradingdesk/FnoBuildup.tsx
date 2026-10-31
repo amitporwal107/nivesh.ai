@@ -30,9 +30,10 @@ import { SourceLine } from "../markets/parts";
 import { QueryProblem, fmtQty } from "../trading/parts";
 import { useDesk } from "./context";
 import { BUILDUP_LABELS, BUILDUP_META, RISK_FLAG_LABEL, useBuildup, type Buildup, type BuildupQuadrant, type BuildupRow } from "./fno-buildup";
-import { CardHead, Dot, TONE_LINE, TONE_SOFT, shortDay } from "./fno-parts";
+import { Dot, TONE_LINE, TONE_SOFT, shortDay } from "./fno-parts";
 import { useLiveFutures } from "./live-futures";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 
 type SortKey = "symbol" | "price" | "oi";
 type SortDir = "asc" | "desc";
@@ -84,8 +85,7 @@ function IntradayState({ d, investor }: { d: Buildup; investor: boolean }) {
   const states = ["candidate", "confirmed", "invalidated", "unavailable"];
   const status = d.intraday.status ?? "unavailable";
   return (
-    <section data-testid="desk-fno-intraday" data-state={status} className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <CardHead testId="desk-fno-intraday-head" meta={investor ? "Checks a move over the day" : "Futures vs cash, OI vs price"}>15-minute confirmation</CardHead>
+    <Widget id="fno.intraday" testId="desk-fno-intraday" data={{ "data-state": status }} headTestId="desk-fno-intraday-head" title="15-minute confirmation" meta={investor ? "Checks a move over the day" : "Futures vs cash, OI vs price"}>
       <div className="flex flex-col" style={{ gap: 8, padding: "12px 18px" }}>
         <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
           {states.map((st) => (
@@ -98,7 +98,7 @@ function IntradayState({ d, investor }: { d: Buildup; investor: boolean }) {
           {d.intraday.reason ?? "The route did not say why."} No setup is marked confirmed from a single end-of-day reading.
         </span>
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -175,10 +175,7 @@ function Scatter({ rows, selected, onOpen, investor }: { rows: BuildupRow[]; sel
   const mono = { fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em" } as const;
 
   return (
-    <section data-testid="desk-buildup-scatter" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <CardHead testId="desk-buildup-scatter-head" meta="Click a dot to load its option chain">
-        Price change vs futures OI change · {fmtNum(pts.length)} largest OI moves
-      </CardHead>
+    <Widget id="fno.buildup.scatter" testId="desk-buildup-scatter" headTestId="desk-buildup-scatter-head" title={<>Price change vs futures OI change · {fmtNum(pts.length)} largest OI moves</>} meta="Click a dot to load its option chain">
       <div ref={box} style={{ padding: mobile ? "8px 8px 4px" : "10px 14px 6px", minWidth: 0 }}>
         {pts.length === 0 ? (
           <div style={{ padding: 16, fontSize: 13, color: "var(--cp-ink-3)" }}>No stock has both a price change and an OI change in the rows sent.</div>
@@ -245,7 +242,7 @@ function Scatter({ rows, selected, onOpen, investor }: { rows: BuildupRow[]; sel
           </svg>
         )}
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -257,7 +254,15 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
   const investor = persona === "investor";
   const q = useBuildup(true);
   const liveQ = useLiveFutures(true);
-  const live = liveQ.data && Object.keys(liveQ.data.byUnderlying).length > 0 ? liveQ.data.byUnderlying : null;
+  // Live while the feed ticks; after the close, Kite's closing quote only for a day the bhavcopy beside it does not have yet.
+  const bhavDay = q.data?.asOf ?? null;
+  const liveKind = liveQ.data?.kind ?? null;
+  const liveRows = liveQ.data
+    ? Object.fromEntries(Object.entries(liveQ.data.byUnderlying).filter(([, v]) => liveKind === "live" || (liveKind === "close" && !!bhavDay && !!v.day && v.day > bhavDay)))
+    : {};
+  const live = Object.keys(liveRows).length > 0 ? liveRows : null;
+  const liveWord = liveKind === "close" ? "Close" : "Live";
+  const closeDay = liveKind === "close" ? Object.values(liveRows)[0]?.day ?? null : null;
   const template = live ? TEMPLATE_LIVE : TEMPLATE;
   const [quadrant, setQuadrant] = useState<BuildupQuadrant | null>(null);
   const [sort, setSort] = useState<Sort>(null);
@@ -337,11 +342,13 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
 
       <Scatter rows={d.rows} selected={selected} onOpen={onOpen} investor={investor} />
 
-      <section data-testid="desk-buildup-card" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-        <CardHead testId="desk-buildup-table-head" meta={<span data-testid="desk-buildup-sorted">{sortedBy}</span>}>
-          Stock futures · OI build-up
-          <span data-testid="desk-buildup-count" style={{ color: "var(--cp-ink-4)" }}>{fmtNum(rows.length)} {rows.length === 1 ? "stock" : "stocks"}</span>
-        </CardHead>
+      <Widget
+        id="fno.buildup.table"
+        testId="desk-buildup-card"
+        headTestId="desk-buildup-table-head"
+        title={<>Stock futures · OI build-up <span data-testid="desk-buildup-count" style={{ color: "var(--cp-ink-4)" }}>{fmtNum(rows.length)} {rows.length === 1 ? "stock" : "stocks"}</span></>}
+        meta={<span data-testid="desk-buildup-sorted">{sortedBy}</span>}
+      >
         <div data-testid="desk-buildup-table" className="cp-scroll overflow-x-auto" role="table" aria-label="OI build-up by F&O stock" aria-rowcount={rows.length + 1}>
           <div style={{ minWidth: live ? TABLE_MIN_LIVE : TABLE_MIN }}>
             <div role="row" className="grid" style={{ gridTemplateColumns: template, gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>
@@ -363,8 +370,8 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
               })}
               {live && (
                 <>
-                  <span role="columnheader" data-testid="desk-buildup-live-head" title="Near-month futures, live from Kite; the change is against Kite's previous close" style={{ ...cell, ...headStyle, textAlign: "right", color: "var(--mint)" }}>Live fut</span>
-                  <span role="columnheader" title="Open interest of the near-month contract only, live from Kite, with the day's range. The OI change column is end of day and summed over every expiry: not comparable" style={{ ...cell, ...headStyle, textAlign: "right", color: "var(--mint)" }}>Live OI</span>
+                  <span role="columnheader" data-testid="desk-buildup-live-head" data-kind={liveKind ?? undefined} title={liveKind === "close" ? `Near-month futures at Kite's close of ${closeDay ? shortDay(closeDay) : "the last session"}; the bhavcopy for that day is not loaded yet. The change is against Kite's previous close` : "Near-month futures, live from Kite; the change is against Kite's previous close"} style={{ ...cell, ...headStyle, textAlign: "right", color: "var(--mint)" }}>{liveWord} fut</span>
+                  <span role="columnheader" title={`Open interest of the near-month contract only, ${liveKind === "close" ? "at Kite's close" : "live from Kite"}, with the day's range. The OI change column is end of day and summed over every expiry: not comparable`} style={{ ...cell, ...headStyle, textAlign: "right", color: "var(--mint)" }}>{liveWord} OI</span>
                 </>
               )}
               <span role="columnheader" style={{ ...cell, ...headStyle, textAlign: "right" }}>{investor ? "Share price" : "Cash"}</span>
@@ -466,7 +473,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
         </div>
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 8, padding: "12px 18px", borderTop: "1px solid var(--cp-line)" }}>
           <span data-testid="desk-buildup-shown" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)", flex: "1 1 320px", minWidth: 0 }}>
-            {fmtNum(shown.length)} of {fmtNum(rows.length)} shown. Open a row for its option chain. Volume is futures contracts traded over every expiry. PCR and IV are each stock’s own chain figures, which the scan does not send, so they show for the loaded stock only{loaded && !/^(NIFTY|BANKNIFTY)$/.test(loaded.symbol) ? ` (${loaded.symbol})` : ""}. {live ? "Live fut and Live OI are the near-month contract from Kite, refreshed every 30 seconds; the OI change column beside them is end of day and summed over every expiry, so the two are not comparable. " : ""}Cash check compares the near future’s move with the cash close; RVOL z is vol_z20; Quality is “—” because no model of these readings has been validated.
+            {fmtNum(shown.length)} of {fmtNum(rows.length)} shown. Open a row for its option chain. Volume is futures contracts traded over every expiry. PCR and IV are each stock’s own chain figures, which the scan does not send, so they show for the loaded stock only{loaded && !/^(NIFTY|BANKNIFTY)$/.test(loaded.symbol) ? ` (${loaded.symbol})` : ""}. {live ? (liveKind === "close" ? `Close fut and Close OI are the near-month contract at Kite's close${closeDay ? ` of ${shortDay(closeDay)}` : ""}, shown until that day's bhavcopy is loaded; the OI change column beside them is end of day and summed over every expiry, so the two are not comparable. ` : "Live fut and Live OI are the near-month contract from Kite, refreshed every 30 seconds; the OI change column beside them is end of day and summed over every expiry, so the two are not comparable. ") : ""}Cash check compares the near future’s move with the cash close; RVOL z is vol_z20; Quality is “—” because no model of these readings has been validated.
           </span>
           {rows.length > PAGE && (
             <button type="button" className="cp-chip" data-testid="desk-buildup-all" aria-expanded={all} onClick={() => setAll(!all)}>
@@ -474,7 +481,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
             </button>
           )}
         </div>
-      </section>
+      </Widget>
 
       <IntradayState d={d} investor={investor} />
 

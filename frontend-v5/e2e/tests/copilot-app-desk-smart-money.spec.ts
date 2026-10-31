@@ -95,7 +95,9 @@ const FEEDS = {
 /** Four rows, one per derived evidence class, each also exercising a deal state. */
 const ROWS = [
   { symbol: "BSE", industry: "Financial Services", mf_shares_pct_chg: 12.58, net_shares_delta: 13841340,
-    schemes_up: 180, schemes_dn: 94, amcs_up: 10, fii_delta_pp: null, dii_delta_pp: null,
+    schemes_up: 180, schemes_dn: 94, amcs_up: 3, amcs_dn: 6, amcs_holding: 11,
+    top_amc_pct_of_move: 121, fii_delta_pp: 4.01, dii_delta_pp: 2.65,
+    fii_spread_pp: 0.8,
     deal_net_qty: -1590764, deal_gross_inr: 38640397021, deal_legs: 4, matched_legs: 0, deal_days: 1,
     transfer_days: 0, deals_checked: true, deliv_10d: 36.6, deliv_60d: 41.3, deliv_vs_base_pp: -4.6,
     close_price: 3248.3, prev_close: 3336.0, change_pct: -2.63, freshness_status: "fresh",
@@ -104,12 +106,14 @@ const ROWS = [
     schemes_up: 34, schemes_dn: 32, amcs_up: 6, fii_delta_pp: 0.29, dii_delta_pp: 1.06,
     deal_net_qty: null, deal_gross_inr: null, deal_legs: null, matched_legs: null, deal_days: null,
     transfer_days: null, deals_checked: false, deliv_10d: 30.5, deliv_60d: 36.8, deliv_vs_base_pp: -6.3,
+    fii_spread_pp: 0.6,
     close_price: 690.0, prev_close: 685.0, change_pct: 0.73, freshness_status: "ageing",
     single_amc_signal: true, latest_reporting_date: "2026-09-01", evidence: "A" },
   { symbol: "ULTRACEMCO", industry: "Construction Materials", mf_shares_pct_chg: 0.17, net_shares_delta: 108375,
     schemes_up: 135, schemes_dn: 158, amcs_up: 9, fii_delta_pp: 0.33, dii_delta_pp: 1.17,
     deal_net_qty: 0, deal_gross_inr: null, deal_legs: 31, matched_legs: 30, deal_days: 1,
     transfer_days: 1, deals_checked: true, deliv_10d: 51.7, deliv_60d: 58.1, deliv_vs_base_pp: -6.4,
+    fii_spread_pp: null,
     close_price: 10849.0, prev_close: 10650.0, change_pct: 1.87, freshness_status: "fresh",
     single_amc_signal: false, latest_reporting_date: "2026-09-01", evidence: "A" },
   { symbol: "ARVINDFASN", industry: "Consumer Durables", mf_shares_pct_chg: null, net_shares_delta: null,
@@ -219,19 +223,10 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await mockSmartMoney(page);
   });
 
-  test("TC-F1: it is the sixth primary tab and pushes More to 07", async ({ page }) => {
-    await page.goto(DESK);
-    const tabs = page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab");
-    await expect(tabs).toHaveCount(7);
-    await expect(tabs.nth(5)).toHaveAttribute("data-testid", "desk-tab-smartmoney");
-    await expect(tabs.nth(5)).toHaveText("06Smart Money");
-    await expect(tabs.nth(6)).toHaveText("07More");
-  });
-
   test("TC-F2: the five design panels are all present, and nothing is scored", async ({ page }) => {
     await page.goto(SM);
     await expect(screen(page)).toBeVisible(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "smartmoney");
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "smartmoney"); // a Market Desk view since 2026-10-27
     for (const id of ["desk-smart-money-feed-strips", "desk-smart-money-chart", "desk-smart-money-sector-bars",
                       "desk-smart-money-legend", "desk-smart-money-rail", "desk-smart-money-disclaimer"]) {
       await expect(page.getByTestId(id)).toBeVisible();
@@ -241,6 +236,9 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
   });
 
   test("TC-F3: the disclosure date is shown, not the compute date", async ({ page }) => {
+    // The age is counted from the browser's today, so pin it to the day these figures were recorded
+    // (2026-10-22): 2026-09-01 is then exactly 51 days old, whatever day the suite runs.
+    await page.clock.setFixedTime(new Date("2026-10-22T12:00:00+05:30"));
     await page.goto(SM);
     await expect(screen(page)).toBeVisible(SLOW);
     // 2026-09-01 is the disclosure; 2026-10-21 is when the score was computed.
@@ -382,7 +380,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     const panel = page.getByTestId("desk-smart-money-evidence");
     await expect(panel).toContainText("BSE");
     await expect(panel).toContainText("Why it surfaced · evidence chain");
-    await expect(panel).toContainText("10 AMCs raised the holding across 180 schemes (+12.58%)");
+    await expect(panel).toContainText("3 of 11 fund houses raised on net and 6 cut, across 180 schemes up and 94 down (+12.58%)");
     await expect(panel).toContainText("Disclosed monthly portfolios, as of 2026-09-01");
     await expect(panel).toContainText("What would weaken this reading");
     await expect(panel).toContainText("no counterparty classification");
@@ -468,21 +466,6 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
       await row(page, "BSE").first().click();
       await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("Why it surfaced");
     }
-  });
-
-  test("TC-F20: on a phone it is in the bottom bar as Flows, and the rail stacks", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(SM);
-    await expect(screen(page)).toBeVisible(SLOW);
-    const bar = page.getByRole("navigation", { name: "Desk sections" });
-    await expect(bar.getByRole("button")).toHaveCount(7);
-    const btn = page.getByTestId("desk-bottom-smartmoney");
-    await expect(btn).toHaveText("Flows");
-    await expect(btn).toHaveAttribute("aria-label", /Smart Money Movement/);
-    await expect(btn).toHaveAttribute("aria-current", "page");
-    // The rail is still reachable, just below the scanner.
-    await expect(page.getByTestId("desk-smart-money-rail")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   });
 
   test("TC-F21: no score, rank or hit rate reaches the DOM", async ({ page }) => {
@@ -578,4 +561,119 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(page.getByTestId("desk-smart-money-sector")).toHaveValue("");
   });
 
+  test("TC-F28: an FII figure its own sources disagree about is not printed as a measurement", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    // BSE: +4.01 pp against a 0.8 pp disagreement — usable, but flagged as contested.
+    await expect(row(page, "BSE")).toContainText("+4.01 pp ±");
+    // TATATECH: +0.29 pp against a 0.6 pp disagreement. The sources differ by MORE than the change
+    // itself, so the change is not distinguishable from the disagreement and is not printed.
+    await expect(row(page, "TATATECH")).toContainText("sources differ");
+    await expect(row(page, "TATATECH")).not.toContainText("+0.29 pp");
+    // ULTRACEMCO: only one source carries a figure, so it reads plainly with no marker.
+    await expect(row(page, "ULTRACEMCO")).toContainText("+0.33 pp");
+    await expect(row(page, "ULTRACEMCO")).not.toContainText("±");
+    await expect(screen(page)).toContainText("Where two shareholding sources disagree, the figure is marked");
+  });
+
+  test("TC-F29: a headline driven by one house says so, and counts houses by their NET", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    const panel = page.getByTestId("desk-smart-money-evidence");
+    // "N AMCs raised" previously counted houses with ANY scheme raising. GLENMARK read "9 AMCs
+    // raised" when on net 3 raised and 6 cut, so the chain now counts the net.
+    await expect(panel).toContainText("3 of 11 fund houses raised on net and 6 cut");
+    await expect(panel).not.toContainText("11 fund houses raised on net and 0 cut");
+    // +12.58% looks broad-based; 121% of it is one house, so the rest are net sellers.
+    await expect(panel).toContainText("A single fund house accounts for 121% of the net change");
+    await expect(panel).toContainText("the other 10 houses are net sellers");
+    await expect(panel).toContainText("More houses cut than raised (6 against 3)");
+  });
+});
+
+/**
+ * MOCK — not real data: an invented Kite live snapshot (stream and polling) with one quote per symbol given.
+ * Shape: backend/routes/live_quotes.py. `mode` is the feed's own word: only "live" shows live prices.
+ */
+async function liveFeed(page: Page, ltps: Record<string, number>, mode = "live") {
+  const quotes = Object.fromEntries(Object.entries(ltps).map(([s, ltp]) => [s, { ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts: "2026-10-23T11:13:09+05:30" }]));
+  const snapshot = {
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+
+test.describe("Smart trading desk · 06 Smart Money Movement · live price", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page, "populated");
+    await mockSmartMoney(page);
+  });
+
+  test("TC-live the evidence rail shows Kite's live price and day change while the feed is live, else the scanner's close", async ({ page }) => {
+    await liveFeed(page, { BSE: 4321.5 });
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-price")).toHaveAttribute("data-live", "true");
+    await expect(page.getByTestId("desk-smart-money-price")).toHaveText("₹4,321.50");
+    await expect(page.getByTestId("desk-smart-money-change")).toHaveText("+1.50%");
+  });
+
+  test("TC-live-closed no live attribute when the feed is closed: the scanner's close stays", async ({ page }) => {
+    await liveFeed(page, { BSE: 4321.5 }, "closed");
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-evidence")).toBeVisible();
+    await expect(page.getByTestId("desk-smart-money-price")).not.toHaveAttribute("data-live", "true");
+  });
+});
+
+/**
+ * MOCK — not real data: the feed's final snapshot after a close (mode "closed", final true), invented prices, every quote
+ * stamped with the trading `day`. A day far in the future stands for "newer than the end-of-day data on the screen", a day
+ * far in the past for "the end-of-day data has caught up". Shape: backend/routes/live_quotes.py.
+ */
+async function closeFeed(page: Page, quotes: Record<string, Record<string, unknown>>, day: string) {
+  const full = Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, { change: 1.5, change_pct: 1.5, open: 1, high: 1, low: 1, close: 1, volume: 1000, oi: null, ...q, ts: `${day}T15:29:58+05:30` }]));
+  const snapshot = {
+    as_of: `${day}T10:01:10+00:00`, data_at: `${day}T10:00:10+00:00`, age_seconds: 5, stale: false, stale_after_seconds: 75, cadence_seconds: 30,
+    mode: "closed", session: "closed", source: "rest", final: true, count: Object.keys(full).length, missing: [], quotes: full, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+const NEWER = "2026-12-31";
+const OLDER = "2020-01-02";
+
+test.describe("Smart trading desk · 06 Smart Money Movement · Kite's close", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page, "populated");
+    await mockSmartMoney(page);
+  });
+
+  test("after the close the rail shows Kite's closing price, labelled Kite close, while the scan's price day is older", async ({ page }) => {
+    await closeFeed(page, { BSE: { ltp: 4321.5 } }, NEWER);
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-price")).toHaveText("₹4,321.50");
+    await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("Kite close");
+  });
+
+  test("a closing quote no newer than the scan's price day changes nothing", async ({ page }) => {
+    await closeFeed(page, { BSE: { ltp: 4321.5 } }, OLDER);
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-evidence")).toBeVisible();
+    await expect(page.getByTestId("desk-smart-money-price")).not.toHaveAttribute("data-live", "true");
+  });
 });

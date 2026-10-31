@@ -6,8 +6,19 @@ Public (auth-required):
        Rows of both carry spark_closes (last 24 daily closes up to the signal / features date, oldest first, from
        stock_ohlcv), spark_end (date of the last one) and avg_traded_value_cr_20d (mean close × volume over the last
        20 sessions, ₹ crore; null with fewer than 20 sessions or a missing volume). Watchlist rows also carry
-       resistance_level and support_level from stock_technical_features.
+       resistance_level and support_level from stock_technical_features. Both apply the results signal at read time
+       (docs/EARNINGS_SURPRISE_TRACKER.md §4d, services/results_week/signal.py): each row carries `results_signal`
+       (null or {strength, points, basis, reasons, filed_at, sessions_since}) and `base_final_score` (the engine's
+       stored score); `final_score` = clamp(base + points / 100, 0, 1), applied before the sort, min_score and limit.
+       Stage is unchanged; the stored scores are never written.
   GET  /api/positional/picks/{symbol}?date=
+  GET  /api/positional/signals/{symbol}/record?date=YYYY-MM-DD
+       One scanner signal's record: the live revision (levels, stop_method, setup, computed_at) and every earlier
+       revision kept in positional_signals_history (migration 025), each with the fields that changed in the
+       revision that replaced it; plus the evaluated outcomes (positional_outcomes) as its state. Read only; nothing
+       is inferred: a revision is shown only if a row stores it. date defaults to the symbol's latest signal date.
+       404 when neither table has the signal; 503 when migration 025 is not applied (pipeline.signal_history_ready)
+       or the database is unavailable.
   GET  /api/positional/picks/mine          — portfolio-aware filtered picks
   GET  /api/positional/scenario?entry=&stop=&target=&capital=&risk_pct=… — trade scenario calculator (PRD §8.5/§8.6);
        pure, read-only, nothing is sent to a broker
@@ -46,6 +57,7 @@ from deps import db, get_current_user, require_admin
 from feature_gate import require_feature
 from services import pg_client
 from services.copilot_tools import daas_client
+from services.results_week import signal as results_signal
 from services.positional_engine import (
     backtest,
     bhavcopy_ingester,
@@ -57,6 +69,7 @@ from services.positional_engine import (
     reversal_rules,
     reversal_service,
     scan_config,
+    scan_meta,
     setup_rules,
 )
 
@@ -145,10 +158,11 @@ async def _latest_signal_date() -> Optional[date]:
 async def _fetch_picks(signal_date: date,
                         min_score: float,
                         stage: Optional[str],
-                        limit: int) -> List[dict]:
+                        limit: int,
+                        symbols: Optional[List[str]] = None) -> List[dict]:
     """Fetch picks for a date. LEFT JOINs stock_technical_features so
     callers can read the pre_breakout block (signals + accumulation_score)
-    without a second round-trip."""
+    without a second round-trip. `symbols` limits the read to those stocks."""
     pool = await pg_client.get_pool()
     if pool is None:
         return []
@@ -158,7 +172,8 @@ async def _fetch_picks(signal_date: date,
         "       ps.entry_price, ps.stoploss, ps.target_price, ps.risk_reward, "
         "       ps.source_scans, ps.reasons, ps.engine_version, "
         "       stf.components->'pre_breakout' AS pre_breakout, "
-        "       stf.components->'raw' AS features_raw "
+        "       stf.components->'raw' AS features_raw, "
+        "       stf.components->'price_adjustment'->>'price_basis' AS price_basis "
         "FROM positional_signals ps "
         "LEFT JOIN stock_technical_features stf "
         "       ON stf.nse_symbol = ps.nse_symbol AND stf.as_of_date = ps.signal_date "
@@ -168,6 +183,9 @@ async def _fetch_picks(signal_date: date,
     if stage:
         sql += "AND ps.stage = $3 "
         params.append(stage.upper())
+    if symbols is not None:
+        sql += "AND ps.nse_symbol = ANY($%d::text[]) " % (len(params) + 1)
+        params.append(list(symbols))
     sql += "ORDER BY ps.final_score DESC, ps.risk_reward DESC LIMIT $%d" % (len(params) + 1)
     params.append(limit)
     try:
@@ -179,6 +197,8 @@ async def _fetch_picks(signal_date: date,
     out = []
     for r in rows:
         d = dict(r)
+        # warehouse_adjusted | raw_no_factors (scored on raw prices: no factors) | None (engine v1.0: raw prices)
+        d["price_basis"] = d.get("price_basis") or "raw"
         # asyncpg returns JSONB as string in some envs — coerce both blobs
         for key in ("pre_breakout", "features_raw"):
             v = d.get(key)
@@ -189,6 +209,47 @@ async def _fetch_picks(signal_date: date,
                     d[key] = None
         out.append(d)
     return out
+
+
+async def _scan_basis(d: Optional[date]) -> Optional[Dict[str, Any]]:
+    """The engine version, price basis, exceptions and data-quality status of the scan served for `d`
+    (scan_meta.basis_for_date). Unreadable → said so in the payload and the log, never shown as clean."""
+    if d is None:
+        return None
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"date": d.isoformat(), "unavailable": "no database pool"}
+    try:
+        return await scan_meta.basis_for_date(pool, db, d)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("positional: scan basis for %s unreadable: %s", d, e)
+        return {"date": d.isoformat(), "unavailable": f"scan basis unreadable ({type(e).__name__})"}
+
+
+def _rr_key(r: Dict[str, Any]):
+    """ORDER BY risk_reward DESC as Postgres sorts it (NULLs first)."""
+    rr = r.get("risk_reward")
+    return (0, 0.0) if rr is None else (1, -float(rr))
+
+
+async def _picks_with_results_signal(sig_date: date, min_score: float, stage: Optional[str],
+                                     limit: int) -> "tuple[List[dict], Dict[str, Any]]":
+    """The day's picks with the results signal applied BEFORE the min-score filter, the sort and the limit
+    (docs/EARNINGS_SURPRISE_TRACKER.md §4d): the top rows by the engine's score plus every stock with a signal are read,
+    final_score is adjusted, then filtered, sorted and cut, so a boosted stock just outside the top N can enter and a
+    weak one can leave. The engine's stored scores are never changed. No signal (or a failed one) leaves the order as it was."""
+    signals, gap = await results_signal.current()
+    cat = sorted(signals)
+    rows = await _fetch_picks(sig_date, min_score, stage, limit + len(cat))
+    have = {r["nse_symbol"] for r in rows}
+    extra = [s for s in cat if s not in have]
+    if extra:
+        rows += await _fetch_picks(sig_date, 0.0, stage, len(extra), symbols=extra)
+    results_signal.apply(rows, signals)
+    rows = [r for r in rows if (r.get("final_score") is not None and float(r["final_score"]) >= min_score)]
+    rows.sort(key=lambda r: (-float(r["final_score"]), _rr_key(r)))
+    rows = rows[:limit]
+    return rows, results_signal.meta(signals, gap, sum(1 for r in rows if r.get("results_signal")))
 
 
 # ── Public endpoints ─────────────────────────────────────────────────────
@@ -203,7 +264,7 @@ async def get_picks(request: Request,
     if sig_date is None:
         return {"signal_date": None, "picks": [], "message": "no signals available yet",
                 "rules_version": setup_rules.RULES_VERSION, "engine_versions": []}
-    picks = await _fetch_picks(sig_date, min_score, stage, limit)
+    picks, rs_meta = await _picks_with_results_signal(sig_date, min_score, stage, limit)
     bars = await _spark_bars(sorted({p["nse_symbol"] for p in picks}), sig_date)
     for p in picks:
         p.update(_bar_fields(None if bars is None else bars.get(p["nse_symbol"], [])))
@@ -211,9 +272,14 @@ async def get_picks(request: Request,
         "signal_date": str(sig_date),
         "count": len(picks),
         "picks": picks,
+        # docs/EARNINGS_SURPRISE_TRACKER.md §4d: final_score carries the results signal; base_final_score is the engine's.
+        "results_signal": rs_meta,
         # PRD §5.8: the rules and engine versions behind these rows.
         "rules_version": setup_rules.RULES_VERSION,
         "engine_versions": sorted({p["engine_version"] for p in picks if p.get("engine_version")}),
+        # Owner decision 2026-10-27: results are published with their engine version, price basis, exceptions and
+        # data-quality status (services/positional_engine/scan_meta.py).
+        "scan_basis": await _scan_basis(sig_date),
     }
 
 
@@ -248,6 +314,8 @@ async def get_watchlist(request: Request, limit: int = 30):
     await get_current_user(request)
     rules = setup_rules.public_rules()
     cand = setup_rules.WATCHLIST["candidates"]
+    signals, rs_gap = await results_signal.current()      # §4d, applied to the candidates before they are cut
+    signalled = sorted(signals)
     pool = await pg_client.get_pool()
     if pool is None:
         return {"as_of_date": None, "buckets": {}, "_reason": "no pg pool", "rules": rules}
@@ -267,13 +335,13 @@ async def get_watchlist(request: Request, limit: int = 30):
             # First pass — narrow candidates by score so we only do the
             # OHLCV round-trip for the top ~80. WEAK/EXTENDED dropped here
             # because their structure rules out our 4 buckets anyway.
-            cand_rows = await conn.fetch(
-                """
+            cand_sql = """
                 SELECT stf.nse_symbol, stf.stage, stf.confidence, stf.final_score,
                        stf.close_price, stf.sma_50, stf.sma_200,
                        stf.rsi_14, stf.atr_14,
                        stf.breakout_level, stf.support_level, stf.resistance_level,
                        stf.engine_version,
+                       stf.components->'price_adjustment'->>'price_basis' AS price_basis,
                        sm.sector
                 FROM stock_technical_features stf
                 LEFT JOIN stock_master sm ON sm.nse_symbol = stf.nse_symbol
@@ -281,11 +349,25 @@ async def get_watchlist(request: Request, limit: int = 30):
                   AND stf.stage IS NOT NULL
                   AND stf.stage <> ALL($2::text[])
                   AND stf.close_price > $3
+                  {extra}
                 ORDER BY stf.final_score DESC NULLS LAST
                 LIMIT $4
-                """,
-                d, cand["excluded_stages"], cand["min_close"], cand["top_by_score"],
-            )
+                """
+            cand_rows = [dict(r) for r in await conn.fetch(
+                cand_sql.format(extra=""),
+                d, cand["excluded_stages"], cand["min_close"], cand["top_by_score"] + len(signalled),
+            )]
+            have = {r["nse_symbol"] for r in cand_rows}
+            missing = [s for s in signalled if s not in have]
+            if missing:
+                cand_rows += [dict(r) for r in await conn.fetch(
+                    cand_sql.format(extra="AND stf.nse_symbol = ANY($5::text[])"),
+                    d, cand["excluded_stages"], cand["min_close"], len(missing), missing,
+                )]
+            # §4d: the results signal adjusts final_score before the candidates are ranked and cut (stage unchanged).
+            results_signal.apply(cand_rows, signals)
+            cand_rows.sort(key=lambda r: -(r["final_score"] if r["final_score"] is not None else -1.0))
+            cand_rows = cand_rows[:cand["top_by_score"]]
             candidate_syms = [r["nse_symbol"] for r in cand_rows]
             # Second pass — bulk-load last 60 bars for each candidate
             # symbol from stock_ohlcv. One query.
@@ -382,6 +464,8 @@ async def get_watchlist(request: Request, limit: int = 30):
             "stage": r["stage"],
             "confidence": r["confidence"],
             "final_score": round(float(r["final_score"] or 0), 3),
+            "base_final_score": round(float(r["base_final_score"]), 3) if r.get("base_final_score") is not None else None,
+            "results_signal": r.get("results_signal"),
             "close_price": close,
             "trigger_price": bo,
             "stop_price": None,
@@ -394,6 +478,7 @@ async def get_watchlist(request: Request, limit: int = 30):
             "resistance_level": float(r["resistance_level"]) if r["resistance_level"] is not None else None,
             "support_level": float(r["support_level"]) if r["support_level"] is not None else None,
             "engine_version": r.get("engine_version"),
+            "price_basis": r.get("price_basis") or "raw",
             **_bar_fields(raw_bars_by_sym.get(sym, [])),
         }
 
@@ -459,6 +544,9 @@ async def get_watchlist(request: Request, limit: int = 30):
         # PRD §5.6 / §5.8: the thresholds these buckets used, with their version, and the engine that wrote the rows.
         "rules": rules,
         "engine_versions": sorted({r.get("engine_version") for r in cand_rows if r.get("engine_version")}),
+        "scan_basis": await _scan_basis(d),
+        # docs/EARNINGS_SURPRISE_TRACKER.md §4d: final_score carries the results signal; base_final_score is the engine's.
+        "results_signal": results_signal.meta(signals, rs_gap, sum(1 for v in buckets.values() for it in v if it.get("results_signal"))),
     }
 
 
@@ -863,6 +951,134 @@ async def get_pick_detail(request: Request,
         "signal": dict(sig) if sig else None,
         "features": dict(feat) if feat else None,
         "scan_hits": [r["scan_name"] for r in scans],
+    }
+
+
+# ── Signal record (revision history) ─────────────────────────────────────
+_SIGNAL_COLS = ("COALESCE(revision, 1) AS revision, final_score, confidence, stage, timeframe_days_min, "
+                "timeframe_days_max, entry_price, stoploss, target_price, risk_reward, source_scans, reasons, "
+                "engine_version, stop_method, computed_at")
+#: What a revision is compared on, as (the field name in the answer, how to read it from a revision).
+_RECORD_FIELDS = (
+    ("entry", lambda r: r["levels"]["entry"]), ("stop", lambda r: r["levels"]["stop"]),
+    ("target", lambda r: r["levels"]["target"]), ("risk_reward", lambda r: r["levels"]["risk_reward"]),
+    ("stop_method", lambda r: r["stop_method"]), ("stage", lambda r: r["setup"]["stage"]),
+    ("confidence", lambda r: r["setup"]["confidence"]), ("final_score", lambda r: r["setup"]["final_score"]),
+    ("timeframe_days_min", lambda r: r["setup"]["timeframe_days_min"]),
+    ("timeframe_days_max", lambda r: r["setup"]["timeframe_days_max"]),
+    ("source_scans", lambda r: r["setup"]["source_scans"]), ("reasons", lambda r: r["setup"]["reasons"]),
+    ("engine_version", lambda r: r["setup"]["engine_version"]),
+)
+
+
+def _jsonb(v):
+    """A JSONB column as data (asyncpg may hand it back as text)."""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except (TypeError, ValueError):
+            return v
+    return v
+
+
+def _iso(v):
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+def _signal_revision(row) -> Dict[str, Any]:
+    """One stored row (live or history) in the record's shape. Every value is the row's own; nothing is filled in."""
+    out = {
+        "revision": int(row["revision"]),
+        "levels": {"entry": _num(row["entry_price"]), "stop": _num(row["stoploss"]),
+                   "target": _num(row["target_price"]), "risk_reward": _num(row["risk_reward"])},
+        "stop_method": _jsonb(row["stop_method"]),
+        "setup": {"stage": row["stage"], "confidence": row["confidence"], "final_score": _num(row["final_score"]),
+                  "timeframe_days_min": row["timeframe_days_min"], "timeframe_days_max": row["timeframe_days_max"],
+                  "source_scans": list(row["source_scans"]) if row["source_scans"] is not None else None,
+                  "reasons": _jsonb(row["reasons"]), "engine_version": row["engine_version"]},
+        "computed_at": _iso(row["computed_at"]),
+    }
+    if "superseded_by" in row.keys():
+        out["superseded_at"] = _iso(row["superseded_at"])
+        out["superseded_by"] = row["superseded_by"]
+    return out
+
+
+def _revision_changes(old: Dict[str, Any], new: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [{"field": name, "from": get(old), "to": get(new)} for name, get in _RECORD_FIELDS if get(old) != get(new)]
+
+
+@router.get("/signals/{symbol}/record")
+async def get_signal_record(request: Request,
+                            symbol: str,
+                            date: Optional[str] = Query(None, alias="date")):
+    """Public (auth), read only: a scanner signal's live revision and every superseded one (see the module docstring)."""
+    await get_current_user(request)
+    sym = symbol.upper().strip()
+    if not re.fullmatch(r"[A-Z0-9&\-]{1,32}", sym):
+        raise HTTPException(status_code=400, detail=f"Invalid symbol: {symbol}")
+    sig_date = _parse_date(date)
+    pool = await pg_client.get_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="signal_record_unavailable: the database is not reachable")
+    async with pool.acquire() as conn:
+        if not await pipeline.signal_history_ready(conn):
+            raise HTTPException(status_code=503, detail="signal_history_not_ready: migration 025 "
+                                                        "(positional_signals_history) is not applied, so no revision "
+                                                        "history can be read")
+        if sig_date is None:
+            sig_date = await conn.fetchval(
+                "SELECT GREATEST((SELECT MAX(signal_date) FROM positional_signals WHERE nse_symbol = $1), "
+                "(SELECT MAX(signal_date) FROM positional_signals_history WHERE nse_symbol = $1))", sym)
+            if sig_date is None:
+                raise HTTPException(status_code=404, detail=f"No scanner signal for {sym}")
+        live = await conn.fetchrow(
+            f"SELECT {_SIGNAL_COLS} FROM positional_signals WHERE nse_symbol = $1 AND signal_date = $2", sym, sig_date)
+        history = await conn.fetch(
+            f"SELECT {_SIGNAL_COLS}, superseded_at, superseded_by FROM positional_signals_history "
+            "WHERE nse_symbol = $1 AND signal_date = $2 ORDER BY revision", sym, sig_date)
+        if live is None and not history:
+            raise HTTPException(status_code=404, detail=f"No scanner signal for {sym} on {sig_date}")
+        outcomes_error = None
+        try:
+            outcome_rows = await conn.fetch(
+                "SELECT horizon_days, outcome, realised_return_pct, bars_to_outcome, evaluated_at "
+                "FROM positional_outcomes WHERE nse_symbol = $1 AND signal_date = $2 ORDER BY horizon_days",
+                sym, sig_date)
+        except Exception as e:  # noqa: BLE001 — the outcomes table is optional to the record; say it was unreadable
+            logger.warning("positional: signal record outcomes unreadable for %s %s (%s)", sym, sig_date, e)
+            outcome_rows, outcomes_error = None, "positional_outcomes could not be read"
+
+    current = _signal_revision(live) if live is not None else None
+    revisions = [_signal_revision(r) for r in history]
+    for i, rev in enumerate(revisions):
+        nxt = revisions[i + 1] if i + 1 < len(revisions) else current
+        rev["replaced_by_revision"] = nxt["revision"] if nxt else None
+        rev["changes"] = _revision_changes(rev, nxt) if nxt else None
+    outcomes = None if outcome_rows is None else [
+        {"horizon_days": r["horizon_days"], "outcome": r["outcome"], "realised_return_pct": _num(r["realised_return_pct"]),
+         "bars_to_outcome": r["bars_to_outcome"], "evaluated_at": _iso(r["evaluated_at"])} for r in outcome_rows]
+    if current is None:
+        note = "The live signal row is gone (a day rewrite removed it); only its superseded revisions are stored."
+    elif not revisions:
+        note = "No earlier revision is stored: the levels have not changed since the signal was first written."
+    else:
+        note = None
+    return {
+        "symbol": sym,
+        "signal_date": str(sig_date),
+        "current": current,
+        "revisions": revisions,
+        "revision_count": len(revisions) + (1 if current else 0),
+        "state": {"live": current is not None,
+                  "stage": current["setup"]["stage"] if current else None,
+                  "outcomes": outcomes, "outcomes_error": outcomes_error,
+                  "outcomes_basis": "positional_outcomes: target / stop hit per horizon, written by the outcome job; "
+                                    "empty until a horizon is evaluated"},
+        "note": note,
+        "source": "positional_signals (the live revision) and positional_signals_history (each superseded revision, "
+                  "copied unchanged when a re-run changed it or a day rewrite replaced it; migration 025)",
+        "read_only": True,
     }
 
 
@@ -1585,27 +1801,34 @@ def _size_position(
     """Compute qty, allocated_rs, risk_rs for one position.
 
     Base allocation = capital_rs / max_positions, scaled by position_size_factor.
-    Max risk per position = 2% of capital (risk control floor).
-    Returns dict with qty, allocated_rs, risk_rs, risk_pct.
+    Max risk per position = 2% of capital (risk control floor), and that risk is the loss at the stop AFTER the
+    estimated round-trip costs (services/desk_trading.max_units_within_budget, the cost model a paper trade records).
+    The cap always applies: a stop so wide that no whole share fits gives qty 0, never 1 (it used to force
+    `max(1, ...)` and skip the cap when the cap was 0, so one share could exceed the 2% limit).
+    Returns dict with qty, allocated_rs, risk_rs (loss at the stop after costs), risk_gross_rs, risk_pct, risk_basis.
     """
     import math
+    from services import desk_trading as _desk
     base = capital_rs / max_positions
     adjusted = base * position_size_factor
     risk_per_share = entry - stoploss
     if risk_per_share <= 0 or entry <= 0:
-        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_pct": 0.0}
+        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_gross_rs": 0.0, "risk_pct": 0.0,
+                "risk_basis": _BASKET_RISK_BASIS}
 
-    qty = max(1, math.floor(adjusted / entry))
-
-    # Cap by 2% risk limit
-    max_qty_by_risk = math.floor((capital_rs * 0.02) / risk_per_share)
-    if max_qty_by_risk > 0:
-        qty = min(qty, max_qty_by_risk)
+    qty = max(0, math.floor(adjusted / entry))
+    qty = min(qty, _desk.max_units_within_budget(capital_rs * 0.02, entry, stoploss))
 
     allocated = round(qty * entry, 2)
-    risk_rs = round(qty * risk_per_share, 2)
+    gross = round(qty * risk_per_share, 2)
+    risk_rs = round(gross + _desk.round_trip_cost(qty, entry, stoploss), 2) if qty else 0.0
     risk_pct = round(risk_rs / capital_rs * 100, 2) if capital_rs > 0 else 0.0
-    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_pct": risk_pct}
+    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_gross_rs": gross, "risk_pct": risk_pct,
+            "risk_basis": _BASKET_RISK_BASIS}
+
+
+_BASKET_RISK_BASIS = ("loss at the stop after estimated round-trip costs (the desk cost card: brokerage, STT, exchange "
+                      "charge, SEBI fee, stamp duty, GST and slippage; DP charges and income tax not included)")
 
 
 # ── Trade scenario calculator (PRD §8.5 and §8.6; desk default D6) ────────
@@ -1623,16 +1846,19 @@ from services.strategy_engine.backtest import (  # noqa: E402
 _SCENARIO_CAVEATS = (
     "A stop price does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, "
     "so the loss can be larger than shown.",
-    "Costs are estimates from the strategy_engine model (slippage per side plus a flat brokerage per side); "
-    "taxes and exchange charges are not included.",
+    "Costs are estimates from the desk cost card, the model a paper trade records: brokerage (a desk assumption of ₹20 "
+    "a side, not a broker's tariff), STT, exchange charge, SEBI fee, stamp duty, GST, and slippage of 0.05% a side that "
+    "also stands in for the spread; DP charges and income tax are not included.",
     "Illustrative only: nothing is sent to a broker and no order is placed.",
 )
 _SCENARIO_METHOD = (
     "PRD §8.5, long only: risk per share = entry − stop; reward per share = target − entry; reward : risk = reward ÷ "
-    "risk; quantity = floor(risk budget ÷ risk per share), then capped by floor(capital × max allocation % ÷ entry) "
-    "and the maximum quantity, and rounded down to the lot size. Costs per side = traded value × slippage % + "
-    "brokerage; net loss at the stop = gross loss + entry and stop-exit costs; net profit at the target = gross "
-    "profit − entry and target-exit costs. Portfolio weights assume the buy is new money added to the portfolio."
+    "risk; quantity = the most shares whose loss at the stop AFTER the entry and stop-exit costs stays within the risk "
+    "budget; then capped by floor(capital × max allocation % ÷ entry) and the maximum quantity, and rounded down to the "
+    "lot size. Costs per side = brokerage + STT + exchange charge + SEBI fee + stamp duty (buy) + GST + traded value × "
+    "slippage % (the desk cost card, equity delivery); net loss at the stop = gross loss + entry and stop-exit costs; "
+    "net profit at the target = gross profit − entry and target-exit costs. Portfolio weights assume the buy is new "
+    "money added to the portfolio."
 )
 
 
@@ -1656,11 +1882,20 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
 
     slip_pct = _SE_SLIPPAGE_FRACTION * 100 if slippage_pct is None else float(slippage_pct)
     brokerage = _SE_BROKERAGE_INR if brokerage_per_side is None else float(brokerage_per_side)
+    from services import desk_cost_card as _card
+    from services import desk_trading as _desk
+    # The desk cost card (the model a paper trade records): the request may change the slippage and the brokerage; the
+    # statutory charges (STT, exchange, SEBI, stamp, GST) always apply.
+    desk_model = {**_desk.COST_MODEL, "slippage_pct_per_side": slip_pct, "brokerage_rs_per_side": brokerage}
     cost_model = {
+        "version": _card.VERSION,
         "slippage_pct_per_side": slip_pct,
         "brokerage_inr_per_side": brokerage,
+        "statutory": _card.SNAPSHOT["statutory"] + ", equity delivery rates",
+        "brokerage_basis": _card.SNAPSHOT["brokerage_basis"],
+        "slippage_basis": _card.SNAPSHOT["slippage_basis"],
         "default": slippage_pct is None and brokerage_per_side is None,
-        "source": "services/strategy_engine/backtest.py (DEFAULT_SLIPPAGE_PCT, DEFAULT_BROKERAGE_INR)",
+        "source": "services/desk_cost_card.py (the desk cost card), services/strategy_engine/backtest.py (the default slippage and brokerage)",
     }
     budget = risk_budget if risk_budget is not None else (
         capital * risk_pct / 100.0 if capital is not None and risk_pct is not None else None)
@@ -1708,7 +1943,9 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "reward_to_risk": round(reward_ps / risk_ps, 4) if reward_ps is not None else None,
     }
 
-    qty_risk = math.floor(budget / risk_ps + eps)
+    # Sized so the loss at the stop INCLUDING the round-trip costs stays within the budget (gate 4). It used to be
+    # floor(budget / risk per share), so the net loss could exceed the budget (PRD Example A: 85 shares, ₹3,098.94 > ₹3,000).
+    qty_risk = _desk.max_units_within_budget(budget, entry, stop, model=desk_model)
     qty_alloc = math.floor(capital * max_alloc_pct / 100.0 / entry + eps) if capital is not None else None
     limits = [("risk_budget", qty_risk), ("max_allocation", qty_alloc), ("max_qty", max_qty)]
     binding, qty = min(((k, q) for k, q in limits if q is not None), key=lambda kq: kq[1])
@@ -1728,6 +1965,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "gross_exposure": round(gross, 2),
         "allocation_pct": round(gross / capital * 100.0, 6) if capital else None,
         "max_alloc_pct": max_alloc_pct,
+        "risk_basis": "the loss at the stop after the entry and stop-exit costs fits the risk budget",
     }
 
     warnings = []
@@ -1735,20 +1973,20 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
     if qty == 0:
         warnings.append(_scenario_problem(
             "risk", "no_whole_share",
-            f"The risk budget (₹{budget:,.2f}) is smaller than one share's risk (₹{risk_ps:,.2f}), so no whole share fits."))
+            f"The risk budget (₹{budget:,.2f}) does not cover one share's risk (₹{risk_ps:,.2f}) plus the round-trip "
+            f"costs at the stop, so no whole share fits."))
     else:
-        s = slip_pct / 100.0
-        entry_cost = qty * entry * s + brokerage
-        exit_stop = qty * stop * s + brokerage
-        exit_target = (qty * target * s + brokerage) if target is not None else None
-        rt_stop = entry_cost + exit_stop
-        rt_target = (entry_cost + exit_target) if exit_target is not None else None
+        at_stop = _card.round_trip("equity_delivery", qty, entry, stop, model=desk_model)
+        at_target = _card.round_trip("equity_delivery", qty, entry, target, model=desk_model) if target is not None else None
+        rt_stop = at_stop["total"]["total"]
+        rt_target = at_target["total"]["total"] if at_target else None
         costs = {
-            "entry": round(entry_cost, 2),
-            "exit_at_stop": round(exit_stop, 2),
-            "exit_at_target": round(exit_target, 2) if exit_target is not None else None,
-            "round_trip_at_stop": round(rt_stop, 2),
-            "round_trip_at_target": round(rt_target, 2) if rt_target is not None else None,
+            "entry": at_stop["entry"]["total"],
+            "exit_at_stop": at_stop["exit"]["total"],
+            "exit_at_target": at_target["exit"]["total"] if at_target else None,
+            "round_trip_at_stop": rt_stop,
+            "round_trip_at_target": rt_target,
+            "breakdown_at_stop": at_stop["total"],
         }
         loss = qty * risk_ps
         profit = qty * reward_ps if reward_ps is not None else None
@@ -1941,6 +2179,7 @@ async def build_basket(request: Request, body: BasketRequest):
             "allocated_rs":      sizing["allocated_rs"],
             "risk_rs":           sizing["risk_rs"],
             "risk_pct":          sizing["risk_pct"],
+            "risk_basis":        sizing["risk_basis"],
             "position_size_factor": psf,
             "hedge":             hedge,
             "signal_date":       str(sig_date),

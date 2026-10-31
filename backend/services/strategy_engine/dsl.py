@@ -12,10 +12,17 @@ Document shape (v1):
       "asset_class":  "STOCK" | "MF",
       "name":         str,
       "description":  str (optional),
-      "universe":     {"type": "index"|"custom"|"category", "ref": str},
+      "universe":     {"type": "index"|"custom"|"category"|"market", "ref": str},
+                    market = a whole-market, point-in-time universe (STOCK only): ref "LIQUID_EQ" is
+                    services/strategy_engine/liquid_universe.py (liquid-eq-v1), survivorship-free;
+                    index refs use the latest constituent snapshot (survivorship bias, labelled).
       "entry":        {"all_of": [Predicate, …], "any_of": [Predicate, …]?},
       "exit":         {"stoploss_pct": num, "target_rr": num,
-                       "max_hold_days": int, "trailing_atr_mult": num?},
+                       "max_hold_days": int, "trailing_atr_mult": num?,
+                       "trend_ema_period": int?},
+                    max_hold_days is counted in SESSIONS held (trading days), not calendar
+                    days; trailing_atr_mult (0 < k <= 10) and trend_ema_period (2..200) are
+                    the opt-in research exits of services/exit_rules.py (off when absent).
       "ranking":      {"by": str, "limit": int, "order": "asc"|"desc"?},
       "rebalance":    "daily" | "weekly" | "monthly"
     }
@@ -57,7 +64,9 @@ DSL_VERSION = "1"
 
 ASSET_CLASSES = {"STOCK", "MF"}
 
-UNIVERSE_TYPES = {"index", "custom", "category"}
+UNIVERSE_TYPES = {"index", "custom", "category", "market"}
+# Whole-market universes (type "market"), built point-in-time from each date's prices (liquid_universe.py).
+MARKET_REFS = {"LIQUID_EQ"}
 
 # Phase 1: only `feature` namespace fully wired. Other namespaces accepted
 # at validation time so Phase 2 specs round-trip cleanly, but the compiler
@@ -208,7 +217,13 @@ def _validate_universe(uni: Any, asset_class: Optional[str]) -> List[DSLError]:
                              "MF strategies cannot use index universes (use 'category' or 'custom')"))
     if asset_class == "STOCK" and t == "category":
         errs.append(DSLError("$.universe.type",
-                             "STOCK strategies cannot use category universes (use 'index' or 'custom')"))
+                             "STOCK strategies cannot use category universes (use 'index', 'market' or 'custom')"))
+    if t == "market":
+        if asset_class == "MF":
+            errs.append(DSLError("$.universe.type",
+                                 "MF strategies cannot use market universes (use 'category' or 'custom')"))
+        if isinstance(ref, str) and ref.strip() and ref.strip().upper() not in MARKET_REFS:
+            errs.append(DSLError("$.universe.ref", f"market universe must be one of {sorted(MARKET_REFS)}"))
     return errs
 
 
@@ -322,8 +337,12 @@ def _validate_exit(exit_: Any, required: bool) -> List[DSLError]:
         errs.append(DSLError("$.exit.max_hold_days", "must be a positive int"))
 
     tatr = exit_.get("trailing_atr_mult")
-    if tatr is not None and not (isinstance(tatr, (int, float)) and tatr > 0):
-        errs.append(DSLError("$.exit.trailing_atr_mult", "must be > 0"))
+    if tatr is not None and not (isinstance(tatr, (int, float)) and not isinstance(tatr, bool) and 0 < tatr <= 10):
+        errs.append(DSLError("$.exit.trailing_atr_mult", "must be > 0 and at most 10"))
+
+    tema = exit_.get("trend_ema_period")
+    if tema is not None and not (isinstance(tema, int) and not isinstance(tema, bool) and 2 <= tema <= 200):
+        errs.append(DSLError("$.exit.trend_ema_period", "must be a whole number from 2 to 200"))
 
     if sl is None and rr is None and mhd is None:
         errs.append(DSLError("$.exit",

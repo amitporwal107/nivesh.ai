@@ -158,14 +158,15 @@ const STAGE_PLAIN: Record<string, string> = {
 };
 
 /**
- * The bucket's name, or "Scanner pick · early breakout" for a stock only the picks route has.
+ * The bucket's name, or "Scanner idea · early breakout" for a stock only the scanner's target list (the picks route) has.
+ * "Idea", never "pick": the owner's wording (SEBI), audit 2026-10-28.
  * `plain` gives the investor wording ("Broke above a recent high").
  */
 export function setupLabel(s: DeskSetup, plain = false): string {
   if (s.bucket) return plain ? BUCKET_PLAIN[s.bucket] : BUCKET_LABEL[s.bucket];
-  if (!s.stage) return "Scanner pick";
+  if (!s.stage) return "Scanner idea";
   const stage = s.stage.replace(/_/g, " ").toLowerCase();
-  return `Scanner pick · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
+  return `Scanner idea · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
 }
 
 /** The two up-move heads of the move-odds model the scanner ranks by. */
@@ -190,7 +191,7 @@ export function lastMove(closes: number[]): { close: number; change: number; cha
 
 /** "13 Oct 2026", or both dates when the two scanner routes are on different sessions. */
 export function scanDateLabel(watchAsOf: string | null, signalDate: string | null): string | null {
-  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · picks ${fmtDay(signalDate)}`;
+  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · targets ${fmtDay(signalDate)}`;
   const d = watchAsOf ?? signalDate;
   return d ? fmtDay(d) : null;
 }
@@ -310,6 +311,29 @@ export function useDeskLevels(symbol: string, setup: DeskSetup | null): DeskLeve
 }
 
 /** A server series as a line aligned to the bars the chart draws (null where the server has no value for that day). */
+const istDayOf = (ts: string | null): string | null => {
+  const t = ts ? Date.parse(ts) : NaN;
+  return Number.isFinite(t) ? new Date(t + 5.5 * 3600_000).toISOString().slice(0, 10) : null;
+};
+
+/**
+ * The daily bars with the Kite quote's session as the last bar: while the feed is LIVE the forming bar (open, high, low and last price from
+ * the quote), and after the close, once the feed has published its final snapshot, that session's bar until the end-of-day series has it. The
+ * overlay only hands over a closing quote for a day NEWER than the series, so nothing is overwritten after the data platform catches up.
+ * A quote for the series' own last day updates that bar's high, low and close only (its open and the rest stay the series'). A quote for an older
+ * day, or with no day, changes nothing. The input is never mutated.
+ */
+export function withLiveBar(bars: DailyBar[] | null, q: { ltp: number; open: number | null; high: number | null; low: number | null; volume: number | null; ts: string | null } | null): DailyBar[] | null {
+  if (!bars || bars.length === 0 || !q) return bars;
+  const day = istDayOf(q.ts);
+  const last = bars[bars.length - 1];
+  if (!day || day < last.day.slice(0, 10)) return bars;
+  if (day === last.day.slice(0, 10)) {
+    return [...bars.slice(0, -1), { ...last, high: Math.max(last.high, q.high ?? q.ltp, q.ltp), low: Math.min(last.low, q.low ?? q.ltp, q.ltp), close: q.ltp, volume: q.volume ?? last.volume }];
+  }
+  return [...bars, { day, open: q.open ?? q.ltp, high: Math.max(q.high ?? q.ltp, q.ltp), low: Math.min(q.low ?? q.ltp, q.ltp), close: q.ltp, volume: q.volume ?? 0 }];
+}
+
 export function alignSeries(days: string[], values: Array<number | null>, bars: DailyBar[]): Array<number | null> {
   const at = new Map<string, number | null>();
   days.forEach((d, i) => at.set(d, values[i] ?? null));
@@ -476,7 +500,9 @@ const ScenarioC = z.object({
     risk_budget: z.number(), qty_by_risk: z.number(), qty_by_allocation: nn, qty_by_max: nn, lot_size: z.number(),
     quantity: z.number(), binding: z.string(), gross_exposure: z.number(), allocation_pct: nn, max_alloc_pct: z.number(),
   }).nullable(),
-  costs: z.object({ entry: z.number(), exit_at_stop: z.number(), exit_at_target: nn, round_trip_at_stop: z.number(), round_trip_at_target: nn }).nullable(),
+  costs: z.object({ entry: z.number(), exit_at_stop: z.number(), exit_at_target: nn, round_trip_at_stop: z.number(), round_trip_at_target: nn,
+    /** The round trip at the stop by component (the desk cost card, backend services/desk_cost_card.py). */
+    breakdown_at_stop: z.record(z.number()).nullish() }).nullable(),
   outcomes: z.object({ loss_at_stop: z.number(), loss_at_stop_net: z.number(), profit_at_target: nn, profit_at_target_net: nn }).nullable(),
   portfolio: z.object({
     portfolio_value: z.number(),
@@ -485,7 +511,7 @@ const ScenarioC = z.object({
     impact_at_stop_pct: nn, impact_at_target_pct: nn,
     assumption: z.string().nullish(),
   }).nullable(),
-  cost_model: z.object({ slippage_pct_per_side: z.number(), brokerage_inr_per_side: z.number(), source: z.string().nullish() }),
+  cost_model: z.object({ slippage_pct_per_side: z.number(), brokerage_inr_per_side: z.number(), source: z.string().nullish(), version: z.string().nullish() }),
   caveats: z.array(z.string()).default([]),
   method: z.string().nullish(),
   sent_to_broker: z.literal(false),

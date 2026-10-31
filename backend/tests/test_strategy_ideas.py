@@ -73,6 +73,46 @@ def test_covered_call_falls_back_to_the_first_strike_beyond_one_expected_move():
     assert c["payoff"]["expiry"]["max_profit"] == (1300 - 1200 + 20) * 250 * c["sizing"]["quantity"]
 
 
+def row(plan, cid):
+    return next(a for a in plan["alternatives"] if a["id"] == cid)
+
+
+def test_covered_call_row_is_the_loss_at_the_stop_not_the_shares_at_zero():
+    # owner 30 Oct: the card read the expiry worst case, the shares at zero (290 500 a lot); the plan exits at the scanner stop 1160
+    p = build(world(), instrument="all", **BIG)
+    c = combos(p)["covered_call"]
+    lots, r = c["sizing"]["quantity"], row(p, "combination:covered_call")
+    stop = next(s for s in c["payoff"]["expiry"]["scenarios"] if s["name"] == "stop")
+    assert stop["underlying_price"] == 1160.0 == c["invalidation"]["technical"]["price"]
+    # (1200 - 1160 - 38) x 250 = 500 a lot before costs; after costs it is the stop scenario's net, the risk the R : R already divides by
+    assert stop["gross"] == -500.0 * lots and r["max_loss"] == c["risk_reward"]["risk_net"] == -stop["net"] > 500.0 * lots
+    assert r["max_loss_at"] == "stop" and r["max_loss"] < 290500.0 * lots
+    assert r["max_loss_basis"].startswith("loss at the stop (net), where the plan exits; gaps can exceed it")
+    assert f"(held to expiry, {290500.0 * lots:,.2f} gross if the price falls to zero)" in r["max_loss_basis"]
+    # cash and futures: unchanged, and marked "stop"; options: unchanged, "expiry"
+    for cid in ("cash:breakout_continuation", "futures:long_buildup_continuation"):
+        assert row(p, cid)["max_loss"] == cand(p, cid)["risk_reward"]["risk_net"] and row(p, cid)["max_loss_at"] == "stop", cid
+    spread = cand(p, "options:bull_call_spread")
+    assert row(p, spread["id"])["max_loss"] == spread["payoff"]["expiry"]["max_loss"] and row(p, spread["id"])["max_loss_at"] == "expiry"
+
+
+def test_structures_with_a_long_put_keep_the_expiry_max_loss():
+    p = build(world(events=EVENT), instrument="combination", min_reward_risk=0.1, **BIG)
+    for fam in ("protective_put", "collar", "futures_protective_put"):
+        c, r = combos(p)[fam], row(p, f"combination:{fam}")
+        assert r["max_loss"] == c["payoff"]["expiry"]["max_loss"] < 0 and r["max_loss_at"] == "expiry", fam
+        assert r["max_loss_basis"] == "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike", fam
+
+
+def test_a_premium_that_covers_the_stop_is_a_loss_of_zero_never_negative():
+    # the 1250 call at 46: (1160 - 1200 + 46) x 250 = +1 500 a lot at the stop, more than the costs
+    p = build(world(chain=chain(calls={1250.0: (46.0, 30000, 8000, 22.5)})), instrument="combination", **BIG)
+    c = combos(p)["covered_call"]
+    stop = next(s for s in c["payoff"]["expiry"]["scenarios"] if s["name"] == "stop")
+    assert stop["net"] > 0 and c["risk_reward"]["risk_net"] < 0                  # the engine's risk is a gain here
+    assert row(p, c["id"])["max_loss"] == 0.0 and row(p, c["id"])["max_loss_at"] == "stop"
+
+
 def test_protective_put_with_event_risk_closed_form():
     p = build(world(events=EVENT), instrument="combination", min_reward_risk=0.5, **BIG)
     c = combos(p)["protective_put"]
@@ -201,7 +241,7 @@ def test_include_combinations_switch_and_all_includes_them_by_default():
     i, _ = normalise_inputs({"underlying": "TCS", "direction": "bullish"})
     assert i["include_combinations"] is True and "include_combinations" in i["defaults_applied"]
     assert normalise_inputs({"underlying": "TCS", "direction": "bullish", "include_combinations": "no"})[1][0]["code"] == "bad_include_combinations"
-    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.5") and set(RULES["combinations"]["views"]) == set(cd.COMBO_ORDER)
+    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.6") and set(RULES["combinations"]["views"]) == set(cd.COMBO_ORDER)
 
 
 def test_a_scanner_pick_without_a_bucket_is_read_by_its_stage_and_says_so():
@@ -439,7 +479,7 @@ def test_ideas_response_shape_and_ranking(client):
     assert r.status_code == 200
     b = r.json()
     assert {"generated_at", "data_as_of", "rules_version", "calculation_version", "sent_to_broker", "selection", "inputs", "ranking_note", "ideas"} <= set(b)
-    assert b["sent_to_broker"] is False and b["rules_version"] == STRATEGY_RULES_VERSION and b["calculation_version"] == "payoff-v1"
+    assert b["sent_to_broker"] is False and b["rules_version"] == STRATEGY_RULES_VERSION and b["calculation_version"] == "payoff-v2"
     s = b["selection"]
     assert {"source", "scan_date", "rule", "considered", "selected", "excluded", "limit"} <= set(s) and s["limit"] == 6 and s["selected"] == 6
     assert s["excluded"][0]["symbol"] == "ZZZ" and client.state["limit"] == 6
@@ -484,11 +524,12 @@ def test_ideas_numbers_come_from_the_plan_and_plan_inputs_rebuild_the_same_plan(
         ex = (c.get("payoff") or {}).get("expiry") or {}
         assert st["max_profit"] == ex.get("max_profit") and st["capital_at_risk"] == (c.get("payoff") or {}).get("capital_at_risk")
         assert st["breakeven"] == (ex.get("breakevens") or []) and st["reward_risk_net"] == c["risk_reward"].get("net")
-    # the covered call row quotes the engine's own max loss
+    # the covered call row quotes the engine's own loss at the stop (owner 30 Oct: not the shares at zero; that figure stays in the basis)
     cc = next(x for x in i["strategies"] if x["id"] == "combination:covered_call")
     cash = next(x for x in i["strategies"] if x["id"] == "cash:breakout_continuation")
     assert cash["max_loss"] == -cand(plan, cash["id"])["risk_reward"]["risk_net"] < 0                  # a loss is a negative P&L in every row
-    assert cc["max_loss"] == -290500.0 * cc["sizing"]["lots"] and cc["max_profit"] == 22000.0 * cc["sizing"]["lots"]
+    assert cc["max_loss"] == -cand(plan, cc["id"])["risk_reward"]["risk_net"] < 0 and cc["max_profit"] == 22000.0 * cc["sizing"]["lots"]
+    assert f"{290500.0 * cc['sizing']['lots']:,.2f} gross if the price falls to zero" in cc["max_loss_basis"]
 
 
 def test_ideas_use_the_shared_scanner_data_and_one_shared_read(client):

@@ -1,52 +1,41 @@
 /**
- * Smart trading desk — a Trader tool. Design: "Smart Trading Desk" (the
- * user's attached design, 2026-10-14); navigation: the desk PRD §3.1
- * (docs/smart_trader), which orders the desktop tabs like the design's phone
- * chips and puts the Options & futures lab under More.
+ * Smart trading desk — a Trader tool. Layout: the owner's redesign of 2026-10-27 (docs/desk_redesign_20261027/PLAN.md,
+ * step 1 "Shell"), in the V5 look of the owner's "Nivesh Trader Workspace" design: a PAPER MODE banner, the header,
+ * four numbered tabs, "My portfolio", and at most two levels (tab → view). The places and every old URL's redirect
+ * are in tradingdesk/desk-nav.ts.
  *
- *   01 Overview               indices, breadth, regime, flows, sector strength    tradingdesk/OverviewTab
- *   02 AI Scanner             setups ranked from the end-of-day scanner            tradingdesk/ScannerTab
- *   03 Market Intelligence    classified filings and institutional flows           tradingdesk/IntelTab
- *   04 Chart Analysis         candles, indicators, levels and the risk desk        tradingdesk/ChartTab
- *   05 Portfolio & Risk       broker-read holdings, concentration, risk figures    tradingdesk/PortfolioTab
- *   06 More                   AI Copilot · Options & futures lab (tradingdesk/FnoTab) · Events calendar
- *                             (tradingdesk/EventsTab, also from Market Intelligence) · Watchlists ·
- *                             Saved analyses · Paper trading · Settings & integrations
+ *   01 Market Overview   one page (tradingdesk/tabs/market-overview, step 2, the design's structure): KPIs · market regime ·
+ *                        Top AI candidates (ScannerTop10, the decision cards and their drawer) · paper trades · alerts and
+ *                        events
+ *   02 Trade Desk        the owner's workbench (step 3): AI Scanner (ranked · library · scorecard) · Chart Analysis (live ·
+ *                        record) · Paper Trading (live · journal) · Watchlists (Strategy Lab removed 29 Oct); the
+ *                        sections are tabs/trade-desk and the screens they host
+ *   03 Market Desk       intel · smartmoney · sectors · research · screener (tradingdesk/tabs/market-desk, step 5: one
+ *                        frame over IntelTab + EventsTab + a sector-rotation readout; SmartMoneyTab + the F&O lab's
+ *                        build-up, candidates, indices and chain; SectorHeatmap; the Live chart; Screener + Chartink sources).
+ *                        The old ?view=watchlists and ?view=scorecard open Trade Desk (owner, 27 Oct 19:40 IST).
+ *   04 Risk Desk         limits · controls · log (tradingdesk/tabs/risk-desk: paper risk only, built from RiskControls,
+ *                        the risk profile, the F&O lab's live readiness and its decision lineage and replay)
+ *   My portfolio         ?tab=portfolio: PortfolioTab without the paper cards (they are Trade Desk's), inside the frame
+ *   AI Copilot           docked beside the desk from 1400px; below that ?tab=copilot shows it full height
+ *
+ * The content of each view is today's screen, re-hosted as it is (steps 2–5 of the plan redesign it). Nothing here
+ * places an order: the desk's trades are paper trades, and broker connections are read-only.
  *
  * The frame itself reads:
  *   GET /api/markets/home                   `market_state` and `is_live` for the market-status pill (useMarketOverview)
+ *   GET /api/risk/status                    the "Kill switch on" / "Trading halted" pill, shown only for a known "on" (useRiskStatus)
  *   GET /api/positional/watchlist + picks   the scanner list the header search matches a stock against (useDeskScanner)
  *
- * Every block reads an existing endpoint (named in each tab's header comment).
- * A block with no data source says so ("Not connected yet") instead of showing
- * the design's sample figures. Nivesh reads data; nothing here places an order.
+ * The place lives in the URL (?tab=&view=, plus the stock ?sym=, the wording ?persona= and the hosted screens' own
+ * params); a tab or view change drops the previous view's params (desk-nav.ts VIEW_PARAMS). The breadcrumb is the
+ * location ("Trading desk › Market Desk › Smart Money"), not the click path.
  *
- * Desktop (design §2): a header row with the search (a scanner stock is
- * selected, any other NSE symbol opens on the Chart tab — the chart
- * workspace's instrument search, PRD §7.2 — and a question goes to the
- * Copilot), the TRADER / INVESTOR switch and the market status; the module tab row; the tab beside the docked
- * Copilot (from 1400px; the shell's own ask box is hidden there, index.tsx);
- * the disclaimer footer. There is no page headline: the headline is the
- * Overview's.
- *
- * Phone (under 700px): the title block with search and the persona pill (design
- * §11), and a persistent bottom navigation bar (PRD §3.1, §3.3; the user's
- * decision of 2026-10-14): Overview · Scanner · Intel · Chart · Portfolio · More
- * (tradingdesk/BottomBar). The top chip row is gone on phones. On desk pages the
- * app's ask box is hidden on a phone (index.tsx): the desk's Copilot is More ·
- * AI Copilot, so there is one ask box, never two.
- *
- * More (?tab=more) lists real destinations only. Its AI Copilot is the desk's
- * Copilot full height wherever it is not docked (a phone, or a desktop under
- * 1400px; the shell's ask box is hidden on that view, index.tsx); with the
- * dock showing, More lists the destinations and "AI Copilot" moves focus to
- * the dock. `?tab=fno` opens the lab under More, so old links keep working.
- * PRD "Learning and methodology" has no view in the app yet: More says so in
- * a line of text, not with a button that goes nowhere.
- *
- * The tab, the selected stock and the wording live in the URL (?tab=&sym=&persona=).
+ * Phone (under 700px): the banner, the title block with search, the wording pill and My portfolio, and a persistent
+ * bottom bar (BottomBar.tsx): 01 Overview · 02 Trade · 03 Market · 04 Risk · Copilot. The app's own ask box is hidden
+ * on desk pages on a phone (index.tsx); the desk's Copilot is the bar's Copilot, so there is one ask box, never two.
  */
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { LoadingBlock } from "../components/ui";
@@ -54,49 +43,44 @@ import { useCopilotShell } from "../lib/shell-context";
 import { useMarketOverview } from "./markets/hooks";
 import { BOTTOM_BAR_SPACE, DeskBottomBar, type BottomKey } from "./tradingdesk/BottomBar";
 import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
-import { DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab } from "./tradingdesk/context";
+import { FloatingCopilot, useCopilotWindow } from "./tradingdesk/copilot-window";
+import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
+import {
+  DESK_SECTIONS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  subViewsOf,
+  type DeskLocation, type DeskPlace, type DeskSection,
+} from "./tradingdesk/desk-nav";
+import { DeskTrail } from "./tradingdesk/DeskTrail";
 import { SymbolSearch } from "./tradingdesk/SymbolSearch";
 import { istParts, marketStatus, useNow } from "./tradingdesk/overview-data";
+import { useRiskStatus } from "./tradingdesk/risk-controls";
 
-const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
-  overview: lazy(() => import("./tradingdesk/OverviewTab")),
-  scanner: lazy(() => import("./tradingdesk/ScannerTab")),
-  chart: lazy(() => import("./tradingdesk/ChartTab")),
-  intel: lazy(() => import("./tradingdesk/IntelTab")),
-  portfolio: lazy(() => import("./tradingdesk/PortfolioTab")),
-  smartmoney: lazy(() => import("./tradingdesk/SmartMoneyTab")),
-  fno: lazy(() => import("./tradingdesk/FnoTab")),
-  events: lazy(() => import("./tradingdesk/EventsTab")),
-};
+// ── the hosted screens, each in its own chunk ────────────────────────────
+
+const MarketOverview = lazy(() => import("./tradingdesk/tabs/market-overview/MarketOverview"));
+const MarketDesk = lazy(() => import("./tradingdesk/tabs/market-desk/MarketDesk"));
+const ScannerTab = lazy(() => import("./tradingdesk/ScannerTab"));
+const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
+const TradeDeskTab = lazy(() => import("./tradingdesk/tabs/trade-desk/TradeDeskTab"));
+const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
+const ForwardTestPanel = lazy(() => import("./tradingdesk/FnoForwardTest").then((m) => ({ default: m.ForwardTestPanel })));
+const ScannerTop10 = lazy(() => import("./tradingdesk/ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+const SignalCategories = lazy(() => import("./tradingdesk/ScannerTab").then((m) => ({ default: m.SignalCategories })));
+const IdeaScorecard = lazy(() => import("./tradingdesk/scorecard/IdeaScorecard"));
+const LiveChartView = lazy(() => import("./tradingdesk/tabs/trade-desk/LiveChart"));
+const Watchlist = lazy(() => import("./Watchlist"));
+const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
 
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
-const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
-const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
-
-/** Params only the Strategy Builder uses; they are dropped when the desk leaves it. */
-const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr", "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry"];
-
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
+
 
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
 
-/** The primary tabs before More, in the PRD's order (§3.1). Phones use the bottom bar's own short names (BottomBar.tsx). */
-const NAV: Array<{ key: Exclude<DeskTab, "fno" | "events"> }> = [
-  { key: "overview" },
-  { key: "scanner" },
-  { key: "intel" },
-  { key: "chart" },
-  { key: "portfolio" },
-  { key: "smartmoney" },
-];
-
-/** The shell's side padding (index.tsx): the header, tab row and footer run edge to edge across it. */
+/** The shell's side padding (index.tsx): the banner, header, tab row and footer run edge to edge across it. */
 const padFor = (mobile: boolean) => (mobile ? 16 : 28);
-
-/** The portfolio tab's paper-trade card (PortfolioTab.tsx), which "Paper trading" scrolls to. */
-const PAPER_CARD = '[data-testid="desk-portfolio-record"]';
 
 /** One word that can be an NSE symbol (letters, digits, & and -), as the URL's ?sym= allows. */
 const SYMBOL_TOKEN = /^[A-Za-z0-9&-]{1,20}$/;
@@ -114,7 +98,33 @@ function matchSetup(setups: DeskSetup[], text: string): string | null {
   return setups.find((s) => s.symbol.toUpperCase().startsWith(t))?.symbol ?? null;
 }
 
+/** The old tab name a place stands for (DeskState.tab; the hosted screens were written against these names). */
+function oldTabOf(loc: DeskLocation): DeskTab {
+  if (loc.tab === "portfolio") return "portfolio";
+  if (loc.tab === "trade" && loc.view === "chart") return "chart";
+  if (loc.tab !== "market") return "overview";
+  return loc.view === "research" ? "chart" : loc.view === "smartmoney" ? "smartmoney" : loc.view === "intel" ? "intel" : "overview";
+}
+
 // ── header pieces ────────────────────────────────────────────────────────
+
+/** V5 FR-20: always on screen. Amber, mono, as the owner's design draws it. */
+function PaperBanner({ padX, mobile }: { padX: number; mobile: boolean }) {
+  return (
+    <div
+      data-testid="desk-paper-banner"
+      role="note"
+      className="flex items-center"
+      style={{
+        gap: 10, margin: `0 -${padX}px`, padding: `${mobile ? 7 : 8}px ${padX}px`, background: "var(--amber-soft)", borderBottom: "1px solid var(--amber-line)",
+        fontFamily: "var(--mono)", fontSize: mobile ? 9.5 : 10.5, lineHeight: 1.5, letterSpacing: mobile ? "0.1em" : "0.14em", textTransform: "uppercase", color: "var(--amber)",
+      }}
+    >
+      <span aria-hidden style={{ flex: "none", width: 7, height: 7, borderRadius: "50%", background: "var(--amber)" }} />
+      <span style={{ minWidth: 0 }}>Paper mode · simulated execution only · no broker orders</span>
+    </div>
+  );
+}
 
 function SearchBox({ onSubmit, autoFocus, persona, setups, column }: { onSubmit: (text: string) => void; autoFocus?: boolean; persona: DeskPersona; setups: DeskSetup[]; column?: boolean }) {
   const [text, setText] = useState("");
@@ -196,6 +206,31 @@ function StatusPill() {
   );
 }
 
+/**
+ * "Kill switch on" / "Trading halted" from GET /api/risk/status, opening Risk Desk › Controls & profile. Nothing shows
+ * while the state is off, loading, failed or unknown (a body without a boolean kill_switch): the view itself says those.
+ */
+function RiskPill({ onOpen, phone }: { onOpen: () => void; phone?: boolean }) {
+  const s = useRiskStatus().data;
+  if (!s?.known || (!s.killSwitch && !s.halted)) return null;
+  const label = s.killSwitch ? "Kill switch on" : "Trading halted";
+  return (
+    <button
+      type="button"
+      data-testid="desk-risk-pill"
+      data-control={s.killSwitch ? "kill_switch" : "halted"}
+      onClick={onOpen}
+      className="cp-pill"
+      data-tone="danger"
+      title={`${label}: new paper positions are blocked. Open Risk Desk › Policy & runtime.`}
+      style={{ flex: "none", cursor: "pointer", alignSelf: phone ? "flex-start" : undefined }}
+    >
+      <span className="nv-dot" style={{ background: "var(--cp-danger)" }} />
+      {label}
+    </button>
+  );
+}
+
 /** After the search selects a stock: say so, with the way to its chart. */
 function Picked({ symbol, onChart }: { symbol: string; onChart: () => void }) {
   return (
@@ -206,7 +241,8 @@ function Picked({ symbol, onChart }: { symbol: string; onChart: () => void }) {
   );
 }
 
-function TabChip({ id, label, num, on, onClick, small }: { id: string; label: string; num?: string; on: boolean; onClick: () => void; small?: boolean }) {
+/** A numbered tab, as the design draws it: a pill with the mono number, mint when on. */
+function TabChip({ id, label, num, on, onClick }: { id: DeskSection; label: string; num: string; on: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -216,109 +252,140 @@ function TabChip({ id, label, num, on, onClick, small }: { id: string; label: st
       onClick={onClick}
       className="flex items-center"
       style={{
-        flex: "none", gap: 8, padding: small ? "7px 12px" : "8px 14px", borderRadius: 999, fontSize: small ? 12 : 13, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer",
+        flex: "none", gap: 9, padding: "9px 17px", borderRadius: 999, fontSize: 14, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer",
         fontFamily: "var(--sans)", border: `1px solid ${on ? "var(--mint-line)" : "var(--line-2)"}`,
-        background: on ? "var(--mint-soft)" : "transparent", color: on ? "var(--cp-ink)" : "var(--cp-ink-2)",
+        background: on ? "var(--mint-soft)" : "transparent", color: on ? "var(--mint)" : "var(--cp-ink-2)",
       }}
     >
-      {num && <span className="cp-num" style={{ fontSize: 9.5, color: on ? "var(--mint)" : "var(--cp-ink-4)" }}>{num}</span>}
+      <span className="cp-num" style={{ fontSize: 10.5, color: on ? "var(--mint)" : "var(--cp-ink-4)" }}>{num}</span>
       {label}
     </button>
   );
 }
 
-// ── More ─────────────────────────────────────────────────────────────────
-
-type MoreKey = "copilot" | "fno" | "events" | "strategy" | "chartink" | "watchlist" | "saved" | "paper" | "settings";
-
-/**
- * More's destinations (PRD §3.1), each a real view. PRD "Learning and
- * methodology" has no view in the app yet, so it is not listed.
- */
-const MORE: Array<{ key: MoreKey; label: string; note: string }> = [
-  { key: "copilot", label: "AI Copilot", note: "Ask about anything on the desk, with sources" },
-  { key: "fno", label: "Options & futures lab", note: "NSE F&O: open interest, build-up and option chains (end of day)" },
-  { key: "events", label: "Events calendar", note: "NSE results, dividends and corporate actions by date, with how each stock moved on past occurrences" },
-  { key: "strategy", label: "Strategy Builder", note: "Cash, futures and options plans for one stock, with the evidence and the payoff" },
-  { key: "chartink", label: "Chartink scans", note: "Use your Chartink scans as opportunity sources" },
-  { key: "watchlist", label: "Watchlists", note: "Your watchlists and price alerts" },
-  { key: "saved", label: "Saved analyses", note: "Copilot threads, screens and questions you kept" },
-  { key: "paper", label: "Paper trading", note: "Your paper trades: predicted against actual" },
-  { key: "settings", label: "Settings & integrations", note: "Broker connections (read-only) and statement imports" },
-];
-
-/** Small filter-style chip (design §1) for More's destinations. */
-function SubChip({ id, on, onClick, children }: { id: MoreKey; on?: boolean; onClick: () => void; children: ReactNode }) {
+/** "My portfolio": the real, broker-read portfolio inside the frame. A button, not a numbered tab. */
+function MyPortfolioButton({ on, onClick, small }: { on: boolean; onClick: () => void; small?: boolean }) {
   return (
     <button
       type="button"
-      data-testid={`desk-more-${id}`}
-      aria-pressed={on === undefined ? undefined : on}
+      data-testid="desk-my-portfolio"
+      aria-pressed={on}
       onClick={onClick}
+      title="Your real holdings and F&O positions, read from your brokers (read-only)"
       style={{
-        flex: "none", padding: "5px 11px", borderRadius: 999, fontSize: 12, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)",
-        border: `1px solid ${on ? "var(--mint-line)" : "var(--line-2)"}`, background: on ? "var(--mint-soft)" : "transparent", color: on ? "var(--mint)" : "var(--cp-ink-2)",
+        flex: "none", padding: small ? "6px 12px" : "9px 17px", borderRadius: 999, fontSize: small ? 12 : 14, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer",
+        fontFamily: "var(--sans)", border: `1px solid ${on ? "var(--mint-line)" : "var(--line-2)"}`,
+        background: on ? "var(--mint-soft)" : "transparent", color: on ? "var(--mint)" : "var(--cp-ink-2)",
       }}
     >
-      {children}
+      My portfolio
     </button>
   );
 }
 
-/** PRD §3.1 lists "Learning and methodology" under More; the app has no such view yet, so it is a line of text, not a button. */
-function LearningGap({ phone }: { phone?: boolean }) {
+/** The view switcher under the breadcrumb: pills, the current one filled mint (the design's sub-chips). */
+function ViewSwitcher({ tab, view, onPick, bleed, underline }: { tab: DeskSection; view: string | null; onPick: (v: string) => void; bleed?: CSSProperties; underline?: boolean }) {
+  const views = SECTION_VIEWS[tab];
+  if (!views.length) return null;
   return (
-    <p data-testid="desk-more-learning-gap" className="m-0" style={{ paddingBottom: phone ? 12 : 0, fontSize: phone ? 11.5 : 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-      Learning and methodology: not in the app yet.
+    <div data-testid="desk-views" data-variant={underline ? "sections" : "views"} role="group" aria-label={`${SECTION_LABEL[tab]} ${underline ? "sections" : "views"}`} className="cp-scroll flex overflow-x-auto"
+      style={{ gap: underline ? 22 : 8, ...(underline ? { borderBottom: "1px solid var(--cp-line)" } : {}), ...bleed }}>
+      {views.map((v) => {
+        const on = v.key === view;
+        return (
+          <button
+            key={v.key}
+            type="button"
+            data-testid={`desk-view-${v.key}`}
+            aria-pressed={on}
+            onClick={() => onPick(v.key)}
+            style={underline ? {
+              flex: "none", padding: "8px 0 10px", border: 0, borderBottom: `2px solid ${on ? "var(--mint)" : "transparent"}`, marginBottom: -1, background: "transparent",
+              fontSize: 13.5, fontWeight: on ? 600 : 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)", color: on ? "var(--cp-ink)" : "var(--cp-ink-3)",
+            } : {
+              flex: "none", padding: "7px 15px", borderRadius: 999, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)",
+              border: `1px solid ${on ? "var(--mint)" : "var(--line-2)"}`, background: on ? "var(--mint)" : "transparent", color: on ? "var(--bg-0)" : "var(--cp-ink-2)",
+            }}
+          >
+            {v.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A Trade Desk section's sub-views: the design's chips, the current one filled mint. */
+function SubViewSwitcher({ subs, sub, onPick, bleed }: { subs: readonly { key: string; label: string }[]; sub: string | null; onPick: (s: string) => void; bleed?: CSSProperties }) {
+  return (
+    <div data-testid="desk-subviews" role="group" aria-label="Sub-views" className="cp-scroll flex overflow-x-auto" style={{ gap: 8, ...bleed }}>
+      {subs.map((v) => {
+        const on = v.key === sub;
+        return (
+          <button key={v.key} type="button" data-testid={`desk-sub-${v.key}`} aria-pressed={on} onClick={() => onPick(v.key)}
+            style={{
+              flex: "none", padding: "6px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)",
+              border: `1px solid ${on ? "var(--mint)" : "var(--line-2)"}`, background: on ? "var(--mint)" : "transparent", color: on ? "var(--bg-0)" : "var(--cp-ink-2)",
+            }}>
+            {v.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)" };
+const lineStyle: CSSProperties = { fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" };
+
+/** Trade Desk's one line where paper and real are easiest to confuse. */
+function PaperRealLine({ onOpen }: { onOpen: () => void }) {
+  return (
+    <p data-testid="desk-paper-real-line" className="m-0" style={lineStyle}>
+      These are paper trades. Your real holdings and F&amp;O positions (read-only): <button type="button" data-testid="desk-paper-real-link" onClick={onOpen} style={linkBtn}>My portfolio</button>
     </p>
   );
 }
 
-/** With the Copilot docked: More as a list of its destinations. */
-function MoreList({ onPick }: { onPick: (k: MoreKey) => void }) {
+// ── hosting ──────────────────────────────────────────────────────────────
+
+/** One re-hosted screen: its own error boundary and loading state. `desk-panel-<id>`; the old desk's ids where it had one. */
+function Hosted({ id, name, children }: { id: string; name: string; children: ReactNode }) {
   return (
-    <section data-testid="desk-more-list" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-      <div style={{ padding: "13px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
-        <span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>06</span> · More</span>
-      </div>
-      <ul className="m-0 grid p-0" style={{ listStyle: "none", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
-        {MORE.map((m) => (
-          <li key={m.key} style={{ borderTop: "1px solid var(--cp-line)" }}>
-            <button
-              type="button"
-              data-testid={`desk-more-item-${m.key}`}
-              onClick={() => onPick(m.key)}
-              className="cp-row-link flex w-full flex-col"
-              style={{ gap: 4, padding: "14px 18px", border: 0, background: "transparent", color: "inherit", textAlign: "left", fontFamily: "var(--sans)" }}
-            >
-              <span style={{ fontSize: 14, fontWeight: 500 }}>{m.label} ›</span>
-              <span style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-                {m.key === "copilot" ? "Docked at the right of the desk. Ask about anything on it, with sources." : m.note}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+    <div data-testid={`desk-panel-${id}`} className="cp-desk-host flex min-w-0 flex-col">
+      <SafeWidget key={id} name={`Trading desk · ${name}`}>
+        <Suspense fallback={<LoadingBlock label={`Loading ${name}`} rows={4} />}>{children}</Suspense>
+      </SafeWidget>
+    </div>
+  );
+}
+
+/** A titled part of a view, below its main screen (Events calendar, F&O, Chartink sources, live-readiness, audit). */
+function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-label={title} className="flex min-w-0 flex-col" style={{ gap: 14, paddingTop: 18, borderTop: "1px solid var(--cp-line)" }}>
+      <h2 className="cp-eyebrow m-0" data-testid={`desk-section-${id}-title`}>{title}</h2>
+      <Hosted id={id} name={title}>{children}</Hosted>
     </section>
   );
 }
 
 /** Questions for the desk's Copilot about what the desk is showing. */
-function useDockChips(tab: DeskTab, symbol: string | null): string[] {
+function useDockChips(loc: DeskLocation, symbol: string | null): string[] {
   const q = useDeskScanner();
   const top = q.data?.setups[0]?.symbol;
   const sym = symbol ?? top ?? null;
   return useMemo(() => {
     const out: string[] = [];
-    if (tab === "chart" && sym) {
+    if (((loc.tab === "market" && loc.view === "research") || (loc.tab === "trade" && loc.view === "chart")) && sym) {
       out.push(`Explain the ${sym} setup and what would invalidate it`);
       out.push(`Size a trade in ${sym} with 1% risk`);
-    } else if (tab === "fno") {
+    } else if (loc.tab === "market" && loc.view === "smartmoney") {
       out.push("What does NIFTY option OI say about this expiry?");
       out.push("Which F&O stocks show long build-up today?");
-    } else if (tab === "portfolio") {
+    } else if (loc.tab === "portfolio") {
       out.push("What are the key risks in my portfolio this week?");
-    } else if (tab === "intel") {
+    } else if (loc.tab === "market" && loc.view === "intel") {
       out.push("Summarise today’s most important filings");
     } else {
       if (top) out.push(`Why does ${top} rank first on the scanner?`);
@@ -326,24 +393,25 @@ function useDockChips(tab: DeskTab, symbol: string | null): string[] {
     }
     out.push("What are the key market risks this week?");
     return [...new Set(out)];
-  }, [tab, sym, top]);
+  }, [loc.tab, loc.view, sym, top]);
 }
 
 export default function TradingDeskScreen() {
-  const { mobile, wide, go } = useCopilotShell();
+  const { mobile, wide } = useCopilotShell();
   const [params, setParams] = useSearchParams();
-  const rawTab = params.get("tab");
-  const more = rawTab === "more";
-  const tab: DeskTab = isDeskTab(rawTab) ? rawTab : "overview";
+  const search = params.toString();
+  const docked = wide;
+  // From 1400px the Copilot is a window beside the desk: locked in the right column (default) or floating over it.
+  const copilotWindow = useCopilotWindow();
+  const floating = docked && copilotWindow.mode === "floating";
+  const harness = !!StrategyGraphsHarness && params.get("tab") === "more" && params.get("view") === "strategy-graphs";
+  // An old desk URL (or a stray view): replaced by its new place before anything mounts.
+  const redirect = useMemo(() => (harness ? null : legacyRedirect(new URLSearchParams(search), docked)), [search, docked, harness]);
+  const loc = useMemo(() => locationOf(new URLSearchParams(search)), [search]);
+  const section = params.get("section");
   const rawSym = (params.get("sym") || "").toUpperCase();
   const symbol = SYM_RE.test(rawSym) ? rawSym : null;
   const persona: DeskPersona = params.get("persona") === "investor" ? "investor" : "trader";
-  const docked = wide;
-  // The desk's Copilot full height in the page: More's AI Copilot wherever it is not docked.
-  const strategyView = more && params.get("view") === "strategy";
-  const chartinkView = more && params.get("view") === "chartink";
-  const pageCopilot = more && !docked && !strategyView && !chartinkView;
-  const moreOn = more || tab === "fno" || tab === "events";
   const dockRef = useRef<CopilotDockHandle>(null);
   const pendingAsk = useRef<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -351,33 +419,48 @@ export default function TradingDeskScreen() {
   const scan = useDeskScanner();
   const padX = padFor(mobile);
 
-  const update = useCallback((next: { tab?: DeskTab | "more"; sym?: string; persona?: DeskPersona; view?: string; extra?: Record<string, string> }) => {
+  useLayoutEffect(() => {
+    if (redirect) setParams(redirect, { replace: true });
+  }, [redirect, setParams]);
+
+  /** Go to a place: the tab, its view (default when left out) and extra params; the old view's params are dropped. */
+  const goPlace = useCallback((tab: DeskPlace, view?: string | null, extra?: Record<string, string>) => {
     setParams((prev) => {
       const p = new URLSearchParams(prev);
-      if (next.tab) {
-        p.set("tab", next.tab);
-        for (const k of BUILDER_PARAMS) p.delete(k);
-        if (next.view) p.set("view", next.view);
-        for (const [k, v] of Object.entries(next.extra ?? {})) p.set(k, v);
-      }
-      if (next.sym) p.set("sym", next.sym.toUpperCase());
-      if (next.persona === "investor") p.set("persona", "investor");
-      else if (next.persona === "trader") p.delete("persona");
-      return p;
+      for (const k of [...VIEW_PARAMS, "view", "section"]) p.delete(k);
+      p.set("tab", tab);
+      const v = view === undefined ? defaultView(tab) : view;
+      if (v) p.set("view", v);
+      const sub = defaultSub(tab, v ?? null);
+      if (sub) p.set("sub", sub);
+      for (const [k, val] of Object.entries(extra ?? {})) p.set(k, val);
+      return canonical(p);
     }, { replace: true });
   }, [setParams]);
 
-  // Questions go to the desk's own Copilot: the dock when it shows, else More · AI Copilot.
+  const setParam = useCallback((patch: Record<string, string | null>) => {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev);
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null) p.delete(k);
+        else p.set(k, v);
+      }
+      return canonical(p);
+    }, { replace: true });
+  }, [setParams]);
+
+  // Questions go to the desk's own Copilot: the dock when it shows, else the page Copilot (?tab=copilot).
   const askDesk = useCallback((question: string) => {
     if (dockRef.current) {
       dockRef.current.ask(question);
       return;
     }
     pendingAsk.current = question;
-    update({ tab: "more" });
-  }, [update]);
+    goPlace("copilot");
+  }, [goPlace]);
 
-  // A question asked from another view is sent once More · AI Copilot is up.
+  const pageCopilot = !redirect && loc.tab === "copilot" && !docked;
+  // A question asked from another view is sent once the page Copilot is up.
   useEffect(() => {
     if (!pageCopilot || !pendingAsk.current || !dockRef.current) return;
     const q = pendingAsk.current;
@@ -385,60 +468,76 @@ export default function TradingDeskScreen() {
     dockRef.current.ask(q);
   }, [pageCopilot]);
 
-  const desk = useMemo<DeskState>(() => ({
-    tab,
-    openTab: (t) => update({ tab: t }),
-    symbol,
-    openChart: (s) => update({ tab: "chart", sym: s }),
-    setSymbol: (s) => update({ sym: s }),
-    openStrategy: (s, src) => update({
-      tab: "more", view: "strategy", sym: s,
-      extra: src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : undefined,
-    }),
-    openStrategyIdeas: (focus) => update({ tab: "more", view: "strategy", extra: { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) } }),
-    openStrategyPlan: (params) => update({ tab: "more", view: "strategy", extra: { ...params, mode: "stock", build: "1" } }),
-    openChartink: () => update({ tab: "more", view: "chartink" }),
-    askDesk,
-    docked,
-    persona,
-    setPersona: (p) => update({ persona: p }),
-  }), [tab, symbol, update, askDesk, docked, persona]);
-
-  // "Paper trading": the Portfolio & Risk tab, scrolled to its paper-trade card once it has rendered.
+  // Scroll to a part of a view once it has rendered (a lazy screen can take a moment).
   const scrollTimer = useRef<number | null>(null);
   useEffect(() => () => { if (scrollTimer.current) window.clearInterval(scrollTimer.current); }, []);
-  const openPaper = () => {
-    update({ tab: "portfolio" });
+  const scrollWhenReady = useCallback((selector: string) => {
     if (scrollTimer.current) window.clearInterval(scrollTimer.current);
     let tries = 0;
     scrollTimer.current = window.setInterval(() => {
-      const el = document.querySelector(PAPER_CARD);
+      const el = document.querySelector(selector);
       tries += 1;
       if (el || tries > 40) {
         if (scrollTimer.current) window.clearInterval(scrollTimer.current);
         scrollTimer.current = null;
-        el?.scrollIntoView({ block: "start", behavior: "smooth" });
+        el?.scrollIntoView({ block: "start" });
       }
     }, 150);
-  };
+  }, []);
+  // ?section= opens a part of a view (Market Overview's scanner list, the Events calendar, an F&O section, Chartink).
+  useEffect(() => {
+    if (redirect || !section) return;
+    scrollWhenReady(section === "scanner" ? '[data-testid="desk-scanner-toggle"]' : `[data-testid="desk-panel-${section}"]`);
+  }, [redirect, section, loc.tab, loc.view, scrollWhenReady]);
 
-  const pickMore = (k: MoreKey) => {
-    if (k === "copilot") {
-      if (dockRef.current && docked) dockRef.current.focus();
-      else update({ tab: "more" });
-    } else if (k === "fno") update({ tab: "fno" });
-    else if (k === "events") update({ tab: "events" });
-    else if (k === "strategy") update({ tab: "more", view: "strategy" });
-    else if (k === "chartink") update({ tab: "more", view: "chartink" });
-    else if (k === "watchlist") go("page/watchlist");
-    else if (k === "saved") go("page/saved");
-    else if (k === "paper") openPaper();
-    else go("page/brokers");
-  };
+  const goSection = useCallback((tab: DeskPlace, view: string | null, sec: string, extra?: Record<string, string>) => {
+    goPlace(tab, view, { section: sec, ...(extra ?? {}) });
+  }, [goPlace]);
+
+  const desk = useMemo<DeskState>(() => ({
+    tab: oldTabOf(loc),
+    openTab: (t) => {
+      const pl = placeOfOldTab(t);
+      if (pl.section) goSection(pl.tab, pl.view, pl.section);
+      else goPlace(pl.tab, pl.view);
+    },
+    symbol,
+    // The owner's design: a symbol's chart is Trade Desk › Chart Analysis › Live chart (Market Desk › Stock Research stays for
+    // company research, reached from the Market Desk switcher).
+    openChart: (s) => goPlace("trade", "chart", { sub: "live", sym: s.toUpperCase() }),
+    setSymbol: (s) => setParam({ sym: s.toUpperCase() }),
+    // Strategy Lab was removed (owner, 29 Oct): a trade is built on the chart's paper basket, so these open the chart.
+    openStrategy: (s) => goPlace("trade", "chart", { sub: "live", sym: s.toUpperCase() }),
+    openStrategyIdeas: (focus) => goPlace("trade", "chart", { sub: "live", ...(focus ? { sym: focus.toUpperCase() } : {}) }),
+    openStrategyPlan: (p) => {
+      const sym = p.sym ?? p.underlying ?? null;
+      goPlace("trade", "chart", { sub: "live", ...(sym ? { sym: sym.toUpperCase() } : {}), ...(p.tp ? { tp: p.tp } : {}) });
+    },
+    // Chartink sources live only in Trade Desk › AI Scanner › Signal library & sources (the owner's design).
+    openChartink: () => goPlace("trade", "scanner", { sub: "library", section: "chartink" }),
+    openLab: (view, opts) => {
+      const extra = {
+        ...(opts?.symbol ? { lab_sym: opts.symbol.toUpperCase() } : {}),
+        ...(opts?.focus ? { lab_focus: opts.focus.toUpperCase() } : {}),
+      };
+      if (view === "strategies") goPlace("trade", "chart", { sub: "live", ...(opts?.symbol ? { sym: opts.symbol.toUpperCase() } : {}) });
+      else goSection("market", "smartmoney", "fno", { ...(view && view !== "buildup" ? { lab: view } : {}), ...extra });
+    },
+    openIntel: (opts) => goPlace("market", "intel", {
+      ...(opts?.chip && opts.chip !== "all" ? { in_chip: opts.chip } : {}), ...(opts?.event ? { in_ev: opts.event } : {}),
+    }),
+    openPaperTrades: () => goPlace("trade", "paper"),
+    // The breadcrumb is the location now; where a link left from no longer names a crumb.
+    noteFrom: () => undefined,
+    askDesk,
+    docked,
+    persona,
+    setPersona: (p) => setParam({ persona: p === "investor" ? "investor" : null }),
+  }), [loc, symbol, goPlace, goSection, setParam, askDesk, docked, persona]);
 
   // Search (also the chart workspace's instrument search, PRD §7.2):
-  //   a scanner stock (symbol prefix)  → selected; the tab stays
-  //   any other one-word symbol        → opened on the Chart tab (?sym=), which loads any NSE symbol
+  //   a scanner stock (symbol prefix)  → selected; the place stays
+  //   any other one-word symbol        → opened in Market Desk › Stock Research (?sym=), which loads any NSE symbol
   //   anything else (words, questions) → asked to the desk's Copilot
   const onSearch = (text: string) => {
     const t = text.trim();
@@ -448,7 +547,7 @@ export default function TradingDeskScreen() {
       setPicked(sym);
     } else if (SYMBOL_TOKEN.test(t)) {
       setPicked(null);
-      if (!more && tab === "chart") desk.setSymbol(t);
+      if ((loc.tab === "market" && loc.view === "research") || (loc.tab === "trade" && loc.view === "chart")) desk.setSymbol(t);
       else desk.openChart(t);
     } else {
       setPicked(null);
@@ -456,66 +555,130 @@ export default function TradingDeskScreen() {
     }
   };
 
-  const chips = useDockChips(more ? "overview" : tab, symbol);
-  const TabScreen = TAB_SCREENS[tab];
+  const chips = useDockChips(loc, symbol);
   const bleed = { margin: `0 -${padX}px`, padding: `0 ${padX}px` };
-
-  const moreChips = moreOn && (
-    <div data-testid="desk-more-chips" role="group" aria-label="More" className="cp-scroll flex overflow-x-auto" style={{ gap: 6, ...(mobile ? { ...bleed, paddingBottom: 12 } : {}) }}>
-      {MORE.map((m) => (
-        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView && !chartinkView : m.key === "chartink" ? chartinkView : m.key === "fno" ? !more && tab === "fno" : m.key === "events" ? !more && tab === "events" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
-          {m.label}
-        </SubChip>
-      ))}
-    </div>
+  const openPortfolio = () => goPlace("portfolio");
+  const openRisk = () => goPlace("risk", "controls");
+  const pickTab = (t: DeskSection) => goPlace(t);
+  const crumbs = crumbsOf(loc);
+  const trailBar = (
+    <DeskTrail
+      tab={crumbs.tab}
+      view={crumbs.view}
+      sub={crumbs.sub}
+      onRoot={() => goPlace("overview")}
+      onTab={() => goPlace(loc.tab)}
+      onView={() => goPlace(loc.tab, loc.view)}
+    />
   );
 
+  // ── the place's content ──
   let content: ReactNode;
-  if (StrategyGraphsHarness && more && params.get("view") === "strategy-graphs") {
+  if (redirect) {
+    content = <LoadingBlock label="Opening the desk" rows={2} />;
+  } else if (harness && StrategyGraphsHarness) {
     content = (
       <div data-testid="desk-panel-strategy-graphs" className="flex min-w-0 flex-col">
         <Suspense fallback={<LoadingBlock label="Loading" rows={4} />}><StrategyGraphsHarness /></Suspense>
       </div>
     );
-  } else if (strategyView) {
+  } else if (loc.tab === "overview") {
     content = (
-      <div data-testid="desk-panel-strategy" role="tabpanel" aria-label="Strategy Builder" className="flex min-w-0 flex-col">
-        <SafeWidget key="strategy" name="Trading desk · strategy builder">
-          <Suspense fallback={<LoadingBlock label="Loading the Strategy Builder" rows={4} />}><StrategyBuilder /></Suspense>
-        </SafeWidget>
-      </div>
+      <Hosted id="market-overview" name="Market Overview">
+        <MarketOverview
+          onOpenTradeDesk={() => goPlace("trade", "paper")}
+          onOpenTrade={() => goPlace("trade", "scanner", { sub: "ranked" })}
+          onOpenScorecard={() => goPlace("trade", "scanner", { sub: "scorecard" })}
+          onOpenMarket={(view) => goPlace("market", view ?? undefined)}
+        />
+      </Hosted>
     );
-  } else if (chartinkView) {
+  } else if (loc.tab === "trade") {
+    // The owner's workbench (PLAN.md "1-REVISED"): four sections with sub-views (Strategy Lab removed 29 Oct). Paper Trading is
+    // tabs/trade-desk; Watchlists the Watchlist page; AI Scanner and Chart Analysis host today's scanner list, Chartink
+    // sources and chart until step 3 PR B builds them.
+    switch (loc.view) {
+      case "scanner":
+        // AI Scanner: Ranked candidates (the Top 10 decision cards and every scanner candidate), Signal library & sources
+        // (the scanner's categories and your Chartink sources), Scorecard (the ideas' study, then the F&O forward test).
+        content = loc.sub === "library"
+          ? (
+            <>
+              <Hosted id="signal-categories" name="the signal categories"><SignalCategories /></Hosted>
+              <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
+            </>
+          )
+          : loc.sub === "scorecard"
+            ? (
+              <>
+                <Hosted id="scorecard" name="the Idea scorecard"><IdeaScorecard /></Hosted>
+                <Section id="forward-test" title="F&O signal · forward test"><ForwardTestPanel /></Section>
+              </>
+            )
+            : (
+              <>
+                <Hosted id="top10" name="the Top 10 ideas"><ScannerTop10 onScorecard={() => goPlace("trade", "scanner", { sub: "scorecard" })} /></Hosted>
+                <Section id="scanner" title="All scanner candidates"><ScannerTab listOnly /></Section>
+              </>
+            );
+        break;
+      case "chart":
+        content = loc.sub === "record"
+          ? <p data-testid="desk-trade-record-pending" className="m-0" style={lineStyle}>Signal record: not available yet. No route serves a signal's levels, lifecycle and revisions (the positional_signals_history table has no route), so nothing is shown rather than a made-up record.</p>
+          : (
+            <Hosted id="chart" name="Chart Analysis">
+              {/* The owner's chart interface (29 Oct): the chart with futures OI, build-up and the strike ladder, the option chain,
+                  recommended strategies, the paper basket and the strategy panel (analysis/ChartAnalysis.tsx). The full
+                  research chart (opportunity detail, filings, fundamentals) is Market Desk › Stock Research. */}
+              <LiveChartView />
+            </Hosted>
+          );
+        break;
+      case "watchlists":
+        content = <Hosted id="watchlists" name="Watchlists"><Watchlist /></Hosted>;
+        break;
+      default:
+        content = (
+          <>
+            <PaperRealLine onOpen={openPortfolio} />
+            <Hosted id="trade-desk" name="Trade Desk">
+              <TradeDeskTab sub={loc.sub ?? null} onSub={(sb, extra) => goPlace("trade", loc.view, { sub: sb, ...(extra ?? {}) })} />
+            </Hosted>
+          </>
+        );
+    }
+  } else if (loc.tab === "market") {
+    // Market Desk: its own frame (view head, symbol strip) over the hosted screens, plus the Idea scorecard.
     content = (
-      <div data-testid="desk-panel-chartink" role="tabpanel" aria-label="Chartink scans" className="flex min-w-0 flex-col">
-        <SafeWidget key="chartink" name="Trading desk · chartink scans">
-          <Suspense fallback={<LoadingBlock label="Loading Chartink scans" rows={4} />}><ChartinkSettings /></Suspense>
-        </SafeWidget>
-      </div>
+      <SafeWidget key="market" name="Trading desk · Market Desk">
+        <Suspense fallback={<LoadingBlock label="Loading Market Desk" rows={4} />}><MarketDesk view={loc.view} /></Suspense>
+      </SafeWidget>
     );
-  } else if (pageCopilot) {
+  } else if (loc.tab === "risk") {
+    content = <Hosted id="riskdesk" name="the Risk Desk"><RiskDeskTab view={loc.view} /></Hosted>;
+  } else if (loc.tab === "portfolio") {
     content = (
-      <div data-testid="desk-panel-more" role="tabpanel" aria-label="AI Copilot" className="flex min-w-0 flex-col">
-        <CopilotDock ref={dockRef} chips={chips} height="calc(100dvh - 250px)" variant="page" />
-      </div>
-    );
-  } else if (more) {
-    content = (
-      <div data-testid="desk-panel-more" role="tabpanel" aria-label="More" className="flex min-w-0 flex-col">
-        <MoreList onPick={pickMore} />
-      </div>
+      <SafeWidget key="portfolio" name="Trading desk · My portfolio">
+        <Suspense fallback={<LoadingBlock label="Loading your portfolio" rows={4} />}><PortfolioTab withPaper={false} /></Suspense>
+      </SafeWidget>
     );
   } else {
-    content = (
-      <div data-testid={`desk-panel-${tab}`} role="tabpanel" aria-label={DESK_TAB_LABEL[tab]} className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-        <SafeWidget key={tab} name={`Trading desk · ${tab}`}>
-          <Suspense fallback={<LoadingBlock label={`Loading ${DESK_TAB_LABEL[tab]}`} rows={4} />}>
-            <TabScreen />
-          </Suspense>
-        </SafeWidget>
-      </div>
-    );
+    content = <CopilotDock ref={dockRef} chips={chips} height="calc(100dvh - 250px)" variant="page" />;
   }
+
+  const panelTab = harness ? "more" : loc.tab;
+  const panel = (
+    <div
+      data-testid={`desk-panel-${panelTab}`}
+      data-view={loc.view ?? ""}
+      role="tabpanel"
+      aria-label={[crumbs.tab, crumbs.view, crumbs.sub].filter(Boolean).join(" · ")}
+      className="flex min-w-0 flex-col"
+      style={{ gap: mobile ? 14 : 20 }}
+    >
+      {content}
+    </div>
+  );
 
   const footer = (
     <footer
@@ -530,21 +693,37 @@ export default function TradingDeskScreen() {
     </footer>
   );
 
-  const dataTab = more ? "more" : tab;
+  const tab4 = isSection(loc.tab) ? loc.tab : null;
+  const subs = tab4 && !redirect ? subViewsOf(tab4, loc.view) : [];
+  const views = tab4 && !redirect ? (
+    <>
+      <ViewSwitcher tab={tab4} view={loc.view} onPick={(v) => goPlace(tab4, v)} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} underline={tab4 === "trade"} />
+      {subs.length > 0 && <SubViewSwitcher subs={subs} sub={loc.sub ?? null} onPick={(sb) => goPlace(tab4, loc.view, { sub: sb })} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} />}
+    </>
+  ) : null;
+  const rootAttrs = {
+    "data-testid": "screen-trading-desk",
+    "data-tab": panelTab,
+    "data-view": loc.view ?? "",
+    "data-sub": loc.sub ?? "",
+    "data-symbol": symbol ?? "",
+    "data-persona": persona,
+  };
 
   if (mobile) {
-    const bottomKey: BottomKey = moreOn ? "more" : tab;
+    const bottomKey: BottomKey = tab4 ?? (loc.tab === "copilot" ? "copilot" : "overview");
     // Room under the content for the fixed bottom bar; the phone Copilot's ask box sits above it (CopilotDock).
-    const phoneStyle = { paddingTop: 4, paddingBottom: BOTTOM_BAR_SPACE, ["--desk-bottom-bar" as string]: BOTTOM_BAR_SPACE } as CSSProperties;
+    const phoneStyle = { paddingBottom: BOTTOM_BAR_SPACE, ["--desk-bottom-bar" as string]: BOTTOM_BAR_SPACE } as CSSProperties;
     return (
       <DeskProvider value={desk}>
-        <div data-testid="screen-trading-desk" data-tab={dataTab} data-symbol={symbol ?? ""} data-persona={persona} className="flex min-w-0 flex-col" style={phoneStyle}>
-          <header data-testid="desk-mobile-header" className="flex flex-col" style={{ gap: 10, paddingBottom: 12 }}>
-            <div className="flex items-center" style={{ gap: 10 }}>
-              <span className="nv-mark" aria-hidden style={{ flex: "none", width: 32, height: 32, fontSize: 19 }}>न</span>
-              <span className="flex min-w-0 flex-col" style={{ gap: 3 }}>
-                <span style={{ fontFamily: "var(--display)", fontSize: 20, lineHeight: 1 }}>Nivesh Copilot</span>
-                <span className="cp-num" style={{ fontSize: 8.5, letterSpacing: "0.14em", color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>AI SMART TRADING DESK</span>
+        <div {...rootAttrs} className="flex min-w-0 flex-col" style={phoneStyle}>
+          <PaperBanner padX={padX} mobile />
+          <header data-testid="desk-mobile-header" className="flex flex-col" style={{ gap: 10, paddingTop: 12, paddingBottom: 12 }}>
+            <div className="flex items-center" style={{ gap: 8 }}>
+              <span className="nv-mark" aria-hidden style={{ flex: "none", width: 30, height: 30, fontSize: 18 }}>न</span>
+              <span className="flex min-w-0 flex-col" style={{ gap: 3, overflow: "hidden" }}>
+                <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Nivesh Copilot</span>
+                <span className="cp-num" style={{ fontSize: 8.5, letterSpacing: "0.14em", color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>AI SMART TRADING DESK</span>
               </span>
               <span style={{ flex: 1 }} />
               <button
@@ -569,17 +748,20 @@ export default function TradingDeskScreen() {
               >
                 {persona === "trader" ? "Trader" : "Investor"}
               </button>
+              <MyPortfolioButton small on={loc.tab === "portfolio"} onClick={openPortfolio} />
             </div>
+            <RiskPill phone onOpen={openRisk} />
             {searchOpen && <SearchBox column onSubmit={onSearch} autoFocus persona={persona} setups={scan.data?.setups ?? []} />}
             {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           </header>
 
-          {moreChips}
-          {moreOn && <LearningGap phone />}
-
-          <div style={{ paddingBottom: 18 }}>{content}</div>
+          <div className="flex min-w-0 flex-col" style={{ gap: 10, paddingBottom: 14 }}>
+            {trailBar}
+            {views}
+          </div>
+          <div style={{ paddingBottom: 18 }}>{panel}</div>
           {!pageCopilot && footer}
-          <DeskBottomBar active={bottomKey} onPick={(k) => update({ tab: k })} />
+          <DeskBottomBar active={bottomKey} onPick={(k) => (k === "copilot" ? goPlace("copilot") : pickTab(k))} />
         </div>
       </DeskProvider>
     );
@@ -587,52 +769,71 @@ export default function TradingDeskScreen() {
 
   return (
     <DeskProvider value={desk}>
-      <div
-        data-testid="screen-trading-desk"
-        data-tab={dataTab}
-        data-symbol={symbol ?? ""}
-        data-persona={persona}
-        className="mx-auto flex min-w-0 flex-col"
-        style={{ maxWidth: docked ? 1480 : 1180 }}
-      >
-        <div data-testid="desk-topbar" className="flex flex-wrap items-center" style={{ minHeight: 64, gap: "10px 14px", ...bleed, paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--cp-line)" }}>
-          <span className="cp-eyebrow" style={{ whiteSpace: "nowrap" }}>AI Smart Trading Desk</span>
+      <div {...rootAttrs} className="mx-auto flex min-w-0 flex-col" style={{ maxWidth: docked ? 1480 : 1180 }}>
+        <PaperBanner padX={padX} mobile={false} />
+        <div data-testid="desk-topbar" className="flex flex-wrap items-center" style={{ minHeight: 60, gap: "10px 14px", ...bleed, paddingTop: 12, paddingBottom: 4 }}>
+          <span className="cp-eyebrow" style={{ whiteSpace: "nowrap" }}>AI Smart Trading Desk · Trader mode</span>
           {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           <span style={{ flex: "1 1 0", minWidth: 0 }} />
           <SearchBox onSubmit={onSearch} persona={persona} setups={scan.data?.setups ?? []} />
           <PersonaSwitch persona={persona} onPick={desk.setPersona} />
+          <RiskPill onOpen={openRisk} />
           <StatusPill />
+          {docked ? (
+            <button type="button" data-testid="desk-docked-note" onClick={() => dockRef.current?.focus()} className="cp-pill" data-tone="mint" style={{ flex: "none", cursor: "pointer", background: "var(--mint-soft)" }}>
+              {floating ? "Copilot floating" : "Copilot docked right"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="desk-copilot-button"
+              aria-pressed={loc.tab === "copilot"}
+              onClick={() => goPlace("copilot")}
+              className="cp-pill"
+              data-tone="mint"
+              style={{ flex: "none", cursor: "pointer", background: loc.tab === "copilot" ? "var(--mint-soft)" : "transparent" }}
+            >
+              Copilot
+            </button>
+          )}
         </div>
 
-        <div className="flex items-center" style={{ gap: 12, ...bleed, paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--cp-line)" }}>
-          <div role="tablist" aria-label="Desk modules" className="cp-scroll flex min-w-0 overflow-x-auto" style={{ flex: 1, gap: 6 }}>
-            {NAV.map((t, i) => (
-              <TabChip key={t.key} id={t.key} num={String(i + 1).padStart(2, "0")} label={DESK_TAB_LABEL[t.key]} on={!moreOn && t.key === tab} onClick={() => update({ tab: t.key })} />
+        <div className="flex items-center" style={{ gap: 10, ...bleed, paddingTop: 12, paddingBottom: 16, borderBottom: "1px solid var(--cp-line)" }}>
+          <div data-testid="desk-tabs" role="tablist" aria-label="Desk tabs" className="cp-scroll flex min-w-0 overflow-x-auto" style={{ flex: "0 1 auto", gap: 10 }}>
+            {DESK_SECTIONS.map((t, i) => (
+              <TabChip key={t} id={t} num={String(i + 1).padStart(2, "0")} label={SECTION_LABEL[t]} on={!redirect && loc.tab === t} onClick={() => pickTab(t)} />
             ))}
-            <TabChip id="more" num={String(NAV.length + 1).padStart(2, "0")} label="More" on={moreOn} onClick={() => update({ tab: "more" })} />
           </div>
-          {docked && <span data-testid="desk-docked-note" className="cp-eyebrow" style={{ flex: "none", whiteSpace: "nowrap" }}>Copilot docked right</span>}
+          <span style={{ flex: 1 }} />
+          <MyPortfolioButton on={loc.tab === "portfolio"} onClick={openPortfolio} />
         </div>
 
         <div
           className="grid"
           style={{
-            gridTemplateColumns: docked ? "minmax(0,1fr) 384px" : "minmax(0,1fr)",
+            gridTemplateColumns: docked && !floating ? "minmax(0,1fr) 384px" : "minmax(0,1fr)",
             gap: 20,
             alignItems: "start",
-            padding: "24px 0 28px",
+            padding: "20px 0 28px",
             minHeight: docked ? 900 : undefined,
           }}
         >
-          <div className="flex min-w-0 flex-col" style={{ gap: 20 }}>
-            {moreChips}
-            {moreOn && <LearningGap />}
-            {content}
+          <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
+            {trailBar}
+            {views}
+            {panel}
           </div>
-          {docked && (
+          {docked && !floating && (
             <div style={{ position: "sticky", top: 20 }}>
-              <CopilotDock ref={dockRef} chips={chips} height="min(820px, calc(100dvh - 40px))" />
+              <CopilotDock ref={dockRef} chips={chips} height="min(820px, calc(100dvh - 40px))" windowMode="locked" onToggleWindow={copilotWindow.toggle} />
             </div>
+          )}
+          {floating && (
+            <FloatingCopilot rect={copilotWindow.rect} onRect={copilotWindow.setRect}>
+              {(startMove) => (
+                <CopilotDock ref={dockRef} chips={chips} height="100%" windowMode="floating" onToggleWindow={copilotWindow.toggle} onHeaderPointerDown={startMove} />
+              )}
+            </FloatingCopilot>
           )}
         </div>
         {!pageCopilot && footer}

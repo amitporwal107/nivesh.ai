@@ -30,9 +30,7 @@ def make_stub(slug: str, display: str, auth_style: str = "form"):
     """
     msg = (
         f"Native broker adapter for {display!r} (slug={slug!r}) is not yet "
-        "implemented. The OpenAlgo-based path remains available — set the "
-        "broker's API key via the admin secrets and use /api/broker/connect-hosted "
-        "instead, or wait for a native adapter."
+        "implemented, so this broker cannot be connected until one is added."
     )
 
     def _auth_url(*, state: str, redirect_uri: str) -> str:

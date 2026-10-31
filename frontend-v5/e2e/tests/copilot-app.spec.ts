@@ -509,12 +509,11 @@ test.describe("Copilot app — desktop", () => {
     for (const name of ["Risk", "Goals", "Tax"]) await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
     await pill.click();
     await expect(pill).toContainText("Trader");
-    await expect(page).toHaveURL(/\/v5\/app\/trader$/);
-    // Trader mode lists only the Smart trading desk, the Screener, Stock research and Sector rotation.
+    // Desk redesign (2026-10-27, owner): Trader mode lands on the Smart trading desk, and its rail lists only the desk; the
+    // Screener, Stock research and Sector rotation are Market Desk views (copilot-app-desk-shell.spec.ts SH-17 / SH-19).
+    await expect(page).toHaveURL(/\/v5\/app\/trader\/desk$/);
     await expect(rail.getByRole("button", { name: /Smart trading desk/ })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Screener" })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Stock research" })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Sector rotation" })).toBeVisible();
+    for (const moved of ["Screener", "Stock research", "Sector rotation"]) await expect(rail.getByRole("button", { name: moved, exact: true })).toHaveCount(0);
     for (const gone of [/Trader desk/, /Options lab/, /Strategy builder/, /Markets/, /Watchlist/, /Paper trades/]) {
       await expect(rail.getByRole("button", { name: gone })).toHaveCount(0);
     }
@@ -687,5 +686,100 @@ test.describe("Copilot app — phone (390×844)", () => {
     await expect(page.getByTestId("composer-input")).toBeInViewport();
     await expect(page.getByTestId("thread-bar")).toHaveCount(0); // phone has no thread bar
     await noSidewaysScroll(page);
+  });
+});
+
+test.describe("Copilot app — the answer shown is the checked answer (copilot_chat_p0_20261030)", () => {
+  // MOCK — not real data: the streamed draft and the final text are invented. The final frame carries the
+  // compliance node's text (backend/routes/chat.py stream_chat; tests/test_chat_compliance_delivery.py).
+  const DRAFT = ["FIXCO looks bullish. ", "You should buy it."];
+  const FINAL = "FIXCO [factual data only — no recommendation]. [factual data only — no recommendation] it.";
+  const frames = (final: string): Frame[] => [
+    { type: "meta", session_id: "new1", ai_msg_id: "ai1", user_msg_id: "u1" },
+    { type: "route", agent: "stock_analyst", confidence: 0.92 },
+    ...DRAFT.map((content) => ({ type: "token", content })),
+    { type: "done", content: final, follow_ups: [] },
+  ];
+
+  /** Hold the thread's reload after the answer, so the live turn (not the saved copy) is what is on screen. */
+  async function holdReload(page: Page, chat: ChatMock) {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/chat/messages*", async (route) => {
+      if (chat.streams.length > 0) await held;
+      await route.fallback();
+    });
+    return release;
+  }
+
+  test("TC-CP1 the final frame's text replaces the streamed draft", async ({ page }) => {
+    await setup(page);
+    const chat = await mockChat(page, { frames: frames(FINAL) });
+    const release = await holdReload(page, chat);
+    await page.goto(APP);
+    await askFromBox(page, "How is FIXCO doing?");
+    const answer = page.getByTestId("answer-text");
+    await expect(answer).toContainText("FIXCO [factual data only — no recommendation].");
+    await expect(answer).not.toContainText("bullish");
+    await expect(answer).not.toContainText("You should buy");
+    release();
+    // The saved copy is the same text, so nothing changes when it loads.
+    await expect(answer).toContainText("FIXCO [factual data only — no recommendation].");
+  });
+
+  test("TC-CP2 an unchanged answer stays as streamed", async ({ page }) => {
+    await setup(page);
+    const chat = await mockChat(page, { frames: frames(DRAFT.join("")) });
+    const release = await holdReload(page, chat);
+    await page.goto(APP);
+    await askFromBox(page, "How is FIXCO doing?");
+    const answer = page.getByTestId("answer-text");
+    await expect(answer).toHaveText(DRAFT.join("").trim());
+    release();
+    await expect(answer).toHaveText(DRAFT.join("").trim());
+  });
+});
+
+test.describe("Copilot app — no personal facts without a portfolio (copilot_chat_p0_20261030)", () => {
+  test("TC-CP3 badged prompts are not shown as fact cards to a user with no portfolio", async ({ page }) => {
+    await setup(page, "empty");
+    await mockChat(page);
+    // MOCK — not real data: what the scorers used to rank for an empty portfolio (badges made from zero defaults).
+    await page.route("**/api/copilot/suggested-prompts*", (route) => route.fulfill({
+      status: 200, contentType: "application/json", body: JSON.stringify({
+        mode: "investor", journey: "first_time", persona: "retail_investor", prompts: [
+          { id: "risk_allocation", label: "Is my risk allocation right?", query: "Is my risk allocation right?", category: "risk_diversification", badge: "Equity 0% · Debt 0%" },
+          { id: "where_to_invest", label: "Where should I invest next?", query: "Where should I invest next?", category: "portfolio_health", badge: "Debt gap — only 0%" },
+        ],
+      }),
+    }));
+    await page.goto(APP);
+    await expect(page.getByTestId("home-connect-banner")).toBeVisible();
+    await expect(page.getByTestId("home-today-title")).toHaveText("Worth knowing today");
+    await expect(page.getByTestId("home-today-card").first()).toContainText("Fixture headline one for the test suite");
+    await expect(page.getByText("Equity 0% · Debt 0%")).toHaveCount(0);
+    await expect(page.getByText("Debt gap — only 0%")).toHaveCount(0);
+    // The questions themselves are still offered, as questions.
+    await expect(page.getByTestId("home-try").filter({ hasText: "Is my risk allocation right?" })).toHaveCount(1);
+  });
+});
+
+test.describe("Copilot app — Home reads GET /api/insights as the backend answers it (copilot_chat_p0_20261030)", () => {
+  // CONTRACT: e2e/fixtures/contract-insights-list.json is the body the REAL routes return (POST /api/insights/generate,
+  // then GET /api/insights, on MOCK holdings; backend/tests/test_insights_list_contract.py compares the two). It is a
+  // bare list. Before the fix the v5 adapter wanted {insights: [...]}, threw, and Home had no insight cards.
+  const LIST = JSON.parse(fs.readFileSync(path.join(process.cwd(), "e2e", "fixtures", "contract-insights-list.json"), "utf-8")) as Array<{ title: string; severity: string }>;
+
+  test("TC-CP4 the first two saved insights are Home cards", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await setup(page);
+    await mockChat(page);
+    await page.route(/\/api\/insights(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIST) }));
+    await page.goto(APP);
+    const cards = page.getByTestId("home-today-card");
+    await expect(cards.filter({ hasText: LIST[0].title })).toHaveCount(1);
+    await expect(cards.filter({ hasText: LIST[1].title })).toHaveCount(1);
+    await expect(cards.filter({ hasText: LIST[0].title })).toContainText(LIST[0].severity === "critical" ? "Fix" : "");
+    expect(errors).toEqual([]);
   });
 });

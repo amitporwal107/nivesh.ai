@@ -16,6 +16,8 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict, Field
 
+from services.llm_safety import wrap_external_data
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -105,7 +107,8 @@ class ChatMessage(BaseModel):
 class ToolResult(BaseModel):
     """Structured output returned by every copilot tool function.
 
-    The `rows` list is widget-ready; `summary` goes into the LLM context.
+    The `rows` list is widget-ready; `summary` goes into the LLM context,
+    delimited as retrieved data (see llm_safety.wrap_external_data).
     `widget_type` tells the frontend which widget component to render.
     """
 
@@ -119,8 +122,10 @@ class ToolResult(BaseModel):
 
     def as_llm_context(self) -> str:
         if not self.ok:
-            return f"TOOL={self.tool_name} status=error reason={self.error}"
-        return f"TOOL={self.tool_name} | {self.summary}"
+            line = f"TOOL={self.tool_name} status=error reason={self.error}"
+        else:
+            line = f"TOOL={self.tool_name} | {self.summary}"
+        return wrap_external_data(line, source=self.tool_name)
 
     model_config = ConfigDict(use_enum_values=True)
 

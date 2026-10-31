@@ -58,6 +58,34 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def session_actor(user: Dict[str, Any]) -> str:
+    """Who is acting: the signed-in person (`_session_user_id`), not the client profile an advisor is acting for.
+    An audit row that named the client would record the wrong person as having flipped the control."""
+    return str(user.get("_session_user_id") or user.get("user_id") or "unknown")
+
+
+_indexes_ready = False
+
+
+async def ensure_indexes(db) -> None:
+    """The indexes the controls, the audit, the decision log and the live grants are read by. Asked for once per
+    process; a failure is logged and asked for again on the next call (the services/desk_trading.py pattern). They
+    are an optimisation and a uniqueness guarantee on one row per user, so a failure never blocks a read."""
+    global _indexes_ready
+    if _indexes_ready:
+        return
+    from services.execution_modes import AUTHORIZATIONS        # that module imports this one
+    try:
+        await db[CONTROLS].create_index([("user_id", 1)], unique=True)
+        await db[AUDIT].create_index([("user_id", 1), ("at", -1)])
+        await db[DECISIONS].create_index([("user_id", 1), ("at", -1)])
+        await db[DECISIONS].create_index([("correlation_id", 1)])
+        await db[AUTHORIZATIONS].create_index([("user_id", 1)], unique=True)
+        _indexes_ready = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("risk_controls: the indexes could not be created: %r", exc)
+
+
 def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
@@ -210,7 +238,10 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
                           limits_version: Optional[str] = None,
                           correlation_id: Optional[str] = None,
                           detail: Optional[Dict[str, Any]] = None,
-                          now: Optional[datetime] = None) -> Optional[str]:
+                          path: Optional[str] = None,
+                          now: Optional[datetime] = None,
+                          policy_version: Optional[str] = None,
+                          source: Optional[str] = None) -> Optional[str]:
     """Append one risk decision to `risk_decisions`. Returns the event id, or None if it could not be
     written.
 
@@ -223,6 +254,11 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
     writing its ticket or trade to the same database, so a log failure almost certainly means that
     write is about to fail too; refusing the trade here would add nothing but a confusing second
     error. The kill switch is the control that fails closed — this is the record of what happened.
+    The F&O risk gate does NOT use this function: its decision is the authority for the write that
+    follows, so services/risk_gate writes its own row and raises when it cannot (fail closed).
+
+    `path` names the entry path the same way the gate's rows do (services/risk_gate/contract.PATHS:
+    desk_paper_trade, journal_create, journal_fill, ...), so one query finds every refusal on a path.
     """
     event_id = str(uuid.uuid4())
     row = {
@@ -236,10 +272,13 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
         "approved_qty": approved_qty,
         "reasons": reasons or [],
         "limits_version": limits_version,
-        "policy_version": POLICY_VERSION,
+        "policy_version": policy_version or POLICY_VERSION,
         "correlation_id": correlation_id,
+        "path": path,
         "detail": detail or {},
     }
+    if source:
+        row["source"] = source
     try:
         await db[DECISIONS].insert_one(row)
     except Exception as e:  # noqa: BLE001
@@ -252,8 +291,10 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
 
 
 async def decision_rows(db, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    cur = db[DECISIONS].find({"user_id": user_id}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
+    # The decision snapshot is left out (projection, and popped for stores that ignore it): POST .../replay reads it.
+    cur = db[DECISIONS].find({"user_id": user_id}, {"snapshot": 0}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
     rows = await cur.to_list(min(limit, MAX_AUDIT_LISTED))
     for r in rows:
         r["event_id"] = r.pop("_id", None)
+        r.pop("snapshot", None)
     return rows

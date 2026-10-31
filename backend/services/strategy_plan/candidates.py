@@ -18,8 +18,10 @@ from __future__ import annotations
 import math
 import statistics
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from services import desk_cost_card
+from services import desk_trading as desk_costs
 from services.option_pricing import RISK_FREE_RATE
 from services.positional_engine import setup_rules
 
@@ -87,10 +89,32 @@ def scenario_levels(entry: float, up: bool, stop: float, atr: Optional[float], n
 
 # ── sizing (PRD §16.5) ───────────────────────────────────────────────────────
 
+def _cost_model(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """The plan's cost inputs as a desk cost-model snapshot (services/desk_trading.COST_MODEL, the desk cost card): the
+    request's `costs` (slippage_pct, brokerage_per_side) where given, the card for the rest, statutory charges always.
+    So the plan sizes with the costs a paper trade of it records. The payoff engine's net figures (payoff.py, payoff-v2)
+    are priced with the same card and the same request overrides, so the net reward : risk and the sizing agree."""
+    c = inputs.get("costs") or {}
+    model = dict(desk_costs.COST_MODEL)
+    if c.get("slippage_pct") is not None:
+        model["slippage_pct_per_side"] = c["slippage_pct"]
+    if c.get("brokerage_per_side") is not None:
+        model["brokerage_rs_per_side"] = c["brokerage_per_side"]
+    return model
+
+
 def size_position(inputs: Dict[str, Any], *, risk_per_unit: Optional[float], value_per_unit: Optional[float], unit: str,
-                  lot_units: int = 1, per_unit_label: str) -> Dict[str, Any]:
-    """units = floor(risk budget / (risk per unit x lot units)), capped by floor(capital x max allocation % / (value per unit x
-    lot units)). Incomplete, with the formula and the missing inputs, when any input is missing. Never a guessed quantity."""
+                  lot_units: int = 1, per_unit_label: str,
+                  cost_at_stop: Optional[Callable[[int], float]] = None) -> Dict[str, Any]:
+    """units = the most whole lots whose loss at the stop after costs fits the risk budget, capped by
+    floor(capital x max allocation % / (value per unit x lot units)). Incomplete, with the formula and the missing inputs,
+    when any input is missing. Never a guessed quantity.
+
+    `cost_at_stop(units)` is the estimated round-trip cost at the stop of a linear position (cash, futures), from the
+    pricing function the paper trade books with (services/desk_trading.round_trip_cost, the desk cost card); the lots
+    are found exactly against it (services/desk_cost_card.max_lots_within). Sizing on the gross stop distance alone let
+    the loss after costs exceed the budget (PRD Example A: 85 shares, ₹3,098.94 against ₹3,000). None when
+    `risk_per_unit` is already a net figure (an option structure's worst loss including costs)."""
     budget, capital = inputs.get("risk_budget_inr"), inputs.get("capital")
     if budget is None and inputs.get("risk_pct") is not None and capital:
         budget = capital * inputs["risk_pct"] / 100.0
@@ -109,12 +133,19 @@ def size_position(inputs: Dict[str, Any], *, risk_per_unit: Optional[float], val
         out["missing"].append("value per unit")
     if out["missing"]:
         return out
-    by_risk = math.floor(budget / (risk_per_unit * lot_units))
+    if cost_at_stop is not None:
+        by_risk = desk_cost_card.max_lots_within(budget, risk_per_unit, lot_units, cost_at_stop)
+    else:
+        by_risk = math.floor(budget / (risk_per_unit * lot_units))
     by_cap = math.floor(capital * alloc / 100.0 / (value_per_unit * lot_units))
     n = max(0, min(by_risk, by_cap))
     out.update(status="complete" if n >= 1 else "too_small", quantity=n, units=n * lot_units, by_risk_budget=by_risk, by_allocation_cap=by_cap,
                binding="risk_budget" if by_risk <= by_cap else "allocation_cap",
-               risk_at_stop_inr=r2(n * lot_units * risk_per_unit), deployed_inr=r2(n * lot_units * value_per_unit))
+               risk_at_stop_inr=r2(n * lot_units * risk_per_unit), deployed_inr=r2(n * lot_units * value_per_unit),
+               costs_included=cost_at_stop is not None)
+    if cost_at_stop is not None:
+        costs = cost_at_stop(n * lot_units) if n >= 1 else 0.0
+        out.update(costs_at_stop_inr=r2(costs), risk_at_stop_net_inr=r2(n * lot_units * risk_per_unit + costs))
     if n < 1:
         out["reason"] = "The risk budget or the allocation cap buys less than one share/lot."
     return out
@@ -170,9 +201,20 @@ def reward_risk(res: Dict[str, Any], linear: bool, gate: str = "base") -> Dict[s
                      "the gate uses the net ratio when costs are known"}
 
 
+UNSIZED_RR_NOTE = ("Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on "
+                   "a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs "
+                   "once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible).")
+
+
 def apply_rr_gate(c: Dict[str, Any], inputs: Dict[str, Any]) -> None:
     rr = c["risk_reward"]
     got = rr.get("net") if rr.get("net") is not None else rr.get("gross")
+    if c.get("segment") in ("cash", "futures") and (c.get("sizing") or {}).get("status") == "incomplete" and rr.get("gross") is not None:
+        # An unsized linear position is priced for ONE unit, where fixed per-order costs swamp the ratio; costs are not
+        # yet feasible to estimate, so the gross ratio decides and the plan says so.
+        got = rr["gross"]
+        rr["gate_basis"] = "gross: the position is not sized"
+        c["warnings"].append(UNSIZED_RR_NOTE)
     lvl = rr.get("level")
     if got is None:
         c["status"] = "insufficient_data"
@@ -227,29 +269,122 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     if bucket is None:
         return [not_viable("cash", "scanner", "Cash plan", d, "no_trade",
                            reason("no_setup", "The scanner lists the stock in none of its buckets (breakout confirmed, pre-breakout, true accumulation, trend continuation): no cash setup."))]
+    sbd = sb["data"] or {}
+    pick = sbd.get("pick") or {}
+    spot, atr = ctx["spot"], ctx["atr"]
+    setup = setup_view(sbd, bucket, it, ctx)
     if bucket in ("pre_breakout", "true_accumulation"):
-        c = not_viable("cash", "breakout_watch", "Wait for breakout confirmation", d, "wait",
-                       reason("setup_not_triggered", f"The scanner bucket is {bucket.replace('_', ' ')}: the setup has not triggered."))
-        trig = num(it.get("trigger_price"))
-        c["entry"] = {"trigger": trig, "logic": (f"Wait for a close above {trig:g} on volume at least {RULES['rvol_confirm']:g}x average." if trig else "Wait for a close above resistance on rising volume."), "zone": None}
+        # The setup has not triggered: the plan is the trade AT the trigger, waiting for it (WAIT_FOR_CONFIRMATION). The
+        # trigger is the scanner pick's entry when there is one (its stop was set from that entry), else the bucket's level.
+        trig = num(pick.get("entry_price")) or num(it.get("trigger_price"))
+        waiting = reason("setup_not_triggered", f"The scanner bucket is {bucket.replace('_', ' ')}: the setup has not triggered.")
+        stop = num(it.get("stop_price"))
+        logic = (f"Wait for a close above {trig:g} on volume at least {RULES['rvol_confirm']:g}x average." if trig else "Wait for a close above resistance on rising volume.")
+        if trig is None or stop is None or stop <= 0 or stop >= trig:
+            c = not_viable("cash", "breakout_watch", "Wait for breakout confirmation", d, "wait", waiting)
+            c["entry"] = {"trigger": trig, "logic": logic, "zone": None}
+            c["setup"] = setup
+            return [c]
+        meta = scanner_stop_meta(sbd, bucket, it, trig, stop, atr)
+        order = order_type_for_setup(trig, spot, bucket, pick.get("stage"))
+        c = linear_candidate(ctx, "cash", "breakout_watch", "Wait for breakout confirmation", True, trig, stop, stop_basis_text(meta, stop, "the scanner's stop"),
+                             None, logic, unit_kind="cash", lot=1, expiry=None, price_source="the scanner's trigger (not yet traded)",
+                             why=[f"Scanner bucket {bucket.replace('_', ' ')} (rules {ctx.get('scan_rules_version')}).", f"Trigger {trig:g}."]
+                             + ([stage_note] if stage_note else []), stop_meta=meta, order_type=order, setup=setup, logic_exact=True)
+        if c["status"] == "candidate":
+            c["status"] = "wait"
+            c["reasons"].append(waiting)
         return [c]
     family = "breakout_continuation" if bucket == "breakout_confirmed" else "pullback_in_uptrend"
     label = "Breakout continuation (long)" if family == "breakout_continuation" else "Pullback in an uptrend (long)"
-    spot, atr = ctx["spot"], ctx["atr"]
     if spot is None:
         return [not_viable("cash", family, label, d, "insufficient_data", reason("no_price", "No last close: the entry cannot be set."))]
     stop = num(it.get("stop_price"))
-    stop_basis = f"the scanner's stop ({it.get('stop_price')}): {RULES['targets']['stop_atr_multiple']:g} x ATR below the trigger/EMA20"
+    meta = scanner_stop_meta(sbd, bucket, it, spot, stop, atr) if stop is not None else None
+    stop_basis = stop_basis_text(meta, stop, "the scanner's stop") if meta else None
     if stop is None or stop <= 0 or stop >= spot:
         hyp = ctx["hyp"]
         stop = num(hyp.get("stop")) if hyp else None
+        meta = chart_stop_meta(hyp, spot, atr)
         stop_basis = "the chart engine's ATR stop (2 x ATR(14), or 20-session support when closer but at least 0.5 ATR away)"
         if stop is None or stop >= spot:
             return [not_viable("cash", family, label, d, "insufficient_data", reason("risk_not_calculable", "No stop below the price could be derived (scanner stop and ATR stop are both missing)."))]
     return [linear_candidate(ctx, "cash", family, label, True, spot, stop, stop_basis, None, f"Last close {spot:g} ({ctx['spot_source']})",
                              unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
                              why=[f"Scanner bucket {bucket.replace('_', ' ')} (rules {ctx.get('scan_rules_version')}).",
-                                  f"Trigger / reference level {num(it.get('trigger_price'))}."] + ([stage_note] if stage_note else []) if it else [])]
+                                  f"Trigger / reference level {num(it.get('trigger_price'))}."] + ([stage_note] if stage_note else []) if it else [],
+                             stop_meta=meta, order_type="at_close", setup=setup)]
+
+
+# ── the setup source and the stop's method (N13) ─────────────────────────────
+# The AI scanner is the SETUP SOURCE: it says which setup it saw (bucket, stage, trigger) and where its stop sits and
+# by which rule. The plan turns that into levels; the method travels as data so no label is ever guessed (the plan
+# used to call the scanner's 1.5 x ATR stop "2 x ATR").
+_BUCKET_REF = {"breakout_confirmed": ("trigger_price", "the breakout level"), "pre_breakout": ("trigger_price", "the breakout level"),
+               "true_accumulation": ("close_price", "the close"), "trend_continuation": ("ema_20", "the 20-day EMA")}
+
+
+def order_type_for_setup(entry: float, close: Optional[float], bucket: Optional[str], stage: Optional[str]) -> str:
+    from .trade_plan import order_type_for
+    return order_type_for(entry, close, bucket=bucket, stage=stage)
+
+
+def setup_view(sbd: Dict[str, Any], bucket: Optional[str], it: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    pick = sbd.get("pick") or {}
+    return {"source": "ai_scanner", "bucket": bucket, "stage": pick.get("stage") or it.get("stage"), "signal_date": pick.get("signal_date"),
+            "trigger": num(pick.get("entry_price")) or num(it.get("trigger_price")), "scanner_stop": num(it.get("stop_price")),
+            "scanner_target": num(pick.get("target_price")), "rules_version": ctx.get("scan_rules_version"),
+            "timeframe_days": [pick.get("timeframe_days_min"), pick.get("timeframe_days_max")] if pick.get("timeframe_days_max") else None}
+
+
+def scanner_stop_meta(sbd: Dict[str, Any], bucket: Optional[str], it: Dict[str, Any], entry: float, stop: float,
+                      atr: Optional[float]) -> Dict[str, Any]:
+    """How the scanner set this stop. A pick's stop: trade_planner.stop_meta on the pick's own entry, stop, ATR and
+    swing low. A watchlist row's stop: the bucket's reference level minus 1.5 x ATR (routes/positional get_watchlist),
+    with the ATR it implies. `distance_atr` is the distance from THIS plan's entry."""
+    from services.positional_engine import setup_rules, trade_planner
+
+    pick = sbd.get("pick") or {}
+    p_entry, p_stop = num(pick.get("entry_price")), num(pick.get("stoploss"))
+    if p_entry and p_stop and abs(p_stop - stop) < 0.005:
+        m = dict(trade_planner.stop_meta(p_entry, p_stop, num(pick.get("atr_14")), num(pick.get("swing_low_20"))))
+        m["measured_from"] = p_entry
+        a = m.get("atr") or atr
+    else:
+        mult = setup_rules.WATCHLIST["stop_atr_multiple"]
+        key, name = _BUCKET_REF.get(bucket or "", ("trigger_price", "the trigger"))
+        ref = num(it.get(key))
+        a = (ref - stop) / mult if ref is not None and ref > stop else None
+        m = {"method": "atr" if a else "unknown", "atr_multiple": mult if a else None, "atr": r2(a), "swing_ref": None,
+             "measured_from": ref, "measured_from_name": name,
+             "rule": f"{name} minus {mult:g} x ATR(14) (the scanner's {bucket or 'watchlist'} rule; the ATR is the one the stop implies)"}
+    m["distance_atr"] = round((entry - stop) / a, 3) if a else None
+    return m
+
+
+def chart_stop_meta(hyp: Optional[Dict[str, Any]], entry: Optional[float], atr: Optional[float]) -> Dict[str, Any]:
+    """The chart engine's hypothetical stop (routes/research_chart ATR_2X_STOP): 2 x ATR(14), or the 20-session support."""
+    hyp = hyp or {}
+    structural = hyp.get("stop_basis") == "support20"
+    stop = num(hyp.get("stop"))
+    mult = ((hyp.get("constants") or {}).get("atr_multiple")) or 2.0
+    return {"method": "structural" if structural else "atr", "atr_multiple": None if structural else mult, "atr": r2(atr),
+            "swing_ref": stop if structural else None, "measured_from": entry,
+            "distance_atr": round((entry - stop) / atr, 3) if atr and entry is not None and stop is not None else None,
+            "rule": f"the chart engine's {hyp.get('rule') or 'ATR_2X_STOP'} rule: {mult:g} x ATR(14) below the close, or the 20-session support when closer but at least 0.5 ATR away"}
+
+
+def stop_basis_text(meta: Optional[Dict[str, Any]], stop: Optional[float], who: str) -> str:
+    """The stop's rationale in words, written FROM the method data (never a fixed label)."""
+    if not meta or stop is None:
+        return f"{who}"
+    if meta.get("method") == "atr" and meta.get("atr_multiple"):
+        frm = meta.get("measured_from")
+        return (f"{who} ({stop:g}): {meta['atr_multiple']:g} x ATR(14) below {frm:g}" + (f" (ATR {meta['atr']:g})" if meta.get("atr") else "")
+                if frm is not None else f"{who} ({stop:g}): {meta['atr_multiple']:g} x ATR(14)")
+    if meta.get("method") == "structural" and meta.get("swing_ref") is not None:
+        return f"{who} ({stop:g}): just under the 20-session swing low / support {meta['swing_ref']:g}"
+    return f"{who} ({stop:g}): the rule that set it could not be identified from the stored figures"
 
 
 def chartink_bullish_hits(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -276,29 +411,54 @@ def chartink_cash_candidate(ctx: Dict[str, Any], hits: List[Dict[str, Any]]) -> 
     c = linear_candidate(ctx, "cash", family, label, True, spot, stop, stop_basis, None, f"Last close {spot:g} ({ctx['spot_source']})",
                          unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
                          why=[f"Listed by {len(hits)} enabled bullish Chartink scan(s): {names} (fetched {ck.get('fetched_at')}).",
-                              "The AI scanner lists the stock in none of its buckets; the entry is the last close and the levels follow the ATR rule."])
+                              "The AI scanner lists the stock in none of its buckets; the entry is the last close and the levels follow the ATR rule."],
+                         stop_meta=chart_stop_meta(hyp, spot, ctx["atr"]), order_type="at_close",
+                         setup={"source": "chartink", "bucket": None, "stage": None, "signal_date": None, "trigger": None,
+                                "scans": [h.get("name") for h in hits], "fetched_at": ck.get("fetched_at")})
     c["warnings"].append(C["levels_label"][0].upper() + C["levels_label"][1:] + ".")
     return c
 
 
 def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str, up: bool, entry: float, stop: float, stop_basis: str,
                      base_override: Optional[float], entry_note: str, *, unit_kind: str, lot: int, expiry: Optional[str],
-                     price_source: Optional[str], why: List[str]) -> Dict[str, Any]:
+                     price_source: Optional[str], why: List[str], stop_meta: Optional[Dict[str, Any]] = None,
+                     order_type: str = "at_close", setup: Optional[Dict[str, Any]] = None, logic_exact: bool = False) -> Dict[str, Any]:
     c = base_candidate(segment, family, label, ctx["direction"])
     inputs, atr = ctx["inputs"], ctx["atr"]
     near = ctx["resistance"] if up else ctx["support"]
     levels = scenario_levels(entry, up, stop, atr, near, base_override)
     risk_unit = abs(entry - stop)
     unit_name = "share" if unit_kind == "cash" else "lot"
+    model, segment = _cost_model(inputs), ("equity_delivery" if unit_kind == "cash" else "futures")
+
+    def cost_at_stop(units: int) -> float:
+        # The desk's own pricing (services/desk_trading.round_trip_cost, the desk cost card), so the plan, the paper
+        # trade's estimate and its realised costs at the stop agree to the paisa.
+        return desk_costs.round_trip_cost(units, entry, stop, model, segment=segment, long=up)
+
     sizing = size_position(inputs, risk_per_unit=risk_unit, value_per_unit=entry, unit=unit_name + "s", lot_units=lot,
-                           per_unit_label="entry minus stop, per unit, gross (costs and gap slippage excluded)")
+                           per_unit_label=("entry minus stop, per unit, plus the estimated round-trip costs at the stop "
+                                           "(brokerage, STT, exchange charge, SEBI fee, stamp duty, GST and slippage, as "
+                                           "the paper trade records them); DP charges, income tax and gap slippage are "
+                                           "not included"),
+                           cost_at_stop=cost_at_stop)
+    if sizing["status"] == "complete":
+        sizing["costs_breakdown_at_stop"] = desk_costs.round_trip_breakdown(sizing["quantity"] * lot, entry, stop, model,
+                                                                            segment=segment, long=up)
     qty = sizing["quantity"] if sizing["status"] == "complete" else 1
     leg = {"kind": unit_kind, "side": "buy" if up else "sell", "quantity": qty, "lot_size": lot, "entry_price": entry,
            "expiry": expiry, "price_source": price_source}
     res = run_payoff(ctx, ctx["spot"] or entry, [leg], [{"name": "stop", "price": stop}] + levels, ctx["as_of"])
-    c.update(why_qualifies=why, sizing=sizing, payoff=res, legs=[leg], targets=levels,
-             entry={"trigger": r2(entry), "zone": None, "logic": entry_note + ("; a close above the trigger on volume confirms it" if up else "; a close below the trigger confirms it")},
-             invalidation={"technical": {"price": r2(stop), "basis": stop_basis, "meaning": "the thesis is wrong if price closes beyond this level"},
+    risk_u = abs(entry - stop)
+    for lv in levels:                       # targets labelled in R (decision D4): reward over the stop distance
+        lv["r_multiple"] = round(abs(lv["price"] - entry) / risk_u, 2) if lv.get("price") is not None and risk_u else None
+    from .trade_plan import DESK_ENTRY_RULE
+    c.update(why_qualifies=why, sizing=sizing, payoff=res, legs=[leg], targets=levels, setup=setup,
+             entry={"trigger": r2(entry), "zone": None, "order_type": order_type, "desk_entry_rule": DESK_ENTRY_RULE[order_type],
+                    "logic": entry_note if logic_exact else entry_note + ("; a close above the trigger on volume confirms it" if up else "; a close below the trigger confirms it")},
+             invalidation={"technical": {"price": r2(stop), "basis": stop_basis, "meaning": "the thesis is wrong if price closes beyond this level",
+                                         **({k: stop_meta.get(k) for k in ("method", "atr", "atr_multiple", "distance_atr", "swing_ref", "measured_from", "rule")}
+                                            if stop_meta else {"method": "unknown"})},
                            "execution_stop": {"price": r2(stop), "note": "A stop order does not guarantee the fill: a gap or thin trading can fill beyond it, so the loss can exceed the figure shown."}},
              risk_reward=reward_risk(res, True, _gate(levels)))
     if not res.get("valid"):
@@ -314,7 +474,7 @@ def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str,
         if risk_unit < RULES["targets"]["min_stop_atr"] * (atr or 0):
             c["warnings"].append(f"The stop is closer than {RULES['targets']['min_stop_atr']:g} x ATR to the entry: it may sit inside normal noise.")
         if segment == "futures":
-            c["warnings"].append("Futures losses can exceed the initial margin; no margin estimate exists in this system, so the notional is used for the allocation cap.")
+            c["warnings"].append("Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap.")
     if c["status"] == "candidate":
         apply_rr_gate(c, inputs)
     return c
@@ -384,16 +544,25 @@ def futures_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     lv = levels_from(entry, up, pw, cw, s.get("expected_move"))
     atr = ctx["atr"]
     stop, stop_basis = lv["stop"], f"{lv['stop_from']} (FnoStrategies rule 2)"
+    wall = lv["stop_from"] != "the edge of the expected move"
+    fmeta: Dict[str, Any] = {"method": "structural" if wall else "expected_move", "atr": r2(atr), "atr_multiple": None,
+                             "swing_ref": stop if wall else None, "measured_from": entry,
+                             "rule": f"{lv['stop_from']} (FnoStrategies rule 2)"}
     if stop is None and ctx["hyp"] and spot is not None and num(ctx["hyp"].get("stop")) is not None:
         off = spot - ctx["hyp"]["stop"]
         stop, stop_basis = (entry - off if up else entry + off), "the chart engine's 2 x ATR stop distance applied to the futures price"
+        fmeta = {**chart_stop_meta(ctx["hyp"], spot, atr), "measured_from": entry}
+    if stop is not None and atr:
+        fmeta["distance_atr"] = round(abs(entry - stop) / atr, 3)
     if stop is None or (stop >= entry if up else stop <= entry):
         return [not_viable("futures", fam, label, d, "insufficient_data", reason("risk_not_calculable", "No stop on the correct side of the entry could be derived."))]
     c = linear_candidate(ctx, "futures", fam, label, up, entry, stop, stop_basis, lv["target"],
                          f"Futures settle {entry:g} ({near['expiry']} contract, NSE F&O bhavcopy {fu['as_of']})",
                          unit_kind="future", lot=int(lot), expiry=near["expiry"], price_source=f"NSE F&O bhavcopy settle, {fu['as_of']}",
                          why=[f"Futures OI build-up is {lab}, confirmed by the cash market (a heuristic, not proof of intent).",
-                              f"Contract {near['expiry']}, lot size {lot}, basis {near.get('basis')}."])
+                              f"Contract {near['expiry']}, lot size {lot}, basis {near.get('basis')}."],
+                         stop_meta=fmeta, order_type="at_close",
+                         setup={"source": "fno_buildup", "bucket": lab, "stage": row.get("cash_confirmation"), "signal_date": fu["as_of"], "trigger": None})
     if "expiry_week" in (row.get("risk_flags") or []):
         c["warnings"].append("Expiry week: rollover and expiry effects can distort the build-up reading." + (" Rollover flag set." if "rollover" in row["risk_flags"] else ""))
     return [c]

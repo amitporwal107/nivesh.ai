@@ -41,7 +41,7 @@
  * Every card carries a TrustLine (source, freshness, live / end of day / historical, who made the figures).
  */
 import { Flash } from "../../components/LiveBits";
-import { useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
+import { useLiveOverlay, flashOf, closeLabel } from "../../lib/useLiveQuotes";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import type { PaperSample } from "@/services/adapters/paperTrades.adapter";
@@ -60,6 +60,7 @@ import { isForbidden, useBrokerAccounts, usePaperEvaluation } from "../trading/q
 import { useDesk } from "./context";
 import { BUCKET_LABEL, SETUP_BUCKETS, type SetupBucket } from "./desk-data";
 import { heldDays, openedToday, tradeR, tradeReturnPct, usePaperTrades, type PaperTrade } from "./desk-trading";
+import { ForwardTestPanel } from "./FnoForwardTest";
 import { AlertsBlock, PaperTradesBlock } from "./PaperDesk";
 import { PortfolioImport } from "./PortfolioImport";
 import {
@@ -69,6 +70,7 @@ import {
   type StockPosition,
 } from "./portfolio-data";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 
 const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
 const line = "1px solid var(--cp-line)";
@@ -80,32 +82,21 @@ const CORR_HIGH_DEFAULT = 0.7;
 
 // ── frame ────────────────────────────────────────────────────────────────
 
-/** A desktop module card: header bar (eyebrow left, meta right, bg-0) and a padded body. */
+/** A desktop module card: a <Widget> (header bar, body padding); its saved-state id derives from the test id. */
 function ModuleCard({ title, pill, meta, testId, children, bodyGap = 16 }: { title: ReactNode; pill?: ReactNode; meta?: ReactNode; testId: string; children: ReactNode; bodyGap?: number }) {
   return (
-    <section data-testid={testId} className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-      <div className="flex flex-wrap items-center" style={{ gap: "6px 10px", padding: "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-        <span data-testid={`${testId}-title`} className="cp-eyebrow">{title}</span>
-        {pill}
-        {meta && <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{meta}</span>}
-      </div>
-      <div className="flex min-w-0 flex-col" style={{ gap: bodyGap, padding: "16px 18px" }}>{children}</div>
-    </section>
+    <Widget id={`portfolio.${testId}`} testId={testId} headTestId={`${testId}-title`} title={title} meta={meta} actions={pill} headPad="13px 18px" bodyStyle={{ gap: bodyGap, padding: "16px 18px" }}>
+      {children}
+    </Widget>
   );
 }
 
-/** A phone card (design-spec §11: radius 14, bg-1, line): an eyebrow head and the body. */
+/** A phone card (design-spec §11): a <Widget> with the title and aside in its header. */
 function PhoneCard({ title, aside, testId, children }: { title: ReactNode; aside?: ReactNode; testId: string; children: ReactNode }) {
   return (
-    <section data-testid={testId} className="cp-card flex min-w-0 flex-col" style={{ gap: 12, padding: "14px 14px 16px" }}>
-      <div className="flex items-center justify-between" style={{ gap: 8 }}>
-        <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-          <span data-testid={`${testId}-title`} className="cp-eyebrow">{title}</span>
-        </span>
-        {aside}
-      </div>
+    <Widget id={`portfolio.${testId}.phone`} testId={testId} headTestId={`${testId}-title`} title={title} actions={aside} headPad="12px 14px" bodyStyle={{ gap: 12, padding: "14px 14px 16px" }}>
       {children}
-    </section>
+    </Widget>
   );
 }
 
@@ -480,12 +471,18 @@ function CapSplit({ view, size, cash }: { view: PortfolioView; size: number; cas
 
 const SHOWN = 8;
 
-/** The stock's move today from the Kite feed (LIVE only). The value and P&L columns stay on the stored prices; this does not recompute them. */
+/** Any session the final Kite snapshot is for is newer than this, so after the close the chip shows that session's move. */
+const ANY_SESSION = "0000-00-00";
+
+/** The stock's move in the latest session from the Kite feed: live while the market is open, and after the close the move at
+ *  Kite's close (labelled "Close · <day> · Kite") until the next session opens. The value and P&L columns stay on the stored
+ *  prices; this does not recompute them. */
 function PositionToday({ symbol }: { symbol: string }) {
-  const q = useLiveOverlay(symbol);
+  const q = useLiveOverlay(symbol, ANY_SESSION);
   if (!q || q.changePct == null) return null;
+  const word = q.kind === "live" ? "Today’s move from Kite (live)" : `The session’s move at Kite’s close (${closeLabel(q)}, provisional until the exchange’s end-of-day file)`;
   return (
-    <span data-testid="desk-portfolio-position-live" className="cp-num" title="Today’s move from Kite (live). Value and P&L use the stored prices." style={{ fontSize: 10.5, color: TONE_COLOR[signTone(q.changePct)], whiteSpace: "nowrap" }}>
+    <span data-testid="desk-portfolio-position-live" data-kind={q.kind} className="cp-num" title={`${word}. Value and P&L use the stored prices.`} style={{ fontSize: 10.5, color: TONE_COLOR[signTone(q.changePct)], whiteSpace: "nowrap" }}>
       <Flash value={flashOf(q)}>{fmtPct(q.changePct, { signed: true })}</Flash>
     </span>
   );
@@ -1253,7 +1250,7 @@ function YourTrades() {
               const ret = tradeReturnPct(t);
               const r = tradeR(t);
               const days = heldDays(t);
-              const reason = t.exitReason === "target" ? "target" : t.exitReason === "stop" ? "stop" : t.exitReason === "manual" ? "closed by you" : null;
+              const reason = t.exitReason === "target" ? "target" : t.exitReason === "stop" ? "stop" : t.exitReason === "trailing_stop" ? "trailing stop" : t.exitReason === "manual" ? "closed by you" : null;
               return (
                 <div key={t.id} role="row" data-testid="desk-paper-last5-row" data-id={t.id} className="grid items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 40px 84px 48px", gap: 8, padding: "7px 0", borderTop: line }}>
                   <span role="cell" className="flex min-w-0 flex-col" style={{ gap: 1 }}>
@@ -1285,7 +1282,8 @@ function YourTrades() {
   );
 }
 
-function PaperCard() {
+/** "Paper trades · predicted vs actual". Also on the desk's Trade Desk › Paper trades (TradingDesk.tsx). */
+export function PaperCard() {
   const q = usePaperTrades();
   const ev = usePaperEvaluation("forward", "P5-NEXT");
   const closed = q.data ? q.data.summary?.closed ?? q.data.trades.filter((t) => t.status === "closed").length : null;
@@ -1312,10 +1310,12 @@ function PaperCard() {
   );
 }
 
-function PaperLists() {
+/** Your paper-trade and alert lists (PaperDesk.tsx). Also on the desk's Trade Desk › Paper trades (TradingDesk.tsx). */
+export function PaperLists() {
   const q = usePaperTrades();
   return (
     <ModuleCard title="Your paper trades and price alerts" pill={<span className="cp-pill" data-tone="amber">Simulated · no orders</span>} testId="desk-portfolio-paper">
+      <ForwardTestPanel />
       <PaperTradesBlock />
       <AlertsBlock />
       <TrustLine
@@ -1398,7 +1398,11 @@ function PhoneRisk({ view }: { view: PortfolioView }) {
 
 // ── tab ──────────────────────────────────────────────────────────────────
 
-export default function PortfolioTab() {
+/**
+ * `withPaper={false}` is the desk's "My portfolio" (the redesign of 2026-10-27): the real, broker-read portfolio only.
+ * The paper cards (PaperCard, PaperLists) belong to Trade Desk, so they are left out.
+ */
+export default function PortfolioTab({ withPaper = true }: { withPaper?: boolean } = {}) {
   const { mobile } = useCopilotShell();
   const [importing, setImporting] = useState(false);
   const openImport = () => setImporting(true);
@@ -1407,9 +1411,9 @@ export default function PortfolioTab() {
       <div data-testid="desk-portfolio" data-layout="phone" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
         <PhonePortfolio onImport={openImport} />
         {importing && <ImportCard onClose={() => setImporting(false)} />}
-        <PaperCard />
+        {withPaper && <PaperCard />}
         <BrokerPositions />
-        <PaperLists />
+        {withPaper && <PaperLists />}
       </div>
     );
   }
@@ -1417,11 +1421,11 @@ export default function PortfolioTab() {
     <div data-testid="desk-portfolio" data-layout="desktop" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
       <div className="grid items-start" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,340px),1fr))", gap: 16 }}>
         <HubCard onImport={openImport} />
-        <PaperCard />
+        {withPaper && <PaperCard />}
       </div>
       {importing && <ImportCard onClose={() => setImporting(false)} />}
       <BrokerPositions />
-      <PaperLists />
+      {withPaper && <PaperLists />}
       <Footnote>Holdings and risk figures are as Nivesh last valued them; broker connections are read-only and nothing here places an order.</Footnote>
     </div>
   );

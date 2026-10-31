@@ -95,6 +95,10 @@ def _client(monkeypatch, handler):
 
     monkeypatch.setattr(route.pg_client, "get_pool", get_pool)
     monkeypatch.setattr(route, "get_current_user", fake_user)
+    # §4d results signal: none in these route tests (its own tests are in tests/test_results_week.py)
+    async def no_results_signal(*a, **kw):
+        return {}, None
+    monkeypatch.setattr(route.results_signal, "current", no_results_signal)
     app = FastAPI()
     app.include_router(route.router)
     return TestClient(app), calls

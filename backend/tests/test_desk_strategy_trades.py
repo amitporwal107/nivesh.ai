@@ -14,10 +14,15 @@ The worked example (a bull call spread, 1 lot of 250 on FIXU, expiry 2026-10-27,
     session 14 Oct   marks 30 / 10   P&L = (30 − 40) × 250 − (10 − 15) × 250 = −2,500 + 1,250 = −1,250
     session 15 Oct   marks 110 / 60  P&L = 70 × 250 − 45 × 250 = 17,500 − 11,250 = +6,250   (high 1405 ≥ target 1400)
     MFE = +6,250, MAE = −1,250 · mark premium = −110 × 250 + 60 × 250 = −12,500
-    costs (0.05% of the traded value + ₹20 a side, each leg):
-        entry  40×250×0.0005 = 5.00 · 15×250×0.0005 = 1.875 · brokerage 2 × 20 = 40      → 46.875
-        exit   110×250×0.0005 = 13.75 · 60×250×0.0005 = 7.50 · brokerage 40              → 61.25
-        total 108.125 · net = 6,250 − 108.125 = 6,141.875
+    costs, the desk cost card desk-cost-v2 (services/desk_cost_card.py), options on the premium, each component to the
+    paisa: ₹20 brokerage, STT 0.15% on a sale, exchange 0.03553%, SEBI ₹10/crore, stamp 0.003% on a buy, GST 18% of
+    (brokerage + exchange + SEBI), slippage 0.05%:
+        entry  buy 40×250 = 10,000:  20 + 0 + 3.55 + 0.01 + 0.30 + 4.24 + 5.00   = 33.10
+               sell 15×250 = 3,750:  20 + 5.63 + 1.33 + 0 + 0 + 3.84 + 1.88       = 32.68
+        exit   sell 110×250 = 27,500: 20 + 41.25 + 9.77 + 0.03 + 0 + 5.36 + 13.75 = 90.16
+               buy 60×250 = 15,000:  20 + 0 + 5.33 + 0.02 + 0.45 + 4.56 + 7.50    = 37.86
+        total 193.80 · net = 6,250 − 193.80 = 6,056.20
+    (the flat model desk-flat-v1, slippage + brokerage only, gave 108.125 and 6,141.875)
     expiry settlement, underlying closing 1,330 on 27 Oct: 1300 call = 30, 1360 call = 0
         P&L = (30 − 40) × 250 − (0 − 15) × 250 = −2,500 + 3,750 = +1,250
 """
@@ -31,7 +36,9 @@ import pytest
 
 from services import desk_strategy_trades as strat
 from services import desk_trading as svc
+from services import paper_account as acct
 from services.copilot_tools import daas_client
+from services.risk_gate import reference
 from tests.test_desk_trading import (  # noqa: F401  (`world` and `api` are fixtures)
     A, B, NOW, TRADES_URL, api, bar, open_trade, trade_body, trades, world,
 )
@@ -116,6 +123,19 @@ def sworld(world, monkeypatch):
                 "pagination": {"limit": params["limit"], "offset": params["offset"], "total": None, "next_offset": None}}
 
     monkeypatch.setattr(svc.daas_client, "_get", fake_get)
+
+    # The exchange lot the desk checks every structure against when the F&O risk gate is off
+    # (strat.check_exchange_lots → services/risk_gate/reference.lookup). MOCK — not real data: FIXU's lot is 250.
+    world.lots = {EXPIRY: 250, "2026-11-24": 250}
+    world.lot_lookups = []
+
+    async def lookup(underlying, expiries, today):
+        world.lot_lookups.append((underlying, sorted(expiries)))
+        return {e: ({"listed": True, "lot_size": world.lots[e], "source": reference.BHAVCOPY_SOURCE, "as_of": "2026-10-09",
+                     "error": None} if world.lots.get(e) else
+                    {"listed": None, "lot_size": None, "source": None, "as_of": None, "error": "the data platform could not be read"})
+                for e in expiries}
+    monkeypatch.setattr(reference, "lookup", lookup)
     return world
 
 
@@ -155,7 +175,9 @@ def test_create_stores_the_strategy_with_its_legs_signal_and_lifecycle(api, swor
 def test_a_document_without_kind_stays_a_cash_trade_and_kind_cash_is_accepted(api, sworld):
     cash = open_trade(api)
     assert cash["kind"] == "cash" and cash["rules_version"] == "desk-paper-v2"
-    r = api.post(TRADES_URL, json=trade_body(kind="cash"), headers=A)
+    # Another symbol: a second open FIXA trade would be refused as a duplicate.
+    r = api.post(TRADES_URL, json=trade_body(kind="cash", symbol="FIXB", entry_price=500.0, stop_price=480.0,
+                                             target_price=520.0), headers=A)
     assert r.status_code == 201 and r.json()["trade"]["rules_version"] == "desk-paper-v2"
     assert "kind" not in sworld.db.trades.docs[0]               # the stored share document is not changed
     r = api.post(TRADES_URL, json=trade_body(kind="swing"), headers=A)
@@ -169,6 +191,12 @@ BAD = [
     ("short calls above the long", dict(family="custom", legs=[call("buy", 1300, 40), call("sell", 1360, 15, lots=2)]), "unbounded_loss"),
     ("naked short put", dict(family="custom", direction="bullish", legs=[put("sell", 1200, 12)]), "naked_short_put"),
     ("short future with a short call", dict(family="custom", legs=[future("sell", 1215), call("sell", 1300, 20)]), "unbounded_loss"),
+    # TESTCASES F-2 (study A probe D1): a short future alone was accepted and stamped defined_risk: True.
+    ("short future only", dict(family="short_future", direction="bearish", stop_underlying=1250.0, target_underlying=1150.0,
+                               legs=[future("sell", 1215)]), "short_futures_not_supported"),
+    # TESTCASES F-3: a future's loss is not capped by the structure, so the plan's stop on the underlying is required.
+    ("long future without a stop", dict(family="long_future", stop_underlying=None, legs=[future("buy", 1215)]),
+     "futures_stop_required"),
     ("mixed option expiries", dict(family="custom", legs=[call("buy", 1300, 40), call("sell", 1360, 15, expiry="2026-11-24")]), "mixed_option_expiries"),
     ("cash only", dict(family="custom", legs=[{"kind": "cash", "side": "buy", "lots": 10, "lot_size": 1, "entry_price": 1215.0,
                                               "expiry": None, "strike": None, "option_type": None, "price_source": "NSE end of day"}]),
@@ -202,18 +230,21 @@ BAD = [
 @pytest.mark.parametrize("name,over,code", BAD, ids=[b[0] for b in BAD])
 def test_a_bad_strategy_is_refused_with_its_code_and_nothing_is_stored(api, sworld, name, over, code):
     r = post_strategy(api, **over)
-    assert (r.status_code, r.json()["detail"]) == (422, code)
+    detail = r.json()["detail"]
+    # The newer refusals carry {code, message}; the older ones the bare code.
+    assert (r.status_code, detail if isinstance(detail, str) else detail["code"]) == (422, code)
     assert sworld.db.trades.docs == []
 
 
 GOOD = [
     ("long future", dict(family="long_future", legs=[future("buy", 1215)])),
-    ("short future (a plain futures leg)", dict(family="short_future", direction="bearish", stop_underlying=1250.0,
-                                                 target_underlying=1150.0, legs=[future("sell", 1215)])),
     ("long put", dict(family="long_put", direction="bearish", stop_underlying=1250.0, target_underlying=1150.0, legs=[put("buy", 1200, 25)])),
-    ("bull put spread", dict(family="bull_put_spread", legs=[put("sell", 1200, 25), put("buy", 1150, 10)])),
+    # The two credit structures carry a net credit of at least 1/3 of their 50-point width after the estimate's costs:
+    # from universal-risk-v2 (owner decision 2026-10-28) that, not min_reward_risk, is their reward check, and it is a
+    # policy constant the loose profile does not relax (tests/test_risk_credit_rule.py).
+    ("bull put spread", dict(family="bull_put_spread", legs=[put("sell", 1200, 32), put("buy", 1150, 10)])),
     ("iron condor", dict(family="iron_condor", direction="neutral", stop_underlying=None, target_underlying=None,
-                         legs=[put("buy", 1100, 5), put("sell", 1150, 12), call("sell", 1300, 14), call("buy", 1350, 6)])),
+                         legs=[put("buy", 1100, 5), put("sell", 1150, 16), call("sell", 1300, 18), call("buy", 1350, 6)])),
     ("covered long future hedged by a call", dict(family="hedged_future", legs=[future("sell", 1215), call("buy", 1300, 20)],
                                                    direction="bearish", stop_underlying=1250.0, target_underlying=1150.0)),
 ]
@@ -222,18 +253,24 @@ GOOD = [
 @pytest.mark.parametrize("name,over", GOOD, ids=[g[0] for g in GOOD])
 def test_defined_risk_structures_and_a_plain_futures_leg_are_accepted(api, sworld, name, over):
     t = open_strategy(api, **over)
-    assert t["risk"]["defined_risk"] is True
-    assert t["risk"]["note"] == (strat.UNBOUNDED_NOTE if any(leg["kind"] == "future" for leg in t["legs"]) else None)
+    # TESTCASES F-1, F-7: any futures leg is NOT defined risk (it used to say True for a future, short ones included).
+    has_future = any(leg["kind"] == "future" for leg in t["legs"])
+    has_option = any(leg["kind"] == "option" for leg in t["legs"])
+    assert t["risk"]["defined_risk"] is (not has_future) and t["risk"]["futures_exposure"] is has_future
+    assert t["risk"]["note"] == ((strat.FUTURES_HEDGED_NOTE if has_option else strat.UNBOUNDED_NOTE) if has_future else None)
 
 
 def test_strategy_trades_count_against_the_open_limit_with_share_trades(api, sworld):
-    for _ in range(99):
-        open_trade(api)
-    open_strategy(api)                                           # the 100th
-    r = post_strategy(api)
-    assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
+    """Phase 1: one open-position limit (the governor's 10) for shares and structures together, on every path."""
+    from tests.test_desk_trading import HISTORY
+    for i in range(9):                                           # 9 symbols: one symbol twice is now a duplicate
+        sworld.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
+        sworld.rows[f"FX{i}"] = copy.deepcopy(HISTORY["FIXA"])   # MOCK marks, so equity is known
+    open_strategy(api)                                           # the 10th
+    r = post_strategy(api, legs=[call("buy", 1310, 35), call("sell", 1370, 12)])   # another structure: not a duplicate
+    assert r.status_code == 409 and "max_positions" in [x["code"] for x in r.json()["detail"]["reasons"]]
     r = api.post(TRADES_URL, json=trade_body(), headers=A)
-    assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
+    assert r.status_code == 409 and "MAX_POSITIONS" in [x["code"] for x in r.json()["detail"]["reasons"]]
 
 
 # ── marks, P&L and the exit rules ────────────────────────────────────────────
@@ -245,12 +282,17 @@ def test_an_open_strategy_is_marked_leg_by_leg_on_the_bhavcopy(api, sworld):
     body = trades(api)
     t = only_strategy(body)
     assert t["status"] == "open"
+    # p2_exits_backtest TC-40: an option is marked at its CLOSE, never its settle price (the fixture's settle is the close + 1):
+    # was (50, settle) and (20, settle).
     assert [(leg["mark"], leg["mark_date"], leg["mark_basis"]) for leg in t["legs"]] == [
-        (50.0, "2026-10-13", "settle"), (20.0, "2026-10-13", "settle")]
-    assert [leg["pnl_rs"] for leg in t["legs"]] == [2500.0, -1250.0]        # (50−40)×250 and −(20−15)×250
-    assert t["gross_pnl_rs"] == 1250.0 and t["unrealized_pnl_rs"] == 1250.0
-    assert t["mark_premium_rs"] == -7500.0                                  # −50 × 250 + 20 × 250
-    assert t["costs_rs"] == pytest.approx(5 + 1.875 + 40 + 50 * 250 * 0.0005 + 20 * 250 * 0.0005 + 40, abs=0.01)
+        (49.0, "2026-10-13", "close"), (19.0, "2026-10-13", "close")]
+    assert [leg["pnl_rs"] for leg in t["legs"]] == [2250.0, -1000.0]        # (49−40)×250 and −(19−15)×250
+    assert t["gross_pnl_rs"] == 1250.0 and t["unrealized_pnl_rs"] == 1250.0  # the +1 on both legs cancels in the spread
+    assert t["mark_premium_rs"] == -7500.0                                  # −49 × 250 + 19 × 250
+    # The desk cost card: entry 33.10 + 32.68; the exit side estimated at the marks, sell 49×250 = 12,250: 20 + 18.38 STT
+    # + 4.35 exch + 0.01 SEBI + 4.38 GST + 6.13 slippage = 53.25, buy 19×250 = 4,750: 20 + 1.69 exch + 0.14 stamp
+    # + 3.90 GST + 2.38 slippage = 28.11; 147.14 (was 147.99 at the settle marks 50 / 20)
+    assert t["costs_rs"] == 147.14
     assert t["net_pnl_rs"] == pytest.approx(1250.0 - t["costs_rs"], abs=0.01)
     assert t["costs_basis"].startswith("entry and exit sides")
     assert (t["mfe_rs"], t["mae_rs"], t["held_sessions"], t["checked_through"]) == (1250.0, 1250.0, 1, "2026-10-13")
@@ -263,16 +305,20 @@ def test_the_target_on_the_underlying_closes_every_leg_at_the_session_marks(api,
     body = trades(api)
     t = only_strategy(body)
     assert (t["status"], t["exit_reason"], t["exit_session"]) == ("closed", "target", "2026-10-15")
-    assert [leg["mark"] for leg in t["legs"]] == [110.0, 60.0]
-    assert [leg["pnl_rs"] for leg in t["legs"]] == [17500.0, -11250.0]
+    assert [leg["mark"] for leg in t["legs"]] == [109.0, 59.0]                # p2_exits_backtest TC-40: an option is marked at its CLOSE, never its settle price (the fixture's settle is the close + 1) (was 110 / 60)
+    assert [leg["pnl_rs"] for leg in t["legs"]] == [17250.0, -11000.0]     # (109−40)×250, −(59−15)×250 (were 17,500 / −11,250)
     assert t["gross_pnl_rs"] == 6250.0 and t["realized_pnl_rs"] == 6250.0 and t["unrealized_pnl_rs"] is None
-    assert t["costs_rs"] == pytest.approx(108.125, abs=0.01)
-    assert t["net_pnl_rs"] == pytest.approx(6141.875, abs=0.01)
+    # Entry buy 40×250 33.10 + sell 15×250 32.68; exit sell 109×250 89.57 + buy 59×250 37.62 (desk cost card, options):
+    # STT 5.63 + 40.88, exchange 3.55 + 1.33 + 9.68 + 5.24, SEBI 0.01 + 0.03 + 0.01, stamp 0.30 + 0.44,
+    # GST 4.24 + 3.84 + 5.35 + 4.55, slippage 5.00 + 1.88 + 13.63 + 7.38 → 192.97 (was 193.80 at the settle marks)
+    assert t["costs_rs"] == 192.97 and t["net_pnl_rs"] == 6057.03
+    assert t["costs_breakdown"] == {"brokerage": 80.0, "stt": 46.51, "exchange": 19.8, "sebi": 0.05, "stamp": 0.74,
+                                    "gst": 17.98, "slippage": 27.89, "total": 192.97}
     assert (t["mfe_rs"], t["mae_rs"], t["held_sessions"]) == (6250.0, -1250.0, 3)
     assert t["mark_premium_rs"] == -12500.0
     assert "exit_marked_at_session_marks" in [f["code"] for f in t["flags"]]
     assert body["summary"]["closed"] == 1 and body["summary"]["realized_pnl_rs"] == 6250.0
-    assert body["summary"]["net_realized_pnl_rs"] == pytest.approx(6141.875, abs=0.01)
+    assert body["summary"]["net_realized_pnl_rs"] == pytest.approx(6057.03, abs=0.001)
 
 
 def test_exits_are_idempotent_and_the_lifecycle_log_records_state_changes_only(api, sworld):
@@ -298,7 +344,9 @@ def test_a_stop_and_a_target_in_one_session_count_as_the_stop_and_a_gap_is_flagg
 
 
 def test_a_bearish_trade_is_stopped_when_the_high_reaches_the_stop(api, sworld):
-    sworld.contracts[("option", 1200.0, "PE")] = [crow("2026-10-13", 20), crow("2026-10-14", 12)]
+    # p2_exits_backtest TC-40: the rows now carry a close (the mark) and a different settle (never the mark); they had a
+    # settle only, which marked the put at settle.
+    sworld.contracts[("option", 1200.0, "PE")] = [crow("2026-10-13", 21, 20), crow("2026-10-14", 13, 12)]
     open_strategy(api, direction="bearish", family="long_put", reference_price=1215.0, stop_underlying=1250.0,
                   target_underlying=1150.0, legs=[put("buy", 1200, 25)])
     sworld.rows["FIXU"] = [UNDERLYING[0], obar("2026-10-13", 1220, 1235, 1205, 1210), obar("2026-10-14", 1215, 1252, 1210, 1240)]
@@ -323,8 +371,8 @@ def test_options_expire_at_intrinsic_value_against_the_underlying_close(api, swo
 def test_a_long_put_settles_at_strike_minus_the_close_and_a_future_at_its_final_settle():
     # Pure rule, no routes: put 1300 bought at 30 → underlying 1250 → (1300 − 1250) = 50 → (50 − 30) × 250 = +5,000;
     # future bought at 1215, final settle 1260 → (1260 − 1215) × 250 = +11,250.
-    doc = strat.new_strategy_trade("u", strategy_body(
-        family="custom", direction="bullish", stop_underlying=None, target_underlying=None,
+    doc = strat.new_strategy_trade("u", strategy_body(       # a futures leg needs a stop; 1200 is never touched here
+        family="custom", direction="bullish", stop_underlying=1200.0, target_underlying=None,
         legs=[put("buy", 1300, 30), future("buy", 1215)]), NOW)
     bars = [{"date": date(2026, 10, 27), "open": 1255.0, "high": 1262.0, "low": 1245.0, "close": 1250.0, "volume": 1.0, "series": "EQ"}]
     rows = [[crow(EXPIRY, 49, 49, underlying=1250)], [crow(EXPIRY, 1260, 1259, underlying=1250)]]
@@ -338,9 +386,10 @@ def test_a_leg_with_no_row_keeps_its_last_mark_and_is_flagged_never_filled_in(ap
     sworld.rows["FIXU"] = UNDERLYING[:3]
     sworld.contracts[("option", 1360.0, "CE")] = CALL_1360[:1]                  # no 1360 row on 14 Oct
     t = only_strategy(trades(api))
-    assert [leg["mark"] for leg in t["legs"]] == [30.0, 20.0] and t["legs"][1]["mark_date"] == "2026-10-13"
+    # p2_exits_backtest TC-40: an option is marked at its CLOSE, never its settle price (the fixture's settle is the close + 1) (was 30 / 20)
+    assert [leg["mark"] for leg in t["legs"]] == [29.0, 19.0] and t["legs"][1]["mark_date"] == "2026-10-13"
     assert [(f["code"], f["leg"], f["session"]) for f in t["flags"] if f["code"] == "no_mark"] == [("no_mark", 1, "2026-10-14")]
-    # 1300: (30 − 40) × 250 = −2,500 · 1360 kept at 20: −(20 − 15) × 250 = −1,250  → −3,750
+    # 1300: (29 − 40) × 250 = −2,750 · 1360 kept at 19: −(19 − 15) × 250 = −1,000  → −3,750
     assert t["gross_pnl_rs"] == -3750.0
 
 
@@ -367,7 +416,10 @@ def test_underlying_bars_missing_means_no_stop_check_and_a_flag(api, sworld):
     sworld.rows["FIXU"] = []
     t = only_strategy(trades(api))
     assert "underlying_bars_missing" in [f["code"] for f in t["flags"]]
-    assert t["status"] == "open" and t["gross_pnl_rs"] == 6250.0           # marks still come from the bhavcopy rows
+    assert t["gross_pnl_rs"] == 6250.0                                     # marks still come from the bhavcopy rows
+    # Integrated with feat/p2-trade-plan-lifecycle: the route stores strategy_levels' premium plan at entry
+    # (exit_plan.options), and on those marks the whole spread is worth its premium target 1, so it closes by that rule.
+    assert t["premium_plan"] is not None and (t["status"], t["exit_reason"]) == ("closed", "target")
 
 
 def test_prices_unavailable_keeps_the_trade_listed_with_no_marks(api, sworld):
@@ -487,7 +539,11 @@ def test_the_list_carries_both_kinds_and_the_share_rules_ignore_strategy_documen
     body = trades(api)
     kinds = {t["id"]: t["kind"] for t in body["trades"]}
     assert kinds == {cash["id"]: "cash", s["id"]: "strategy"}
-    assert body["summary"]["open"] == 2 and body["summary"]["closed"] == 0
+    # The spread reaches the premium target 1 stored at entry (exit_plan.options, feat/p2-trade-plan-lifecycle) on its
+    # marks, so the summary counts it closed; the share trade stays open under its own rule.
+    strat_row = next(t for t in body["trades"] if t["kind"] == "strategy")
+    assert (strat_row["status"], strat_row["exit_reason"]) == ("closed", "target")
+    assert body["summary"]["open"] == 1 and body["summary"]["closed"] == 1
     shares = [t for t in body["trades"] if t["kind"] == "cash"]
     assert shares[0]["rules_version"] == "desk-paper-v2" and body["rules_version"] == "desk-paper-v2"
     assert body["strategy_rules_version"] == "desk-paper-v3"
@@ -502,11 +558,157 @@ def test_the_evening_check_script_path_leaves_strategy_trades_to_their_own_rules
     assert out == [doc] and counts["paths"] == {}
 
 
+# ── the paper account: a closed structure returns what it reserved ───────────
+# The worked spread reserves its capital at risk, the strike span × the quantity: (1360 − 1300) × 250 = ₹15,000.
+def _account(db, uid: str = "user_a") -> Dict[str, Any]:
+    import asyncio
+    return asyncio.run(acct.read(db, uid))
+
+
+def _releases(db) -> List[Dict[str, Any]]:
+    return [r for r in db[acct.LEDGER].docs if r["action"] == "release"]
+
+
+def test_a_manual_close_returns_the_reservation_and_books_the_net_pnl(api, sworld):
+    open_strategy(api, stop_underlying=1100.0, target_underlying=1500.0)
+    assert sworld.db.trades.docs[0]["paper_reserved_rs"] == 15000.0
+    assert _account(sworld.db)["blocked_rs"] == 15000.0
+    sworld.rows["FIXU"] = UNDERLYING[:3]
+    assert api.post(f"{TRADES_URL}/{sworld.db.trades.docs[0]['_id']}/close", json={}, headers=A).status_code == 200
+    stored = sworld.db.trades.docs[0]
+    # 14 Oct CLOSE marks 29 / 9 (TC-40; were the settle marks 30 / 10): gross −1,250 (unchanged: the +1 cancels); costs
+    # 33.10 + 32.68 (entry) + sell 29×250 = 41.17 + buy 9×250 = 25.74 = 132.69; net −1,382.69 (was −1,383.51)
+    assert stored["net_pnl_rs"] == pytest.approx(-1382.69, abs=0.001)
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0
+    assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + stored["net_pnl_rs"], abs=0.01)
+    [rel] = _releases(sworld.db)
+    assert (rel["amount_rs"], rel["net_pnl_rs"], rel["trade_id"]) == (15000.0, stored["net_pnl_rs"], stored["_id"])
+
+
+def test_an_exit_rule_close_returns_the_reservation_too(api, sworld):
+    open_strategy(api)
+    trades(api)                                                    # the list read fires the target (15 Oct)
+    stored = sworld.db.trades.docs[0]
+    assert (stored["status"], stored["exit_reason"]) == ("closed", "target")
+    # TC-40: closing CLOSE marks 109 / 59 (were settle 110 / 60): gross 6,250 unchanged; costs 33.10 + 32.68 + sell
+    # 109×250 = 89.57 + buy 59×250 = 37.62 = 192.97 (was 193.80) → net 6,057.03 (was 6,056.20)
+    assert stored["net_pnl_rs"] == pytest.approx(6057.03, abs=0.001)
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
+    trades(api)                                                    # a second read changes nothing
+    assert len(_releases(sworld.db)) == 1
+
+
+def test_two_closes_racing_release_the_capital_once(api, sworld):
+    """A manual close and an exit-rule close holding the same open copy: the status in the filter lets one win, and
+    only the winner releases."""
+    import asyncio
+    open_strategy(api)
+    doc = copy.deepcopy(sworld.db.trades.docs[0])
+    _, sims, _ = asyncio.run(strat.apply_exits(sworld.db, [doc], persist=False))
+    sim = sims[doc["_id"]]
+    first = asyncio.run(strat.close_strategy_trade(sworld.db, doc, **sim["exit"], sim=sim))
+    second = asyncio.run(strat.close_strategy_trade(sworld.db, doc, exit_reason="manual", exit_session=None,
+                                                    exit_note=None, sim=sim))
+    assert first[1] is True and second[1] is False
+    assert second[0]["exit_reason"] == "target"                    # the first close stands
+    assert len(_releases(sworld.db)) == 1
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
+
+
+def test_a_structure_opened_before_the_account_existed_releases_nothing_but_books_its_pnl(sworld):
+    import asyncio
+    doc = strat.new_strategy_trade("user_a", strategy_body(), NOW)  # no paper_reserved_rs, as an old trade
+    asyncio.run(sworld.db.trades.insert_one(doc))
+    _, sims, _ = asyncio.run(strat.apply_exits(sworld.db, [doc], persist=False))
+    _, mine = asyncio.run(strat.close_strategy_trade(sworld.db, doc, **sims[doc["_id"]]["exit"], sim=sims[doc["_id"]]))
+    assert mine is True
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0, "the account must not be credited for a reservation it never took"
+    assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
+
+
+def test_a_close_with_an_unknown_pnl_returns_the_reservation_and_assumes_no_pnl(api, sworld):
+    """A stop on a session before a leg's first row: that leg has no mark, so the structure has no P&L. The capital
+    comes back; cash is not moved by a figure nobody knows."""
+    import asyncio
+    open_strategy(api)
+    doc = copy.deepcopy(sworld.db.trades.docs[0])
+    _, sims, _ = asyncio.run(strat.apply_exits(sworld.db, [doc], persist=False))
+    sim = copy.deepcopy(sims[doc["_id"]])
+    sim["legs"][1].update(mark=None, mark_date=None, mark_basis=None)
+    sim["gross_pnl_rs"] = None
+    stored, mine = asyncio.run(strat.close_strategy_trade(sworld.db, doc, **sim["exit"], sim=sim))
+    assert mine is True and stored["net_pnl_rs"] is None
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == acct.DEFAULT_CAPITAL
+
+
+# ── the evening script runs the strategy exit rules too ──────────────────────
+def test_the_evening_script_dry_run_reports_the_strategy_exit_and_writes_nothing(api, sworld):
+    import asyncio
+    from scripts import check_desk_alerts as script
+
+    open_strategy(api)
+    writes = sworld.db.trades.writes
+    account = copy.deepcopy(sworld.db[acct.ACCOUNTS].docs)
+    out = asyncio.run(script.run(sworld.db, dry_run=True))
+    assert out["ok"] is True and out["open_strategy_trades"] == 1
+    assert out["strategy_exits"] == {"target": 1} and out["strategy_not_checked"] == 0
+    assert out["symbols"] == 0                                     # the share-trade read leaves FIXU to the strategy read
+    assert sworld.db.trades.writes == writes and sworld.db.trades.docs[0]["status"] == "open"
+    assert sworld.db[acct.ACCOUNTS].docs == account and _releases(sworld.db) == []
+
+
+def test_the_evening_script_closes_the_strategy_and_returns_its_capital_once(api, sworld):
+    import asyncio
+    from scripts import check_desk_alerts as script
+
+    open_strategy(api)
+    out = asyncio.run(script.run(sworld.db))
+    assert out["ok"] is True and out["strategy_exits"] == {"target": 1}
+    doc = sworld.db.trades.docs[0]
+    assert (doc["status"], doc["exit_reason"], doc["exit_session"]) == ("closed", "target", "2026-10-15")
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
+
+    writes = sworld.db.trades.writes + sworld.db[acct.ACCOUNTS].writes
+    again = asyncio.run(script.run(sworld.db))
+    assert again["open_strategy_trades"] == 0 and again["strategy_exits"] == {}
+    assert sworld.db.trades.writes + sworld.db[acct.ACCOUNTS].writes == writes
+    assert len(_releases(sworld.db)) == 1
+
+
+def test_the_evening_script_says_when_strategy_prices_cannot_be_read(api, sworld, monkeypatch, caplog):
+    import asyncio
+    import logging
+
+    import deps
+    from scripts import check_desk_alerts as script
+
+    open_strategy(api)
+    sworld.history_fail = daas_client.DaasError("unreachable")
+    out = asyncio.run(script.run(sworld.db))
+    assert out["strategy_not_checked"] == 1 and out["ok"] is False   # nothing else to check, and this could not be read
+    assert sworld.db.trades.docs[0]["status"] == "open"
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr(deps, "db", sworld.db)
+    monkeypatch.setattr("sys.argv", ["check_desk_alerts"])
+    assert script.main() == 1
+    assert "1 strategy trade(s) were not checked" in caplog.text
+
+
 def test_costs_use_the_strategy_engine_constants():
     assert svc.COST_MODEL["slippage_pct_per_side"] == 0.05 and svc.COST_MODEL["brokerage_rs_per_side"] == 20.0
     doc = strat.new_strategy_trade("u", strategy_body(), NOW)
-    assert strat.strategy_costs(doc, [110.0, 60.0]) == pytest.approx(108.125, abs=0.01)
+    assert doc["cost_model"]["version"] == "desk-cost-v2"
+    assert strat.strategy_costs(doc, [110.0, 60.0]) == 193.8                 # the worked example above, by hand
     assert strat.strategy_costs(doc, [110.0, None]) is None
+    # A structure opened under the flat model keeps it (paper_fills_pnl follow-up: old trades unchanged).
+    old = {**doc, "cost_model": dict(svc.COST_MODEL_FLAT_V1)}
+    assert strat.strategy_costs(old, [110.0, 60.0]) == pytest.approx(108.125, abs=0.01)
 
 
 def test_the_defined_risk_rule_directly():
@@ -518,3 +720,14 @@ def test_the_defined_risk_rule_directly():
     with pytest.raises(svc.DeskInputError) as e:
         strat.check_defined_risk(legs(put("sell", 1300, 40), put("buy", 1250, 10, lots=1), put("sell", 1200, 5)))
     assert e.value.code == "naked_short_put"                                # two short puts, one long
+    # Futures (TESTCASES F-1, F-2, F-7): never defined risk; a short futures-only structure is refused.
+    assert strat.check_defined_risk(legs(future("buy", 1215))) == {"defined_risk": False, "futures_exposure": True,
+                                                                   "note": strat.UNBOUNDED_NOTE}
+    with pytest.raises(svc.DeskInputError) as e:
+        strat.check_defined_risk(legs(future("sell", 1215)))
+    assert e.value.code == "short_futures_not_supported" and "no limit on its loss" in e.value.message
+    with pytest.raises(svc.DeskInputError) as e:                            # a calendar spread sells a future too
+        strat.check_defined_risk(legs(future("buy", 1215), dict(future("sell", 1220), expiry="2026-11-24")))
+    assert e.value.code == "short_futures_not_supported"
+    hedged = strat.check_defined_risk(legs(future("sell", 1215), call("buy", 1300, 20)))
+    assert hedged == {"defined_risk": False, "futures_exposure": True, "note": strat.FUTURES_HEDGED_NOTE}

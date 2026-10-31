@@ -1,0 +1,2004 @@
+{
+ "as_of": "2026-10-31T01:08:53.702115+00:00",
+ "read_only": true,
+ "note": "Nivesh reads positions; it cannot place orders.",
+ "sources": [
+  {
+   "source": "broker",
+   "account_id": "ba_mock",
+   "broker": "icicidirect",
+   "broker_display": "ICICI Direct",
+   "label": "ICICI Direct",
+   "ok": true,
+   "error": null,
+   "read_at": "2026-10-30T10:05:00+00:00",
+   "broker_as_of": null,
+   "rows": 4,
+   "closed_rows": 0,
+   "snapshot_id": "ps_mock"
+  },
+  {
+   "source": "paper",
+   "ok": true,
+   "error": null,
+   "as_of": "2026-10-30",
+   "marks_error": null
+  }
+ ],
+ "quotes": {
+  "source": null,
+  "as_of": null,
+  "why": "no_saved_close"
+ },
+ "summary": {
+  "groups": 5,
+  "positions": 6,
+  "broker_positions": 4,
+  "paper_positions": 2,
+  "paper_waiting_entry": 1,
+  "unmapped_rows": 1,
+  "unrealised_pnl_rs": 28484.12,
+  "unrealised_partial": false,
+  "open_risk_at_stops_rs": 3854.08,
+  "near_stop": 1,
+  "stop_breached": 0,
+  "without_stop": 2,
+  "expiring_soon": 0,
+  "exposure_rs": 1189004.5,
+  "day_realised_pnl_rs": null,
+  "day_realised_note": "Not available: the brokers' position reads do not split the day's realised P&L from the rest, so no figure is shown rather than a mixed one."
+ },
+ "groups": [
+  {
+   "key": "broker:NIFTY",
+   "source": "broker",
+   "underlying": "NIFTY",
+   "kind": "fno",
+   "accounts": [
+    {
+     "account_id": "a1",
+     "broker_display": "ICICI Direct"
+    }
+   ],
+   "legs": [
+    {
+     "key": "NIFTY|2026-11-03|23050|CE",
+     "label": "NIFTY 3 Nov 2026 23050 CE",
+     "instrument": "CE",
+     "expiry": "2026-11-03",
+     "strike": 23050.0,
+     "quantity": 65.0,
+     "lots": 1.0,
+     "lot_size": 65,
+     "avg_price": 103.9,
+     "mark": 103.9,
+     "iv_pct": 11.98,
+     "greeks": {
+      "delta": 30.55,
+      "gamma": 0.026,
+      "theta": -650.0,
+      "vega": 520.0
+     },
+     "ltp": 103.9,
+     "ltp_source": "broker",
+     "pnl_rs": 0.0,
+     "broker_code": "NIFTY",
+     "account_id": "a1",
+     "broker_display": "ICICI Direct",
+     "product": "carryforward",
+     "read_at": "2026-10-31T04:00:00+00:00"
+    },
+    {
+     "key": "NIFTY|2026-11-03|23350|CE",
+     "label": "NIFTY 3 Nov 2026 23350 CE",
+     "instrument": "CE",
+     "expiry": "2026-11-03",
+     "strike": 23350.0,
+     "quantity": -65.0,
+     "lots": -1.0,
+     "lot_size": 65,
+     "avg_price": 17.45,
+     "mark": 17.45,
+     "iv_pct": 11.58,
+     "greeks": {
+      "delta": -8.45,
+      "gamma": -0.0195,
+      "theta": 260.0,
+      "vega": -260.0
+     },
+     "ltp": 17.45,
+     "ltp_source": "broker",
+     "pnl_rs": 0.0,
+     "broker_code": "NIFTY",
+     "account_id": "a1",
+     "broker_display": "ICICI Direct",
+     "product": "carryforward",
+     "read_at": "2026-10-31T04:00:00+00:00"
+    }
+   ],
+   "unmapped": [],
+   "price": {
+    "spot": 23053.1,
+    "source": "nse_bhavcopy",
+    "as_of": "2026-10-30",
+    "pricing_as_of": "2026-10-30"
+   },
+   "pnl_rs": 0.0,
+   "pnl_source": "broker",
+   "levels": null,
+   "warnings": [
+    {
+     "code": "no_stop",
+     "tone": "ink",
+     "text": "No stop set: the loss at a stop cannot be shown."
+    }
+   ],
+   "analytics": {
+    "greeks": {
+     "delta": 22.1,
+     "gamma": 0.0065,
+     "theta": -390.0,
+     "vega": 260.0
+    },
+    "delta_exposure_rs": 509473.51,
+    "exposure_rs": null,
+    "payoff": {
+     "breakevens": [
+      23136.45
+     ],
+     "max_profit": 13880.75,
+     "profit_unbounded": false,
+     "max_loss": -5619.25,
+     "loss_unbounded": false,
+     "risk_basis": "expiry",
+     "pnl_at_stop_rs": null,
+     "loss_at_stop_rs": null,
+     "pnl_at_stop_basis": null,
+     "risk_to_stop_rs": null,
+     "pnl_at_target_rs": null,
+     "gross": true
+    },
+    "scenario": [
+     {
+      "move_pct": -10.0,
+      "price": 20747.79,
+      "expiry_pnl_rs": -5619.25,
+      "today_pnl_rs": -5619.25
+     },
+     {
+      "move_pct": -5.0,
+      "price": 21900.44,
+      "expiry_pnl_rs": -5619.25,
+      "today_pnl_rs": -5619.19
+     },
+     {
+      "move_pct": -3.0,
+      "price": 22361.51,
+      "expiry_pnl_rs": -5619.25,
+      "today_pnl_rs": -5583.85
+     },
+     {
+      "move_pct": -2.0,
+      "price": 22592.04,
+      "expiry_pnl_rs": -5619.25,
+      "today_pnl_rs": -5285.72
+     },
+     {
+      "move_pct": -1.0,
+      "price": 22822.57,
+      "expiry_pnl_rs": -5619.25,
+      "today_pnl_rs": -3845.43
+     },
+     {
+      "move_pct": 0.0,
+      "price": 23053.1,
+      "expiry_pnl_rs": -5417.75,
+      "today_pnl_rs": -0.27
+     },
+     {
+      "move_pct": 1.0,
+      "price": 23283.63,
+      "expiry_pnl_rs": 9566.76,
+      "today_pnl_rs": 5766.92
+     },
+     {
+      "move_pct": 2.0,
+      "price": 23514.16,
+      "expiry_pnl_rs": 13880.75,
+      "today_pnl_rs": 10681.35
+     },
+     {
+      "move_pct": 3.0,
+      "price": 23744.69,
+      "expiry_pnl_rs": 13880.75,
+      "today_pnl_rs": 13077.5
+     },
+     {
+      "move_pct": 5.0,
+      "price": 24205.76,
+      "expiry_pnl_rs": 13880.75,
+      "today_pnl_rs": 13857.71
+     },
+     {
+      "move_pct": 10.0,
+      "price": 25358.41,
+      "expiry_pnl_rs": 13880.75,
+      "today_pnl_rs": 13868.47
+     }
+    ],
+    "curve": [
+     [
+      19595.13,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      19768.03,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      19940.93,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      20113.83,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      20286.73,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      20459.63,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      20632.52,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      20805.42,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      20978.32,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      21151.22,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      21324.12,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      21497.02,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      21669.91,
+      -5619.25,
+      -5619.25
+     ],
+     [
+      21842.81,
+      -5619.25,
+      -5619.23
+     ],
+     [
+      22015.71,
+      -5619.25,
+      -5618.87
+     ],
+     [
+      22188.61,
+      -5619.25,
+      -5614.85
+     ],
+     [
+      22361.51,
+      -5619.25,
+      -5583.85
+     ],
+     [
+      22534.41,
+      -5619.25,
+      -5418.01
+     ],
+     [
+      22707.3,
+      -5619.25,
+      -4795.63
+     ],
+     [
+      22880.2,
+      -5619.25,
+      -3141.0
+     ],
+     [
+      23050.0,
+      -5619.25,
+      -69.26
+     ],
+     [
+      23053.1,
+      -5417.75,
+      -0.27
+     ],
+     [
+      23226.0,
+      5820.75,
+      4283.82
+     ],
+     [
+      23350.0,
+      13880.75,
+      7396.19
+     ],
+     [
+      23398.9,
+      13880.75,
+      8503.52
+     ],
+     [
+      23571.79,
+      13880.75,
+      11515.31
+     ],
+     [
+      23744.69,
+      13880.75,
+      13077.48
+     ],
+     [
+      23917.59,
+      13880.75,
+      13667.54
+     ],
+     [
+      24090.49,
+      13880.75,
+      13830.22
+     ],
+     [
+      24263.39,
+      13880.75,
+      13863.03
+     ],
+     [
+      24436.29,
+      13880.75,
+      13867.89
+     ],
+     [
+      24609.18,
+      13880.75,
+      13868.42
+     ],
+     [
+      24782.08,
+      13880.75,
+      13868.46
+     ],
+     [
+      24954.98,
+      13880.75,
+      13868.47
+     ],
+     [
+      25127.88,
+      13880.75,
+      13868.47
+     ],
+     [
+      25300.78,
+      13880.75,
+      13868.47
+     ],
+     [
+      25473.68,
+      13880.75,
+      13868.47
+     ],
+     [
+      25646.57,
+      13880.75,
+      13868.47
+     ],
+     [
+      25819.47,
+      13880.75,
+      13868.47
+     ],
+     [
+      25992.37,
+      13880.75,
+      13868.47
+     ],
+     [
+      26165.27,
+      13880.75,
+      13868.47
+     ],
+     [
+      26338.17,
+      13880.75,
+      13868.47
+     ],
+     [
+      26511.06,
+      13880.75,
+      13868.47
+     ]
+    ],
+    "distance_to_stop_pct": null,
+    "distance_to_target_pct": null,
+    "direction": "long"
+   },
+   "margin_request": {
+    "underlying": "NIFTY",
+    "legs": [
+     {
+      "side": "buy",
+      "option_type": "call",
+      "expiry": "2026-11-03",
+      "strike": 23050.0,
+      "lots": 1
+     },
+     {
+      "side": "sell",
+      "option_type": "call",
+      "expiry": "2026-11-03",
+      "strike": 23350.0,
+      "lots": 1
+     }
+    ]
+   },
+   "paper_trade_id": null
+  },
+  {
+   "key": "broker:RELIANCE",
+   "source": "broker",
+   "underlying": "RELIANCE",
+   "kind": "equity",
+   "accounts": [
+    {
+     "account_id": "a1",
+     "broker_display": "ICICI Direct"
+    }
+   ],
+   "legs": [
+    {
+     "key": "RELIANCE|EQ",
+     "label": "RELIANCE",
+     "instrument": "EQ",
+     "expiry": null,
+     "strike": null,
+     "quantity": 10.0,
+     "lots": null,
+     "lot_size": null,
+     "avg_price": 1400.0,
+     "mark": 1382.0,
+     "iv_pct": null,
+     "greeks": {
+      "delta": 10.0,
+      "gamma": 0.0,
+      "theta": 0.0,
+      "vega": 0.0
+     },
+     "ltp": 1382.0,
+     "ltp_source": "broker",
+     "pnl_rs": -180.0,
+     "broker_code": "RELIND",
+     "account_id": "a1",
+     "broker_display": "ICICI Direct",
+     "product": "carryforward",
+     "read_at": "2026-10-31T04:00:00+00:00"
+    }
+   ],
+   "unmapped": [],
+   "price": {
+    "spot": 1382.0,
+    "source": "broker",
+    "as_of": "2026-10-31T04:00:00+00:00",
+    "pricing_as_of": null
+   },
+   "pnl_rs": -180.0,
+   "pnl_source": "broker",
+   "levels": null,
+   "warnings": [
+    {
+     "code": "no_stop",
+     "tone": "ink",
+     "text": "No stop set: the loss at a stop cannot be shown."
+    }
+   ],
+   "analytics": {
+    "greeks": {
+     "delta": 10.0,
+     "gamma": 0.0,
+     "theta": 0.0,
+     "vega": 0.0
+    },
+    "delta_exposure_rs": 13820.0,
+    "exposure_rs": 13820.0,
+    "payoff": {
+     "breakevens": [
+      1400.0
+     ],
+     "max_profit": null,
+     "profit_unbounded": true,
+     "max_loss": null,
+     "loss_unbounded": false,
+     "risk_basis": "stop",
+     "pnl_at_stop_rs": null,
+     "loss_at_stop_rs": null,
+     "pnl_at_stop_basis": null,
+     "risk_to_stop_rs": null,
+     "pnl_at_target_rs": null,
+     "gross": true
+    },
+    "scenario": [
+     {
+      "move_pct": -10.0,
+      "price": 1243.8,
+      "expiry_pnl_rs": -1562.0,
+      "today_pnl_rs": -1562.0
+     },
+     {
+      "move_pct": -5.0,
+      "price": 1312.9,
+      "expiry_pnl_rs": -871.0,
+      "today_pnl_rs": -871.0
+     },
+     {
+      "move_pct": -3.0,
+      "price": 1340.54,
+      "expiry_pnl_rs": -594.6,
+      "today_pnl_rs": -594.6
+     },
+     {
+      "move_pct": -2.0,
+      "price": 1354.36,
+      "expiry_pnl_rs": -456.4,
+      "today_pnl_rs": -456.4
+     },
+     {
+      "move_pct": -1.0,
+      "price": 1368.18,
+      "expiry_pnl_rs": -318.2,
+      "today_pnl_rs": -318.2
+     },
+     {
+      "move_pct": 0.0,
+      "price": 1382.0,
+      "expiry_pnl_rs": -180.0,
+      "today_pnl_rs": -180.0
+     },
+     {
+      "move_pct": 1.0,
+      "price": 1395.82,
+      "expiry_pnl_rs": -41.8,
+      "today_pnl_rs": -41.8
+     },
+     {
+      "move_pct": 2.0,
+      "price": 1409.64,
+      "expiry_pnl_rs": 96.4,
+      "today_pnl_rs": 96.4
+     },
+     {
+      "move_pct": 3.0,
+      "price": 1423.46,
+      "expiry_pnl_rs": 234.6,
+      "today_pnl_rs": 234.6
+     },
+     {
+      "move_pct": 5.0,
+      "price": 1451.1,
+      "expiry_pnl_rs": 511.0,
+      "today_pnl_rs": 511.0
+     },
+     {
+      "move_pct": 10.0,
+      "price": 1520.2,
+      "expiry_pnl_rs": 1202.0,
+      "today_pnl_rs": 1202.0
+     }
+    ],
+    "curve": [
+     [
+      1174.7,
+      -2253.0,
+      -2253.0
+     ],
+     [
+      1185.07,
+      -2149.3,
+      -2149.3
+     ],
+     [
+      1195.43,
+      -2045.7,
+      -2045.7
+     ],
+     [
+      1205.8,
+      -1942.0,
+      -1942.0
+     ],
+     [
+      1216.16,
+      -1838.4,
+      -1838.4
+     ],
+     [
+      1226.53,
+      -1734.7,
+      -1734.7
+     ],
+     [
+      1236.89,
+      -1631.1,
+      -1631.1
+     ],
+     [
+      1247.26,
+      -1527.4,
+      -1527.4
+     ],
+     [
+      1257.62,
+      -1423.8,
+      -1423.8
+     ],
+     [
+      1267.99,
+      -1320.1,
+      -1320.1
+     ],
+     [
+      1278.35,
+      -1216.5,
+      -1216.5
+     ],
+     [
+      1288.72,
+      -1112.8,
+      -1112.8
+     ],
+     [
+      1299.08,
+      -1009.2,
+      -1009.2
+     ],
+     [
+      1309.44,
+      -905.6,
+      -905.6
+     ],
+     [
+      1319.81,
+      -801.9,
+      -801.9
+     ],
+     [
+      1330.17,
+      -698.3,
+      -698.3
+     ],
+     [
+      1340.54,
+      -594.6,
+      -594.6
+     ],
+     [
+      1350.9,
+      -491.0,
+      -491.0
+     ],
+     [
+      1361.27,
+      -387.3,
+      -387.3
+     ],
+     [
+      1371.63,
+      -283.7,
+      -283.7
+     ],
+     [
+      1382.0,
+      -180.0,
+      -180.0
+     ],
+     [
+      1392.37,
+      -76.3,
+      -76.3
+     ],
+     [
+      1402.73,
+      27.3,
+      27.3
+     ],
+     [
+      1413.1,
+      131.0,
+      131.0
+     ],
+     [
+      1423.46,
+      234.6,
+      234.6
+     ],
+     [
+      1433.83,
+      338.3,
+      338.3
+     ],
+     [
+      1444.19,
+      441.9,
+      441.9
+     ],
+     [
+      1454.56,
+      545.6,
+      545.6
+     ],
+     [
+      1464.92,
+      649.2,
+      649.2
+     ],
+     [
+      1475.29,
+      752.9,
+      752.9
+     ],
+     [
+      1485.65,
+      856.5,
+      856.5
+     ],
+     [
+      1496.01,
+      960.1,
+      960.1
+     ],
+     [
+      1506.38,
+      1063.8,
+      1063.8
+     ],
+     [
+      1516.74,
+      1167.4,
+      1167.4
+     ],
+     [
+      1527.11,
+      1271.1,
+      1271.1
+     ],
+     [
+      1537.47,
+      1374.7,
+      1374.7
+     ],
+     [
+      1547.84,
+      1478.4,
+      1478.4
+     ],
+     [
+      1558.2,
+      1582.0,
+      1582.0
+     ],
+     [
+      1568.57,
+      1685.7,
+      1685.7
+     ],
+     [
+      1578.93,
+      1789.3,
+      1789.3
+     ],
+     [
+      1589.3,
+      1893.0,
+      1893.0
+     ]
+    ],
+    "distance_to_stop_pct": null,
+    "distance_to_target_pct": null,
+    "direction": "long"
+   },
+   "margin_request": null,
+   "paper_trade_id": null
+  },
+  {
+   "key": "broker:SONACOMS",
+   "source": "broker",
+   "underlying": "SONACOMS",
+   "kind": "fno",
+   "accounts": [
+    {
+     "account_id": "a1",
+     "broker_display": "ICICI Direct"
+    }
+   ],
+   "legs": [
+    {
+     "key": "SONACOMS|2026-11-24|FUT",
+     "label": "SONACOMS 24 Nov 2026 FUT",
+     "instrument": "FUT",
+     "expiry": "2026-11-24",
+     "strike": null,
+     "quantity": 1225.0,
+     "lots": 1.0,
+     "lot_size": 1225,
+     "avg_price": 868.0,
+     "mark": 897.3,
+     "iv_pct": null,
+     "greeks": {
+      "delta": 1225.0,
+      "gamma": 0.0,
+      "theta": 0.0,
+      "vega": 0.0
+     },
+     "ltp": 897.3,
+     "ltp_source": "broker",
+     "pnl_rs": 27562.5,
+     "broker_code": "SONBLW",
+     "account_id": "a1",
+     "broker_display": "ICICI Direct",
+     "product": "carryforward",
+     "read_at": "2026-10-31T04:00:00+00:00"
+    }
+   ],
+   "unmapped": [],
+   "price": {
+    "spot": 890.5,
+    "source": "kite_close",
+    "as_of": "2026-10-30T10:00:00+00:00",
+    "pricing_as_of": "2026-10-30"
+   },
+   "pnl_rs": 27562.5,
+   "pnl_source": "broker",
+   "levels": {
+    "stop": 880.0,
+    "target": 957.0,
+    "trail_pct": null,
+    "effective_stop": 880.0,
+    "set_by": "you",
+    "updated_at": "2026-10-30T09:00:00+00:00"
+   },
+   "warnings": [
+    {
+     "code": "near_stop",
+     "tone": "amber",
+     "text": "1.18% from your stop (880.00)."
+    }
+   ],
+   "analytics": {
+    "greeks": {
+     "delta": 1225.0,
+     "gamma": 0.0,
+     "theta": 0.0,
+     "vega": 0.0
+    },
+    "delta_exposure_rs": 1090862.5,
+    "exposure_rs": 1099192.5,
+    "payoff": {
+     "breakevens": [
+      868.0
+     ],
+     "max_profit": null,
+     "profit_unbounded": true,
+     "max_loss": null,
+     "loss_unbounded": false,
+     "risk_basis": "stop",
+     "pnl_at_stop_rs": 22931.78,
+     "loss_at_stop_rs": 0.0,
+     "pnl_at_stop_basis": "today",
+     "risk_to_stop_rs": 12960.72,
+     "pnl_at_target_rs": 117977.06,
+     "gross": true
+    },
+    "scenario": [
+     {
+      "move_pct": -10.0,
+      "price": 801.45,
+      "expiry_pnl_rs": -81523.75,
+      "today_pnl_rs": -74026.75
+     },
+     {
+      "move_pct": -5.0,
+      "price": 845.97,
+      "expiry_pnl_rs": -26980.63,
+      "today_pnl_rs": -19067.13
+     },
+     {
+      "move_pct": -3.0,
+      "price": 863.78,
+      "expiry_pnl_rs": -5163.38,
+      "today_pnl_rs": 2916.72
+     },
+     {
+      "move_pct": -2.0,
+      "price": 872.69,
+      "expiry_pnl_rs": 5745.25,
+      "today_pnl_rs": 13908.65
+     },
+     {
+      "move_pct": -1.0,
+      "price": 881.6,
+      "expiry_pnl_rs": 16653.88,
+      "today_pnl_rs": 24900.57
+     },
+     {
+      "move_pct": 0.0,
+      "price": 890.5,
+      "expiry_pnl_rs": 27562.5,
+      "today_pnl_rs": 35892.5
+     },
+     {
+      "move_pct": 1.0,
+      "price": 899.4,
+      "expiry_pnl_rs": 38471.12,
+      "today_pnl_rs": 46884.42
+     },
+     {
+      "move_pct": 2.0,
+      "price": 908.31,
+      "expiry_pnl_rs": 49379.75,
+      "today_pnl_rs": 57876.35
+     },
+     {
+      "move_pct": 3.0,
+      "price": 917.22,
+      "expiry_pnl_rs": 60288.38,
+      "today_pnl_rs": 68868.27
+     },
+     {
+      "move_pct": 5.0,
+      "price": 935.03,
+      "expiry_pnl_rs": 82105.63,
+      "today_pnl_rs": 90852.12
+     },
+     {
+      "move_pct": 10.0,
+      "price": 979.55,
+      "expiry_pnl_rs": 136648.75,
+      "today_pnl_rs": 145811.75
+     }
+    ],
+    "curve": [
+     [
+      756.92,
+      -136073.0,
+      -128992.55
+     ],
+     [
+      763.6,
+      -127890.0,
+      -120747.06
+     ],
+     [
+      770.28,
+      -119707.0,
+      -112501.57
+     ],
+     [
+      776.96,
+      -111524.0,
+      -104256.09
+     ],
+     [
+      783.64,
+      -103341.0,
+      -96010.6
+     ],
+     [
+      790.32,
+      -95158.0,
+      -87765.11
+     ],
+     [
+      797.0,
+      -86975.0,
+      -79519.63
+     ],
+     [
+      803.68,
+      -78792.0,
+      -71274.14
+     ],
+     [
+      810.35,
+      -70621.25,
+      -63041.0
+     ],
+     [
+      817.03,
+      -62438.25,
+      -54795.51
+     ],
+     [
+      823.71,
+      -54255.25,
+      -46550.02
+     ],
+     [
+      830.39,
+      -46072.25,
+      -38304.54
+     ],
+     [
+      837.07,
+      -37889.25,
+      -30059.05
+     ],
+     [
+      843.75,
+      -29706.25,
+      -21813.56
+     ],
+     [
+      850.43,
+      -21523.25,
+      -13568.08
+     ],
+     [
+      857.11,
+      -13340.25,
+      -5322.59
+     ],
+     [
+      863.78,
+      -5169.5,
+      2910.55
+     ],
+     [
+      870.46,
+      3013.5,
+      11156.04
+     ],
+     [
+      877.14,
+      11196.5,
+      19401.53
+     ],
+     [
+      880.0,
+      14700.0,
+      22931.78
+     ],
+     [
+      883.82,
+      19379.5,
+      27647.01
+     ],
+     [
+      890.5,
+      27562.5,
+      35892.5
+     ],
+     [
+      897.18,
+      35745.5,
+      44137.99
+     ],
+     [
+      903.86,
+      43928.5,
+      52383.47
+     ],
+     [
+      910.54,
+      52111.5,
+      60628.96
+     ],
+     [
+      917.21,
+      60282.25,
+      68862.1
+     ],
+     [
+      923.89,
+      68465.25,
+      77107.59
+     ],
+     [
+      930.57,
+      76648.25,
+      85353.08
+     ],
+     [
+      937.25,
+      84831.25,
+      93598.56
+     ],
+     [
+      943.93,
+      93014.25,
+      101844.05
+     ],
+     [
+      950.61,
+      101197.25,
+      110089.54
+     ],
+     [
+      957.0,
+      109025.0,
+      117977.06
+     ],
+     [
+      957.29,
+      109380.25,
+      118335.02
+     ],
+     [
+      963.97,
+      117563.25,
+      126580.51
+     ],
+     [
+      970.64,
+      125734.0,
+      134813.65
+     ],
+     [
+      977.32,
+      133917.0,
+      143059.14
+     ],
+     [
+      984.0,
+      142100.0,
+      151304.63
+     ],
+     [
+      990.68,
+      150283.0,
+      159550.11
+     ],
+     [
+      997.36,
+      158466.0,
+      167795.6
+     ],
+     [
+      1004.04,
+      166649.0,
+      176041.09
+     ],
+     [
+      1010.72,
+      174832.0,
+      184286.57
+     ],
+     [
+      1017.4,
+      183015.0,
+      192532.06
+     ],
+     [
+      1024.07,
+      191185.75,
+      200765.2
+     ]
+    ],
+    "distance_to_stop_pct": 1.18,
+    "distance_to_target_pct": 7.47,
+    "direction": "long"
+   },
+   "margin_request": {
+    "underlying": "SONACOMS",
+    "legs": [
+     {
+      "side": "buy",
+      "option_type": "future",
+      "expiry": "2026-11-24",
+      "strike": null,
+      "lots": 1
+     }
+    ]
+   },
+   "paper_trade_id": null
+  },
+  {
+   "key": "broker:unmapped",
+   "source": "broker",
+   "underlying": "Not mapped",
+   "kind": "unmapped",
+   "accounts": [],
+   "legs": [],
+   "unmapped": [
+    {
+     "broker_code": "ZZZQQQ",
+     "broker_display": "ICICI Direct",
+     "account_id": "a1",
+     "quantity": 10.0,
+     "pnl_rs": -20.0,
+     "problem": "ICICI Direct code ZZZQQQ is not in ICICI's security master"
+    }
+   ],
+   "price": {
+    "spot": null,
+    "source": null,
+    "as_of": null,
+    "pricing_as_of": null
+   },
+   "pnl_rs": null,
+   "pnl_source": null,
+   "levels": null,
+   "warnings": [
+    {
+     "code": "unmapped",
+     "tone": "amber",
+     "text": "These rows could not be named as NSE contracts, so nothing is worked out from them."
+    }
+   ],
+   "analytics": null,
+   "margin_request": null,
+   "paper_trade_id": null
+  },
+  {
+   "key": "paper:paper-trade-1",
+   "source": "paper",
+   "underlying": "SONACOMS",
+   "kind": "equity",
+   "accounts": [],
+   "legs": [
+    {
+     "key": "SONACOMS|EQ",
+     "label": "SONACOMS",
+     "instrument": "EQ",
+     "expiry": null,
+     "strike": null,
+     "quantity": 44.0,
+     "lots": null,
+     "lot_size": null,
+     "avg_price": 868.87,
+     "mark": 890.5,
+     "iv_pct": null,
+     "greeks": {
+      "delta": 44.0,
+      "gamma": 0.0,
+      "theta": 0.0,
+      "vega": 0.0
+     },
+     "ltp": 890.5,
+     "ltp_source": "paper mark (end of day)",
+     "ltp_date": "2026-10-30",
+     "pnl_rs": 486.2
+    }
+   ],
+   "unmapped": [],
+   "price": {
+    "spot": 890.5,
+    "source": "paper mark (end of day)",
+    "as_of": "2026-10-30",
+    "pricing_as_of": "2026-10-30"
+   },
+   "pnl_rs": 486.2,
+   "pnl_source": "paper",
+   "levels": {
+    "stop": 824.6,
+    "target": 957.41,
+    "trail_pct": null,
+    "effective_stop": 824.6,
+    "set_by": "paper trade",
+    "updated_at": "2026-10-28T05:39:14.005604+00:00"
+   },
+   "warnings": [],
+   "analytics": {
+    "greeks": {
+     "delta": 44.0,
+     "gamma": 0.0,
+     "theta": 0.0,
+     "vega": 0.0
+    },
+    "delta_exposure_rs": 39182.0,
+    "exposure_rs": 39182.0,
+    "payoff": {
+     "breakevens": [
+      868.87
+     ],
+     "max_profit": null,
+     "profit_unbounded": true,
+     "max_loss": null,
+     "loss_unbounded": false,
+     "risk_basis": "stop",
+     "pnl_at_stop_rs": -1947.88,
+     "loss_at_stop_rs": 1947.88,
+     "pnl_at_stop_basis": "today",
+     "risk_to_stop_rs": 2899.6,
+     "pnl_at_target_rs": 3895.76,
+     "gross": true
+    },
+    "scenario": [
+     {
+      "move_pct": -10.0,
+      "price": 801.45,
+      "expiry_pnl_rs": -2966.48,
+      "today_pnl_rs": -2966.48
+     },
+     {
+      "move_pct": -5.0,
+      "price": 845.97,
+      "expiry_pnl_rs": -1007.38,
+      "today_pnl_rs": -1007.38
+     },
+     {
+      "move_pct": -3.0,
+      "price": 863.78,
+      "expiry_pnl_rs": -223.74,
+      "today_pnl_rs": -223.74
+     },
+     {
+      "move_pct": -2.0,
+      "price": 872.69,
+      "expiry_pnl_rs": 168.08,
+      "today_pnl_rs": 168.08
+     },
+     {
+      "move_pct": -1.0,
+      "price": 881.6,
+      "expiry_pnl_rs": 559.9,
+      "today_pnl_rs": 559.9
+     },
+     {
+      "move_pct": 0.0,
+      "price": 890.5,
+      "expiry_pnl_rs": 951.72,
+      "today_pnl_rs": 951.72
+     },
+     {
+      "move_pct": 1.0,
+      "price": 899.4,
+      "expiry_pnl_rs": 1343.54,
+      "today_pnl_rs": 1343.54
+     },
+     {
+      "move_pct": 2.0,
+      "price": 908.31,
+      "expiry_pnl_rs": 1735.36,
+      "today_pnl_rs": 1735.36
+     },
+     {
+      "move_pct": 3.0,
+      "price": 917.22,
+      "expiry_pnl_rs": 2127.18,
+      "today_pnl_rs": 2127.18
+     },
+     {
+      "move_pct": 5.0,
+      "price": 935.03,
+      "expiry_pnl_rs": 2910.82,
+      "today_pnl_rs": 2910.82
+     },
+     {
+      "move_pct": 10.0,
+      "price": 979.55,
+      "expiry_pnl_rs": 4869.92,
+      "today_pnl_rs": 4869.92
+     }
+    ],
+    "curve": [
+     [
+      756.92,
+      -4925.8,
+      -4925.8
+     ],
+     [
+      763.6,
+      -4631.88,
+      -4631.88
+     ],
+     [
+      770.28,
+      -4337.96,
+      -4337.96
+     ],
+     [
+      776.96,
+      -4044.04,
+      -4044.04
+     ],
+     [
+      783.64,
+      -3750.12,
+      -3750.12
+     ],
+     [
+      790.32,
+      -3456.2,
+      -3456.2
+     ],
+     [
+      797.0,
+      -3162.28,
+      -3162.28
+     ],
+     [
+      803.68,
+      -2868.36,
+      -2868.36
+     ],
+     [
+      810.35,
+      -2574.88,
+      -2574.88
+     ],
+     [
+      817.03,
+      -2280.96,
+      -2280.96
+     ],
+     [
+      823.71,
+      -1987.04,
+      -1987.04
+     ],
+     [
+      824.6,
+      -1947.88,
+      -1947.88
+     ],
+     [
+      830.39,
+      -1693.12,
+      -1693.12
+     ],
+     [
+      837.07,
+      -1399.2,
+      -1399.2
+     ],
+     [
+      843.75,
+      -1105.28,
+      -1105.28
+     ],
+     [
+      850.43,
+      -811.36,
+      -811.36
+     ],
+     [
+      857.11,
+      -517.44,
+      -517.44
+     ],
+     [
+      863.78,
+      -223.96,
+      -223.96
+     ],
+     [
+      870.46,
+      69.96,
+      69.96
+     ],
+     [
+      877.14,
+      363.88,
+      363.88
+     ],
+     [
+      883.82,
+      657.8,
+      657.8
+     ],
+     [
+      890.5,
+      951.72,
+      951.72
+     ],
+     [
+      897.18,
+      1245.64,
+      1245.64
+     ],
+     [
+      903.86,
+      1539.56,
+      1539.56
+     ],
+     [
+      910.54,
+      1833.48,
+      1833.48
+     ],
+     [
+      917.21,
+      2126.96,
+      2126.96
+     ],
+     [
+      923.89,
+      2420.88,
+      2420.88
+     ],
+     [
+      930.57,
+      2714.8,
+      2714.8
+     ],
+     [
+      937.25,
+      3008.72,
+      3008.72
+     ],
+     [
+      943.93,
+      3302.64,
+      3302.64
+     ],
+     [
+      950.61,
+      3596.56,
+      3596.56
+     ],
+     [
+      957.29,
+      3890.48,
+      3890.48
+     ],
+     [
+      957.41,
+      3895.76,
+      3895.76
+     ],
+     [
+      963.97,
+      4184.4,
+      4184.4
+     ],
+     [
+      970.64,
+      4477.88,
+      4477.88
+     ],
+     [
+      977.32,
+      4771.8,
+      4771.8
+     ],
+     [
+      984.0,
+      5065.72,
+      5065.72
+     ],
+     [
+      990.68,
+      5359.64,
+      5359.64
+     ],
+     [
+      997.36,
+      5653.56,
+      5653.56
+     ],
+     [
+      1004.04,
+      5947.48,
+      5947.48
+     ],
+     [
+      1010.72,
+      6241.4,
+      6241.4
+     ],
+     [
+      1017.4,
+      6535.32,
+      6535.32
+     ],
+     [
+      1024.07,
+      6828.8,
+      6828.8
+     ]
+    ],
+    "distance_to_stop_pct": 7.4,
+    "distance_to_target_pct": 7.51,
+    "direction": "long"
+   },
+   "margin_request": null,
+   "paper_trade_id": "paper-trade-1"
+  },
+  {
+   "key": "paper:paper-trade-2",
+   "source": "paper",
+   "underlying": "COFORGE",
+   "kind": "equity",
+   "accounts": [],
+   "legs": [
+    {
+     "key": "COFORGE|EQ",
+     "label": "COFORGE",
+     "instrument": "EQ",
+     "expiry": null,
+     "strike": null,
+     "quantity": 18.0,
+     "lots": null,
+     "lot_size": null,
+     "avg_price": 2010.81,
+     "mark": 2045.0,
+     "iv_pct": null,
+     "greeks": {
+      "delta": 18.0,
+      "gamma": 0.0,
+      "theta": 0.0,
+      "vega": 0.0
+     },
+     "ltp": 2045.0,
+     "ltp_source": "paper mark (end of day)",
+     "ltp_date": "2026-10-30",
+     "pnl_rs": 615.42
+    }
+   ],
+   "unmapped": [],
+   "price": {
+    "spot": 2045.0,
+    "source": "paper mark (end of day)",
+    "as_of": "2026-10-30",
+    "pricing_as_of": "2026-10-30"
+   },
+   "pnl_rs": 615.42,
+   "pnl_source": "paper",
+   "levels": {
+    "stop": 1904.91,
+    "target": 2222.61,
+    "trail_pct": null,
+    "effective_stop": 1904.91,
+    "set_by": "paper trade",
+    "updated_at": "2026-10-28T02:24:24.737600+00:00"
+   },
+   "warnings": [],
+   "analytics": {
+    "greeks": {
+     "delta": 18.0,
+     "gamma": 0.0,
+     "theta": 0.0,
+     "vega": 0.0
+    },
+    "delta_exposure_rs": 36810.0,
+    "exposure_rs": 36810.0,
+    "payoff": {
+     "breakevens": [
+      2010.81
+     ],
+     "max_profit": null,
+     "profit_unbounded": true,
+     "max_loss": null,
+     "loss_unbounded": false,
+     "risk_basis": "stop",
+     "pnl_at_stop_rs": -1906.2,
+     "loss_at_stop_rs": 1906.2,
+     "pnl_at_stop_basis": "today",
+     "risk_to_stop_rs": 2521.62,
+     "pnl_at_target_rs": 3812.4,
+     "gross": true
+    },
+    "scenario": [
+     {
+      "move_pct": -10.0,
+      "price": 1840.5,
+      "expiry_pnl_rs": -3065.58,
+      "today_pnl_rs": -3065.58
+     },
+     {
+      "move_pct": -5.0,
+      "price": 1942.75,
+      "expiry_pnl_rs": -1225.08,
+      "today_pnl_rs": -1225.08
+     },
+     {
+      "move_pct": -3.0,
+      "price": 1983.65,
+      "expiry_pnl_rs": -488.88,
+      "today_pnl_rs": -488.88
+     },
+     {
+      "move_pct": -2.0,
+      "price": 2004.1,
+      "expiry_pnl_rs": -120.78,
+      "today_pnl_rs": -120.78
+     },
+     {
+      "move_pct": -1.0,
+      "price": 2024.55,
+      "expiry_pnl_rs": 247.32,
+      "today_pnl_rs": 247.32
+     },
+     {
+      "move_pct": 0.0,
+      "price": 2045.0,
+      "expiry_pnl_rs": 615.42,
+      "today_pnl_rs": 615.42
+     },
+     {
+      "move_pct": 1.0,
+      "price": 2065.45,
+      "expiry_pnl_rs": 983.52,
+      "today_pnl_rs": 983.52
+     },
+     {
+      "move_pct": 2.0,
+      "price": 2085.9,
+      "expiry_pnl_rs": 1351.62,
+      "today_pnl_rs": 1351.62
+     },
+     {
+      "move_pct": 3.0,
+      "price": 2106.35,
+      "expiry_pnl_rs": 1719.72,
+      "today_pnl_rs": 1719.72
+     },
+     {
+      "move_pct": 5.0,
+      "price": 2147.25,
+      "expiry_pnl_rs": 2455.92,
+      "today_pnl_rs": 2455.92
+     },
+     {
+      "move_pct": 10.0,
+      "price": 2249.5,
+      "expiry_pnl_rs": 4296.42,
+      "today_pnl_rs": 4296.42
+     }
+    ],
+    "curve": [
+     [
+      1738.25,
+      -4906.08,
+      -4906.08
+     ],
+     [
+      1753.59,
+      -4629.96,
+      -4629.96
+     ],
+     [
+      1768.92,
+      -4354.02,
+      -4354.02
+     ],
+     [
+      1784.26,
+      -4077.9,
+      -4077.9
+     ],
+     [
+      1799.6,
+      -3801.78,
+      -3801.78
+     ],
+     [
+      1814.94,
+      -3525.66,
+      -3525.66
+     ],
+     [
+      1830.28,
+      -3249.54,
+      -3249.54
+     ],
+     [
+      1845.61,
+      -2973.6,
+      -2973.6
+     ],
+     [
+      1860.95,
+      -2697.48,
+      -2697.48
+     ],
+     [
+      1876.29,
+      -2421.36,
+      -2421.36
+     ],
+     [
+      1891.62,
+      -2145.42,
+      -2145.42
+     ],
+     [
+      1904.91,
+      -1906.2,
+      -1906.2
+     ],
+     [
+      1906.96,
+      -1869.3,
+      -1869.3
+     ],
+     [
+      1922.3,
+      -1593.18,
+      -1593.18
+     ],
+     [
+      1937.64,
+      -1317.06,
+      -1317.06
+     ],
+     [
+      1952.97,
+      -1041.12,
+      -1041.12
+     ],
+     [
+      1968.31,
+      -765.0,
+      -765.0
+     ],
+     [
+      1983.65,
+      -488.88,
+      -488.88
+     ],
+     [
+      1998.99,
+      -212.76,
+      -212.76
+     ],
+     [
+      2014.33,
+      63.36,
+      63.36
+     ],
+     [
+      2029.66,
+      339.3,
+      339.3
+     ],
+     [
+      2045.0,
+      615.42,
+      615.42
+     ],
+     [
+      2060.34,
+      891.54,
+      891.54
+     ],
+     [
+      2075.68,
+      1167.66,
+      1167.66
+     ],
+     [
+      2091.01,
+      1443.6,
+      1443.6
+     ],
+     [
+      2106.35,
+      1719.72,
+      1719.72
+     ],
+     [
+      2121.69,
+      1995.84,
+      1995.84
+     ],
+     [
+      2137.03,
+      2271.96,
+      2271.96
+     ],
+     [
+      2152.36,
+      2547.9,
+      2547.9
+     ],
+     [
+      2167.7,
+      2824.02,
+      2824.02
+     ],
+     [
+      2183.04,
+      3100.14,
+      3100.14
+     ],
+     [
+      2198.38,
+      3376.26,
+      3376.26
+     ],
+     [
+      2213.71,
+      3652.2,
+      3652.2
+     ],
+     [
+      2222.61,
+      3812.4,
+      3812.4
+     ],
+     [
+      2229.05,
+      3928.32,
+      3928.32
+     ],
+     [
+      2244.39,
+      4204.44,
+      4204.44
+     ],
+     [
+      2259.72,
+      4480.38,
+      4480.38
+     ],
+     [
+      2275.06,
+      4756.5,
+      4756.5
+     ],
+     [
+      2290.4,
+      5032.62,
+      5032.62
+     ],
+     [
+      2305.74,
+      5308.74,
+      5308.74
+     ],
+     [
+      2321.07,
+      5584.68,
+      5584.68
+     ],
+     [
+      2336.41,
+      5860.8,
+      5860.8
+     ],
+     [
+      2351.75,
+      6136.92,
+      6136.92
+     ]
+    ],
+    "distance_to_stop_pct": 6.85,
+    "distance_to_target_pct": 8.69,
+    "direction": "long"
+   },
+   "margin_request": null,
+   "paper_trade_id": "paper-trade-2"
+  }
+ ],
+ "method": {
+  "near_stop_pct": 2.0,
+  "expiry_soon_days": 2,
+  "gross": "Payoff, scenarios and the loss at a stop are gross: before brokerage, taxes and slippage.",
+  "rate": 0.0575
+ },
+ "about": "MOCK - not real broker data. The two paper groups (SONACOMS, COFORGE) are the real staging response of 30 Oct 2026 (read-only, in-process); both of that account's broker sessions had ended, so the broker groups are produced by the real services/positions code over CONSTRUCTED inputs (a NIFTY bull call spread entered at the 30 Oct settle, a SONACOMS future, RELIANCE shares, one unmapped row). Nothing here is a real broker position."
+}

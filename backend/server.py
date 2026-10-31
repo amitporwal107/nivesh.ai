@@ -55,6 +55,7 @@ from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
 from routes.screeners import router as screeners_router
 from routes.watchlists import router as watchlists_router  # personal watchlists (per-user lists of stocks)
+from routes.suggestions import router as suggestions_router  # Copilot home suggestion cards (services/suggestions)
 from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
@@ -81,11 +82,11 @@ from routes.positional import router as positional_router  # Positional Trading 
 from routes.positional_journal import router as positional_journal_router  # Trade Journal (staged-entry tracker)
 from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
-from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
+from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: account list, sync, live reads, disconnect
+from routes.positions import router as positions_router  # Open Positions workspace: broker + paper positions, read-only
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
 from routes.broker_native import short_router as broker_callback_short_router  # /api/b/<broker>: short broker callback address
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
-from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.movers import router as movers_router  # Top Movers dashboard — movers, event lanes, return attribution
 from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
@@ -123,16 +124,22 @@ from routes.grafana_alerts import router as grafana_alerts_router  # Grafana web
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 from routes.release_docs import router as release_docs_router  # Settings → Release Management (versioned release docs in Mongo)
 from routes.research_watchlist import router as research_watchlist_router  # Public, no-auth /watchlist page (personal research, price-tracked)
+from routes.ai_watchlist import router as ai_watchlist_router  # Signed in: the daily AI scanner watchlist (/app/watchlist)
 from routes.events_calendar import router as events_calendar_router  # Trading desk: /api/markets/events-calendar
 from routes.macro_calendar import router as macro_calendar_router  # Trading desk: /api/markets/macro-calendar
 from routes.symbol_lookup import router as symbol_lookup_router  # /api/markets/symbol-lookup (type-ahead, did-you-mean)
 from routes.markets_desk import router as markets_desk_router  # Trading desk: /api/markets/sector-returns, /api/markets/deals
 from routes.markets_smart_money import router as markets_smart_money_router  # Trading desk: /api/markets/smart-money/*
+from routes.markets_ownership import router as markets_ownership_router  # Trading desk: /api/markets/ownership/* (retrospective)
+from routes.markets_evidence import router as markets_evidence_router  # Trading desk: /api/markets/evidence/* (frozen research study)
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
-from routes.risk_controls import router as risk_controls_router  # Kill switch / trading halt (/api/risk/*)
+from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
+from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
+from routes.desk_chart_events import router as desk_chart_events_router  # Live chart: market events + the stock's reaction (/api/desk/chart-events/*, read only)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
+from routes.results_week import router as results_week_router  # Trading desk: results week, earnings vs historical trend (/api/desk/results-week)
 from routes.strategy_plan import router as strategy_plan_router  # Strategy Builder: POST /api/desk/strategy/payoff (pure calculation)
 from routes.circulars import router as circulars_router  # Trading desk: SEBI circulars (/api/markets/circulars)
 
@@ -199,6 +206,7 @@ app.include_router(analytics_router)
 app.include_router(chat_router)
 app.include_router(screeners_router)
 app.include_router(watchlists_router)
+app.include_router(suggestions_router)
 app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
@@ -221,6 +229,7 @@ app.include_router(event_ai_ingest_router)        # NIDP jobs → event AI analy
 app.include_router(session_logs_router)          # Settings → Logs & Diagnostics (per-session server logs)
 app.include_router(release_docs_router)          # Settings → Release Management (admin: versioned release docs in Mongo)
 app.include_router(research_watchlist_router)    # Public, no-auth /api/public/research-watchlist
+app.include_router(ai_watchlist_router)          # Signed in: GET /api/desk/ai-watchlist (daily AI scanner lists)
 app.include_router(cas_transactions_router)      # SIP detection + txn history
 app.include_router(cas_snapshots_router)          # CAS Time-Machine endpoints
 app.include_router(benchmarks_router)             # Benchmark Index Data Service
@@ -228,10 +237,10 @@ app.include_router(positional_router)              # Positional Trading Engine
 app.include_router(positional_journal_router)      # Trade Journal (staged-entry tracker)
 app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
-app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
+app.include_router(broker_connect_router)          # Secure Portfolio Connect — account list, sync, live reads, disconnect
+app.include_router(positions_router)               # /api/positions — Open Positions workspace
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(broker_callback_short_router)   # /api/b/<broker> — the same callback at a short address (ICICI Direct's form caps the URL length)
-app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(movers_router)                   # Top Movers dashboard (/api/movers, /{symbol}, /{symbol}/analysis)
 app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
@@ -280,11 +289,17 @@ app.include_router(macro_calendar_router)  # /api/markets/macro-calendar, /histo
 app.include_router(symbol_lookup_router)     # /api/markets/symbol-lookup
 app.include_router(markets_desk_router)      # /api/markets/sector-returns, /api/markets/deals
 app.include_router(markets_smart_money_router)  # /api/markets/smart-money/* — disclosed institutional evidence
+app.include_router(markets_ownership_router)  # /api/markets/ownership/* — retrospective ownership change vs that quarter's tape
+app.include_router(markets_evidence_router)  # /api/markets/evidence/* — frozen post-disclosure forward-returns study (INCONCLUSIVE)
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
-app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit
+app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit, /decisions, /policy
+app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
+app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}
+app.include_router(desk_chart_events_router)  # /api/desk/chart-events/{symbol}
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*
+app.include_router(results_week_router)      # /api/desk/results-week
 app.include_router(strategy_plan_router)     # /api/desk/strategy/payoff
 app.include_router(circulars_router)         # /api/markets/circulars
 
@@ -456,6 +471,13 @@ async def startup_seed():
         await kite_live_feed.start(db)
     except Exception as e:
         logger.warning("kite live feed did not start: %s", type(e).__name__)
+    # TrueData live feed in SHADOW with its data-quality checks: only when the market-data switch has TrueData on and
+    # its WebSocket login is configured (services/truedata_live). It serves nobody and never touches Kite's feed.
+    try:
+        from services import truedata_live
+        await truedata_live.start(db)
+    except Exception as e:
+        logger.warning("truedata shadow did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
@@ -463,6 +485,11 @@ async def shutdown_db_client():
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)
+    except Exception:
+        pass
+    try:
+        from services import truedata_live
+        await truedata_live.stop(db)
     except Exception:
         pass
     try:

@@ -12,6 +12,7 @@ import { useState } from "react";
 import { StockName } from "../../components/EntityIcon";
 import { Btn, DataTable, EmptyBlock, Footnote, LoadingBlock, Section, fmtPct, type Column } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { useLiveOverlays } from "../../lib/useLiveQuotes";
 import { dayLabel, fmtPrice } from "../markets/format";
 import { LoadError } from "../markets/parts";
 import { useWatchLevels, type WatchBucket, type WatchRow } from "../trading/queries";
@@ -29,6 +30,8 @@ export function SetupsToWatch() {
   const { ask, go } = useCopilotShell();
   const q = useWatchLevels();
   const [all, setAll] = useState(false);
+  // Kite's live price against each level while the feed is LIVE (a column that is not there otherwise).
+  const live = useLiveOverlays((q.data?.rows ?? []).map((r) => r.symbol), q.data?.asOf ?? null);
 
   if (q.isPending) return <Section title={TITLE}><LoadingBlock label="Loading the levels to watch" rows={2} /></Section>;
   if (q.isError) {
@@ -58,6 +61,21 @@ export function SetupsToWatch() {
   const columns: Column<WatchRow>[] = [
     { key: "stock", header: "Stock", width: "minmax(0,1.6fr)", render: (r) => <StockName symbol={r.symbol} sub={r.sector ?? undefined} size={24} testId="watchlist-level" /> },
     { key: "close", header: "Close", align: "right", num: true, render: (r) => fmtPrice(r.close) },
+    // Live while the feed ticks; after the close, Kite's closing quote until the scanner's own day catches up (the overlay decides).
+    ...(rows.some((r) => live.get(r.symbol))
+      ? [{
+          key: "live", header: live.live ? "Live · Kite" : "Close · Kite", align: "right" as const, num: true,
+          render: (r: WatchRow) => {
+            const lq = live.get(r.symbol);
+            if (!lq) return <span data-testid="watchlist-level-live" style={{ color: "var(--cp-ink-3)" }}>—</span>;
+            return (
+              <span data-testid="watchlist-level-live" title={lq.changePct != null ? `${lq.changePct > 0 ? "+" : ""}${lq.changePct.toFixed(2)}% on the day` : undefined} style={{ color: lq.changePct == null || lq.changePct === 0 ? undefined : lq.changePct > 0 ? "var(--mint)" : "var(--cp-danger)" }}>
+                {fmtPrice(lq.ltp)}
+              </span>
+            );
+          },
+        }]
+      : []),
     { key: "trigger", header: "Level to cross", align: "right", num: true, render: (r) => fmtPrice(r.trigger) },
     { key: "stop", header: "Stop · 1.5× ATR", align: "right", num: true, render: (r) => fmtPrice(r.stop) },
     { key: "atr", header: "Daily range", align: "right", num: true, render: (r) => fmtPct(r.atrPct, { digits: 2 }) },
@@ -83,7 +101,7 @@ export function SetupsToWatch() {
           {rows.length > PREVIEW && (
             <Btn variant="ghost" data-testid="watchlist-levels-toggle" onClick={() => setAll((v) => !v)}>{all ? "Show fewer" : `Show all ${rows.length}`}</Btn>
           )}
-          <Btn variant="ghost" onClick={() => go("trader")}>Open the Trader desk ›</Btn>
+          <Btn variant="ghost" onClick={() => go("trader/desk")}>Open the trading desk ›</Btn>
         </span>
       </div>
     </Section>

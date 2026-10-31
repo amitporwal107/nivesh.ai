@@ -14,7 +14,13 @@ Model, stated once:
       vega   P&L change per volatility point, INR;   rho  P&L change per 1 percentage point of the rate, INR,
       with the carried-spot forward moving with the rate: ∂P/∂r = T·(Δ_F·F − P).
     They are None when the leg is at or past expiry (T ≤ 0): no time left, the formulas are undefined.
-  · Exit costs: the position is closed at the modelled value on the evaluation date, same cost model as the expiry view.
+  · Exit costs: the position is closed at the modelled value on the evaluation date, same cost model as the expiry view
+    (the desk cost card, payoff-v2: each leg's exit side priced by its segment on that value).
+  · Scenarios (only when the request has both `pre_expiry` and `scenarios`): `scenarios` = [{name, underlying_price, gross,
+    net, greeks}], each priced exactly as a grid point (same legs, volatilities, rate, date and costs) at that scenario's
+    underlying price, and its greeks the whole position's at that price, worked out as `greeks` is at the reference price
+    (per leg rounded to 4 places, then summed): at the reference price they equal `greeks`. gross / net / greeks are None
+    when a leg cannot be priced (the reason is in `unavailable`); greeks alone are None when a leg is at or past expiry.
 """
 from __future__ import annotations
 
@@ -77,8 +83,49 @@ def _leg_greeks(leg, ref, t, vol, rate):
             "theta": (p_next - p) * sgn_units, "vega": g.vega * sgn_units, "rho": rho * sgn_units}
 
 
+def _position_greeks(legs: Sequence[Dict[str, Any]], prepared: Dict[int, Dict[str, Any]], s: float, rate: float):
+    """(per-leg greeks rounded to 4 places, in leg order, each None when that leg has none) at underlying price `s`."""
+    out = []
+    for l in legs:
+        if l["kind"] == "option" and l["index"] not in prepared:
+            out.append(None)
+            continue
+        p = prepared.get(l["index"], {})
+        g = _leg_greeks(l, s, p.get("t", 0.0), p.get("vol"), rate)
+        out.append(None if g is None else {k: round(v + 0.0, 4) for k, v in g.items()})
+    return out
+
+
+_GREEK_KEYS = ("delta", "gamma", "theta", "vega", "rho")
+
+
+def _sum_greeks(per_leg: Sequence[Optional[Dict[str, float]]]) -> Optional[Dict[str, float]]:
+    """The whole position's greeks: the sum of the legs' (rounded) greeks, or None when any leg has none."""
+    if not all(g is not None for g in per_leg):
+        return None
+    return {k: round(sum(g[k] for g in per_leg) + 0.0, 4) for k in _GREEK_KEYS}
+
+
+def _value_at(legs: Sequence[Dict[str, Any]], prepared: Dict[int, Dict[str, Any]], s: float, rate: float,
+              model: Dict[str, Any]):
+    """(gross, net) of the whole position at underlying price `s` on the evaluation date, unrounded."""
+    gsum = csum = 0.0
+    for l in legs:
+        if l["kind"] == "option":
+            p = prepared[l["index"]]
+            px = _px(l, s, p["t"], p["vol"], rate)
+            gsum += l["sign"] * (px - l["entry_price"]) * l["units"]
+            exit_c = exit_cost_for_value(l, px, model)
+        else:
+            gsum += leg_gross(l, s)
+            exit_c = exit_cost_for_value(l, s, model)
+        csum += entry_cost(l, model) + exit_c
+    return gsum, gsum - csum
+
+
 def pre_expiry(legs: Sequence[Dict[str, Any]], ref: float, grid: Sequence[float], as_of, spec: Dict[str, Any],
-               slip: float, brok: float, default_rate: float) -> Dict[str, Any]:
+               model: Dict[str, Any], default_rate: float,
+               scenarios: Optional[Sequence[Dict[str, Any]]] = None) -> Dict[str, Any]:
     day = spec["date"]
     rate = default_rate if spec.get("rate_pct") is None else spec["rate_pct"] / 100.0
     shift = spec["iv_shift_pct"]
@@ -109,35 +156,24 @@ def pre_expiry(legs: Sequence[Dict[str, Any]], ref: float, grid: Sequence[float]
     out: Dict[str, Any] = {"date": day.isoformat(), "model": MODEL, "assumptions": assumptions, "grid": None,
                            "gross": None, "net": None, "greeks": None, "per_leg_greeks": [], "unavailable": unavailable}
     # Greeks per leg (available legs only)
-    for l in legs:
-        if l["kind"] == "option" and l["index"] not in prepared:
-            out["per_leg_greeks"].append({"leg": l["index"], "label": l["label"], "greeks": None})
-            continue
-        p = prepared.get(l["index"], {})
-        g = _leg_greeks(l, ref, p.get("t", 0.0), p.get("vol"), rate)
-        out["per_leg_greeks"].append({"leg": l["index"], "label": l["label"],
-                                      "greeks": None if g is None else {k: round(v + 0.0, 4) for k, v in g.items()}})
+    for l, g in zip(legs, _position_greeks(legs, prepared, ref, rate)):
+        out["per_leg_greeks"].append({"leg": l["index"], "label": l["label"], "greeks": g})
+    if scenarios:
+        # Every figure null when a leg cannot be priced: the reason is already in `unavailable`.
+        out["scenarios"] = [{"name": sc["name"], "underlying_price": r2(sc["underlying_price"]), "gross": None, "net": None,
+                             "greeks": None} for sc in scenarios]
     if unavailable:
         return out
-    if all(e["greeks"] is not None for e in out["per_leg_greeks"]):
-        keys = ("delta", "gamma", "theta", "vega", "rho")
-        out["greeks"] = {k: round(sum(e["greeks"][k] for e in out["per_leg_greeks"]) + 0.0, 4) for k in keys}
-    else:
+    out["greeks"] = _sum_greeks([e["greeks"] for e in out["per_leg_greeks"]])
+    if out["greeks"] is None:
         assumptions["greeks_unavailable"] = "an option leg is at or past expiry on the evaluation date: no time value left"
     gross_arr, net_arr = [], []
     for s in grid:
-        gsum = csum = 0.0
-        for l in legs:
-            if l["kind"] == "option":
-                p = prepared[l["index"]]
-                px = _px(l, s, p["t"], p["vol"], rate)
-                gsum += l["sign"] * (px - l["entry_price"]) * l["units"]
-                exit_c = exit_cost_for_value(px, l["units"], slip, brok)
-            else:
-                gsum += leg_gross(l, s)
-                exit_c = exit_cost_for_value(s, l["units"], slip, brok)
-            csum += entry_cost(l, slip, brok) + exit_c
-        gross_arr.append(r2(gsum))
-        net_arr.append(r2(gsum - csum))
+        g_, n_ = _value_at(legs, prepared, s, rate, model)
+        gross_arr.append(r2(g_))
+        net_arr.append(r2(n_))
     out.update({"grid": [r2(s) for s in grid], "gross": gross_arr, "net": net_arr})
+    for row, sc in zip(out.get("scenarios") or [], scenarios or []):
+        g_, n_ = _value_at(legs, prepared, sc["underlying_price"], rate, model)
+        row.update(gross=r2(g_), net=r2(n_), greeks=_sum_greeks(_position_greeks(legs, prepared, sc["underlying_price"], rate)))
     return out

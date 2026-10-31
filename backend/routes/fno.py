@@ -9,11 +9,47 @@
                                                  passed through from DaaS /v1/desk/fno-buildup (definitions in
                                                  nidp/services/daas_api/routers/desk_market.py). It lives under /desk
                                                  there because the data platform's /fno/{symbol} would catch /fno/scan
+    GET /api/fno/{symbol}/futures/oi-buildup?interval=15m&window=4&sessions=2
+                                                 the current / next / far month futures AND consolidated (the three
+                                                 summed), per N-bar window: price change, OI change, volume and the
+                                                 build-up class, with the snapshot time. Kite candles with OI when the
+                                                 platform Kite session works, else the latest bhavcopy day per expiry
+                                                 labelled end of day (services/fno_oi_windows.py). Intraday, each
+                                                 contract and consolidated also carry `bars` [[t, close, volume, oi]]
+                                                 (the sessions sent plus one baseline bar). Read only.
+                                                 &daily=N (0 = off, max 250): every contract slot and consolidated also
+                                                 carry `daily_bars` [[day, close, volume, oi, oi_change, expiry]] for the
+                                                 last N bhavcopy sessions and `daily_windows` over them, in either mode
+                                                 (rules in services/fno_oi_windows.py; the read is `_daily_book` below)
+    GET /api/fno/{symbol}/chain/consolidated?around=N
+                                                 every option expiry still listed (the /expiries list), each read as /chain
+                                                 reads it, summed per strike: call / put oi, change_in_oi and volume (a
+                                                 figure null in every expiry stays null, else the non-null values are
+                                                 summed), the PCR, max pain and walls over the sums (summarise_chain), and
+                                                 the ±around strikes about the ATM strike. Only expiries read for the same
+                                                 day as the list are summed (any other is dropped and logged). No prices
+                                                 and no Greeks: they do not add across expiries. Read only
+    GET /api/fno/{symbol}/options/intraday?interval=15m&sessions=2&strikes=5
+                                                 the nearest expiry's calls and puts at the ATM strike ± `strikes` (max
+                                                 8): Kite candles with OI per contract, and per candle time the CE / PE
+                                                 OI and volume summed, the OI changes and the PCR
+                                                 (services/fno_options_intraday.py). 200 with `availability` naming why
+                                                 when Kite cannot answer. Read only
+    GET /api/fno/{symbol}/iv-history?days=&bucket=  the recorded daily ATM implied volatility of the underlying, with IV
+                                                 rank and IV percentile once 252 sessions are recorded
+                                                 (services/fno_iv_history; written by scripts/record_iv_history.py
+                                                 from `session_iv` below, the chain's own model on one session's rows)
 
 The rows live in nidp.fno_bhavcopy, which only the data platform can read (DaaS /v1/fno/*,
 nidp/services/daas_api/routers/fno.py), so each route forwards to it and shapes the answer. The data is end of
 day: one row per contract per trading day, with prices, open interest, volume and the contract's lot size.
 `lot_size` is null until the data platform's F&O routes send the bhavcopy's lot column (new_board_lot_qty).
+
+Freshness (owner rule 2026-10-28: today's data or the T-1 snapshot, nothing older; services/market_freshness.py):
+an underlying whose latest day is older than the previous NSE session is 404 (it has left the F&O list, or its data
+did not arrive); contracts that expired before today are dropped and never the default chain; a contract that did not
+trade on the data's day sends no `close` (the bhavcopy carries the previous close forward); the default build-up scan
+and the latest IV session follow the same rule. A scan asked for by `date` is history and answers for that day.
 
 Definitions (the pure functions below; tests/test_fno_routes.py works one example by hand):
     spot        the bhavcopy's underlying_price for the day (the first positive value among the rows)
@@ -70,14 +106,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
+from pydantic import BaseModel, Field
 
 from deps import get_current_user
 from services import option_pricing
 from services.copilot_tools import daas_client
+from services.fno_candidates import engine as fno_engine
+from services.fno_candidates import rules as fno_rules
+from services import fno_forward
+from services import fno_iv_history
+from services import fno_margin
+from services import fno_oi_windows
+from services import market_freshness
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fno", tags=["fno"])
@@ -203,12 +247,19 @@ def futures_basis(settle: Optional[float], spot: Optional[float]) -> Optional[fl
 
 # ── shaping ──────────────────────────────────────────────────────────────────
 
+def traded_close(row: Dict[str, Any]) -> Optional[float]:
+    """The day's close, or None when the contract did not trade that day: NSE's bhavcopy then carries the previous
+    close forward as `close`, an older day's price under this day's name (2026-10-27: 14,428 of 34,412 stock-option
+    rows). The settle price and open interest are that day's own figures and stay."""
+    return _num(row.get("close_price")) if _qty(row.get("traded_volume")) else None
+
+
 def shape_side(row: Any) -> Optional[Dict[str, Any]]:
     """One call or put contract as the app sends it. None when the strike has no contract on that side."""
     if not isinstance(row, dict):
         return None
     return {
-        "close": _num(row.get("close_price")),
+        "close": traded_close(row),
         "settle": _num(row.get("settle_price")),
         "oi": _qty(row.get("open_interest")),
         "change_in_oi": _qty(row.get("change_in_oi")),
@@ -252,6 +303,10 @@ def summarise_chain(strikes: Sequence[Dict[str, Any]], spot: Optional[float], as
         "max_pain": _tidy(max_pain(oi, spot)),
         "max_call_oi": top_oi_strike([(k, c) for k, c, _ in oi], spot),
         "max_put_oi": top_oi_strike([(k, p) for k, _, p in oi], spot),
+        # The walls a trader reads as a floor and a ceiling: the heaviest put strike AT OR BELOW the spot and the heaviest call strike AT OR ABOVE it.
+        # After a sharp move the heaviest strike over every strike can be an in-the-money one opened when the price was elsewhere (a "put wall" above the price).
+        "put_wall": top_oi_strike([(k, p) for k, _, p in oi if spot is not None and k <= spot], spot),
+        "call_wall": top_oi_strike([(k, c) for k, c, _ in oi if spot is not None and k >= spot], spot),
     }
 
 
@@ -262,6 +317,35 @@ def window_around(strikes: Sequence[Dict[str, Any]], centre_strike: Optional[Num
         return []
     centre = next((i for i, r in enumerate(strikes) if r["strike"] == centre_strike), len(strikes) // 2)
     return list(strikes[max(0, centre - around): centre + around + 1])
+
+
+_SUMMED_FIELDS = ("oi", "change_in_oi", "volume")
+CONSOLIDATED_SUMMARY = ("atm_strike", "pcr", "max_pain", "put_wall", "call_wall", "total_call_oi", "total_put_oi",
+                        "total_call_oi_change", "total_put_oi_change")
+
+
+def sum_sides(sides: Iterable[Optional[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """One side (call or put) of one strike summed over the expiries that list it: each of oi / change_in_oi / volume is
+    the sum of the non-null values, null when it is null in every expiry. None when no expiry lists that side."""
+    present = [x for x in sides if isinstance(x, dict)]
+    if not present:
+        return None
+    out: Dict[str, Any] = {}
+    for f in _SUMMED_FIELDS:
+        vals = [x[f] for x in present if x.get(f) is not None]
+        out[f] = sum(vals) if vals else None
+    return out
+
+
+def consolidate_strikes(chains: Iterable[Sequence[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Shaped chains (shape_strikes) of several expiries as one strike-ascending list of {strike, call, put}, summed."""
+    by_strike: Dict[Number, Dict[str, List[Optional[Dict[str, Any]]]]] = {}
+    for strikes in chains:
+        for r in strikes:
+            slot = by_strike.setdefault(r["strike"], {"call": [], "put": []})
+            slot["call"].append(r["call"])
+            slot["put"].append(r["put"])
+    return [{"strike": k, "call": sum_sides(v["call"]), "put": sum_sides(v["put"])} for k, v in sorted(by_strike.items())]
 
 
 def live_option_expiries(rows: Any) -> Tuple[Optional[str], List[Dict[str, Any]]]:
@@ -305,7 +389,7 @@ def shape_futures(rows: Iterable[Any], spot: Optional[float]) -> List[Dict[str, 
         settle = _num(r.get("settle_price"))
         contract = {
             "expiry": expiry,
-            "close": _num(r.get("close_price")),
+            "close": traded_close(r),
             "settle": settle,
             "oi": _qty(r.get("open_interest")),
             "change_in_oi": _qty(r.get("change_in_oi")),
@@ -478,10 +562,103 @@ def add_day_change(strikes: Sequence[Dict[str, Any]], raw: Any) -> List[Dict[str
     return out
 
 
+# ── one session's ATM implied volatility (the IV history) ───────────────────
+# The chain route's own calculation, run on one past (or the latest) session's rows: the same spot, ATM strike,
+# forward and Black-76 implied volatility, so a recorded figure equals the chain's `summary.atm_iv` for that expiry
+# on that day. Buckets: near_month is the first futures expiry strictly after the session, next_month the second.
+# On an expiry day the expiring month has no time left (its IV is null in the chain), so it is not a bucket.
+
+IV_BUCKET_FIELDS = ("expiry", "days_to_expiry", "atm_strike", "spot", "future_settle", "forward", "forward_basis",
+                    "call_iv", "call_iv_price", "put_iv", "put_iv_price", "atm_iv", "reason")
+
+
+def session_expiries(day: str, futures_rows: Iterable[Any]) -> List[str]:
+    """The futures expiries listed on `day` that fall strictly after it, nearest first."""
+    rows = [r for r in futures_rows if isinstance(r, dict) and _iso_day(r.get("as_of_date")) == day]
+    return sorted({f["expiry"] for f in shape_futures(rows, None) if f["expiry"] > day})
+
+
+def _chain_rows(rows: Iterable[Any]) -> List[Dict[str, Any]]:
+    """Option rows of one expiry, as the data platform sends them from /fno/{symbol}, regrouped into the
+    {strike, CE, PE} list that /fno/{symbol}/chain sends, so the chain's own shaping reads them."""
+    chain: Dict[float, Dict[str, Any]] = {}
+    for r in rows:
+        if not isinstance(r, dict) or r.get("option_type") not in _OPTION_SIDES:
+            continue
+        k = _num(r.get("strike_price"))
+        if k is None or k <= 0:
+            continue
+        chain.setdefault(k, {"strike": k, "CE": None, "PE": None})[r["option_type"]] = r
+    return [chain[k] for k in sorted(chain)]
+
+
+def expiry_atm_iv(day: str, expiry: str, futures_rows: Sequence[Any], rows: Iterable[Any]) -> Dict[str, Any]:
+    """The ATM implied volatility of one expiry on one session, exactly as the chain route works it out
+    (find_spot, atm_strike, model_summary, add_model, atm_iv), with the inputs it used. `atm_iv` is null with a
+    `reason` when it cannot be worked out; nothing is filled in."""
+    out: Dict[str, Any] = dict.fromkeys(IV_BUCKET_FIELDS)
+    out["expiry"] = expiry
+    raw = _chain_rows(rows)
+    strikes = shape_strikes(raw)
+    if not strikes:
+        out["reason"] = f"no option contracts expiring {expiry} in the rows for {day}"
+        return out
+    spot = find_spot([item.get(side) for item in raw for side in _OPTION_SIDES])
+    summary = model_summary(day, expiry, spot, futures_rows, strikes)
+    k = _tidy(atm_strike([float(r["strike"]) for r in strikes], spot))
+    out.update(days_to_expiry=summary["days_to_expiry"], atm_strike=k, spot=spot, forward=summary["forward"],
+               forward_basis=summary["forward_basis"], future_settle=same_expiry_future(futures_rows, day, expiry))
+    if spot is None:
+        out["reason"] = "no underlying price in the day's rows, so no ATM strike"
+        return out
+    if summary["forward"] is None:
+        out["reason"] = "no forward: no same-expiry future, no strike whose call and put both traded, and no time left or no spot"
+        return out
+    atm_row = next((r for r in strikes if r["strike"] == k), None)
+    priced = add_model([atm_row], summary["forward"], option_pricing.year_fraction(summary["days_to_expiry"]))[0]
+    for name in _SIDE_KIND:
+        side = priced.get(name) or {}
+        out[f"{name}_iv"], out[f"{name}_iv_price"] = side.get("iv"), side.get("iv_price")
+    out["atm_iv"] = atm_iv(priced)
+    if out["atm_iv"] is None:
+        out["reason"] = ("neither the ATM call nor the ATM put has an implied volatility (no trade and no open interest, "
+                         "or a price at or below intrinsic value)")
+    return out
+
+
+def session_iv(day: str, futures_rows: Sequence[Any], rows_by_expiry: Dict[str, Sequence[Any]]) -> Dict[str, Dict[str, Any]]:
+    """{bucket: expiry_atm_iv(...)} for each bucket in fno_iv_history.BUCKETS. A bucket with no futures expiry
+    to name it (or no rows read for that expiry) is all null with the reason."""
+    expiries = session_expiries(day, futures_rows)
+    out: Dict[str, Dict[str, Any]] = {}
+    for i, name in enumerate(fno_iv_history.BUCKETS):
+        expiry = expiries[i] if i < len(expiries) else None
+        if expiry is not None and expiry in rows_by_expiry:
+            out[name] = expiry_atm_iv(day, expiry, futures_rows, rows_by_expiry[expiry])
+        else:
+            blank = dict.fromkeys(IV_BUCKET_FIELDS)
+            blank["expiry"] = expiry
+            blank["reason"] = (f"no option rows were read for the {expiry} expiry" if expiry
+                               else f"the rows for {day} list fewer than {i + 1} futures expiries after that day")
+            out[name] = blank
+    return out
+
+
 # ── data platform ────────────────────────────────────────────────────────────
 
 def no_data(sym: str) -> str:
     return f"No F&O data for {sym}"
+
+
+def expired_message(sym: str, expiry: str) -> str:
+    return f"The {sym} contracts expiring {expiry} have expired"
+
+
+def require_current(sym: str, as_of: Optional[str], w: market_freshness.Window) -> None:
+    """404 unless `as_of` is today or the previous session (services/market_freshness). An underlying whose latest
+    day is older has left the F&O list, or its data did not arrive; either way its figures are not shown."""
+    if as_of and not w.current(as_of):
+        raise HTTPException(status_code=404, detail=w.stale_reason(f"{sym} F&O", as_of))
 
 
 def not_found_message(sym: str, body: Any) -> Optional[str]:
@@ -541,6 +718,54 @@ async def _futures_rows_or_none(sym: str) -> Optional[List[Dict[str, Any]]]:
         return None
 
 
+# One expiry of one underlying on one day is a few hundred rows (NIFTY's busiest is under 1,000); 5,000 is the data
+# platform's page limit. More pages than this is not a chain this module expects, so it is refused, not truncated.
+_SESSION_PAGE = 5000
+_SESSION_MAX_PAGES = 4
+
+
+def _rows_for_day(body: Dict[str, Any], day: str, what: str) -> List[Dict[str, Any]]:
+    """The rows of a /fno/{symbol}?on=day answer. An answer for any other day (a data platform that ignored `on`
+    and sent its latest day) is a failed read, never another day's figures under this day's name."""
+    rows = [r for r in (body.get("data") if isinstance(body.get("data"), list) else []) if isinstance(r, dict)]
+    if _iso_day(body.get("as_of")) != day or any(_iso_day(r.get("as_of_date")) != day for r in rows):
+        logger.warning("fno DaaS %s answered for another day than %s", what, day)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    return rows
+
+
+async def _session_expiry_rows(sym: str, day: str, expiry: str) -> List[Dict[str, Any]]:
+    """Every row (future, calls and puts) of one expiry on one day, through every page."""
+    rows: List[Dict[str, Any]] = []
+    offset = 0
+    for _ in range(_SESSION_MAX_PAGES):
+        body = await _daas(f"/fno/{sym}", {"on": day, "expiry": expiry, "limit": _SESSION_PAGE, "offset": offset}, sym)
+        page = _rows_for_day(body, day, f"/fno/{sym} {expiry}")
+        rows.extend(page)
+        nxt = (body.get("pagination") or {}).get("next_offset") if isinstance(body.get("pagination"), dict) else None
+        if not page or not isinstance(nxt, int) or isinstance(nxt, bool):
+            return rows
+        offset = nxt
+    logger.warning("fno DaaS /fno/%s %s on %s ran past %d pages: refused, not truncated", sym, expiry, day, _SESSION_MAX_PAGES)
+    raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+
+
+async def read_session(sym: str, day: str) -> Optional[Dict[str, Any]]:
+    """The bhavcopy rows one session's IV history row is worked out from: {"futures": the day's futures rows,
+    "expiries": {expiry: that expiry's rows} for the bucket expiries}. None when the data platform has no futures
+    rows for the day (a holiday, a day not loaded, or no F&O on the underlying): nothing to record, nothing filled
+    in. A failed read, or an answer for another day, raises HTTPException (the caller counts it as failed)."""
+    bodies = await asyncio.gather(*(
+        _daas(f"/fno/{sym}", {"on": day, "instrument_type": kind, "limit": _FUTURES_LIMIT}, sym) for kind in _FUTURES_TYPES
+    ))
+    futures_rows = [r for kind, b in zip(_FUTURES_TYPES, bodies) for r in _rows_for_day(b, day, f"/fno/{sym} {kind}")]
+    if not futures_rows:
+        return None
+    expiries = session_expiries(day, futures_rows)[:len(fno_iv_history.BUCKETS)]
+    by_expiry = {e: await _session_expiry_rows(sym, day, e) for e in expiries}
+    return {"futures": futures_rows, "expiries": by_expiry}
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/{symbol}/expiries")
@@ -551,18 +776,26 @@ async def expiries(
     """Option expiries still listed on the latest trading day, nearest first."""
     await get_current_user(request)
     sym = symbol.upper()
+    as_of, rows = await _current_expiries(sym, await market_freshness.window())
+    return {"symbol": sym, "as_of": as_of, "expiries": rows, "count": len(rows)}
+
+
+async def _current_expiries(sym: str, w: market_freshness.Window) -> Tuple[str, List[Dict[str, Any]]]:
+    """(the latest day, the option expiries listed on it that have not expired, nearest first). 404 when the
+    underlying has no rows or its latest day is older than the previous session."""
     body = await _daas(f"/fno/{sym}/expiries", {}, sym)
     as_of, rows = live_option_expiries(body.get("data"))
     if as_of is None:
         raise HTTPException(status_code=404, detail=no_data(sym))
-    return {"symbol": sym, "as_of": as_of, "expiries": rows, "count": len(rows)}
+    require_current(sym, as_of, w)
+    return as_of, [r for r in rows if w.live_expiry(r["expiry"])]
 
 
 @router.get("/{symbol}/chain")
 async def chain(
     request: Request,
     symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
-    expiry: Optional[date] = Query(None, description="Expiry YYYY-MM-DD; default = the nearest on or after the data's day"),
+    expiry: Optional[date] = Query(None, description="Expiry YYYY-MM-DD; default = the nearest that has not expired"),
     around: int = Query(DEFAULT_AROUND, ge=1, le=MAX_AROUND, description="Strikes sent each side of the ATM strike"),
 ) -> Dict[str, Any]:
     """One expiry's calls and puts by strike. `summary` is worked out over every strike of the expiry;
@@ -573,10 +806,23 @@ async def chain(
     skipped: its iv and Greeks are null, because its price is not a market price."""
     await get_current_user(request)
     sym = symbol.upper()
+    w = await market_freshness.window()
+    if expiry is not None and not w.live_expiry(expiry):
+        raise HTTPException(status_code=404, detail=expired_message(sym, expiry.isoformat()))
     # The forward for the expiry is the future that expires with it, so the futures are read alongside.
     futures_read = asyncio.ensure_future(_futures_rows_or_none(sym))
     try:
         body = await _daas(f"/fno/{sym}/chain", {"expiry": expiry.isoformat()} if expiry else {}, sym)
+        require_current(sym, _iso_day(body.get("as_of")), w)
+        default_exp = _iso_day(body.get("expiry"))
+        if expiry is None and default_exp and not w.live_expiry(default_exp):
+            # The data platform's default is the nearest expiry on or after ITS day, which on the day after an expiry
+            # is the series that expired at that close. The nearest one still trading is asked for instead.
+            live = (await _current_expiries(sym, w))[1]
+            if not live:
+                raise HTTPException(status_code=404, detail=f"No option contracts are listed for {sym}")
+            body = await _daas(f"/fno/{sym}/chain", {"expiry": live[0]["expiry"]}, sym)
+            require_current(sym, _iso_day(body.get("as_of")), w)
     except BaseException:
         futures_read.cancel()
         raise
@@ -614,15 +860,454 @@ async def futures(
     """The latest trading day's futures contracts for the underlying, nearest expiry first."""
     await get_current_user(request)
     sym = symbol.upper()
+    as_of, spot, lot_size, contracts = await _latest_futures(sym)
+    return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": lot_size, "futures": contracts, "count": len(contracts)}
+
+
+async def _latest_futures(sym: str) -> Tuple[str, Optional[float], Optional[int], List[Dict[str, Any]]]:
+    """(the latest day, spot, lot size, that day's shaped futures nearest first). 404 when there are none."""
     rows, read_days = await _futures_rows(sym)
     days = [d for d in [*read_days, *(_iso_day(r.get("as_of_date")) for r in rows)] if d]
     if not days:
         raise HTTPException(status_code=404, detail=no_data(sym))
     as_of = max(days)
+    w = await market_freshness.window()
+    require_current(sym, as_of, w)
     rows = [r for r in rows if _iso_day(r.get("as_of_date")) == as_of]
     spot = find_spot(rows)
-    contracts = shape_futures(rows, spot)
-    return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": find_lot_size(rows), "futures": contracts, "count": len(contracts)}
+    live = [r for r in rows if w.live_expiry(_iso_day(r.get("expiry_date")))]
+    return as_of, spot, find_lot_size(rows), shape_futures(live, spot)
+
+
+OI_INTERVALS = ("5m", "15m", "30m", "60m")
+
+
+@router.get("/{symbol}/futures/oi-buildup")
+async def futures_oi_buildup(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
+    window: int = Query(4, ge=1, le=12, description="Bars per window"),
+    sessions: int = Query(2, ge=1, le=5, description="Sessions of windows sent"),
+    daily: int = Query(0, ge=0, le=fno_oi_windows.DAILY_MAX,
+                       description="Bhavcopy sessions of daily_bars / daily_windows per slot (0 = none)"),
+) -> Dict[str, Any]:
+    """The futures' OI build-up by window for the current / next / far month and consolidated (services/fno_oi_windows.py).
+    Kite candles with open interest when the platform Kite session works (mode intraday); otherwise the latest bhavcopy day
+    per expiry (mode end_of_day, `kite_reason` says why). With `daily` > 0, each slot and consolidated also carry the last
+    `daily` bhavcopy sessions (`daily_bars`) and their windows of `window` sessions (`daily_windows`), in either mode; that
+    read failing is 502, never an answer without them. Read only: nothing is written and nothing is sent to a broker."""
+    await get_current_user(request)
+    if interval not in OI_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
+    sym = symbol.upper()
+    daily_read = asyncio.ensure_future(_daily_book(sym, daily)) if daily > 0 else None
+    try:
+        answer = await _oi_buildup_answer(sym, interval, window, sessions)
+    except BaseException:
+        if daily_read is not None:
+            daily_read.cancel()
+        raise
+    if daily_read is not None:
+        fno_oi_windows.add_daily(answer, await daily_read, daily, window)
+    return answer
+
+
+async def _oi_buildup_answer(sym: str, interval: str, window: int, sessions: int) -> Dict[str, Any]:
+    from routes.research_chart_intraday import get_service
+    from services.kite_live_feed import config as kite_cfg
+    from services.kite_live_feed.feed import get_feed
+    from services.kite_live_feed.intraday import INTERVALS as KITE_INTERVALS
+    await _refresh_platform_token()
+    try:
+        st = await get_feed().read_status() or {}
+    except Exception as e:  # noqa: BLE001 — the feed status only sets the cache time
+        logger.warning("fno oi-buildup: feed status unreadable (%s)", type(e).__name__)
+        st = {}
+    try:
+        # One extra session is read as the baseline of the first window shown (fno_oi_windows.trim).
+        raw = await get_service().futures_bars(sym, interval, sessions + 1, session_open=st.get("session") == "open")
+        kite_reason = None if raw.get("availability") == "ok" else raw.get("availability")
+    except RuntimeError:
+        raw, kite_reason = None, "upstream_unavailable"
+    if raw is not None and kite_reason is None:
+        from datetime import datetime as _dt, timezone as _tz
+        return fno_oi_windows.intraday_answer(sym, raw, interval, KITE_INTERVALS[interval][1], window, sessions,
+                                              _dt.now(_tz.utc).astimezone(kite_cfg.IST))
+    as_of, _spot, _lot, contracts = await _latest_futures(sym)
+    return fno_oi_windows.eod_answer(sym, as_of, contracts, kite_reason)
+
+
+# ── the daily futures series (?daily=N) ──────────────────────────────────────
+# Read through the data platform's contract history (GET /v1/fno/{symbol}/history?kind=future&expiry=E&start=S, the read
+# services/desk_strategy_trades.py marks legs with): one read per futures contract, every session of it from S. Which
+# expiries carry futures is not in the expiry list (its futures_count counts rows with no option_type, and the current
+# bhavcopy format marks futures "FUT"), so per calendar month the listed expiries are tried latest first until one
+# answers with futures rows: NSE lists one futures expiry a month, its monthly expiry, and an index's weekly or long-dated
+# option expiries in that month carry none (NIFTY March 2026: futures on 30 Mar, options alone on 31 Mar). A month whose
+# expiries all answer empty has no futures. About one read a month of the window (≈ 16 for 250 sessions), at most
+# _DAILY_CONCURRENCY at a time, kept _DAILY_TTL seconds per (symbol, sessions).
+_DAILY_CONCURRENCY = 4
+_DAILY_TTL = 600.0
+_DAILY_CACHE_MAX = 256
+_DAILY_CACHE: Dict[Tuple[str, int], Tuple[float, fno_oi_windows.Book]] = {}
+# A future is listed about three months before it expires, so no expiry further than this past the data's day has
+# futures rows in the window (long-dated index options beyond it are not read).
+_DAILY_FORWARD_DAYS = 120
+
+
+def daily_read_start(as_of: str, n: int) -> str:
+    """The first calendar day read: far enough back for n sessions plus the baseline one (5 sessions a week, plus room
+    for exchange holidays)."""
+    return (date.fromisoformat(as_of) - timedelta(days=int((n + 1) * 1.6) + 10)).isoformat()
+
+
+def expiries_by_month(rows: Any, start: str, as_of: str) -> List[List[str]]:
+    """The listed expiries that can have futures rows on or after `start`, grouped by calendar month (oldest month first),
+    each month's latest expiry first."""
+    last = (date.fromisoformat(as_of) + timedelta(days=_DAILY_FORWARD_DAYS)).isoformat()
+    months: Dict[str, List[str]] = {}
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        expiry, seen = _iso_day(r.get("expiry_date")), _iso_day(r.get("latest_seen"))
+        if expiry and seen and start <= expiry <= last and seen >= start:
+            months.setdefault(expiry[:7], []).append(expiry)
+    return [sorted(set(months[m]), reverse=True) for m in sorted(months)]
+
+
+def futures_book(rows: Iterable[Any]) -> fno_oi_windows.Book:
+    """{day: {expiry: (close, volume, oi)}} from futures history rows (option rows are ignored)."""
+    book: fno_oi_windows.Book = {}
+    for r in rows:
+        if not isinstance(r, dict) or r.get("option_type") in _OPTION_SIDES:
+            continue
+        day, expiry = _iso_day(r.get("as_of_date")), _iso_day(r.get("expiry_date"))
+        if day and expiry:
+            book.setdefault(day, {})[expiry] = (_num(r.get("close_price")), _qty(r.get("traded_volume")), _qty(r.get("open_interest")))
+    return book
+
+
+async def _future_history(sym: str, expiry: str, start: str) -> List[Dict[str, Any]]:
+    """One futures contract's rows from `start`, through every page. A failed read raises (502)."""
+    rows: List[Dict[str, Any]] = []
+    offset = 0
+    for _ in range(_SESSION_MAX_PAGES):
+        body = await _daas(f"/fno/{sym}/history",
+                           {"kind": "future", "expiry": expiry, "start": start, "limit": _SESSION_PAGE, "offset": offset}, sym)
+        page = [r for r in (body.get("data") if isinstance(body.get("data"), list) else []) if isinstance(r, dict)]
+        rows.extend(page)
+        nxt = (body.get("pagination") or {}).get("next_offset") if isinstance(body.get("pagination"), dict) else None
+        if not page or not isinstance(nxt, int) or isinstance(nxt, bool):
+            return rows
+        offset = nxt
+    logger.warning("fno DaaS /fno/%s/history %s ran past %d pages: refused, not truncated", sym, expiry, _SESSION_MAX_PAGES)
+    raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+
+
+async def _daily_book(sym: str, n: int) -> fno_oi_windows.Book:
+    """Every futures row of the underlying over about n + 1 sessions back from the data's latest day, as a book."""
+    import time
+    key = (sym, n)
+    hit = _DAILY_CACHE.get(key)
+    if hit is not None and time.time() - hit[0] < _DAILY_TTL:
+        return hit[1]
+    listing = await _daas(f"/fno/{sym}/expiries", {}, sym)
+    rows = listing.get("data")
+    days = [d for d in (_iso_day(r.get("latest_seen")) for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)) if d]
+    if not days:
+        return {}
+    start = daily_read_start(max(days), n)
+    gate = asyncio.Semaphore(_DAILY_CONCURRENCY)
+
+    async def month(expiries: List[str]) -> List[Dict[str, Any]]:
+        for e in expiries:
+            async with gate:
+                got = await _future_history(sym, e, start)
+            if got:
+                return got
+        return []
+
+    found = await asyncio.gather(*(month(m) for m in expiries_by_month(rows, start, max(days))))
+    book = futures_book(r for rows_ in found for r in rows_)
+    if len(_DAILY_CACHE) >= _DAILY_CACHE_MAX:
+        _DAILY_CACHE.pop(min(_DAILY_CACHE, key=lambda k: _DAILY_CACHE[k][0]))
+    _DAILY_CACHE[key] = (time.time(), book)
+    return book
+
+
+# ── consolidated chain ───────────────────────────────────────────────────────
+_CHAIN_CONCURRENCY = 4
+
+
+@router.get("/{symbol}/chain/consolidated")
+async def chain_consolidated(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    around: int = Query(DEFAULT_AROUND, ge=1, le=MAX_AROUND, description="Strikes sent each side of the ATM strike"),
+) -> Dict[str, Any]:
+    """Every option expiry still listed, summed per strike: open interest, its change and volume per side, with the PCR,
+    max pain and walls over the sums (`summary`, every strike) and the ±around strikes about the ATM strike (`strikes`).
+    No prices and no Greeks: they do not add across expiries. 404 when the underlying lists no options."""
+    await get_current_user(request)
+    sym = symbol.upper()
+    listing = await _daas(f"/fno/{sym}/expiries", {}, sym)
+    as_of, listed = live_option_expiries(listing.get("data"))
+    if as_of is None:
+        raise HTTPException(status_code=404, detail=no_data(sym))
+    if not listed:
+        raise HTTPException(status_code=404, detail=f"No option contracts are listed for {sym}")
+    gate = asyncio.Semaphore(_CHAIN_CONCURRENCY)
+
+    async def one(expiry: str) -> Dict[str, Any]:
+        async with gate:
+            return await _daas(f"/fno/{sym}/chain", {"expiry": expiry}, sym)
+
+    bodies = await asyncio.gather(*(one(e["expiry"]) for e in listed))
+    kept: List[str] = []
+    chains: List[List[Dict[str, Any]]] = []
+    sides: List[Any] = []
+    for e, body in zip(listed, bodies):
+        day, exp = _iso_day(body.get("as_of")), _iso_day(body.get("expiry"))
+        strikes = shape_strikes(body.get("strikes"))
+        if day != as_of or exp != e["expiry"] or not strikes:
+            logger.warning("fno consolidated chain %s: expiry %s dropped (read for %s, expiry %s, %d strikes; the list is for %s)",
+                           sym, e["expiry"], day, exp, len(strikes), as_of)
+            continue
+        kept.append(exp)
+        chains.append(strikes)
+        raw = body.get("strikes")
+        sides.extend(item.get(side) for item in (raw if isinstance(raw, list) else []) if isinstance(item, dict) for side in _OPTION_SIDES)
+    if not kept:
+        logger.warning("fno consolidated chain %s: no expiry was read for %s", sym, as_of)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    summed = consolidate_strikes(chains)
+    spot = find_spot(sides)
+    full = summarise_chain(summed, spot, as_of, "consolidated")
+    return {
+        "symbol": sym, "as_of": as_of, "expiries": kept, "spot": spot,
+        "strikes": window_around(summed, full["atm_strike"], around),
+        "summary": {k: full[k] for k in CONSOLIDATED_SUMMARY},
+        "basis": "summed over the listed expiries", "read_only": True,
+    }
+
+
+async def _option_ref(spot: str) -> Optional[Dict[str, Any]]:
+    """Today's Kite price of the options' cash symbol (live quote in the session, the saved Kite close after it), or None."""
+    from services.kite_live_feed import day_quote
+    from services.kite_live_feed.gateway import canon
+    dq = await day_quote.day_quotes([spot])
+    q = (dq.get("quotes") or {}).get(canon(spot))
+    price = _positive((q or {}).get("ltp"))
+    if q is None or price is None or dq.get("source") not in ("kite_live", "kite_close"):
+        return None
+    at = q.get("exchange_ts") or dq.get("as_of")
+    return {"price": price, "source": dq["source"], "at": str(at) if at is not None else None}
+
+
+@router.get("/{symbol}/options/intraday")
+async def options_intraday(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
+    sessions: int = Query(2, ge=1, le=5, description="Sessions of candles sent"),
+    strikes: int = Query(5, ge=1, le=8, description="Listed strikes each side of the ATM strike"),
+) -> Dict[str, Any]:
+    """The nearest expiry's calls and puts around the ATM strike, Kite candles with open interest, and their per-candle sums
+    (services/fno_options_intraday.py). Reloads the stored platform Kite login first. 200 with `availability` other than ok
+    when Kite cannot answer. Read only: nothing is written and nothing is sent to a broker."""
+    await get_current_user(request)
+    if interval not in OI_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
+    sym = symbol.upper()
+    from routes.research_chart_intraday import get_service
+    from services.kite_live_feed.feed import get_feed
+    await _refresh_platform_token()
+    try:
+        st = await get_feed().read_status() or {}
+    except Exception as e:  # noqa: BLE001 — the feed status only sets the cache time
+        logger.warning("fno options intraday: feed status unreadable (%s)", type(e).__name__)
+        st = {}
+    return await get_service().options_intraday(sym, interval, sessions, strikes, session_open=st.get("session") == "open",
+                                                ref_getter=_option_ref)
+
+
+_FORWARD_CACHE: Dict[str, Any] = {"ts": 0.0, "key": None, "bars": None}
+_FORWARD_TTL = 1800.0
+
+
+async def _forward_bars(symbols: List[str], start: str, end: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Adjusted bars for the universe, read through the data platform in chunks and kept for half an hour."""
+    import time
+    key = (len(symbols), start, end)
+    if _FORWARD_CACHE["bars"] is not None and _FORWARD_CACHE["key"] == key and time.time() - _FORWARD_CACHE["ts"] < _FORWARD_TTL:
+        return _FORWARD_CACHE["bars"]
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for i in range(0, len(symbols), 250):
+        got = await daas_client.get_adjusted_prices_bulk(symbols[i:i + 250], start=start, end=end, timeout=60.0)
+        out.update({str(k).upper(): v for k, v in (got or {}).items()})
+    _FORWARD_CACHE.update({"ts": time.time(), "key": key, "bars": out})
+    return out
+
+
+async def _refresh_platform_token() -> None:
+    """Load the stored platform Kite token into this worker. A failed read leaves whatever the worker held (the calculator then answers 503 if that is stale)."""
+    try:
+        from deps import db
+        from services.kite_live_feed import platform_token
+        await platform_token.refresh_cache(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno margin: the platform token could not be reloaded (%s)", type(e).__name__)
+
+
+class MarginLeg(BaseModel):
+    side: str = Field(..., pattern="^(buy|sell)$")
+    option_type: str = Field(..., pattern="^(call|put|future)$")
+    expiry: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    strike: Optional[float] = Field(None, gt=0)
+    lots: int = Field(..., ge=1, le=1000)
+
+
+class MarginRequest(BaseModel):
+    underlying: str = Field(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN)
+    legs: List[MarginLeg] = Field(..., min_length=1, max_length=fno_margin.MAX_LEGS)
+
+
+@router.post("/margin")
+async def margin(request: Request, body: MarginRequest) -> Dict[str, Any]:
+    """Funds needed and order charges for a basket, from Zerodha's margin calculator (a CALCULATION through the platform's Kite session; nothing is placed). 503 kite_session_unavailable
+    when the platform is not logged in to Kite today; 404 naming the legs with no listed contract; 502 on a Kite error, never provider text."""
+    await get_current_user(request)
+    legs = [l.model_dump() for l in body.legs]
+    # The backend runs several workers and only the feed's leader reloads the platform token from Mongo, so this worker's copy can be yesterday's: reload it before asking Kite.
+    await _refresh_platform_token()
+    try:
+        calc = fno_margin.default_calculator()
+        out = await asyncio.to_thread(fno_margin.run, calc, body.underlying.upper(), legs)
+    except fno_margin.NoSession:
+        raise HTTPException(status_code=503, detail="kite_session_unavailable")
+    except fno_margin.CalcError as e:
+        logger.warning("fno margin: the calculator failed (%s)", e)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if not out.get("ok"):
+        raise HTTPException(status_code=404, detail=f"No listed contract for: {', '.join(out['missing_contracts'])}")
+    out.pop("ok", None)
+    return out
+
+
+@router.get("/forward-test")
+async def forward_test(request: Request) -> Dict[str, Any]:
+    """The forward test of near-month short build-up (services/fno_forward): how many sessions have been RECORDED, how many signals, how many are judged (5 sessions on), and, only once 30
+    sessions are judged, the pooled result net of the assumed cost. Signals are recorded when a session's data is in (scripts/record_fno_forward.py) and never reconstructed. Read only."""
+    await get_current_user(request)
+    from deps import db
+    base = {"version": fno_forward.VERSION, "hypothesis": fno_forward.HYPOTHESIS, "horizon_sessions": fno_forward.HORIZON, "cost_pct": fno_forward.COST_PCT,
+            "min_sessions": fno_forward.MIN_SESSIONS, "settings_recorded": list(fno_forward.SETTINGS), "read_only": True,
+            "past_result": "Inconclusive in the one-year study (permutation p 0.02 for the production floors, 0.06 for the first frozen setting; 50 pooled sessions); not validated.",
+            "not_recorded": "The five frozen volume-floor settings are not recorded: they need 20 sessions of the contract's own volume at signal time."}
+    try:
+        docs = [d async for d in db[fno_forward.COLLECTION].find({}, {"_id": 0}).sort("as_of", 1)]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno forward test: the records could not be read (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if not docs:
+        return {**base, "started": False, "recorded_sessions": 0, "last_recorded": None, "settings": {}}
+    symbols = sorted({s for d in docs for s in (d.get("universe_symbols") or [])})
+    start = (date.fromisoformat(docs[0]["as_of"]) - timedelta(days=5)).isoformat()
+    try:
+        bars = await _forward_bars(symbols, start, date.today().isoformat())
+    except Exception as e:  # noqa: BLE001 — the counts are still true; the judgement needs prices
+        logger.warning("fno forward test: prices unavailable (%s)", type(e).__name__)
+        bars = {}
+    ev = fno_forward.evaluate(docs, bars)
+    return {**base, "started": True, "recorded_sessions": len(docs), "last_recorded": docs[-1]["as_of"], "prices_available": bool(bars), "settings": ev["settings"]}
+
+
+POSITIONING_DAYS_BACK = 16          # weekdays looked back over to find N trading sessions (holidays are skipped, not filled)
+
+
+def _today() -> date:
+    return date.today()
+
+
+def _recent_weekdays(today: date, n: int) -> List[date]:
+    """The last `n` weekdays up to and including `today`, newest first."""
+    out: List[date] = []
+    d = today
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d -= timedelta(days=1)
+    return out
+
+
+def _positioning_row(body: Dict[str, Any], sym: str) -> Optional[Dict[str, Any]]:
+    """The symbol's row in one day's build-up scan: an index row first, then a stock row. Only what the scan says; a missing figure is null."""
+    for key in ("indices", "rows"):
+        for r in body.get(key) or []:
+            if isinstance(r, dict) and str(r.get("symbol") or "").upper() == sym:
+                return {"label": r.get("label") if r.get("label") in fno_rules.CATEGORIES else None,
+                        "price_chg_pct": fno_engine.num(r.get("price_chg_pct")), "oi_chg_pct": fno_engine.num(r.get("oi_chg_pct")),
+                        "cash_confirmation": r.get("cash_confirmation") if r.get("cash_confirmation") in ("confirms", "diverges") else None}
+    return None
+
+
+@router.get("/{symbol}/positioning-history")
+async def positioning_history(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    sessions: int = Query(5, ge=2, le=10, description="How many recent trading sessions"),
+) -> Dict[str, Any]:
+    """The near-month futures' build-up state per trading session for the last `sessions` sessions, oldest first: the label, the price change % and the OI change %
+    each day's scan gives (DaaS /desk/fno-buildup?date=D, the same rule as the Lab). A day is kept only when the scan answers for exactly that day: a holiday, a day the
+    platform has not loaded or a failed read is skipped and counted in `missing`, never filled in. Every day failing is 502, not an empty history. Read only."""
+    await get_current_user(request)
+    sym = symbol.upper()
+    days = _recent_weekdays(_today(), POSITIONING_DAYS_BACK)
+    gate = asyncio.Semaphore(4)
+
+    async def one(d: date) -> Optional[Dict[str, Any]]:
+        async with gate:
+            try:
+                body = await _daas("/desk/fno-buildup", {"date": d.isoformat()}, "stock futures")
+            except HTTPException:
+                return None
+        if _iso_day(body.get("as_of")) != d.isoformat():
+            return None
+        row = _positioning_row(body, sym)
+        return {"date": d.isoformat(), **(row or {"label": None, "price_chg_pct": None, "oi_chg_pct": None, "cash_confirmation": None})}
+
+    answers = await asyncio.gather(*(one(d) for d in days))
+    got = [a for a in answers if a is not None]
+    if not got:
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    kept = sorted(got, key=lambda r: r["date"], reverse=True)[:sessions]
+    return {"symbol": sym, "sessions": sorted(kept, key=lambda r: r["date"]), "requested": sessions, "missing": len(days) - len(got),
+            "source": "NSE F&O bhavcopy via the build-up scan, near-month future", "read_only": True}
+
+
+@router.get("/{symbol}/iv-history")
+async def iv_history_series(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    days: int = Query(fno_iv_history.DEFAULT_DAYS, ge=1, le=fno_iv_history.MAX_DAYS, description="Recorded sessions sent in `series`"),
+    bucket: str = Query(fno_iv_history.BUCKETS[0], pattern="^(" + "|".join(fno_iv_history.BUCKETS) + ")$",
+                        description="near_month (1st futures expiry after the session) | next_month (2nd)"),
+) -> Dict[str, Any]:
+    """The underlying's recorded daily ATM implied volatility, oldest first, the latest session as `current`, and
+    IV rank and IV percentile over the latest 252 recorded sessions (null with a `reason` until 252 exist). Only
+    what was recorded (scripts/record_iv_history.py): a session that was not recorded is absent, never estimated.
+    The store failing to answer is 502, never an empty history. Read only."""
+    await get_current_user(request)
+    from deps import db
+    sym = symbol.upper()
+    try:
+        docs = await fno_iv_history.read_rows(db, sym)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno iv history: the records for %s could not be read (%s)", sym, type(e).__name__)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    out = fno_iv_history.history_answer(sym, docs, bucket, days)
+    return fno_iv_history.without_stale_current(out, await market_freshness.window())
 
 
 @router.get("/scan/buildup")
@@ -634,8 +1319,47 @@ async def scan_buildup(
     and its change summed over all expiries, and the build-up label (long_buildup, short_buildup, short_covering,
     long_unwinding, neutral). Passed through unchanged; a day with no rows is 200 with `rows: []`."""
     await get_current_user(request)
+    return await _buildup_scan(day)
+
+
+async def _buildup_scan(day: Optional[date]) -> Dict[str, Any]:
+    """DaaS /desk/fno-buildup for `day`, or for its latest day, which must then be today or the previous session: a
+    scan asked for by date is history and says its day; the default one is read as today's market."""
     body = await _daas("/desk/fno-buildup", {"date": day.isoformat()} if day else {}, "stock futures")
     if not isinstance(body.get("rows"), list):
         logger.warning("fno DaaS /desk/fno-buildup answered without rows")
         raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if day is None:
+        w = await market_freshness.window()
+        as_of = _iso_day(body.get("as_of"))
+        if not w.current(as_of):
+            raise HTTPException(status_code=404, detail=w.stale_reason("the F&O build-up scan", as_of))
     return body
+
+
+@router.get("/scan/candidates")
+async def scan_candidates(
+    request: Request,
+    per: int = Query(fno_rules.PER_DEFAULT, ge=1, le=fno_rules.PER_MAX, description="Candidates per build-up category"),
+    day: Optional[date] = Query(None, alias="date", description="Trading day YYYY-MM-DD; default = the latest"),
+) -> Dict[str, Any]:
+    """The top candidates of each build-up category (long build-up, short build-up, short covering, long unwinding) among the
+    liquid F&O stocks, each with five confirmations (cash, relative volume, delivery, trend, momentum), a fundamental context
+    rating and the figures behind them; plus NIFTY and BANKNIFTY from the same scan. Joins the build-up scan with one bulk read
+    of the engineered features. Read only. The ranking counts confirmations: it is not a probability, and no strategy is ranked
+    by profit here (the plan engine is asked per candidate, from `plan_inputs`). The features failing leaves every analysis
+    reading unknown: the candidates are still listed from the scan."""
+    await get_current_user(request)
+    body = await _buildup_scan(day)
+    pools = fno_engine.select_pools(body)
+    symbols = fno_engine.pool_symbols(pools)
+    features: Dict[str, List[Dict[str, Any]]] = {}
+    as_of = _iso_day(body.get("as_of"))
+    if symbols and as_of:
+        try:
+            features = await daas_client.get_features_bulk(
+                symbols, start=(date.fromisoformat(as_of) - timedelta(days=14)).isoformat(), end=as_of)
+        except Exception as e:  # noqa: BLE001 — the scan alone still answers; the analysis readings are then unknown
+            logger.warning("fno candidates: the features read failed (%s)", type(e).__name__)
+            features = {}
+    return fno_engine.assemble(body, pools, features, per)

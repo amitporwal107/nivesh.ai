@@ -1,0 +1,6 @@
+# OVERRIDE: desk_templates_signal_record (branch feat/desk-templates-signal-record, PR to dev)
+
+REASON: Not deployed. The staging HTTP check of GET /api/desk/strategy/templates, POST /api/desk/strategy/payoff and GET /api/positional/signals/{symbol}/record can only run after the PR merges and the staging backend restarts; I cannot merge my own PR.
+Evidence (this session, real output, test_reports/desk_templates_signal_record_2026-10-27.md): Docker `--network none` unit tests: new/changed files 71 passed; new + related 439 passed, 1 skipped; full CI allowlist 6721 passed, 3 failed (the known network-only test_cas_api_client ×2 and test_nidp_stamp_broadcast_at), 28 skipped, against dev's 6656 / same 3 / 28. Read-only staging check of the route's reader on CORONA 2026-10-27 matches a direct SELECT; an unknown symbol gives 404.
+Stated limits: staging's positional_signals_history has 0 rows, so the multi-revision answer is proven on MOCK rows only. The risk service blocks the covered call (per-trade budget) and the credit spreads and collar (min reward:risk 1.5) at the default profile. These are sizing refusals, not defined-risk ones. Reported; no rule changed.
+UNVERIFIED: both routes over HTTP on the deployed build; the Trade Desk UI listing the new templates.

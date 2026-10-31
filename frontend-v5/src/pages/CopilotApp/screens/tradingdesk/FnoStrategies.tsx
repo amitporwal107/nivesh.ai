@@ -48,7 +48,8 @@ import { SEBI_FNO_NOTE, fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk } from "./context";
 import { writeProblem } from "./desk-trading";
 import { BUILDUP_META, buildupRowFor, indexRowFor, useBuildup, type BuildupLabel } from "./fno-buildup";
-import { CardHead, FnoGate, TONE_LINE, TONE_SOFT, shortDay, type NearFuture } from "./fno-parts";
+import { FnoGate, TONE_LINE, TONE_SOFT, shortDay, type NearFuture } from "./fno-parts";
+import { Widget } from "./widget";
 
 export type StrategyKind = "futures" | "options" | "cash";
 
@@ -505,7 +506,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
         </span>
         <BuildupPill label={label} testId="desk-fno-strat-buildup" />
         <span className="flex flex-wrap items-center" style={{ marginLeft: "auto", gap: "6px 12px" }}>
-          {!index && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-fno-strat-build" onClick={() => openStrategy(symbol, { kind: "lab", date: chain?.summary.as_of ?? null })}>Build a strategy ›</button>}
+          {!index && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-fno-strat-build" onClick={() => openStrategy(symbol, { kind: "lab", date: chain?.summary.as_of ?? null })}>Open on Chart Analysis ›</button>}
           <span className="cp-eyebrow" data-testid="desk-fno-strat-kind">Rules-based · paper trading only</span>
         </span>
       </div>
@@ -516,8 +517,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
             <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(3,minmax(0,1fr))", gap: 12, alignItems: "stretch" }}>
               {cards.map((card) => <Card key={card.kind} card={card} symbol={symbol} />)}
             </div>
-            <section data-testid="desk-fno-strat-why" className="cp-card flex flex-col" style={{ gap: 10, padding: "16px 18px" }}>
-              <span className="cp-eyebrow">Why these</span>
+            <Widget id="fno.strat.why" testId="desk-fno-strat-why" title="Why these" bodyStyle={{ gap: 10, padding: "16px 18px" }}>
               <ul className="m-0 flex flex-col" style={{ gap: 8, padding: 0, listStyle: "none" }}>
                 {whyLines(symbol, label, row?.priceChgPct ?? null, row?.oiChgPct ?? null, scan.data?.asOf ?? null, c, investor).map((l) => (
                   <li key={l} className="flex" style={{ gap: 8, fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
@@ -526,15 +526,12 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
                   </li>
                 ))}
               </ul>
-            </section>
+            </Widget>
           </>
         )}
       </FnoGate>
 
-      <section data-testid="desk-fno-strat-table" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-        <CardHead testId="desk-fno-strat-table-head" meta={scan.data ? `${fmtNum(tableRows.length)} underlyings · names from build-up alone` : undefined}>
-          Paper strategy for every F&amp;O underlying
-        </CardHead>
+      <Widget id="fno.strat.table" testId="desk-fno-strat-table" headTestId="desk-fno-strat-table-head" title="Paper strategy for every F&O underlying" meta={scan.data ? `${fmtNum(tableRows.length)} underlyings · names from build-up alone` : undefined}>
         {scan.isPending && <div style={{ padding: 18, fontSize: 13, color: "var(--cp-ink-3)" }}>Reading the build-up scan…</div>}
         {scan.isError && (
           <div role="alert" data-testid="desk-fno-strat-table-error" style={{ padding: 18, fontSize: 13, color: "var(--cp-ink-3)" }}>
@@ -592,7 +589,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
             </button>
           )}
         </div>
-      </section>
+      </Widget>
 
       <p data-testid="desk-fno-strat-disclaimer" className="m-0" style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)", padding: "12px 14px", borderRadius: 12, border: `1px solid ${TONE_LINE.amber}`, background: TONE_SOFT.amber }}>
         Rules-based paper ideas from end-of-day data, for learning — not a recommendation to buy or sell. {SEBI_FNO_NOTE} Nivesh cannot place orders.

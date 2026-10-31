@@ -33,7 +33,8 @@ SELECTION_RULE = ("The scanner's merged list (watchlist and picks, picks win for
                   "then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference "
                   "data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least "
                   f"Rs {setup_rules.LIQUIDITY['min_traded_value_cr']:g} crore a day); the top N that pass. When the snapshot cannot be read, "
-                  "the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate.")
+                  "the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate. "
+                  "Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending).")
 
 EXCLUSION_TEXT = {
     "missing_price": "no usable last close or previous close in the scan snapshot",
@@ -290,6 +291,16 @@ async def select_opportunities(request: Request, limit: int = DEFAULT_LIMIT, cha
     return out
 
 
+async def eligible_setups(request: Request, limit: int) -> Dict[str, Any]:
+    """The same scanner-only selection as select_opportunities without its MAX_LIMIT cap: every merged setup that passes the eligibility gates,
+    up to `limit`, each with the scan snapshot's `fno_eligible` (True, False, or None when the snapshot has no row). For the regime-fit board's
+    one-row-per-underlying stock F&O class, which has to look past the first 15 names to find enough F&O-listed ones. Never raises on a source failure."""
+    out = await _select_scanner(request, max(1, int(limit)))
+    for k in ("_merged", "_rows", "_rows_read"):
+        out.pop(k, None)
+    return out
+
+
 async def _select_scanner(request: Request, limit: int) -> Dict[str, Any]:
     """The scanner-only selection (the behaviour before Chartink). Private keys for the Chartink step: _merged (the merged scanner list), _rows (the
     scan snapshot rows, None when not read or unreadable) and _rows_read (whether the snapshot read was attempted)."""
@@ -297,7 +308,9 @@ async def _select_scanner(request: Request, limit: int) -> Dict[str, Any]:
     out: Dict[str, Any] = {"source": "AI scanner (watchlist + picks), end of day", "rule": SELECTION_RULE, "limit": limit, "scan_date": None,
                            "watchlist_as_of": (watch or {}).get("as_of_date"), "watchlist_version": (watch or {}).get("_classifier_version"), "signal_date": (picks or {}).get("signal_date"),
                            "considered": 0, "selected": 0, "excluded": [], "setups": [], "empty_reason": None, "source_failures": fails,
-                           "gate": None, "gate_as_of": None, "_merged": [], "_rows": None, "_rows_read": False}
+                           "gate": None, "gate_as_of": None, "_merged": [], "_rows": None, "_rows_read": False,
+                           # engine version, price basis, exceptions and data-quality status of the scan (scan_meta)
+                           "scan_basis": (watch or {}).get("scan_basis") or (picks or {}).get("scan_basis")}
     out["scan_date"] = out["watchlist_as_of"] or out["signal_date"]
     if watch is None and picks is None:
         out["empty_reason"] = "The scanner could not be read (" + "; ".join(fails) + "): no opportunities are shown in its place."

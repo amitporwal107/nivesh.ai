@@ -17,17 +17,24 @@
  * filings that bear on the quarter, each linked to its source. It never calls a result a beat or a miss.
  * History is what happened before, not a forecast; the panel says so. Nothing is invented: a missing figure is "—".
  */
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useCopilotShell } from "../../lib/shell-context";
 import { LoadingBlock } from "../../components/ui";
 import { ApiError } from "@/services/api/errors";
 import { useDesk } from "./context";
 import { istParts, useNow } from "./overview-data";
+import { Widget } from "./widget";
 import {
   COUNTRIES, COUNTRY_CHIP, COUNTRY_NAME, EVENT_TYPES, IMPACTS, IMPACT_COLOR, IMPACT_LABEL, TIMING_LABEL, TIMING_ORDER, TIMING_SHORT, TYPE_COLOR, TYPE_LABEL, TYPE_PLURAL, TYPE_SHORT,
   fmtExpVal, fmtMacroVal, useEventHistory, useEventsCalendar, useMacroCalendar, useMacroHistory, useResultsBoard, useResultsExpectation,
   type Board, type BoardEvent, type CalEvent, type Calendar, type Country, type EventType, type ExpMetric, type Expectation, type History, type Impact, type MacroCalendar, type MacroEvent, type StatTriple, type Universe,
 } from "./events-data";
+
+// Results week (docs/EARNINGS_SURPRISE_TRACKER.md §6): its own chunk and files (resultsweek/), reached from the View switch.
+const ResultsWeekView = lazy(() => import("./resultsweek/ResultsWeekView"));
+type EvView = "cal" | "tl" | "rw";
+const VIEW_ITEMS: Array<[string, EvView]> = [["CALENDAR", "cal"], ["TIMELINE", "tl"], ["RESULTS WEEK", "rw"]];
+const rwFallback = <LoadingBlock label="Loading the results week" rows={4} />;
 
 const MINUS = "−";
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -551,9 +558,8 @@ function ResultsBoard({ today, universe, secs, q, onPick }: { today: string; uni
   const days: Array<[string, string]> = [[today, "TODAY"], [tomorrow, "TOMORROW"]];
   const track = Object.entries(b.byMetric).filter(([, t]) => t.medianAbsErr != null);
   return (
-    <section data-testid="events-board" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", borderRadius: 16 }}>
+    <Widget id="events.board" testId="events-board" title="Results today &amp; tomorrow" headPad="12px 14px" style={{ borderRadius: 16 }}>
       <div className="flex flex-col" style={{ gap: 4, padding: "12px 14px", background: "var(--bg-0)" }}>
-        <span className="cp-eyebrow">Results today &amp; tomorrow</span>
         <span data-testid="events-board-label" style={{ ...eyebrow, color: "var(--cp-ink)", fontSize: 9, lineHeight: 1.5 }}>NIVESH BASELINE FROM PUBLISHED RESULTS · NOT A CONSENSUS · NOT A FORECAST</span>
         <span data-testid="events-board-counts" style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
           {b.counts.figures} DECLARED · {b.counts.pending} FILED, FIGURES PENDING · {b.counts.upcoming} AWAITED
@@ -579,7 +585,7 @@ function ResultsBoard({ today, universe, secs, q, onPick }: { today: string; uni
           {b.gaps.map((g, i) => <li key={i}>{g}</li>)}
         </ul>
       )}
-    </section>
+    </Widget>
   );
 }
 
@@ -924,13 +930,15 @@ function Timeline({ month, today, cal, by, expanded, toggle }: { month: string; 
         const t = dayTone(d, month, today, cal);
         const list = by.get(d) ?? [];
         return (
-          <section key={d} data-testid={`events-tl-day-${d}`} className="cp-card" style={{ overflow: "hidden", border: `1px solid ${d === today ? "var(--mint-line)" : "var(--cp-line)"}` }}>
-            <div className="flex items-center" style={{ minHeight: 54, gap: 12, padding: "0 18px" }}>
-              <span style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1 }}>{fmtD(d)}</span>
-              <span style={{ ...mono, fontSize: 9.5, letterSpacing: "0.12em", color: "var(--cp-ink-3)" }}>{rel(d, today).toUpperCase()}</span>
-              <span style={{ marginLeft: "auto", ...mono, fontSize: 10, letterSpacing: "0.08em", color: t.ctxC }}>{t.ctx}</span>
-              <span style={{ minWidth: 72, textAlign: "right", ...mono, fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>{list.length ? `${list.length} EVENT${list.length > 1 ? "S" : ""}` : ""}</span>
-            </div>
+          <Widget
+            key={d}
+            id={`events.day.${d}`}
+            testId={`events-tl-day-${d}`}
+            title={`${fmtD(d)} · ${rel(d, today).toUpperCase()}`}
+            meta={<><span style={{ color: t.ctxC }}>{t.ctx}</span>{list.length ? ` · ${list.length} EVENT${list.length > 1 ? "S" : ""}` : ""}</>}
+            headPad="12px 18px"
+            style={{ border: `1px solid ${d === today ? "var(--mint-line)" : "var(--cp-line)"}`, boxShadow: "none" }}
+          >
             {list.map((e) => {
               const open = expanded.includes(e.id);
               return (
@@ -948,7 +956,7 @@ function Timeline({ month, today, cal, by, expanded, toggle }: { month: string; 
                 </div>
               );
             })}
-          </section>
+          </Widget>
         );
       })}
     </div>
@@ -960,7 +968,7 @@ function DesktopEvents() {
   const now = useNow(60_000);
   const today = istParts(now).iso;
   const [macro, setMacro] = useState(false);
-  const [view, setView] = useState<"cal" | "tl">("cal");
+  const [view, setView] = useState<EvView>("cal");
   const [month, setMonth] = useState(() => monthOf(today));
   const [f, setF] = useState<Filters>({ universe: "fno", secs: [], types: ALL_TYPES, q: "" });
   const [mf, setMf] = useState<MacroFilters>({ countries: ALL_COUNTRIES, impacts: ALL_IMPACTS, q: "" });
@@ -984,6 +992,13 @@ function DesktopEvents() {
   const holN = [...(cal?.holidays.keys() ?? [])].filter((k) => monthOf(k) === month).length;
 
   const byId = useMemo(() => new Map(evs.map((e) => [e.id, e])), [evs]);
+  const viewBox = (
+    <div className="flex items-center" style={{ height: 38, gap: 8, padding: "0 3px 0 12px", borderRadius: 11, background: "var(--bg-1)", border: "1px solid var(--line-2)" }}>
+      <span style={eyebrow}>VIEW</span>
+      <Seg id="view" label="View" value={view} onPick={setView} items={VIEW_ITEMS} />
+    </div>
+  );
+  if (view === "rw") return <Suspense fallback={rwFallback}><ResultsWeekView today={today} viewSwitch={viewBox} /></Suspense>;
   // a board row opens the same panel as the calendar chip; its month and the RESULTS type must be showing for the event to be found
   const pickBoard = (e: BoardEvent) => {
     setMonth(monthOf(e.eventDate));
@@ -1003,12 +1018,13 @@ function DesktopEvents() {
 
   return (
     <div data-testid="desk-events" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-      <section className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-        <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-          <span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span>
-          <button type="button" data-testid="events-back-intel" onClick={() => openTab("intel")} style={{ background: "none", border: 0, cursor: "pointer", color: "var(--cp-ink-3)", fontSize: 12 }}>‹ Market Intelligence</button>
-          <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{macro ? "India and US macro releases from free sources" : "NSE board meetings and corporate actions"} · {cal?.asOf ? `as of ${cal.asOf}` : "end of day"}</span>
-        </div>
+      <Widget
+        id="events.calendar"
+        num="03"
+        title="Events calendar"
+        meta={<>{macro ? "India and US macro releases from free sources" : "NSE board meetings and corporate actions"} · {cal?.asOf ? `as of ${cal.asOf}` : "end of day"}</>}
+        actions={<button type="button" data-testid="events-back-intel" onClick={() => openTab("intel")} style={{ background: "none", border: 0, cursor: "pointer", color: "var(--cp-ink-3)", fontSize: 12 }}>‹ Market Intelligence</button>}
+      >
         <div className="flex flex-col" style={{ padding: "18px 18px 22px", gap: 16 }}>
           <div className="flex flex-wrap items-start justify-between" style={{ gap: 20 }}>
             {macro ? <MacroHeadline evs={mevs} month={month} today={today} /> : <Headline evs={sevs} month={month} today={today} cal={scal} />}
@@ -1055,10 +1071,7 @@ function DesktopEvents() {
                 </div>
               </>
             )}
-            <div className="flex items-center" style={{ marginLeft: "auto", height: 38, gap: 8, padding: "0 3px 0 12px", borderRadius: 11, background: "var(--bg-1)", border: "1px solid var(--line-2)" }}>
-              <span style={eyebrow}>VIEW</span>
-              <Seg id="view" label="View" value={view} onPick={setView} items={[["CALENDAR", "cal"], ["TIMELINE", "tl"]]} />
-            </div>
+            <div style={{ marginLeft: "auto" }}>{viewBox}</div>
           </div>
           {macro && <CountryGap cal={mcal} countries={mf.countries} />}
           <div className="flex flex-wrap items-center" style={{ gap: 10 }}>
@@ -1095,7 +1108,7 @@ function DesktopEvents() {
             </div>
           )}
         </div>
-      </section>
+      </Widget>
     </div>
   );
 }
@@ -1111,6 +1124,7 @@ function MobileEvents() {
   const [countries, setCountries] = useState<Country[]>(ALL_COUNTRIES);
   const [impacts, setImpacts] = useState<Impact[]>(ALL_IMPACTS);
   const [sheet, setSheet] = useState<string | null>(null);
+  const [mview, setMview] = useState<"cal" | "rw">("cal");
   const m1 = monthOf(wk), m2 = monthOf(addDays(wk, 6));
   const q1 = useEventsCalendar(m1, "fno");
   const q2 = useEventsCalendar(m2, "fno");
@@ -1123,6 +1137,8 @@ function MobileEvents() {
   const { evs: sevs, by: sby } = useFiltered({ month: m1, asOf: null, events: evsAll, holidays: new Map(), closes: new Map(), gaps: [] }, f);
   const mf: MacroFilters = { countries, impacts, q: "" };
   const { evs: mevs, by: mby } = useMacroFiltered({ month: m1, asOf: null, events: mAll, holidays: new Map(), closes: new Map(), gaps: [] }, mf);
+  const viewSeg = <Seg id="view" label="View" value={mview} onPick={setMview} items={[["CALENDAR", "cal"], ["RESULTS WEEK", "rw"]]} />;
+  if (mview === "rw") return <Suspense fallback={rwFallback}><ResultsWeekView today={today} viewSwitch={viewSeg} /></Suspense>;
   const evs: AnyEv[] = macro ? mevs : sevs;
   const by: Map<string, AnyEv[]> = macro ? mby : sby;
   const tog = <T,>(a: T[], v: T) => (a.includes(v) ? a.filter((x) => x !== v) : [...a, v]);
@@ -1137,9 +1153,10 @@ function MobileEvents() {
   return (
     <div data-testid="desk-events" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
       <div className="flex items-center" style={{ gap: 8 }}>
-        <span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span>
+        <span className="cp-eyebrow">Events calendar</span>
         <div style={{ marginLeft: "auto" }}><Seg id="tab" label="Calendar type" value={macro ? "macro" : "stock"} onPick={(v) => { setMacro(v === "macro"); setSheet(null); }} items={[["STOCK", "stock"], ["MACRO", "macro", mq1.isSuccess ? String(mevs.length) : mq1.isError ? "!" : "…"]]} /></div>
       </div>
+      <div className="flex">{viewSeg}</div>
       <div className="cp-card flex flex-col" style={{ padding: "6px 8px 8px", gap: 6, borderRadius: 18 }}>
         <div className="flex items-center">
           <button type="button" aria-label="Previous week" data-testid="events-m-prev" onClick={() => move(-1)} style={{ width: 44, height: 38, border: 0, background: "transparent", color: "var(--cp-ink-2)", fontSize: 20, cursor: "pointer" }}>‹</button>
@@ -1173,11 +1190,14 @@ function MobileEvents() {
       {macro && <CountryGap cal={mq1.data} countries={countries} />}
       {!macro && <ResultsBoard today={today} universe="fno" secs={[]} q="" onPick={(e) => { setWk(mondayOf(e.eventDate)); setDay(e.eventDate); setTypes((x) => (x.includes("RESULTS") ? x : [...x, "RESULTS"])); setSheet(e.id); }} />}
       {err ? <ErrorState text={macro ? "The macro calendar could not be loaded. Nothing is shown rather than an older list." : "The events calendar could not be loaded. Nothing is shown rather than an older list."} onRetry={() => { a1.refetch(); a2.refetch(); }} /> : (a1.isLoading ? <LoadingBlock label={macro ? "Loading macro releases" : "Loading events"} rows={3} /> : (
-        <section className="cp-card" style={{ overflow: "hidden", borderRadius: 18 }}>
-          <div style={{ padding: "12px 14px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-            <div className="flex items-baseline justify-between"><span style={{ fontFamily: "var(--display)", fontSize: 20, lineHeight: 1 }}>{fmtD(day)}</span><span data-testid="events-m-count" style={{ ...mono, fontSize: 9.5, letterSpacing: "0.1em", color: "var(--cp-ink-3)" }}>{list.length} {macro ? "RELEASE" : "EVENT"}{list.length === 1 ? "" : "S"}</span></div>
-            <span style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: t.ctxC }}>{t.ctx}</span>
-          </div>
+        <Widget
+          id={`events.day.phone.${day}`}
+          title={fmtD(day)}
+          meta={<span data-testid="events-m-count">{list.length} {macro ? "RELEASE" : "EVENT"}{list.length === 1 ? "" : "S"}</span>}
+          headPad="12px 14px 10px"
+          style={{ borderRadius: 18, boxShadow: "none" }}
+        >
+          <span style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: t.ctxC, padding: "8px 14px" }}>{t.ctx}</span>
           {list.map((e) => (
             <button key={e.id} type="button" data-testid={`events-m-row-${e.id}`} onClick={() => setSheet(e.id)} style={{ width: "100%", minHeight: 62, display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", boxSizing: "border-box", border: 0, borderTop: line, background: "transparent", cursor: "pointer", textAlign: "left", color: "inherit" }}>
               <span style={{ flex: "none", width: 50, ...mono, fontSize: 9.5, color: "var(--cp-ink-3)" }}>{evTimeShort(e)}</span>
@@ -1189,7 +1209,7 @@ function MobileEvents() {
             </button>
           ))}
           {!list.length && <p style={{ margin: 0, padding: "16px 14px 18px", borderTop: line, fontSize: 13, color: "var(--cp-ink-3)" }}>No {macro ? "releases" : "events"} on this day for these filters.</p>}
-        </section>
+        </Widget>
       ))}
       <Gaps cal={gapCal} />
       {sheetEv && (

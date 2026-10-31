@@ -458,7 +458,7 @@ def test_no_read_inside_the_first_minute_after_close_and_none_stops_the_ticker()
 
 def test_gateway_exposes_no_order_surface():
     names = {n for n in dir(gw.ReadOnlyKite) if not n.startswith("_")}
-    assert names == {"instruments", "quote", "profile", "historical_data"}
+    assert names == {"instruments", "quote", "profile", "historical_data", "historical_data_oi"}
 
 
 def test_no_order_method_is_referenced_in_the_package_or_routes():
@@ -673,3 +673,162 @@ def test_futures_universe_is_served_by_snapshot_with_underlying_expiry_and_oi(mo
     q = s.json()["quotes"]
     assert set(q) == {"AAA26OCTFUT", "EEE26OCTFUT"}
     assert q["AAA26OCTFUT"]["oi"] == 5000.0 and q["AAA26OCTFUT"]["underlying"] == "AAA" and q["AAA26OCTFUT"]["expiry"] == "2026-10-27"
+
+
+# ── the closing quotes are kept, one document per trading day ────────────────
+
+def _close_docs(f):
+    return f.db["kite_live_close"].docs
+
+
+def test_the_final_snapshot_is_also_saved_as_that_days_close_futures_included():
+    f = make_feed(clock=Clock(AFTER_CLOSE), kite=FakeKiteFut())
+    run(f.tick())
+    docs = _close_docs(f)
+    assert list(docs) == ["2026-10-20"]
+    d = docs["2026-10-20"]
+    assert d["date"] == "2026-10-20" and d["final"] is True and d["count"] == f.snapshot["count"]
+    assert {q["symbol"] for q in d["quotes"]} >= {"NIFTY 50", "AAA", "AAA26OCTFUT"}
+    assert next(q for q in d["quotes"] if q["symbol"] == "AAA26OCTFUT")["oi"] == 5000.0
+    assert d["saved_at"] is not None
+
+
+def test_a_later_day_keeps_the_earlier_close_and_a_repeat_the_same_day_replaces_it():
+    db = FakeDB()
+    f = make_feed(db, clock=Clock(AFTER_CLOSE), kite=FakeKiteFut())
+    run(f.tick())
+    first = dict(_close_docs(f)["2026-10-20"])
+    run(f._publish(AFTER_CLOSE + timedelta(minutes=5), final=True))          # the same day again
+    assert list(_close_docs(f)) == ["2026-10-20"] and _close_docs(f)["2026-10-20"]["as_of"] != first["as_of"]
+    next_day = AFTER_CLOSE + timedelta(days=1)                                # Wednesday
+    f2 = make_feed(db, clock=Clock(next_day), kite=FakeKiteFut())
+    run(f2.tick())
+    assert sorted(_close_docs(f2)) == ["2026-10-20", "2026-10-21"]
+
+
+def test_an_intraday_publish_never_writes_a_close_document():
+    f = make_feed(clock=Clock(OPEN_NOW))
+    run(f.tick())
+    assert f.snapshot["final"] is False and _close_docs(f) == {}
+
+
+def test_a_failing_close_write_is_logged_not_raised_and_the_snapshot_still_serves(caplog):
+    f = make_feed(clock=Clock(AFTER_CLOSE))
+    real = f.db["kite_live_close"].replace_one
+
+    async def boom(*a, **k):
+        raise RuntimeError("mongo down")
+    f.db["kite_live_close"].replace_one = boom
+    with caplog.at_level(logging.WARNING):
+        run(f.tick())
+    assert f.snapshot["final"] is True and f.snapshot["count"] > 0
+    assert any("closing quotes write failed" in r.message for r in caplog.records)
+    assert "mongo down" not in caplog.text                                      # only the class name is logged
+    f.db["kite_live_close"].replace_one = real
+
+
+def test_read_close_returns_the_newest_saved_day_or_the_one_asked_for():
+    db = FakeDB()
+    for clock in (Clock(AFTER_CLOSE), Clock(AFTER_CLOSE + timedelta(days=1))):
+        f = make_feed(db, clock=clock)
+        run(f.tick())
+    assert run(f.read_close())["date"] == "2026-10-21"
+    assert run(f.read_close("2026-10-20"))["date"] == "2026-10-20"
+    assert run(f.read_close("2026-01-01")) is None
+    assert run(make_feed(FakeDB()).read_close()) is None
+
+
+def test_close_route_serves_the_saved_close_as_closed_final_and_404s_when_none(monkeypatch):
+    f = make_feed(clock=Clock(AFTER_CLOSE), kite=FakeKiteFut())
+    run(f.tick())
+    monkeypatch.setattr(live_quotes, "get_feed", lambda: f)
+
+    async def fake_user(request: Request):
+        return {"user_id": "u1"}
+    monkeypatch.setattr(live_quotes, "get_current_user", fake_user)
+    app = FastAPI()
+    app.include_router(live_quotes.router)
+    c = TestClient(app)
+    b = c.get("/api/live/close").json()
+    assert (b["mode"], b["final"], b["session"], b["stale"], b["date"]) == ("closed", True, "closed", False, "2026-10-20")
+    assert "AAA26OCTFUT" in b["quotes"] and b["quotes"]["AAA26OCTFUT"]["underlying"] == "AAA"
+    only = c.get("/api/live/close", params={"date": "2026-10-20", "symbols": "AAA, NIFTY 50"}).json()
+    assert set(only["quotes"]) == {"AAA", "NIFTY 50"}
+    assert c.get("/api/live/close", params={"date": "2026-01-01"}).status_code == 404
+    assert c.get("/api/live/close", params={"date": "not-a-date"}).status_code == 422
+
+
+def test_close_route_requires_sign_in(monkeypatch):
+    f = make_feed(clock=Clock(AFTER_CLOSE))
+    run(f.tick())
+    monkeypatch.setattr(live_quotes, "get_feed", lambda: f)
+    from fastapi import HTTPException
+
+    async def no_user(request: Request):
+        raise HTTPException(status_code=401, detail="unauthenticated")
+    monkeypatch.setattr(live_quotes, "get_current_user", no_user)
+    app = FastAPI()
+    app.include_router(live_quotes.router)
+    assert TestClient(app).get("/api/live/close").status_code == 401
+
+
+# ── the intraday series is kept from now on (point-in-time futures and index snapshots) ──────────────────────
+
+def _snaps(f):
+    return f.db["kite_live_intraday"].docs
+
+
+def test_an_open_session_saves_one_snapshot_per_bucket_with_only_futures_and_the_two_indices():
+    clock = Clock(OPEN_NOW)                                    # 14:32:05 IST
+    f = make_feed(clock=clock, kite=FakeKiteFut())
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30"]             # floored to the 5-minute bucket
+    d = _snaps(f)["2026-10-20T14:30"]
+    assert d["day"] == "2026-10-20" and d["count"] == len(d["rows"]) and d["saved_at"] is not None
+    syms = {r["s"] for r in d["rows"]}
+    assert "AAA26OCTFUT" in syms and "NIFTY 50" in syms and "NIFTY BANK" in syms
+    assert "AAA" not in syms                                    # cash stocks are not part of the series
+    fut = next(r for r in d["rows"] if r["s"] == "AAA26OCTFUT")
+    assert (fut["o"], fut["u"], fut["x"]) == (5000.0, "AAA", "2026-10-27") and fut["p"] == 100.0
+
+
+def test_a_second_pass_in_the_same_bucket_writes_nothing_and_the_next_bucket_writes_a_new_document():
+    clock = Clock(OPEN_NOW)
+    f = make_feed(clock=clock, kite=FakeKiteFut())
+    run(f.tick())
+    clock.now += timedelta(seconds=10)
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30"]
+    clock.now += timedelta(minutes=5)
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30", "2026-10-20T14:35"]
+
+
+def test_no_intraday_snapshot_outside_the_session():
+    f = make_feed(clock=Clock(AFTER_CLOSE), kite=FakeKiteFut())
+    run(f.tick())
+    assert _snaps(f) == {}
+
+
+def test_a_failed_snapshot_write_is_logged_without_the_error_text_retried_next_pass_and_never_stops_the_feed(caplog):
+    clock = Clock(OPEN_NOW)
+    f = make_feed(clock=clock, kite=FakeKiteFut())
+    real = f.db["kite_live_intraday"].replace_one
+
+    async def boom(*a, **k):
+        raise RuntimeError("mongo down")
+    f.db["kite_live_intraday"].replace_one = boom
+    with caplog.at_level(logging.WARNING):
+        run(f.tick())
+    assert f.snapshot is not None and f.snapshot["count"] > 0 and _snaps(f) == {}
+    assert any("intraday snapshot write failed" in r.message for r in caplog.records) and "mongo down" not in caplog.text
+    f.db["kite_live_intraday"].replace_one = real
+    clock.now += timedelta(seconds=10)
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30"]              # the same bucket is retried because the first write did not land
+
+
+def test_the_intraday_collection_has_a_ttl_index():
+    db = FakeDB()
+    run(feed_mod.ensure_indexes(db))
+    assert any(k.get("expireAfterSeconds") == feed_mod.INTRADAY_TTL_SECONDS for _, k in db["kite_live_intraday"].indexes)

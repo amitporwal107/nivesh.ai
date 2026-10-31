@@ -20,12 +20,15 @@ import { LoadingBlock } from "./components/ui";
 import { LiveChip } from "./components/LiveBits";
 import { KiteLoginNotice } from "./components/KiteLoginNotice";
 import { classifyAgent } from "./lib/answer";
+import { retiredViewRedirect } from "./lib/retired-views";
 import { CopilotShellProvider, type AskOptions, type CopilotShell } from "./lib/shell-context";
 import { useCopilotPrefs } from "./lib/store";
 import { useThreadEngine } from "./lib/use-thread-engine";
 import { useThreadTurns } from "./lib/use-thread-turns";
 import { APP_BASE, MODE_HOME, threadIdOf, threadView, viewOf, viewPath, type Mode } from "./lib/views";
 import { ADMIN_SCREENS, SCREENS } from "./screens";
+import { TRADER_TOOL_TO_DESK } from "./screens/tradingdesk/desk-nav";
+import { DailyQuestionBar } from "./components/DailyQuestionBar";
 import { Composer, type ComposerHandle } from "./shell/Composer";
 import { ClientBar } from "./shell/ClientBar";
 import { Evidence } from "./shell/Evidence";
@@ -136,12 +139,13 @@ export default function CopilotAppPage() {
 
   // Screens that dock their own Copilot panel from 1400px; the shell's ask box
   // would be a second input for the same thing, so it is hidden there. Below
-  // 1400px the trading desk shows its Copilot full height under More · AI
-  // Copilot (?tab=more), and the ask box is hidden on that view too. On a
-  // phone the desk has a bottom navigation bar and its ask box lives in More ·
-  // AI Copilot (desk PRD §3.1; the user's decision of 2026-10-14), so the
-  // shell's ask box is hidden on every desk view there: never two ask boxes.
-  const deskCopilotView = !wide && view === "trader/desk" && new URLSearchParams(location.search).get("tab") === "more";
+  // 1400px the trading desk shows its Copilot full height at ?tab=copilot (the
+  // old desk's ?tab=more redirects there), and the ask box is hidden on that
+  // view too. On a phone the desk has a bottom navigation bar whose Copilot
+  // holds its ask box (the user's decision of 2026-10-14), so the shell's ask
+  // box is hidden on every desk view there: never two ask boxes.
+  const deskTab = new URLSearchParams(location.search).get("tab");
+  const deskCopilotView = !wide && view === "trader/desk" && (deskTab === "copilot" || deskTab === "more");
   const deskPhoneView = mobile && view === "trader/desk";
   const ownAskBox = (wide && DOCKED_ASK_VIEWS.has(view)) || deskCopilotView || deskPhoneView;
 
@@ -164,6 +168,12 @@ export default function CopilotAppPage() {
   if (me.data && me.data.onboardingCompleted === false && view !== "onboarding") {
     return <Navigate to={viewPath("onboarding")} replace />;
   }
+  // Screens removed in the desk redesign's step 6 (the old Trader landing, Options lab, F&O lab) open their desk place.
+  const retired = retiredViewRedirect(view, location.search);
+  if (retired) return <Navigate to={viewPath(retired)} replace />;
+  // Trader mode: the Screener, Stock research and Sector rotation are views of the desk's Market Desk (2026-10-27).
+  const deskView = mode === "trader" ? TRADER_TOOL_TO_DESK[view] : undefined;
+  if (deskView) return <Navigate to={viewPath(deskView)} replace />;
   const AdminScreen = ADMIN_SCREENS[view] as (typeof ADMIN_SCREENS)[string] | undefined;
   const PlainScreen = SCREENS[view] as (typeof SCREENS)[string] | undefined;
   if (AdminScreen && me.data && !isAdmin) return <Navigate to={APP_BASE} replace />;
@@ -189,7 +199,8 @@ export default function CopilotAppPage() {
         )}
 
         <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0, position: "relative" }}>
-          {mode === "trader" && <KiteLoginNotice isAdmin={isAdmin} />}
+          {/* Every mode: prices on every screen depend on the day's Kite login (the user's requirement of 2026-10-26). */}
+          <KiteLoginNotice isAdmin={isAdmin} />
           {mode === "trader" && !compact && <LiveChip floating />}
           {compact && (
             <div data-testid="compact-bar" className="flex items-center" style={{ gap: 10, padding: "calc(12px + env(safe-area-inset-top)) 16px 10px", borderBottom: "1px solid var(--cp-line)" }}>
@@ -246,6 +257,14 @@ export default function CopilotAppPage() {
                 </span>
                 <button type="button" data-testid="ask-failed-retry" onClick={() => { const q = engine.local?.question; engine.clearLocal(); if (q) ask(q); }} style={{ fontSize: 13, color: "var(--cp-ink)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>Retry ›</button>
                 <button type="button" onClick={engine.clearLocal} style={{ fontSize: 13, color: "var(--cp-ink-3)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>Dismiss</button>
+              </div>
+            </div>
+          )}
+          {/* The Daily Trader questions stay with a Trader's conversation: Home's entry panel is gone once a question is asked. */}
+          {mode === "trader" && !!threadId && !ownAskBox && (
+            <div style={{ padding: `0 ${padX}px` }}>
+              <div className="mx-auto" style={{ maxWidth: 880 }}>
+                <DailyQuestionBar onAsk={ask} busy={engine.busy} mobile={mobile} />
               </div>
             </div>
           )}

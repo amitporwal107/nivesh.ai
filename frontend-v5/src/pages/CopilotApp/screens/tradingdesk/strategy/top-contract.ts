@@ -10,6 +10,7 @@
  * side rather than pretending one ranking covers both.
  */
 import { z } from "zod";
+import { TradePlanOrNull } from "./trade-plan";
 
 const Num = z.number().nullable().optional();
 
@@ -32,7 +33,7 @@ export const LegSchema = z.object({
   price_source: z.string().nullable().optional(),
 });
 
-export const OptionIdeaSchema = z.object({
+const OptionIdeaBase = z.object({
   rank: z.number().nullable().optional(),
   underlying: z.string(),
   /** The spot the legs were priced against; a payoff request and a paper trade both need it. */
@@ -66,6 +67,18 @@ export const OptionIdeaSchema = z.object({
   fit: z.object({ score: z.number(), because: z.array(FitFactorSchema).default([]) }),
   data_as_of: z.record(z.string(), z.string().nullable()).nullable().optional(),
   price_source: z.string().nullable().optional(),
+  /** Phase 2.1: the idea's canonical TradePlan; the paper trade cites it (plan_ref) and records its levels. */
+  trade_plan_id: z.string().nullable().optional(),
+  trade_plan: TradePlanOrNull,
+  /** N13: a bearish structure on a stock that is a bullish cash setup the same day; not tradeable today. */
+  conflicts_with_cash_setup: z.object({ message: z.string().nullable().optional(), cash_direction: z.string().nullable().optional() })
+    .passthrough().nullable().optional().catch(null),
+});
+
+/** With `distinct: true` each idea is the best structure of its underlying, and the next ones (best first, no rank of
+ *  their own) ride along under `alternatives`. Without it the list is empty. */
+export const OptionIdeaSchema = OptionIdeaBase.extend({
+  alternatives: z.array(OptionIdeaBase).default([]),
 });
 
 /** A cash idea comes from the ideas engine untouched, so only the fields the board needs are pinned. */
@@ -101,7 +114,14 @@ export const OptionClassSchema = z.object({
   considered: z.number().nullable().optional(),
   underlyings: z.array(UnderlyingContextSchema).default([]),
   unavailable: z.array(UnavailableSchema).default([]),
-  universe: z.object({ source: z.string().nullable().optional(), symbols_tried: z.array(z.string()).default([]) }).nullable().optional(),
+  /** One row per underlying (the request's `distinct`). */
+  distinct: z.boolean().nullable().optional(),
+  universe: z.object({
+    source: z.string().nullable().optional(),
+    symbols_tried: z.array(z.string()).default([]),
+    /** `distinct` only: scanner names passed over before any chain read, with the reason (not F&O-listed). */
+    skipped: z.array(UnavailableSchema).default([]),
+  }).nullable().optional(),
 });
 
 export const CashClassSchema = z.object({
@@ -136,6 +156,7 @@ export const TopSchema = z.object({
   rules_version: z.string(),
   generated_at: z.string().nullable().optional(),
   limit: z.number().nullable().optional(),
+  distinct: z.boolean().nullable().optional(),
   regime: RegimeSchema,
   staleness_note: z.string().nullable().optional(),
   classes: z.object({
@@ -151,6 +172,8 @@ export const TopSchema = z.object({
 
 export type TopBoard = z.infer<typeof TopSchema>;
 export type OptionIdea = z.infer<typeof OptionIdeaSchema>;
+/** An idea without its alternatives: what an alternative itself is. Every OptionIdea is one too. */
+export type OptionIdeaCore = z.infer<typeof OptionIdeaBase>;
 export type OptionClass = z.infer<typeof OptionClassSchema>;
 export type CashClass = z.infer<typeof CashClassSchema>;
 export type FitFactor = z.infer<typeof FitFactorSchema>;

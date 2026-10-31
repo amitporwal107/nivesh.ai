@@ -20,8 +20,9 @@
  *   Payoff mock (POST /api/desk/strategy/payoff): cash buy 100 shares at 250 -> P&L at 275 = (275 - 250) x 100 = 2,500.
  *
  * Cases: PK-1 settings list (order, icon, score and its label, chips, reasons, trust) · PK-2 strategies expand, payoff, open in Strategy Builder
- * PK-3 breakdown with source and as-of · PK-4 Wait / No trade and the shortfall · PK-5 honest states · PK-6 Overview top 3 and See all
- * PK-7 ideas board filter · PK-8 390px, no sideways scroll · PK-9 reads only, no order controls.
+ * PK-3 breakdown with source and as-of · PK-4 Wait / No trade and the shortfall · PK-5 honest states · PK-7 ideas board filter ·
+ * PK-8 390px, no sideways scroll · PK-9 reads only, no order controls. PK-6 (the old Overview's top 3) left with OverviewTab in the
+ * desk redesign's step 6.
  */
 import fs from "fs";
 import path from "path";
@@ -32,7 +33,6 @@ import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DESK = "/v5/app/trader/desk";
 const SETTINGS = `${DESK}?tab=more&view=chartink`;
-const IDEAS = `${DESK}?tab=more&view=strategy`;
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 const planFixture = (n: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", `strategy-plan-${n}.json`), "utf-8"));
 const SHOTS = process.env.SHOTS_DIR;
@@ -205,7 +205,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-1 settings: picks in score order, icon beside the name, the score with its 'not a probability' label, factor chips with tone and text, reasons, trust line", async ({ page }) => {
     const st = await open(page, SETTINGS);
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-title")).toHaveText("Best picks from my Chartink scans");
+    await expect(sec.getByTestId("ck-picks-title")).toHaveText("Top candidates from my Chartink scans");
     await expect(sec).toHaveAttribute("data-state", "ok");
     expect(st.picksUrls[0]).toContain("/api/desk/chartink/picks?limit=5");
     const cards = sec.getByTestId("ck-pick");
@@ -259,7 +259,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
 
   // ── PK-2 ─────────────────────────────────────────────────────────────
 
-  test("PK-2 strategies are expandable rows with the plan's figures and the payoff; Open in Strategy Builder carries the pick's plan inputs", async ({ page }) => {
+  test("PK-2 strategies are expandable rows with the plan's figures and the payoff; the open button takes the stock to Chart Analysis", async ({ page }) => {
     const st = await open(page, SETTINGS);
     const z = card(page, "ZEDCO");
     const rows = z.getByTestId("ck-pick-strategy");
@@ -292,28 +292,20 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     await expect(rows.nth(1).getByTestId("ck-pick-strategy-legs")).toContainText("Buy 1 lot ZEDCO 260 call + Sell 1 lot ZEDCO 280 call");
     await expect.poll(() => st.payoffs.length).toBe(2);
 
-    // Open in Strategy Builder: One stock mode, with the pick's inputs and the chosen strategy in the URL
+    // Strategy Lab was removed (owner, 29 Oct): the button opens Chart Analysis › Live chart on the stock (its paper basket and strategy cards).
+    await expect(d.getByTestId("ck-pick-open-builder")).toHaveText("Open on Chart Analysis ›");
     await d.getByTestId("ck-pick-open-builder").click();
-    await expect(page).toHaveURL(/tab=more/);
-    await expect(page).toHaveURL(/view=strategy/);
-    await expect(page).toHaveURL(/mode=stock/);
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/);
     await expect(page).toHaveURL(/sym=ZEDCO/);
-    await expect(page).toHaveURL(/src_kind=chartink_picks/);
-    await expect(page).toHaveURL(/src_date=2026-10-19/);               // the Strategy Builder reads cand once and then removes it from the URL
-    await expect.poll(() => st.plans.length).toBeGreaterThan(0);
-    expect(st.plans[0]).toMatchObject({ underlying: "ZEDCO", direction: "bullish" });
-    await expect(page.getByText("Started from your Chartink best picks").first()).toBeVisible();
   });
 
-  test("PK-2b a short-side pick opens the Strategy Builder with the bearish direction", async ({ page }) => {
-    const st = await open(page, SETTINGS);
+  test("PK-2b a short-side pick opens Chart Analysis on that stock", async ({ page }) => {
+    await open(page, SETTINGS);
     const m = card(page, "MOONCORP");
     await m.getByTestId("ck-pick-strategy-toggle").first().click();
     await m.getByTestId("ck-pick-open-builder").click();
+    await expect(page).toHaveURL(/view=chart&sub=live/);
     await expect(page).toHaveURL(/sym=MOONCORP/);
-    await expect(page).toHaveURL(/direction=bearish/);
-    await expect.poll(() => st.plans.length).toBeGreaterThan(0);
-    expect(st.plans[0]).toMatchObject({ underlying: "MOONCORP", direction: "bearish" });
   });
 
   // ── PK-3 ─────────────────────────────────────────────────────────────
@@ -337,7 +329,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-4 Wait / No trade lists the evaluated stocks that are not picks, with the reason; picks can be fewer than asked, and it says why", async ({ page }) => {
     await open(page, SETTINGS);
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-wait-toggle")).toHaveText("▸ Wait / No trade (2): evaluated, but not picks");
+    await expect(sec.getByTestId("ck-picks-wait-toggle")).toHaveText("▸ Wait / No trade (2): evaluated, but not candidates");
     await expect(sec.getByTestId("ck-picks-wait")).toBeHidden();
     await sec.getByTestId("ck-picks-wait-toggle").click();
     const rows = sec.getByTestId("ck-wait-row");
@@ -358,7 +350,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-5 honest states: error with Retry, then the picks; no picks says why; the Chartink states say what is wrong", async ({ page }) => {
     const st = await open(page, SETTINGS, { picks: [{ status: 500, body: { detail: "boom" } }, { status: 200, body: BODY() }] });
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-error")).toContainText("Your Chartink best picks didn’t load");
+    await expect(sec.getByTestId("ck-picks-error")).toContainText("Your Chartink candidates didn’t load");
     await expect(sec.getByTestId("ck-pick")).toHaveCount(0);
     await sec.getByRole("button", { name: /Retry/ }).click();
     await expect(sec.getByTestId("ck-pick")).toHaveCount(4);
@@ -368,7 +360,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-5b no qualifying picks says why; a contract drift is an error, not an empty list", async ({ page }) => {
     await open(page, SETTINGS, { picks: [{ status: 200, body: BODY({ picks: [], returned: 0, qualified: 0, empty_reason: "Only 0 of the 5 asked qualified. 2 evaluated stock(s) are Wait / No trade: PLANETX (Thin evidence); WIDGETCO (Both bullish and bearish scans listed it)." }) }] });
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-empty")).toContainText("No qualifying picks right now.");
+    await expect(sec.getByTestId("ck-picks-empty")).toContainText("No qualifying candidates right now.");
     await expect(sec.getByTestId("ck-picks-empty")).toContainText("Only 0 of the 5 asked qualified.");
     await expect(sec.getByTestId("ck-pick")).toHaveCount(0);
     await sec.getByTestId("ck-picks-wait-toggle").click();
@@ -380,7 +372,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     await expect(page2.getByTestId("ck-pick")).toHaveCount(0);
   });
 
-  for (const [state, word] of [["no_source", "No Chartink dashboard is connected."], ["not_refreshed", "have not been refreshed yet"], ["stale", "too old to pick from"], ["failed", "could not be read"]] as const) {
+  for (const [state, word] of [["no_source", "No Chartink dashboard is connected."], ["not_refreshed", "have not been refreshed yet"], ["stale", "too old to rank"], ["failed", "could not be read"]] as const) {
     test(`PK-5c state ${state}`, async ({ page }) => {
       await open(page, SETTINGS, { picks: [{ status: 200, body: BODY({ state, reason: `MOCK reason for ${state}`, picks: [], wait: [], data_as_of: { mode: "end_of_day", chartink: null, price: null, fno: null, scan_eligibility: null }, returned: 0, qualified: 0, evaluated: 0, considered: 0, excluded: [], shortfall_reason: null, empty_reason: `MOCK reason for ${state}` }) }] });
       const s = page.getByTestId("ck-picks-state");
@@ -398,76 +390,16 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     expect(st.picksCalls).toBe(0);
   });
 
-  // ── PK-6 ─────────────────────────────────────────────────────────────
-
-  test("PK-6 Overview: the top 3 picks with score, label and chips, 'See all' opens the Chartink settings; the 4th is counted, not shown", async ({ page }) => {
-    await open(page, DESK);
-    const sec = page.getByTestId("desk-ck-picks");
-    await expect(sec.getByTestId("desk-ck-picks-title")).toHaveText("Best picks from my Chartink scans");
-    const cards = sec.getByTestId("ck-pick");
-    await expect(cards).toHaveCount(3);
-    await expect(cards.locator('[data-testid="ck-pick-symbol"]')).toHaveText(["ZEDCO", "MOONCORP", "TESTBRK"]);
-    await expect(cards.first().locator('[data-testid="entity-icon"]').first()).toBeVisible();
-    await expect(cards.first().getByTestId("ck-pick-score")).toHaveText("86.7/100");
-    await expect(cards.first().getByTestId("ck-pick-score-label")).toHaveText("evidence score — not a probability");
-    await expect(cards.first().getByTestId("ck-pick-factor")).toHaveCount(10);
-    await expect(cards.first().getByTestId("ck-pick-trust")).toContainText("Chartink scans (your dashboard)");
-    await expect(sec.getByTestId("desk-ck-picks-more")).toHaveText("1 more in Chartink scans · Best picks.");
-    await expect(sec.getByTestId("desk-ck-picks-wait-count")).toContainText("2 evaluated stocks are Wait / No trade");
-    await sec.getByTestId("desk-ck-picks-all").click();
-    await expect(page).toHaveURL(/view=chartink/);
-    await expect(page.getByTestId("ck-picks").getByTestId("ck-pick")).toHaveCount(4);
-  });
-
-  test("PK-6b Overview with a failing picks route: an error with Retry, and the rest of the card is unaffected", async ({ page }) => {
-    const st = await open(page, DESK, { picks: [{ status: 500, body: { detail: "boom" } }, { status: 200, body: BODY() }] });
-    const sec = page.getByTestId("desk-ck-picks");
-    await expect(sec.getByTestId("desk-ck-picks-error")).toContainText("Your Chartink best picks didn’t load");
-    await expect(page.getByTestId("desk-opps-card")).toBeVisible();
-    await sec.getByRole("button", { name: /Retry/ }).click();
-    await expect(sec.getByTestId("ck-pick")).toHaveCount(3);
-    expect(st.picksCalls).toBe(2);
-  });
-
-  // ── PK-7 ─────────────────────────────────────────────────────────────
-
-  test("PK-7 Strategy Builder ideas board: a source filter 'Chartink best picks' shows the picks in place of the ideas, and 'All ideas' brings them back", async ({ page }) => {
-    const st = await open(page, IDEAS);
-    const filter = page.getByTestId("ideas-source-filter");
-    await expect(filter.getByTestId("ideas-source-all")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-ck-picks")).toHaveCount(0);
-    await filter.getByTestId("ideas-source-ck_picks").click();
-    await expect(filter.getByTestId("ideas-source-ck_picks")).toHaveAttribute("aria-pressed", "true");
-    const sec = page.getByTestId("ideas-ck-picks");
-    await expect(sec.getByTestId("ck-pick")).toHaveCount(4);
-    await expect(page.getByTestId("ideas-view")).toHaveCount(0);
-    // back to every idea: the ideas view returns and the picks go
-    await filter.getByTestId("ideas-source-all").click();
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-ck-picks")).toHaveCount(0);
-    // from the picks, a strategy opens in One stock mode with the pick's plan inputs
-    await filter.getByTestId("ideas-source-ck_picks").click();
-    await sec.getByTestId("ck-pick-strategy-toggle").first().click();
-    await sec.getByTestId("ck-pick-open-builder").first().click();
-    await expect(page).toHaveURL(/mode=stock/);
-    await expect(page).toHaveURL(/sym=ZEDCO/);
-    await expect.poll(() => st.plans.length).toBeGreaterThan(0);
-  });
-
-  test("PK-7b the filter is absent without a connected dashboard", async ({ page }) => {
-    await open(page, IDEAS, { source: null });
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-source-filter")).toHaveCount(0);
-  });
+  // PK-7 / PK-7b (the Strategy Builder ideas board's Chartink filter) went with Strategy Lab (owner, 29 Oct).
 
   // ── PK-8 ─────────────────────────────────────────────────────────────
 
-  for (const [name, url] of [["settings", SETTINGS], ["overview", DESK], ["ideas", IDEAS]] as const) {
+  // The old Overview's top-3 picks (and its 390px case) left with OverviewTab in the desk redesign's step 6.
+  // The ideas board's case went with Strategy Lab (owner, 29 Oct).
+  for (const [name, url] of [["settings", SETTINGS]] as const) {
     test(`PK-8 390px ${name}: the picks do not scroll the page sideways`, async ({ page }) => {
       await open(page, url, {}, 390);
-      if (name === "ideas") await page.getByTestId("ideas-source-ck_picks").click();
-      const sel = name === "settings" ? "ck-picks" : name === "overview" ? "desk-top-ck-picks" : "ideas-ck-picks";
+      const sel = "ck-picks";
       const sec = page.getByTestId(sel);
       await expect(sec.getByTestId("ck-pick").first()).toBeVisible();
       await sec.getByTestId("ck-pick-strategy-toggle").first().click();

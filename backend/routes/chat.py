@@ -13,6 +13,10 @@ import logging
 from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
+from services import copilot_trade_idea as _trade_idea
+from services import chat_errors
+from services import copilot_visual as _visual
+from services.llm_safety import wrap_external_data
 from services.action_plan_manager import ActionPlanManager
 from routes.copilot import _advisor_book_block, _is_advisor_caller, _is_research_tool_intent
 from services.copilot_charts import (
@@ -969,21 +973,42 @@ async def _stock_universe() -> List[Dict[str, Any]]:
 
 
 @router.get("/chat/instrument-search")
-async def chat_instrument_search(q: str = "", limit: int = 6):
-    """Typeahead for the chat composer — matching stocks (curated equity universe)
-    and mutual funds (live NIDP scheme master). Read-only; degrades to empty lists
-    if DaaS is unavailable. Fund rows are deduped to one per fund family (plan
-    variants collapsed, Growth/Regular preferred)."""
+async def chat_instrument_search(q: str = "", limit: int = 6, tail: bool = False):
+    """Typeahead for the chat composer — matching stocks and F&O indices (the
+    data platform's symbol master, ranked: services/stock_search.py) and mutual
+    funds (live NIDP scheme master). Read-only; degrades to the old universe /
+    curated lists if the symbol master is unavailable. Fund rows are deduped to
+    one per fund family (plan variants collapsed, Growth/Regular preferred).
+
+    `tail=1`: `q` is the text BEFORE the cursor; the answer completes the stock
+    being typed at its end — {stocks, funds: [], fragment, fragment_start} — so
+    the composer replaces exactly that fragment with the ticker."""
+    limit = max(1, min(int(limit or 6), 10))
+    if tail:
+        from services import stock_search
+        try:
+            done = await stock_search.tail_search(q or "", limit)
+        except Exception as exc:  # noqa: BLE001 — a completion is optional; the box keeps working without it
+            logger.debug("chat_instrument_search tail(%r): %s", (q or "")[-40:], exc)
+            done = {"stocks": [], "fragment": None, "fragment_start": None}
+        return {**done, "funds": []}
     term = (q or "").strip()
     if len(term) < 2:
         return {"stocks": [], "funds": []}
     ql = term.lower()
-    limit = max(1, min(int(limit or 6), 10))
 
-    # Stocks — substring match on the full V3 equity universe (cached), ranked by
-    # quality. Falls back to the curated list if NIDP is unavailable.
+    # Stocks — the symbol master, ranked (exact ticker, prefix, name words, short
+    # forms, F&O indices). If it cannot be read: substring match on the V3 equity
+    # universe (cached, symbols only), then the curated list.
     stocks: List[Dict[str, Any]] = []
-    universe = await _stock_universe()
+    try:
+        from services import stock_search
+        ranked = await stock_search.search_stocks(term, limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("chat_instrument_search ranked(%r): %s", term[:40], exc)
+        ranked = None
+    universe = [] if ranked is not None else await _stock_universe()
+    stocks = list(ranked or [])
     for r in universe:
         sym = (r.get("symbol") or "").strip()
         if not sym:
@@ -993,7 +1018,7 @@ async def chat_instrument_search(q: str = "", limit: int = 6):
             stocks.append({"symbol": sym, "name": name or sym, "sector": r.get("sector") or r.get("industry")})
         if len(stocks) >= limit:
             break
-    if not stocks:
+    if not stocks and ranked is None:
         from instruments_data import INDIAN_INSTRUMENTS
         for inst in INDIAN_INSTRUMENTS:
             if inst.get("type") != "equity":
@@ -1528,12 +1553,39 @@ async def stream_chat(request: Request):
     # broker) with the question, so its answer is about that contract. The
     # thread keeps the question as the user asked it.
     position_context = await _position_context(user_id, position_widget)
+    # ── Visual answer pre-step (Daily Trader Copilot; services/copilot_visual, contract in ──────────────────────────
+    # docs/daily_trader_copilot/VISUAL_ANSWER_CONTRACT.md). A question the visual engine knows (market view, smart money,
+    # top ideas, breakouts, unusual volume, a stock's decision, the expected move) gets a dashboard built from the
+    # platform's own data: it is this answer's card, its figures go to the engine as a data block, and the engine is
+    # pinned to the node that explains it. A stock decision carries the desk plan, built once, as its trade_plan block.
+    # Any other question (or a dashboard that could not be built) takes the path below unchanged.
+    visual = None
+    if route_investor and not position_widget and not pinned_agent:
+        visual = await _visual.prepare(request, user, message, body.get("persona"), body.get("surface"), session_id, db)
+    # ── end of the visual answer pre-step ────────────────────────────────────────────────────────────────────────────
+    # A trading question about a stock (the Trader persona, the trading desk's
+    # Copilot panel, or trading words; services/copilot_trade_idea.py) brings
+    # the desk's own plan for that stock, built as POST /api/desk/strategy/plan
+    # builds it: its card when there is a setup (or one waiting for its
+    # confirmation), and its facts for the answer either way. A position
+    # question keeps its own card.
+    trade_idea = visual.trade_idea if visual is not None else None
+    if visual is None and route_investor and not position_widget and _trade_idea.is_trade_question(message, body.get("persona"), desk_persona):
+        trade_symbol = _trade_idea.symbol_for(message)
+        if trade_symbol:
+            trade_idea = await _trade_idea.build(request, user_id, trade_symbol, message)
+    trade_widget = trade_idea.widget if trade_idea else None
+    # The card the route attaches itself, sent before the answer; the engine's
+    # own card is then neither sent nor saved.
+    route_widget = position_widget or (visual.widget if visual is not None else None) or trade_widget
     # Such a question goes to the stock analyst — it has the underlying's
     # chart levels — whatever words the facts add: left to the router, a
     # message about a holding and its P&L is sent to the portfolio analyst,
     # which has no price levels. A client's own pin is kept.
     engine_pin = pinned_agent
-    if engine_pin is None and position_widget and _AgentName is not None:
+    if engine_pin is None and visual is not None and _AgentName is not None:
+        engine_pin = _AgentName(visual.agent)
+    if engine_pin is None and (position_widget or trade_idea) and _AgentName is not None:
         engine_pin = _AgentName("stock_analyst")
 
     # Resolve or create session
@@ -1649,8 +1701,19 @@ async def stream_chat(request: Request):
                             lg_messages.append(_HumanMessage(content=m["content"]))
                         elif m["role"] == "assistant":
                             lg_messages.append(_AIMessage(content=m["content"]))
+                    # The position facts are read from the broker, so they are
+                    # delimited as data (the engine's system prompt says so).
+                    # The trade plan's facts are the desk's own plan, delimited
+                    # as data the same way.
+                    data_blocks = []
+                    if position_context:
+                        data_blocks.append(wrap_external_data(position_context, source='broker_position'))
+                    if visual is not None and visual.facts:
+                        data_blocks.append(wrap_external_data(visual.facts, source='visual_answer'))
+                    if trade_idea:
+                        data_blocks.append(wrap_external_data(trade_idea.context, source='trade_plan'))
                     lg_messages.append(_HumanMessage(
-                        content=f"{message}\n\n{position_context}" if position_context else message,
+                        content=message + "".join(f"\n\n{b}" for b in data_blocks),
                     ))
 
                     persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
@@ -1675,13 +1738,14 @@ async def stream_chat(request: Request):
                     streamed_any = False  # True once real LLM tokens are emitted
                     widget_streamed = False  # True once a widget frame is emitted (early or final)
                     widget_envelope: Optional[Dict] = None
-                    if position_widget:
-                        # The contract's own chart is this answer's card. It
-                        # goes out first, and the engine's card — for the
-                        # underlying share — is neither sent nor saved.
-                        widget_envelope = position_widget
+                    if route_widget:
+                        # The contract's own chart (or the stock's trade plan)
+                        # is this answer's card. It goes out first, and the
+                        # engine's card — for the underlying share — is neither
+                        # sent nor saved.
+                        widget_envelope = route_widget
                         widget_streamed = True
-                        yield f"data: {json.dumps({'type': 'widget', **position_widget})}\n\n"
+                        yield f"data: {json.dumps({'type': 'widget', **route_widget})}\n\n"
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
                         if kind == "on_custom_event" and event.get("name") == "copilot_widget":
@@ -1729,8 +1793,12 @@ async def stream_chat(request: Request):
                             output = event.get("data", {}).get("output", {})
                             final_resp = output.get("response")
                             if final_resp:
-                                if not prose:
-                                    prose = getattr(final_resp, "text", "") or str(final_resp)
+                                # The compliance node's text (advice scrub, grounding
+                                # caveat, 400-word cap) is the answer: it replaces the
+                                # streamed draft in the done frame and is what is saved.
+                                final_text = getattr(final_resp, "text", "") or ""
+                                if final_text.strip() or not prose:
+                                    prose = final_text or str(final_resp)
                                 wt = getattr(final_resp, "widget_type", None)
                                 wd = getattr(final_resp, "widget_data", None)
                                 wt_s = wt.value if hasattr(wt, "value") else (str(wt) if wt else None)
@@ -1741,7 +1809,7 @@ async def stream_chat(request: Request):
                                     # — kept here for the DB save (and as a fallback
                                     # if the early custom event didn't fire).
                                     env = _widget_envelope(wt_s, wd, agent_id)
-                                    if env and not position_widget:
+                                    if env and not route_widget:
                                         widget_envelope = env
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:
@@ -1817,7 +1885,7 @@ async def stream_chat(request: Request):
 
         except Exception as e:
             logger.error(f"Stream error: {e}")
-            error_msg = "I'm having trouble connecting right now. Please try again."
+            error_msg = chat_errors.friendly_error(e)      # the usage limit says so, with its reset time; anything else is the generic text
             # Save error response
             ai_msg_doc = {
                 "message_id": ai_msg_id,

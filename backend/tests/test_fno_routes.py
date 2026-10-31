@@ -26,6 +26,7 @@ The worked example every summary test uses (one expiry, spot 108):
                          puts:  none in the money                         0      total 400
                smallest is 150, at K = 110                                       → 110
     heaviest   call OI 50 at 120, put OI 40 at 100
+    walls      put wall = heaviest put OI at or below 108 → 100 (40); call wall = heaviest call OI at or above 108 → 120 (50)
     futures    settle 108.75 − spot 108 = +0.75 (premium); settle 107.50 − 108 = −0.50 (discount)
 
 The model example (MODEL_CHAIN below; the pricing itself is tested by hand in tests/test_option_pricing.py).
@@ -64,6 +65,7 @@ from fastapi.testclient import TestClient
 
 from routes import fno as route
 from services import option_pricing
+from tests import market_day
 
 SPOT = 108.0
 DAY = "2026-10-12"
@@ -122,6 +124,7 @@ def _client(monkeypatch, replies: Union[Reply, Callable[[str, Optional[dict]], R
 
     monkeypatch.setattr(route.daas_client, "get_raw", get_raw)
     monkeypatch.setattr(route.daas_client, "is_configured", lambda: configured)
+    market_day.pin(monkeypatch, DAY, "2026-10-09")   # the fixtures' day; the previous session is Friday 2026-10-09
     if signed_in:
         async def fake_user(request: Request):
             return {"user_id": "u1", "email": "u1@example.com"}
@@ -226,7 +229,8 @@ def test_shaping_sorts_strikes_keeps_a_missing_side_as_null_and_drops_rows_it_ca
     assert [r["strike"] for r in rows] == [120, 712.5]
     assert rows[0]["put"] is None and rows[0]["call"]["oi"] == 50
     assert rows[1]["call"] is None
-    assert rows[1]["put"] == {"close": 4.0, "settle": 4.05, "oi": None, "change_in_oi": None, "volume": None}
+    # no volume sent: the contract is not known to have traded, so its close (possibly carried forward) is not sent
+    assert rows[1]["put"] == {"close": None, "settle": 4.05, "oi": None, "change_in_oi": None, "volume": None}
     assert route.shape_strikes(None) == [] and route.shape_strikes({}) == []
 
 
@@ -273,6 +277,7 @@ def test_chain_returns_the_summary_and_the_strike_rows(monkeypatch):
         "total_call_oi": 80, "total_put_oi": 75, "total_call_oi_change": 4, "total_put_oi_change": 6,
         "pcr": 0.9375, "max_pain": 110,
         "max_call_oi": {"strike": 120, "oi": 50}, "max_put_oi": {"strike": 100, "oi": 40},
+        "put_wall": {"strike": 100, "oi": 40}, "call_wall": {"strike": 120, "oi": 50},       # spot 108: put OI at or below it, call OI at or above it
     }
     # every field the route sent before the model estimates were added is still there, unchanged
     assert _only(body["summary"], expected_summary) == expected_summary
@@ -464,9 +469,14 @@ def test_unauthenticated_requests_are_401_and_reach_nothing(monkeypatch, path):
 
 def test_the_router_is_read_only():
     methods = {m for r in route.router.routes for m in r.methods}
-    assert methods == {"GET"}
+    assert methods == {"GET", "POST"}
+    # the one POST is the margin CALCULATION (Zerodha's calculator through the platform session): it places nothing
+    assert [r.path for r in route.router.routes if "POST" in r.methods] == ["/api/fno/margin"]
     assert sorted(r.path for r in route.router.routes) == [
-        "/api/fno/scan/buildup", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
+        "/api/fno/forward-test", "/api/fno/margin", "/api/fno/scan/buildup", "/api/fno/scan/candidates", "/api/fno/{symbol}/chain",
+        "/api/fno/{symbol}/chain/consolidated", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures",
+        "/api/fno/{symbol}/futures/oi-buildup",
+        "/api/fno/{symbol}/iv-history", "/api/fno/{symbol}/options/intraday", "/api/fno/{symbol}/positioning-history"]
 
 
 # ── GET /expiries ────────────────────────────────────────────────────────────
@@ -541,8 +551,8 @@ def test_futures_route_returns_each_contract_with_its_basis_nearest_first(monkey
         {"expiry": "2026-10-27", "close": 108.7, "settle": 108.75, "oi": 5000, "change_in_oi": 120, "volume": 2500, "basis": 0.75, **NO_DAY},
         # 107.50 − 108 = −0.50
         {"expiry": "2026-11-24", "close": 107.6, "settle": 107.5, "oi": 900, "change_in_oi": -30, "volume": 400, "basis": -0.5, **NO_DAY},
-        # no settle price → no basis, never close − spot in its place
-        {"expiry": "2026-12-29", "close": 109.0, "settle": None, "oi": 10, "change_in_oi": 0, "volume": 0, "basis": None, **NO_DAY},
+        # no settle price → no basis, never close − spot in its place; no trade that day → no close (it is carried forward)
+        {"expiry": "2026-12-29", "close": None, "settle": None, "oi": 10, "change_in_oi": 0, "volume": 0, "basis": None, **NO_DAY},
     ]}
     # every futures kind is asked for, in both of the exchange's naming vintages: the route cannot know index
     # from stock, or which vintage the day's rows use, without a read
@@ -1049,3 +1059,141 @@ def test_chain_greeks_match_an_independent_black_76(monkeypatch):
             assert side["theta"] == pytest.approx(fd_theta, abs=2e-4)
             checked += 1
     assert checked >= 4
+
+
+# ── put wall and call wall: OTM-only heaviest strikes (test_reports/fix_oi_range_otm_walls_TESTCASES.md) ──────────
+
+def _strikes(rows):
+    return [{"strike": k, "call": {"oi": c, "change_in_oi": 0}, "put": {"oi": p, "change_in_oi": 0}} for k, c, p in rows]
+
+
+def test_walls_are_the_heaviest_put_at_or_below_spot_and_the_heaviest_call_at_or_above():
+    s = route.summarise_chain(_strikes([(90, 5, 100), (100, 50, 60), (110, 80, 10), (120, 300, 5)]), 100.0, "2026-10-23", "2026-10-27")
+    assert s["put_wall"]["strike"] == 90 and s["put_wall"]["oi"] == 100          # 90 holds the most put OI at or below 100
+    assert s["call_wall"] == {"strike": 120, "oi": 300}
+    assert s["max_put_oi"]["strike"] == 90 and s["max_call_oi"]["strike"] == 120
+
+
+def test_a_deep_in_the_money_put_peak_is_not_the_wall():
+    # GODFRYPHLP, 23 Oct 2026 (shape): spot 1669, put OI peaks at the in-the-money 1900, call OI at 2100.
+    rows = [(1600, 10, 31350), (1650, 15, 12000), (1700, 20, 32725), (1800, 45100, 31075), (1900, 66275, 36575), (2000, 67100, 500), (2100, 76450, 100)]
+    s = route.summarise_chain(_strikes(rows), 1669.12, "2026-10-23", "2026-10-27")
+    assert s["max_put_oi"]["strike"] == 1900                                       # the raw heaviest, unchanged
+    assert s["put_wall"] == {"strike": 1600, "oi": 31350}                           # the heaviest at or below the price
+    assert s["call_wall"] == {"strike": 2100, "oi": 76450}
+
+
+def test_a_side_with_no_strike_has_no_wall_and_no_spot_means_no_walls():
+    s = route.summarise_chain(_strikes([(100, 5, 5), (110, 6, 6)]), 120.0, "2026-10-23", "2026-10-27")
+    assert s["call_wall"] is None and s["put_wall"]["strike"] in (100, 110)
+    s = route.summarise_chain(_strikes([(100, 5, 5)]), None, "2026-10-23", "2026-10-27")
+    assert s["put_wall"] is None and s["call_wall"] is None and s["max_call_oi"] is not None
+
+
+# ── GET /forward-test (test_reports/fno_forward_test_TESTCASES.md TC-6) ────────────────────────────────────────
+
+class _FwdCursor:
+    def __init__(self, docs): self.docs = docs
+    def sort(self, *_a, **_k): return self
+    def __aiter__(self):
+        async def gen():
+            for d in self.docs:
+                yield dict(d)
+        return gen()
+
+
+class _FwdDb:
+    def __init__(self, docs, fail=False): self.docs, self.fail = docs, fail
+    def __getitem__(self, name):
+        db = self
+        class C:
+            def find(self, *_a, **_k):
+                if db.fail:
+                    raise RuntimeError("mongo down")
+                return _FwdCursor(db.docs)
+        return C()
+
+
+def test_forward_test_with_nothing_recorded_reads_no_prices(monkeypatch):
+    import deps
+    monkeypatch.setattr(deps, "db", _FwdDb([]))
+    c, calls = _client(monkeypatch, (404, {}))
+    body = c.get("/api/fno/forward-test").json()
+    assert body["started"] is False and body["recorded_sessions"] == 0 and body["settings"] == {} and "underperforms" in body["hypothesis"]
+    assert body["settings_recorded"] == ["production_floors", "no_threshold"] and "Inconclusive" in body["past_result"] and calls == []
+
+
+def test_forward_test_with_records_returns_counts_and_no_result_before_30_sessions(monkeypatch):
+    import deps
+    days = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"]
+    syms = [f"S{k}" for k in range(12)]
+    docs = [{"as_of": days[0], "universe_symbols": syms, "settings": {"production_floors": [{"symbol": "S1", "p": -1, "o": 4}], "no_threshold": []}}]
+
+    async def bulk(symbols, start=None, end=None, timeout=30.0):
+        return {s: [{"as_of_date": d, "adj_open": 100.0, "adj_close": 100.0 + i * (0.5 if s == "S1" else -0.1)} for i, d in enumerate(days)] for s in symbols}
+
+    monkeypatch.setattr(deps, "db", _FwdDb(docs))
+    monkeypatch.setattr(route.daas_client, "get_adjusted_prices_bulk", bulk)
+    route._FORWARD_CACHE.update({"ts": 0.0, "key": None, "bars": None})
+    c, _ = _client(monkeypatch, (404, {}))
+    body = c.get("/api/fno/forward-test").json()
+    pf = body["settings"]["production_floors"]
+    assert body["started"] is True and body["recorded_sessions"] == 1 and body["last_recorded"] == days[0] and body["prices_available"] is True
+    assert pf["recorded_sessions"] == 1 and pf["signals_recorded"] == 1 and pf["judged_sessions"] == 1 and pf["mean_pct"] is None and pf["sessions_needed"] == 29
+
+
+def test_forward_test_read_failure_is_502(monkeypatch):
+    import deps
+    monkeypatch.setattr(deps, "db", _FwdDb([], fail=True))
+    c, _ = _client(monkeypatch, (404, {}))
+    assert c.get("/api/fno/forward-test").status_code == 502
+
+
+# ── positioning history (test_reports/fno_lab_index_history_TESTCASES.md) ─────────────────────────────────────
+
+def _scan(day, label="short_build_up".replace("_build_up", "_buildup"), price=-0.5, oi=1.0, symbol="NIFTY", key="indices", asof=None):
+    return (200, {"as_of": asof or day, key: [{"symbol": symbol, "label": label, "price_chg_pct": price, "oi_chg_pct": oi, "cash_confirmation": "confirms"}], "rows": []})
+
+
+def _history_client(monkeypatch, answer):
+    monkeypatch.setattr(route, "_today", lambda: route.date(2026, 10, 23))
+    return _client(monkeypatch, lambda path, params: answer(params["date"]) if path == "/desk/fno-buildup" else (404, {}))
+
+
+def test_history_returns_the_newest_sessions_oldest_first_and_skips_days_the_scan_does_not_answer_for(monkeypatch):
+    good = {"2026-10-23": "long_buildup", "2026-10-22": "short_buildup", "2026-10-21": "short_buildup", "2026-10-19": "short_covering", "2026-10-16": "long_unwinding", "2026-10-15": "long_buildup"}
+
+    def answer(d):
+        if d in good:
+            return _scan(d, label=good[d])
+        if d == "2026-10-20":
+            return _scan(d, asof="2026-10-19")           # a holiday: the platform answered with another day
+        return (404, {"detail": "no data"})
+
+    c, _ = _history_client(monkeypatch, answer)
+    body = c.get("/api/fno/NIFTY/positioning-history?sessions=5").json()
+    assert [r["date"] for r in body["sessions"]] == ["2026-10-16", "2026-10-19", "2026-10-21", "2026-10-22", "2026-10-23"]
+    assert [r["label"] for r in body["sessions"]] == ["long_unwinding", "short_covering", "short_buildup", "short_buildup", "long_buildup"]
+    assert body["sessions"][0]["cash_confirmation"] == "confirms" and body["read_only"] is True
+    assert body["missing"] == 16 - 6 and body["requested"] == 5
+
+
+def test_history_finds_a_stock_in_the_stock_rows_and_leaves_an_absent_symbol_without_a_state(monkeypatch):
+    def answer(d):
+        if d == "2026-10-23":
+            return (200, {"as_of": d, "indices": [], "rows": [{"symbol": "TCS", "label": "short_buildup", "price_chg_pct": -1.2, "oi_chg_pct": 4.0}]})
+        if d == "2026-10-22":
+            return (200, {"as_of": d, "indices": [], "rows": []})
+        return (404, {"detail": "no data"})
+
+    c, _ = _history_client(monkeypatch, answer)
+    rows = c.get("/api/fno/TCS/positioning-history?sessions=2").json()["sessions"]
+    assert rows[1] == {"date": "2026-10-23", "label": "short_buildup", "price_chg_pct": -1.2, "oi_chg_pct": 4.0, "cash_confirmation": None}
+    assert rows[0] == {"date": "2026-10-22", "label": None, "price_chg_pct": None, "oi_chg_pct": None, "cash_confirmation": None}
+
+
+def test_history_with_every_day_failing_is_502_and_a_bad_session_count_is_422(monkeypatch):
+    c, _ = _history_client(monkeypatch, lambda d: (502, {}))
+    assert c.get("/api/fno/NIFTY/positioning-history").status_code == 502
+    assert c.get("/api/fno/NIFTY/positioning-history?sessions=1").status_code == 422
+    assert c.get("/api/fno/NIFTY/positioning-history?sessions=11").status_code == 422

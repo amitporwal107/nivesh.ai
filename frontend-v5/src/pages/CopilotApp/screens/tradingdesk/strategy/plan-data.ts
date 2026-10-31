@@ -16,7 +16,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ZodError } from "zod";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
-import type { NewPaperTrade, NewStrategyLeg, NewStrategyPaperTrade, StrategyDirection } from "../desk-trading";
+import { maxHoldFor, type NewPaperTrade, type NewStrategyLeg, type NewStrategyPaperTrade, type StrategyDirection } from "../desk-trading";
+import { planBlocker, planRefOf } from "./trade-plan";
 import {
   DeleteAnswerSchema, PlanSchema, SavedListSchema, SavedPlanSchema,
   type Candidate, type FieldProblem, type SavedList, type StrategyPlan,
@@ -145,7 +146,7 @@ export function planFailure(e: unknown, what: string): string {
   if (e instanceof ZodError) return `${what}: the answer was not in the expected form.`;
   if (e instanceof ApiError) {
     if (e.kind === "auth") return `${what}: you are signed out. Sign in again.`;
-    if (e.kind === "forbidden") return `${what}: this account is not allowed to use the Strategy Builder.`;
+    if (e.kind === "forbidden") return `${what}: this account is not allowed to build strategy plans.`;
     if (e.kind === "network") return `${what}: the network request failed.`;
     if (e.kind === "timeout") return `${what}: the request took too long.`;
     if (e.kind === "contract_drift") return `${what}: the answer was not in the expected form, so nothing is shown.`;
@@ -181,6 +182,10 @@ const levelOf = (c: Candidate, name: string): number | null => c.targets.find((t
 
 /** Why this candidate cannot be paper-traded, or null when it can. The route enforces the same rules again. */
 export function paperBlocker(plan: StrategyPlan, c: Candidate): string | null {
+  if (c.trade_plan) {
+    const blocked = planBlocker(c.trade_plan);
+    if (blocked) return blocked;
+  }
   if (c.status !== "candidate") {
     const why = c.reasons[0]?.message;
     return `This candidate is "${c.status.replace("_", " ")}", not a plan${why ? `: ${why}` : "."}`;
@@ -204,6 +209,10 @@ export function paperBlocker(plan: StrategyPlan, c: Candidate): string | null {
     return null;
   }
   const dir = paperDirection(plan);
+  if (c.segment === "futures" && c.legs.some((l) => l.kind === "future" && l.side === "sell")) {
+    // The route refuses it too (short_futures_not_supported, owner decision D2): said here before any request.
+    return "Short futures are not recorded as paper trades yet: they need the shared risk service (margin and gap stress) first.";
+  }
   const ref = plan.underlying.spot;
   if (ref == null) return "The plan has no reference price (the last close).";
   const stop = dir === "neutral" ? null : c.invalidation?.technical?.price ?? null;
@@ -262,16 +271,19 @@ export function strategyPaperBody(plan: StrategyPlan, c: Candidate, savedId: str
       evidence_summary: evidenceSummary(plan, c),
     },
     ...(plan.inputs.horizon_days ? { max_hold_sessions: plan.inputs.horizon_days } : {}),
+    ...(c.trade_plan ? { plan_ref: planRefOf(c.trade_plan) } : {}),
   };
 }
 
-/** The body of a share paper trade for a cash candidate (the existing share paper-trade API). */
-export function cashPaperBody(plan: StrategyPlan, c: Candidate): NewPaperTrade {
+/** The body of a share paper trade for a cash candidate (the existing share paper-trade API). `quantity`: the risk
+ *  service's size for the account (the decision card's), when it is known; else the candidate's own sizing. */
+export function cashPaperBody(plan: StrategyPlan, c: Candidate, quantity?: number | null): NewPaperTrade {
   const leg = c.legs[0];
+  const maxHold = maxHoldFor(plan.inputs.horizon_days);
   const target = levelOf(c, "base");
   return {
     symbol: plan.underlying.symbol,
-    quantity: leg.quantity,
+    quantity: quantity ?? leg.quantity,
     entry_price: leg.entry_price,
     stop_price: c.invalidation?.technical?.price as number,
     target_price: target != null && target > leg.entry_price ? target : null,
@@ -279,6 +291,11 @@ export function cashPaperBody(plan: StrategyPlan, c: Candidate): NewPaperTrade {
     signal_at: plan.generated_at,
     strategy_version: plan.rules_version,
     rationale: `${c.label}; plan ${plan.plan_id}`.slice(0, 500),
+    // The plan's horizon is the time exit (the strategy trade body already sends it): closed at the close of that session held.
+    ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
+    // Phase 2.1: the trade cites the candidate's TradePlan; its entry rule is the plan's order type (a setup that waits
+    // for its trigger is recorded as a conditional entry, never as filled at once).
+    ...(c.trade_plan ? { plan_ref: planRefOf(c.trade_plan), entry_rule: (c.trade_plan.entry.desk_entry_rule ?? "at_once") as NewPaperTrade["entry_rule"] } : {}),
   };
 }
 

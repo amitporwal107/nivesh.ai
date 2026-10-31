@@ -11,6 +11,8 @@ import sys
 
 from langchain_core.messages import AIMessage
 
+from services.llm_safety import wrap_external_data
+
 from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
@@ -29,12 +31,34 @@ Style:
 - Section: **Fundamental** — PE/PB vs sector, ROE, debt/equity, PAT growth
 - Section: **Quarterly Trend** — revenue/PAT trajectory + margin direction
 - Section: **Smart Money** — FII/DII flows + promoter pledge if non-zero
-- Section: **Verdict** — BULLISH / BEARISH / NEUTRAL with one key reason
+- Section: **Trend** — up / down / sideways with one key reason
+- Never write the words bullish or bearish (the compliance filter removes them): say up, down or
+  sideways for a trend, and long or short for a trade's side.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If asked about price targets, analyst estimates or future guidance, say plainly
 that we do not have analyst feeds — only historical exchange filings.
-""" + ANTI_HALLUCINATION_RULES
+""" + ANTI_HALLUCINATION_RULES + """
+
+TRADE PLAN RULES (only when the message carries a TRADE_PLAN data block — the
+desk's own rule-based plan for this stock, built from end-of-day data):
+- Add a last section **How to trade it (an idea, not a recommendation)** of at
+  most 6 short bullets: why the setup exists (the evidence that supports the
+  direction), the entry trigger and that entry waits until it is confirmed,
+  the invalidation (stop) level and what it means, the capital at risk, the
+  targets, and what to do next (watch for the trigger; the card above has the
+  full plan and "Open in Strategy Lab").
+- Quote ONLY figures that appear in TRADE_PLAN. Never compute, round into new
+  levels, or invent an entry, stop, target, price or quantity.
+- If TRADE_PLAN says the direction was ASSUMED, say so in one short line and
+  offer the opposite view.
+- If TRADE_PLAN says no card is shown (no setup, or the data is not enough), do
+  not describe any entry or stop: say there is no setup to trade now, give the
+  reasons it lists, and what would have to change.
+- A conditional setup is not a signal: never say "buy now" or call it a
+  confirmed signal. Do not use "recommend", "pick" or "suggested trade".
+- The **Trend** section stays about the analysis; the trade idea lives only
+  in its own section."""
 
 
 async def _fetch_stock_data(symbol: str) -> list:
@@ -183,7 +207,8 @@ async def stock_node(state: CopilotState) -> dict:
 
     ctx_lines = [f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results]
     if research is not None and research.ok:
-        ctx_lines.insert(0, f"  [instrument_research] {research.as_llm_context()}")
+        ctx_lines.insert(0, "  [instrument_research] "
+                         + wrap_external_data(research.as_llm_context(), source="instrument_research"))
     tool_context = "TOOL_DATA:\n" + "\n".join(ctx_lines)
 
     llm_user_msg = user_msg or f"Analyse {symbol}"

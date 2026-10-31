@@ -27,10 +27,16 @@ export interface NavItem {
 }
 
 /**
- * The sector rotation heatmap. A reachable screen (screens/index.ts) that no rail lists: the Trader rail is
- * deliberately limited, so it opens from the Screener, from the desk's sector card, and by URL.
+ * The sector rotation heatmap (screens/index.ts), which no rail lists. In Trader mode this route opens the desk's
+ * Market Desk › Sector Rotation (index.tsx); it opens from the Screener, the desk's sector card, and by URL.
  */
 export const SECTOR_HEATMAP_VIEW = "tool/sector-heatmap";
+
+/**
+ * The equity strategy builder (screen → backtest → save), mounted inside the shell. The "Backtest in the strategy
+ * builder" links open it here; the old standalone /strategy-builder URL now redirects to the desk's Trade Desk (routes.tsx).
+ */
+export const STRATEGY_BUILDER_VIEW = "trader/strategy";
 
 const INVESTOR_TOOLS: NavItem[] = [
   { view: "tool/analysis", label: "Portfolio analysis" },
@@ -56,10 +62,9 @@ const ADVISOR_TOOLS: NavItem[] = [
 ];
 
 const TRADER_TOOLS: NavItem[] = [
-  // Six modules on tabs with the Copilot docked: scanner, chart and risk desk, filings, portfolio, F&O.
+  // The desk's four tabs, My portfolio and the docked Copilot. The old Trader desk, Options lab and F&O lab were removed
+  // in the redesign's step 6 (2026-10-27); their URLs redirect into the desk (lib/retired-views.ts).
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
-  { view: "trader", label: "Trader desk", tag: "F&O" },
-  { view: "tool/optlab", label: "Options lab", tag: "F&O" },
   // The original strategy builder (screen → backtest → save), mounted inside the shell.
   { view: "trader/strategy", label: "Strategy builder" },
   { view: "tool/screener", label: "Screener" },
@@ -72,12 +77,13 @@ export function allToolsNav(mode: Mode): NavItem[] {
   return mode === "trader" ? TRADER_TOOLS : mode === "advisor" ? ADVISOR_TOOLS : INVESTOR_TOOLS;
 }
 
-/** The tools the Trader rail lists. The other Trader screens remain reachable by direct URL. */
+/**
+ * The tools the Trader rail lists: the Smart trading desk only (the owner's decision of 2026-10-27, 16:30). The Screener,
+ * Stock research and Sector rotation are views of its Market Desk, and in Trader mode their old routes open those views
+ * (index.tsx, screens/tradingdesk/desk-nav.ts TRADER_TOOL_TO_DESK). The other Trader screens remain reachable by URL.
+ */
 const TRADER_RAIL_TOOLS: NavItem[] = [
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
-  { view: "tool/screener", label: "Screener" },
-  { view: "tool/research", label: "Stock research" },
-  { view: SECTOR_HEATMAP_VIEW, label: "Sector rotation" },
 ];
 
 /** Tools shown in the rail for a mode. */
@@ -91,6 +97,7 @@ export const WORKSPACE_NAV: NavItem[] = [
   { view: "page/history", label: "Past conversations" },
   { view: "page/plan", label: "Action plan" },
   { view: "page/ledger", label: "Portfolio ledger" },
+  { view: "page/positions", label: "Open positions" },
   { view: "page/paper", label: "Paper trades" },
   { view: "page/brokers", label: "Broker connections" },
   { view: "page/settings", label: "Settings" },
@@ -110,10 +117,10 @@ export const INTERNAL_NAV: NavItem[] = [
   { view: "ops/kpis", label: "KPIs" },
 ];
 
-/** Where each mode lands when it is selected. */
+/** Where each mode lands when it is selected. Trader: the Smart trading desk's Market Overview (the redesign of 2026-10-27). */
 export const MODE_HOME: Record<Mode, string> = {
   investor: "",
-  trader: "trader",
+  trader: "trader/desk",
   advisor: "advisor",
 };
 

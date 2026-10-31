@@ -1,0 +1,26 @@
+# F&O ranking and threshold backtest, Stage A: findings (experiment fo-bt-95f4e5df42dc)
+
+Run 2026-10-23 on the staging data platform, read only. Full report: `test_reports/fno_ranking_backtest_fo-bt-95f4e5df42dc.json` (hash `c5b125ba612073e0`). Code: `backend/services/fno_backtest`, `backend/scripts/run_fno_backtest.py`. Status: `research_result`. **Not validated, and nothing in it supports validating the current settings.**
+
+## What was tested
+- **Sessions:** 200 signal sessions, 29 Dec 2025 to 21 Oct 2026 (the features table starts 29 Dec 2025, so the earlier 59 bhavcopy sessions are not evaluated). Splits: discovery 29 Dec to 25 Jun, validation 29 Jun to 21 Aug, test 24 Aug to 21 Oct.
+- **Point in time:** each session was scored by the production engine (v2) from the scan dated that session and the newest feature row on or before it. A test appends poisoned future rows and requires identical candidates.
+- **Outcome:** a long entered at the next session's open and exited at the close of D+h (h = 1, 3, 5, 10, 20), split/bonus-adjusted cash prices as a proxy for the future, direction-adjusted. **Assumed** cost 0.15% round trip (stress 0.30%), not a tax computation.
+- **Counted:** 240 ranking cells; 256 threshold settings x 4 categories x 5 horizons = 5,120 discovery cells. Thresholds were chosen on discovery only (best net t-statistic at 5 sessions), 5 per category frozen, then evaluated on validation and the untouched test split.
+
+## Findings
+1. **The ranking shows no ordering skill beyond a random pick.** At 5 sessions the production top five, the OI-only top five, the price-only top five and the whole pool (the expectation of a random pick) are within a few tenths of a percent of each other, and the same-day-universe excess return is no better for the production ranking (test split, excess %, production vs pool: long build-up -0.94 vs -0.76, short build-up +0.04 vs -0.05, short covering -0.58 vs -0.69, long unwinding +0.46 vs +0.53). The rank correlation of Signal Strength with the outcome is within about +-0.11 in all 60 category-horizon-split cells at the primary horizon except one: short covering in the test split, +0.27 (t 5.5), whose top five still lost 1.89% net there, and which was +0.03 and +0.05 in discovery and validation.
+2. **No threshold survives.** Discovery winners (t above 1.645): long build-up 0 of 183 eligible settings (9.2 expected by chance), short build-up 4 of 193 (9.7), short covering 0 of 132 (6.6), long unwinding 0 of 93 (4.7): no more than chance. None of the 20 frozen settings was positive net on both validation and test. Example: short build-up with price move at least 2%, OI change at least 10%: discovery +1.27% (t 1.78), validation -0.58%, test +3.66% (n 37). The current floors (0.5% price, 3% OI) do no better than no floor (test split, 5 sessions, net: long build-up -2.14% vs -1.60%; short build-up +1.01% vs +0.88%; short covering -1.95% vs -1.48%; long unwinding +1.62% vs +0.77%).
+3. **The split results are dominated by the market, not the signal.** In the test split every long-side category lost (-1.5% to -2.2% net over 5 sessions) and every short-side category gained (+0.8% to +1.6%), with the ranking and its alternatives moving together. The labels themselves, with no ranking at all, show no consistent edge over the market in this year.
+4. **Single inputs are inconsistent.** Of 10 input-category cells at 5 sessions, signs flip between splits (price behaviour for long build-up: +0.02, -0.08, -0.12; technical for short build-up: -0.02, -0.04, -0.12 with t -2.8 in test). With dozens of looks, a few |t| above 2 are expected by chance.
+
+## What this does and does not mean
+- It does not show the idea is wrong. It shows that, on about 200 sessions, with these definitions, there is no evidence the PRD's weights or the engine's floors help, and a clear risk that they only describe the market regime.
+- Limits: one year; the test split is one drifting regime; outcomes use cash prices not the near-month future (no basis, roll or lot size); the cost is assumed; the scan's OI change is summed over every expiry (the production definition), not the near-month contract alone; every candidate is capped at 85% coverage because options-chain confirmation is missing; no OI percentile (it needs history the early sessions lack); forward windows overlap (Newey-West errors are used, but the effective sample is still small).
+- Approximation of the ranking logic established by this run: **none that can be defended.** The weights remain `research_setting_not_validated`, and the UI must not present the top five as a selection method.
+
+## What would change the answer (Stage B and beyond)
+1. Test the same frozen settings and the same variants on Kite's older daily history: daily continuous futures with OI exist back to 25 Oct 2021 for INFY, NIFTY and BANKNIFTY (verified 23 Oct). Run them market-neutral (excess over the day's universe, or against the index) as the primary metric.
+2. Near-month contract OI change on the same contract, instead of the all-expiry sum; and futures price outcomes instead of cash.
+3. OI percentile and OI persistence on the frozen set.
+4. Live shadow validation from the saved intraday series (Stage C).

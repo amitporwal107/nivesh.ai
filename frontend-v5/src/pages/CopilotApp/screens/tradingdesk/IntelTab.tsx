@@ -26,8 +26,12 @@
  * box headed "AI read · not verified", apart from the sourced facts, and no
  * bullish / bearish label is drawn from them (PRD §6.5). Historical reactions
  * to comparable events have no published study, so they read "—" with the reason.
+ *
+ * The chip and the event picked are in the URL (?in_chip=&in_ev=): the Scanner's market pulse opens one event here,
+ * and the desk's breadcrumb returns to the same list.
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { StockIcon } from "../../components/EntityIcon";
 import { EmptyBlock, LoadingBlock, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -38,6 +42,7 @@ import { LoadError, SourceLine } from "../markets/parts";
 import { QueryProblem, fmtDay, fmtPrice } from "../trading/parts";
 import { useDailyBars, useLiveIndicators } from "./chart-data";
 import { useDesk, type DeskPersona } from "./context";
+import { Widget } from "./widget";
 import { useDeskScanner, type DeskSetup } from "./desk-data";
 import { useCreateAlert, useDeleteAlert, useDeskAlerts, writeProblem, type AnyAlert, type NewDeskAlert } from "./desk-trading";
 import type { DailyBar } from "./indicators";
@@ -719,7 +724,7 @@ function EventAlerts({ ev }: { ev: IntelEvent }) {
     }
     buttons.push({ key: "deal", body: { condition: "category", category: "deal", symbol: sym }, label: plain ? "Tell me about a big deal in it" : `Next bulk / block deal in ${sym}` });
     buttons.push({ key: "volume", body: { condition: "volume", symbol: sym, multiple: VOLUME_MULTIPLE }, label: plain ? "Tell me if trading jumps" : `Volume ≥ ${VOLUME_MULTIPLE}× average` });
-    buttons.push({ key: "scanner", body: { condition: "scanner", symbol: sym }, label: plain ? "Tell me if the scanner picks it" : "Enters the scanner" });
+    buttons.push({ key: "scanner", body: { condition: "scanner", symbol: sym }, label: plain ? "Tell me if the scanner lists it" : "Enters the scanner" });
     buttons.push({ key: "risk", body: { condition: "risk", symbol: sym, level: RISK_ATR_PCT }, label: plain ? "Tell me if its swings get large" : `ATR ≥ ${RISK_ATR_PCT}% of price` });
   } else if (ev.sectorIndex) {
     buttons.push({ key: "sector", body: { condition: "sector", index: ev.sectorIndex, threshold_pct: SECTOR_THRESHOLD, direction: "either" }, label: `${ev.sectorIndex} moves ≥ ${SECTOR_THRESHOLD}%` });
@@ -842,26 +847,40 @@ function IntelTrust({ feed }: { feed: EventFeed }) {
   );
 }
 
-function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: (c: IntelChip) => void; feed: EventFeed; scan: ScanIndex }) {
+/** The chip and the picked event belong to the tab (the URL); each layout draws them. */
+interface IntelViewProps {
+  chip: IntelChip;
+  setChip: (c: IntelChip) => void;
+  /** The event picked (desktop: in the detail pane; phone: the row opened), by id; null = none (desktop: the newest). */
+  picked: string | null;
+  setPicked: (id: string | null) => void;
+  feed: EventFeed;
+  scan: ScanIndex;
+}
+
+function DesktopIntel({ chip, setChip, picked, setPicked, feed, scan }: IntelViewProps) {
   const { openTab } = useDesk();
-  const [picked, setPicked] = useState<string | null>(null);
-  const [shown, setShown] = useState(PAGE);
+  const [more, setShown] = useState(PAGE);
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
   const pick = (c: IntelChip) => {
     setChip(c);
-    setPicked(null);
     setShown(PAGE);
   };
   const events = feed.events;
   const selected = events.find((e) => e.id === picked) ?? events[0];
+  // An event opened by a link is listed even when it sits past the first page.
+  const shown = Math.max(more, events.findIndex((e) => e.id === picked) + 1);
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 20 }}>
-      <section data-testid="desk-intel" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-        <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-          <span data-testid="desk-intel-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>04</span> · AI Event intelligence</span>
-          <button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ marginLeft: "auto", padding: "4px 11px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>
-          <span data-testid="desk-intel-meta" className="cp-eyebrow" style={{ color: "var(--cp-ink-4)" }}>NSE · BSE · SEBI · linked to the scanner</span>
-        </div>
+      <Widget
+        id="intel.main"
+        testId="desk-intel"
+        num="04"
+        title="AI Event intelligence"
+        headTestId="desk-intel-title"
+        meta={<span data-testid="desk-intel-meta">NSE · BSE · SEBI · linked to the scanner</span>}
+        actions={<button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ padding: "4px 11px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>}
+      >
         <TypeChips chip={chip} onPick={pick} mobile={false} />
         {def.alertCategory && feed.status === "ready" && (
           <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "10px 18px", borderBottom: line }}>
@@ -891,7 +910,7 @@ function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip:
           <SourcesStatus feed={feed} />
           <IntelTrust feed={feed} />
         </div>
-      </section>
+      </Widget>
       <AlertsCard />
     </div>
   );
@@ -952,19 +971,15 @@ function AlertsCard() {
   }
   const note = q.data?.checkNote ?? "Checked when you open the desk and once each weekday evening; shown in this list only (in-app).";
   return (
-    <section data-testid="desk-intel-alerts" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: mobile ? "12px 14px" : "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-        <span className="cp-eyebrow">Your alerts</span>
-        <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>In-app only</span>
-      </div>
-      <div className="flex flex-col" style={{ gap: 10, padding: mobile ? "12px 14px" : "14px 18px" }}>
+    <Widget id={mobile ? "intel.alerts.phone" : "intel.alerts"} testId="desk-intel-alerts" title="Your alerts" meta="In-app only" headPad={mobile ? "12px 14px" : "13px 18px"} bodyStyle={{ gap: 10, padding: mobile ? "12px 14px" : "14px 18px" }}>
+      <>
         {body}
         {q.data && q.data.checkErrors.length > 0 && (
           <span data-testid="desk-intel-alerts-check-error" role="status" style={{ ...quiet, color: "var(--amber)" }}>Some alerts were not checked this time: a source they read could not be read.</span>
         )}
         <span data-testid="desk-intel-alerts-note" style={{ ...quiet, fontSize: 11.5 }}>{note} Nothing is emailed or sent to your phone.</span>
-      </div>
-    </section>
+      </>
+    </Widget>
   );
 }
 
@@ -1069,32 +1084,27 @@ function SectorImpact() {
     );
   }
   return (
-    <section data-testid="desk-intel-sectors" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: "12px 14px" }}>
-      <span className="cp-eyebrow">Sector impact · 1D</span>
+    <Widget id="intel.sectors.phone" testId="desk-intel-sectors" title="Sector impact · 1D" headPad="12px 14px" bodyStyle={{ gap: 10, padding: "12px 14px" }}>
       {body}
-    </section>
+    </Widget>
   );
 }
 
-function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: (c: IntelChip) => void; feed: EventFeed; scan: ScanIndex }) {
+function MobileIntel({ chip, setChip, picked: open, setPicked: setOpen, feed, scan }: IntelViewProps) {
   const { openTab } = useDesk();
-  const [open, setOpen] = useState<string | null>(null);
-  const [shown, setShown] = useState(PAGE);
+  const [more, setShown] = useState(PAGE);
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
+  // An event opened by a link is listed even when it sits past the first page.
+  const shown = Math.max(more, feed.events.findIndex((e) => e.id === open) + 1);
   const pick = (c: IntelChip) => {
     setChip(c);
-    setOpen(null);
     setShown(PAGE);
   };
   return (
     <div data-testid="desk-intel" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
       <button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12.5, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>
       <TypeChips chip={chip} onPick={pick} mobile />
-      <section data-testid="desk-intel-events" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-        <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
-          <span data-testid="desk-intel-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>04</span> · Top market events</span>
-          <span className="cp-mono-note" style={{ fontSize: 9 }}>Tap for why</span>
-        </div>
+      <Widget id="intel.events.phone" testId="desk-intel-events" num="04" title="Top market events" headTestId="desk-intel-title" meta="Tap for why" headPad="12px 14px" style={{ boxShadow: "none" }}>
         {def.alertCategory && feed.status === "ready" && (
           <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "0 14px 10px" }}>
             <ChipAlert def={def} />
@@ -1119,7 +1129,7 @@ function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: 
           <SourcesStatus feed={feed} />
           <IntelTrust feed={feed} />
         </div>
-      </section>
+      </Widget>
       <SectorImpact />
       <AlertsCard />
     </div>
@@ -1128,12 +1138,31 @@ function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: 
 
 // ── tab ──────────────────────────────────────────────────────────────────
 
+/** A chip the URL may name: one drawn on screen. */
+const urlChip = (v: string | null): IntelChip => INTEL_CHIPS.find((c) => c.key === v && !c.hidden)?.key ?? "all";
+
 export default function IntelTab() {
   const { mobile } = useCopilotShell();
-  const [chip, setChip] = useState<IntelChip>("all");
+  // The chip and the event picked live in the URL (?in_chip=&in_ev=), so the Scanner's market pulse can open one event
+  // and the desk's breadcrumb returns to the same list.
+  const [params, setParams] = useSearchParams();
+  const chip = urlChip(params.get("in_chip"));
+  const picked = params.get("in_ev");
+  const write = (patch: { chip?: IntelChip; event?: string | null }) => setParams((prev) => {
+    const p = new URLSearchParams(prev);
+    if (patch.chip) {
+      if (patch.chip === "all") p.delete("in_chip");
+      else p.set("in_chip", patch.chip);
+    }
+    if (patch.event === null) p.delete("in_ev");
+    else if (patch.event) p.set("in_ev", patch.event);
+    return p;
+  }, { replace: true });
+  const setChip = (c: IntelChip) => write({ chip: c, event: null });
+  const setPicked = (id: string | null) => write({ event: id });
   const feed = useIntelEvents(chip);
   const scan = useScanIndex();
   return mobile
-    ? <MobileIntel chip={chip} setChip={setChip} feed={feed} scan={scan} />
-    : <DesktopIntel chip={chip} setChip={setChip} feed={feed} scan={scan} />;
+    ? <MobileIntel chip={chip} setChip={setChip} picked={picked} setPicked={setPicked} feed={feed} scan={scan} />
+    : <DesktopIntel chip={chip} setChip={setChip} picked={picked} setPicked={setPicked} feed={feed} scan={scan} />;
 }

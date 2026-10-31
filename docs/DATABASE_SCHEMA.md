@@ -26,6 +26,14 @@ fund_category_rank, 4 materialized views) · `portfolio` (bridged user snapshots
 `mutual_fund_aum_history`, `mutual_fund_performance_ratios`, `mutual_fund_holdings`,
 `benchmark_master`, `scrape_audit_log`, `nav_analytics_job_log`, `schema_migrations`.
 
+Strategy Builder / the shared strategy store (app database `public`; `backend/nidp/migrations/020`, `115`,
+`backend/migrations/024`, `026`): `strategies` (owner, `asset_class` STOCK | MF | FNO | MIXED, `source` user | ai |
+template | clone | plan, `template_id`, `underlying`, `cloned_from`), `strategy_versions` (immutable rows — trigger
+`trg_strategy_versions_immutable`, only `is_active` changes; `schema_version` '1' equity DSL | '2' legs document,
+`parent_version_id`, `change_summary`, Copilot provenance columns, per-strategy `idempotency_key`), `strategy_runs`
+(BACKTEST/LIVE, status RUNNING | OK | FAILED with `error_message`), `strategy_trades`, `strategy_audit`, `strategy_config`,
+`user_universes`. Migration 026 is applied by the `app-migrate` profile (deploy with `run_migrations=true`), not by a merge.
+
 ## Nivesh MongoDB — collections (full list §6.3)
 `users`, `holdings`, `portfolio_snapshots`, `action_plans`, `plan_history`, `chat_sessions`,
 `portfolio_intelligence_signals`, `pg_mirror_*` (WORM mirrors for post-deploy restore),
@@ -37,6 +45,27 @@ form), `broker_oauth_states` (sign-in attempts, 10-minute life), `broker_sync_sn
 immutable record per holdings sync, at most 90 per account; indexes on `snapshot_id` unique and
 `(user_id, broker_account_id, synced_at desc)`). Holdings rows read from a broker carry
 `broker_account_id`, `broker`, `source` (`broker_native` | `openalgo` | `broker_export`) and `isin`.
+
+F&O IV history: `fno_iv_history` (one document per underlying and session, `_id` `"<UNDERLYING>:<YYYY-MM-DD>"`,
+upserted; index `(underlying, date desc)` created by the recorder). Fields: `underlying, date, as_of, calc_version
+(fno-atm-iv-v1), source, rate_pct, method (recorded | backfill, first write), recorded_at, computed_at` and
+`buckets.{near_month,next_month}` = `expiry, days_to_expiry, atm_strike, spot, future_settle, forward, forward_basis,
+call_iv, call_iv_price, put_iv, put_iv_price, atm_iv, reason`. Written only by `backend/scripts/record_iv_history.py`
+(nightly cron documented in the script, not installed); see `backend/services/fno_iv_history.py`. A session that was
+not read has no document; nothing is interpolated.
+
+Desk trade plans and lifecycle (Phase 2.1 / 2.2): `trade_plans` — one TradePlan per `_id` = `plan_id` (`"tp_"` + a hash of
+its content, `backend/services/strategy_plan/trade_plan.py`), inserted once; `owners[]` (who built it; a `system:` owner is
+readable by everyone), `lineage_key` + `version` + `supersedes` + `revalidation{ok, problems, after_approval}` for a changed
+plan of the same instrument / family / day, `events[]` (REJECTED records of refused opens). `desk_paper_trades` and
+`ai_trader_tickets` gain `state` and append-only `transitions[]` (`backend/services/trade_lifecycle.py`); trades also
+`plan_ref`, `trade_plan_id`, `plan_levels`, `exit_plan.options` (strategy_levels premium stop / T1 / T2, stored, evaluated
+by the exits work), `rolled_from` / `rolled_to`. Backfill for older documents: `backend/scripts/backfill_trade_lifecycle.py`
+(dry run by default).
+
+Postgres migration 025: `positional_signals.revision`, `positional_signals.stop_method` (JSONB) and
+`positional_signals_history` (a scanner re-run or day rewrite keeps the row it replaces; PK
+`(nse_symbol, signal_date, revision)`).
 
 ## Conventions
 snake_case tables/columns · UUID PKs (`uuid-ossp`) on app PG · timestamps UTC · money as

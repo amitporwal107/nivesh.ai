@@ -26,6 +26,7 @@ import routes.strategy_plan as route
 from services.strategy_plan import candidates as cd
 from services.strategy_plan import compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import evidence as ev
+from services.strategy_plan import live_reads as lr
 from services.strategy_plan import plan as pl
 from services.strategy_plan.evidence import src_fail, src_ok
 from services.strategy_plan.rules import RULES, STRATEGY_RULES_VERSION
@@ -395,18 +396,28 @@ def test_cash_breakout_continuation_sizing_and_net_ratio_by_hand():
     p = build(instrument="cash")
     c = cand(p, "cash:breakout_continuation")
     assert c["status"] == "candidate" and p["status"] == "plan" and p["preferred"] == c["id"]
-    # entry 1200, scanner stop 1160: risk 40/share. budget 10000/40 = 250; allocation cap floor(1,000,000 x 25% / 1200) = 208 -> 208 shares.
+    # entry 1200, scanner stop 1160: risk 40/share. Sized after the desk cost card's costs at the stop (paper_fills_pnl
+    # TESTCASES C-1; 250 on the gross distance, 241 under the flat model): the most shares with 40 x q + costs(q) <= 10000
+    # is 227. The allocation cap floor(1,000,000 x 25% / 1200) = 208 still binds -> 208 shares.
     s = c["sizing"]
-    assert (s["status"], s["quantity"], s["by_risk_budget"], s["by_allocation_cap"], s["binding"]) == ("complete", 208, 250, 208, "allocation_cap")
+    assert (s["status"], s["quantity"], s["by_risk_budget"], s["by_allocation_cap"], s["binding"]) == ("complete", 208, 227, 208, "allocation_cap")
+    # 208 x 40 = 8320 gross; costs at the stop, by hand: buy 2,49,600 = 20 + 249.60 STT + 7.66 exch + 0.25 SEBI + 37.44 stamp
+    # + 5.02 GST + 124.80 slippage = 444.77; sell 2,41,280 = 20 + 241.28 + 7.41 + 0.24 + 4.98 + 120.64 = 394.55; 839.32.
+    assert (s["risk_at_stop_inr"], s["costs_at_stop_inr"], s["risk_at_stop_net_inr"], s["costs_included"]) == (8320.0, 839.32, 9159.32, True)
+    assert s["costs_breakdown_at_stop"] == {"brokerage": 40.0, "stt": 490.88, "exchange": 15.07, "sebi": 0.49, "stamp": 37.44,
+                                            "gst": 10.0, "slippage": 245.44, "total": 839.32}
     assert c["legs"][0]["quantity"] == 208 and c["legs"][0]["entry_price"] == 1200.0
     # levels: base 1200 + 2 x 40 = 1280, optimistic 1200 + 3 x 40 = 1320, conservative 1 x ATR = 1220 (resistance 1290 is farther than the base)
     t = {x["name"]: x["price"] for x in c["targets"]}
     assert t == {"conservative": 1220.0, "base": 1280.0, "optimistic": 1320.0}
     # gross at base 80 x 208 = 16640 ; gross loss at stop 40 x 208 = 8320 -> 2.0
-    # costs: entry 249600 x .0005 + 20 = 144.8; exit at 1280 266240 x .0005 + 20 = 153.12; exit at 1160 241280 x .0005 + 20 = 140.64
-    # net reward 16640 - 144.8 - 153.12 = 16342.08 ; net risk 8320 + 144.8 + 140.64 = 8605.44 -> 1.90
+    # Net, payoff-v2 (the desk cost card, the same pricing as the sizing above; payoff-v1 charged 0.05% + ₹20 only and gave
+    # 16342.08 / 8605.44 = 1.90, so the plan's ratio and its sizing disagreed): entry 444.77 (above); exit at 1280, SELL
+    # 2,66,240 = 20 + 266.24 STT + 8.17 exch + 0.27 SEBI + 5.12 GST + 133.12 slippage = 432.92; exit at the stop 394.55 (above).
+    # net reward 16640 - 444.77 - 432.92 = 15762.31 ; net risk 8320 + 444.77 + 394.55 = 9159.32 (= risk_at_stop_net_inr) -> 1.72
     rr = c["risk_reward"]
-    assert rr["gross"] == 2.0 and rr["net"] == round(16342.08 / 8605.44, 2) and rr["level"] == "base"
+    assert rr["gross"] == 2.0 and rr["net"] == round(15762.31 / 9159.32, 2) == 1.72 and rr["level"] == "base"
+    assert (rr["reward_net"], rr["risk_net"]) == (15762.31, 9159.32) and rr["risk_net"] == s["risk_at_stop_net_inr"]
     assert c["invalidation"]["technical"]["price"] == 1160.0 and "does not guarantee" in c["invalidation"]["execution_stop"]["note"]
     assert c["payoff"]["valid"] and c["payoff"]["sent_to_broker"] is False and c["sent_to_broker"] is False
 
@@ -423,7 +434,15 @@ def test_cash_without_a_scanner_setup_or_before_the_trigger():
     assert codes(cand(none, "cash:scanner")) == ["no_setup"] and none["status"] == "no_trade"
     wait = build(world(scanner_bucket=bucket("pre_breakout")), instrument="cash")
     c = cand(wait, "cash:breakout_watch")
-    assert c["status"] == "wait" and wait["status"] == "wait" and "1195" in c["entry"]["logic"] and c["legs"] == []
+    assert c["status"] == "wait" and wait["status"] == "wait" and "1195" in c["entry"]["logic"]
+    # Phase 2.1: the setup that has not triggered is planned AT its trigger (WAIT_FOR_CONFIRMATION), with the stop's
+    # method as data — it used to carry no levels at all, so no surface could show the trade it waits for.
+    # MOCK close 1200 sits above this trigger, so the desk's rule (frontend entryRuleFor) makes it a pullback limit;
+    # a trigger above the close is a buy-stop (test_trade_plan.py covers both).
+    assert c["entry"]["trigger"] == 1195.0 and c["entry"]["order_type"] == "limit_pullback" and c["entry"]["desk_entry_rule"] == "pullback_to"
+    assert c["invalidation"]["technical"]["price"] == 1160.0 and c["invalidation"]["technical"]["method"] == "atr"
+    assert [t["r_multiple"] for t in c["targets"] if t["name"] in ("base", "optimistic")] == [2.0, 3.0]
+    assert codes(c)[-1] == "setup_not_triggered" and not c["actionable"]
     down = build(world(scanner_bucket=src_fail("db down", "x")), instrument="cash")
     assert down["status"] == "insufficient_data" and codes(cand(down, "cash:scanner")) == ["scanner_unavailable"]
 
@@ -444,7 +463,8 @@ def test_cash_incomplete_sizing_shows_formula_and_missing_inputs_never_a_guess()
     p = pl.build_plan(inputs(instrument="cash", capital=None, risk_budget_inr=None), world(), NOW, TODAY)
     s = cand(p, "cash:breakout_continuation")["sizing"]
     assert s["status"] == "incomplete" and s["quantity"] is None and "capital" in s["missing"]
-    assert any("risk_budget_inr" in m for m in s["missing"]) and "floor(risk budget" in s["formula"]
+    # The formula now names the costs it sizes with (paper_fills_pnl TESTCASES C-1).
+    assert any("risk_budget_inr" in m for m in s["missing"]) and "estimated round-trip costs at the stop" in s["formula"]
     c = cand(p, "cash:breakout_continuation")
     assert c["legs"][0]["quantity"] == 1 and any("Sizing is incomplete" in w for w in c["warnings"])
 
@@ -484,6 +504,17 @@ def test_futures_long_buildup_with_cash_confirmation():
     assert {x["name"]: x["price"] for x in c["targets"]}["base"] == 1250.0
     assert any("exceed the initial margin" in w for w in c["warnings"]) and c["payoff"]["loss_can_exceed_margin"] is True
     assert c["payoff"]["margin"] is None
+    # The live margin read swaps this exact warning when the calculator answers, so the two texts must stay identical; neither claims no source exists.
+    assert lr.OLD_FUTURES_WARNING in c["warnings"] and "no margin estimate exists" not in lr.OLD_FUTURES_WARNING
+
+
+def test_margin_caveat_names_the_calculator_and_is_shared_by_ideas_and_picks():
+    import inspect
+    from services.strategy_plan import ideas, picks
+    assert "no source exists" not in pl.MARGIN_CAVEAT and "Zerodha's margin calculator" in pl.MARGIN_CAVEAT and "not the maximum loss" in pl.MARGIN_CAVEAT
+    assert pl.MARGIN_CAVEAT in picks.CAVEATS
+    # ideas builds its caveats inline: it must use the plan's constant (the live swap to MARGIN_LIVE_CAVEAT matches on equality), not a copy.
+    assert "no source exists" not in inspect.getsource(ideas) and "MARGIN_CAVEAT" in inspect.getsource(ideas)
 
 
 def test_futures_short_covering_and_long_unwinding_are_wait_not_trade():
@@ -709,7 +740,7 @@ def test_plan_object_has_every_required_block_and_no_opaque_confidence():
     for key in ("plan_id", "summary", "thesis", "evidence", "candidates", "alternatives", "failure_conditions", "validation", "lifecycle", "generated_at",
                 "data_as_of", "source_snapshots", "rules_version", "calculation_version", "headline", "scenarios", "inputs_hash", "would_change_if"):
         assert key in p, key
-    assert p["rules_version"] == STRATEGY_RULES_VERSION and p["calculation_version"] == "payoff-v1" and p["rules"]["version"] == STRATEGY_RULES_VERSION
+    assert p["rules_version"] == STRATEGY_RULES_VERSION and p["calculation_version"] == "payoff-v2" and p["rules"]["version"] == STRATEGY_RULES_VERSION
     h = p["headline"]
     assert set(h) >= {"technical_setup", "fundamental_context", "model_estimate", "data_quality"}
     assert h["model_estimate"]["status"] == "withheld" and h["model_estimate"]["value"] is None and h["confidence"] is None
@@ -749,7 +780,7 @@ def test_reproducibility_same_inputs_same_snapshots_same_plan():
 def test_explain_plan_context_quotes_exact_ids_versions_and_legs():
     p = build(instrument="options")
     text = explain_plan_context(p, "abc123", "2026-10-20T04:00:00+00:00")
-    assert p["plan_id"] in text and "abc123" in text and STRATEGY_RULES_VERSION in text and "payoff-v1" in text
+    assert p["plan_id"] in text and "abc123" in text and STRATEGY_RULES_VERSION in text and "payoff-v2" in text
     leg = cand(p, "options:bull_call_spread")["legs"][0]
     assert f"@ {leg['entry_price']}" in text and "call 1200" in text and "price as of 2026-10-19" in text and "sent to a broker" in text
 

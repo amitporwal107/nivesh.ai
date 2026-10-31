@@ -1,0 +1,254 @@
+# Production app stack on the CloudPe prod VM.
+#
+# Derived from deploy/nivesh-staging/docker-compose.staging.yml + deploy/cloudpe/app/
+# docker-compose.cloudpe.yml (one standalone file instead of base + override, so a
+# change to staging's file can never alter prod). Differences from staging:
+#   - container/network/image names are nivesh-* / nivesh-prod / :prod
+#   - APP_ENV=production (loads the `secrets:production` Mongo scope), database
+#     nivesh_prod, hostnames niveshcopilot.com / data.niveshcopilot.com
+#   - no TLS here: the edge container answers plain HTTP on 127.0.0.1:8444 only;
+#     the host nginx terminates TLS, enforces the Cloudflare-only allow-list and
+#     shares :443 with the NIDP vhost
+#   - no registry build cache, no nidp-bridge (NIDP is reached over HTTPS, as on staging)
+#   - the PAN encryption key has NO default: a missing key fails the deploy
+#
+# Run it through deploy/cloudpe-prod/deploy-app.sh, not by hand:
+#   docker compose --env-file /opt/nivesh/.env.prod -f deploy/cloudpe-prod/app/docker-compose.yml <cmd>
+# Needs Docker Compose >= 2.33.1.
+
+name: nivesh-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+
+  # ── Data stores ────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nivesh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${PI_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${PI_POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${PI_POSTGRES_DB}
+    ports:
+      # 5532, not 5432: the host already has a Postgres on 127.0.0.1:5432.
+      - "127.0.0.1:5532:5432"
+    volumes:
+      - /opt/nivesh/data/postgres:/var/lib/postgresql/data
+      # Lets clone/restore load a dump file from the host.
+      - /opt/nivesh/dumps:/dumps:ro
+    networks: [nivesh-prod]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PI_POSTGRES_USER} -d ${PI_POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    container_name: nivesh-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${PI_MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${PI_MONGO_PASSWORD}
+      # mongo-init.js creates the app user `nivesh` with readWrite on this database.
+      MONGO_INITDB_DATABASE:      nivesh_prod
+    ports:
+      - "127.0.0.1:27117:27017"
+    volumes:
+      - /opt/nivesh/data/mongo:/data/db
+      - ../../nivesh-app/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+      - /opt/nivesh/dumps:/dumps:ro
+    networks: [nivesh-prod]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: nivesh-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${PI_REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6479:6379"
+    volumes:
+      - /opt/nivesh/data/redis:/data
+    networks: [nivesh-prod]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${PI_REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  # ── Backend (V2 FastAPI + in-process CAS ingestion) ────────────────────────
+
+  app-backend:
+    build:
+      context: ../../../
+      dockerfile: deploy/nivesh-app/Dockerfile.backend.prod
+    image: nivesh/backend:prod
+    container_name: nivesh-backend
+    restart: unless-stopped
+    env_file: /opt/nivesh/.env.prod
+    environment:
+      APP_ENV: production
+      # Main app connects as the `nivesh` user created by mongo-init.js (same user
+      # staging and the original prod use — "apply original scripts unchanged").
+      MONGO_URL:    mongodb://nivesh:Niv3shApp2026!@mongo:27017/nivesh_prod?authSource=nivesh_prod
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      DB_NAME:      nivesh_prod
+      CORS_ORIGINS: "https://niveshcopilot.com,https://www.niveshcopilot.com"
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: "lax"
+      NIDP_DAAS_BASE_URL: https://data.niveshcopilot.com/daas
+      NIDP_DAAS_INTERNAL_TOKEN: ${NIDP_DAAS_INTERNAL_TOKEN:-}
+      NIDP_QUERY_API_URL: ${NIDP_QUERY_API_URL:-https://data.niveshcopilot.com/query}
+      NIDP_QUERY_API_TOKEN: ${NIDP_QUERY_API_TOKEN:-}
+      NIDP_GRAFANA_URL: ${NIDP_GRAFANA_URL:-https://data.niveshcopilot.com/grafana}
+      GMAIL_REDIRECT_URI: https://niveshcopilot.com/api/oauth/gmail/callback
+      # ── CAS ingestion module (inside this same backend) ──
+      PI_POSTGRES_URL:        postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      PI_MONGO_URL:           mongodb://${PI_MONGO_USER}:${PI_MONGO_PASSWORD}@mongo:27017/${PI_MONGO_DB}?authSource=admin
+      PI_REDIS_URL:           redis://:${PI_REDIS_PASSWORD}@redis:6379/0
+      PI_PAN_ENCRYPTION_KEY:  ${PI_PAN_ENCRYPTION_KEY:?set PI_PAN_ENCRYPTION_KEY in /opt/nivesh/.env.prod}
+      PI_CASPARSER_API_KEY:   ${CASPARSER_API_KEY:-}
+      PI_GCS_STUB:            ${PI_GCS_STUB:-true}
+      PI_GCS_BUCKET:          ${PI_GCS_BUCKET:-}
+      PI_WEBHOOK_ENABLED:     ${PI_WEBHOOK_ENABLED:-false}
+      PI_WEBHOOK_SECRET:      ${PI_WEBHOOK_SECRET:-}
+      PI_ADMIN_TOKEN:         ${PI_ADMIN_TOKEN:-}
+    # Source is mounted at runtime — the image carries only OS + Python deps.
+    volumes:
+      - /opt/nivesh/repo/backend:/app/backend
+      # research/ sits beside backend/; /api/ai-trader/* imports it from /app/research.
+      - /opt/nivesh/repo/research:/app/research:ro
+      - /opt/nivesh/data/app:/app/data
+    extra_hosts:
+      - "host-gateway:host-gateway"
+      - "host.docker.internal:host-gateway"
+    networks:
+      # The frontend image's baked nginx.conf hardcodes `upstream backend`.
+      nivesh-prod:
+        aliases: [backend]
+    logging: *default-logging
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo:    { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── frontend-v5 (Vite + React 18, served at /v5/) ──────────────────────────
+
+  app-frontend-v5:
+    build:
+      context: ../../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend-v5.prod
+      args:
+        VITE_BASE: /v5/
+        VITE_API_URL: https://niveshcopilot.com
+        VITE_USE_MOCK_API: "false"
+    image: nivesh/frontend-v5:prod
+    container_name: nivesh-frontend-v5
+    restart: unless-stopped
+    networks: [nivesh-prod]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  # ── Main app frontend (React build baked with the prod backend URL) ─────────
+
+  app-frontend:
+    build:
+      context: ../../../
+      dockerfile: deploy/nivesh-app/Dockerfile.frontend.prod
+      args:
+        REACT_APP_BACKEND_URL: https://niveshcopilot.com
+        PUBLIC_URL: /v2
+    image: nivesh/frontend:prod
+    container_name: nivesh-frontend
+    restart: unless-stopped
+    # Plain-HTTP static server; TLS and /api/ routing happen in front of it.
+    volumes:
+      - ../../nivesh-staging/app-frontend-nginx.conf:/etc/nginx/conf.d/app.conf:ro
+    networks: [nivesh-prod]
+    logging: *default-logging
+    depends_on:
+      app-backend: { condition: service_healthy }
+
+  # ── One-shot Postgres migrations for the main app schema ───────────────────
+
+  app-migrate:
+    image: postgres:16-alpine
+    container_name: nivesh-app-migrate
+    restart: "no"
+    environment:
+      POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+    volumes:
+      - /opt/nivesh/repo/backend/migrations:/migrations:ro
+      - /opt/nivesh/repo/backend/nidp/migrations:/nidp-migrations:ro
+    command: >
+      sh -c "
+        set -e;
+        echo 'Running main-app PostgreSQL migrations...';
+        for f in /migrations/*.sql; do
+          echo \"Applying $$f\";
+          psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+        done;
+        echo 'Running nidp/* migrations that target the main app public schema...';
+        for f in /nidp-migrations/*.sql; do
+          if head -20 \"$$f\" | grep -q 'SET search_path TO public;'; then
+            echo \"Applying nidp-public migration $$f\";
+            psql \"$$POSTGRES_URL\" -v ON_ERROR_STOP=0 -f \"$$f\" 2>&1 | grep -v 'already exists' || true;
+          fi;
+        done;
+        echo 'Migrations done.'
+      "
+    networks: [nivesh-prod]
+    depends_on:
+      postgres: { condition: service_healthy }
+    profiles: ["migrate"]
+
+  # ── Edge nginx (HTTP only, loopback) ────────────────────────────────────────
+  # The host nginx (deploy/cloudpe-prod/edge/nginx-prod.conf) proxies every
+  # non-data hostname here.
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: nivesh-edge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8444:8444"
+    volumes:
+      - ./nginx-edge.conf:/etc/nginx/conf.d/prod.conf:ro
+      # Mobile app downloads (v5 APK), served at /downloads/.
+      - /opt/nivesh/downloads:/var/www/downloads:ro
+    depends_on:
+      app-backend:  { condition: service_healthy }
+      app-frontend: { condition: service_started }
+    networks: [nivesh-prod]
+    logging: *default-logging
+
+networks:
+  nivesh-prod:
+    name: nivesh-prod
+    driver: bridge
+    driver_opts:
+      # Same path-MTU pin staging carries (GCP VPC was 1460); harmless on CloudPe.
+      com.docker.network.driver.mtu: "1460"

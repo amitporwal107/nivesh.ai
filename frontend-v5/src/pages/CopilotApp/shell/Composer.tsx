@@ -7,6 +7,9 @@
  *   empty box   GET /api/copilot/suggested-prompts   (ranked for this user)
  *   typing      GET /api/chat/suggest-queries        (question bank)
  *               GET /api/chat/instrument-search      (stocks and funds)
+ *   the cursor  GET /api/chat/instrument-search?tail=1 (the stock being typed at the cursor: ticker, full or partial
+ *               name, a short form, an F&O index — lib/stock-completion.tsx). Its rows come first; Tab, Enter on a
+ *               highlighted row or a click replaces the fragment with the ticker and keeps the sentence (nothing is sent).
  */
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -15,6 +18,7 @@ import { useMarketsHome } from "@/hooks/use-markets";
 import { useQuerySuggestions } from "@/hooks/use-query-suggestions";
 import { fmtNum, fmtPct, humaniseTag, type Tone } from "../components/ui";
 import { useCopilotPrompts } from "../lib/use-copilot-prompts";
+import { applyCompletion, stockWhy, useStockCompletion, type StockSuggestion } from "../lib/stock-completion";
 import { toolsNav, type Mode } from "../lib/views";
 
 export interface ComposerHandle {
@@ -30,6 +34,8 @@ interface Item {
   /** What gets sent (or filled in, for a template with a placeholder). */
   query: string;
   template?: boolean;
+  /** A stock completion: picking it replaces the fragment at the cursor with this ticker. */
+  stock?: StockSuggestion;
 }
 
 function Freshness() {
@@ -73,14 +79,17 @@ export const Composer = forwardRef<ComposerHandle, {
   // cleared by blur, Escape and sending.
   const [focused, setFocused] = useState(false);
   const [hi, setHi] = useState(-1);
+  /** Where the cursor is: the stock completion looks at the text before it. */
+  const [caret, setCaret] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   useImperativeHandle(ref, () => ({ focus: () => inputRef.current?.focus() }), []);
 
   const q = draft.trim();
   const term = useDebounce(q.length >= 2 ? q : "", 220);
-  const prompts = useCopilotPrompts();
+  const prompts = useCopilotPrompts(mode);
   const bank = useQuerySuggestions(term);
   const instruments = useInstrumentSearch(term);
+  const completion = useStockCompletion(draft.slice(0, caret), suggest && focused && !busy);
 
   const items = useMemo<Item[]>(() => {
     if (!q) {
@@ -88,8 +97,12 @@ export const Composer = forwardRef<ComposerHandle, {
         key: p.id, text: p.label, why: p.outcome ?? p.badge, tag: humaniseTag(p.category) || "For you", tone: "mint" as Tone, query: p.query,
       }));
     }
-    if (q.length < 2 || term !== q) return [];
     const out: Item[] = [];
+    // The stock being typed at the cursor comes first: picking it completes the sentence.
+    for (const s of (completion.data?.stocks ?? []).slice(0, 4)) {
+      out.push({ key: `c:${s.symbol}`, text: s.symbol, why: stockWhy(s), tag: s.kind === "index" ? "Index" : "Stock", tone: "indigo", query: s.symbol, stock: s });
+    }
+    if (q.length < 2 || term !== q) return out;
     for (const s of (instruments.data?.stocks ?? []).slice(0, 2)) {
       out.push({ key: `s:${s.symbol}`, text: `Research ${s.name}`, why: [s.symbol, s.sector].filter(Boolean).join(" · "), tag: "Stock", tone: "indigo", query: `Tell me about ${s.name}` });
     }
@@ -100,7 +113,7 @@ export const Composer = forwardRef<ComposerHandle, {
       out.push({ key: `q:${s.query}`, text: s.query, why: [s.section, s.category].filter(Boolean).join(" · "), tag: "Question", tone: "ink", query: s.query, template: s.has_placeholder });
     }
     return out;
-  }, [q, term, prompts.data, bank.data, instruments.data]);
+  }, [q, term, prompts.data, bank.data, instruments.data, completion.data]);
 
   // The highlighted row must always exist.
   useEffect(() => { setHi(-1); }, [q]);
@@ -141,7 +154,25 @@ export const Composer = forwardRef<ComposerHandle, {
     });
   };
 
+  const complete = (st: StockSuggestion) => {
+    if (!completion.data) return;
+    const el = inputRef.current;
+    const at = el?.selectionStart ?? caret;
+    const next = applyCompletion(draft, at, completion.data, st);
+    setDraft(next.text);
+    setCaret(next.caret);
+    setHi(-1);
+    requestAnimationFrame(() => {
+      const box = inputRef.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(next.caret, next.caret);
+    });
+  };
+
   const pick = (it: Item) => {
+    // A stock completion fills in the ticker and keeps the sentence; nothing is sent.
+    if (it.stock) { complete(it.stock); return; }
     // A template still has a slot to fill ("How is {stock} doing?") — put it in
     // the box with the slot selected instead of sending it as is.
     if (it.template) fill(it.query);
@@ -153,7 +184,9 @@ export const Composer = forwardRef<ComposerHandle, {
     if (open && items.length) {
       if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => (h + 1) % items.length); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => (h <= 0 ? items.length - 1 : h - 1)); return; }
-      if (e.key === "Tab" && hi >= 0) { e.preventDefault(); fill(items[hi].query); return; }
+      if (e.key === "Tab" && hi >= 0) { e.preventDefault(); if (items[hi].stock) complete(items[hi].stock as StockSuggestion); else fill(items[hi].query); return; }
+      // Tab with nothing highlighted completes the first stock, when there is one.
+      if (e.key === "Tab" && hi < 0 && items[0]?.stock) { e.preventDefault(); complete(items[0].stock); return; }
     }
     if (e.key === "Enter" && !e.nativeEvent.isComposing) {
       e.preventDefault();
@@ -162,7 +195,7 @@ export const Composer = forwardRef<ComposerHandle, {
     }
   };
 
-  const loadingSuggest = !!q && q.length >= 2 && (term !== q || bank.isFetching || instruments.isFetching);
+  const loadingSuggest = (!!q && q.length >= 2 && (term !== q || bank.isFetching || instruments.isFetching)) || completion.pending;
   const showList = open && (items.length > 0 || !!persona || !q || loadingSuggest);
 
   return (
@@ -198,12 +231,13 @@ export const Composer = forwardRef<ComposerHandle, {
                   role="option"
                   aria-selected={i === hi}
                   data-testid="composer-suggest-item"
+                  data-kind={it.stock ? "stock-completion" : it.template ? "template" : "query"}
                   onClick={() => pick(it)}
                   onMouseEnter={() => setHi(i)}
                   className="flex items-center"
                   style={{ gap: 12, padding: "10px 12px", borderRadius: 10, cursor: "pointer", background: i === hi ? "var(--bg-2)" : "transparent", border: 0, color: "inherit", textAlign: "left", fontFamily: "var(--sans)" }}
                 >
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--cp-ink-3)", width: 14, flex: "none" }} aria-hidden>{it.template ? "…" : "↗"}</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--cp-ink-3)", width: 14, flex: "none" }} aria-hidden>{it.stock ? "⇥" : it.template ? "…" : "↗"}</span>
                   <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 2 }}>
                     <span style={{ fontSize: 14, color: "var(--cp-ink)", ...(mobile ? { lineHeight: 1.35 } : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }) }}>{it.text}</span>
                     {it.why && <span style={{ fontSize: 12, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.why}</span>}
@@ -225,7 +259,7 @@ export const Composer = forwardRef<ComposerHandle, {
             {!mobile && (
               <div className="flex flex-wrap justify-between" style={{ gap: 10, padding: "10px 18px", borderTop: "1px solid var(--cp-line)", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-ink-4)" }}>
                 <span>↑↓ MOVE · TAB COMPLETE · ENTER ASK · ESC CLOSE</span>
-                {!q && items.length > 0 && <span>{prompts.data?.audience === "advisor" ? "RANKED FOR YOUR CLIENT BOOK" : "RANKED FOR YOUR HOLDINGS"}</span>}
+                {!q && items.length > 0 && <span>{prompts.data?.audience === "advisor" ? "RANKED FOR YOUR CLIENT BOOK" : prompts.data?.audience === "trader" ? "YOUR DAILY TRADING QUESTIONS" : "RANKED FOR YOUR HOLDINGS"}</span>}
               </div>
             )}
           </div>
@@ -236,7 +270,8 @@ export const Composer = forwardRef<ComposerHandle, {
           data-testid="composer-input"
           aria-label="Ask Nivesh"
           value={draft}
-          onChange={(e) => { setDraft(e.target.value); setFocused(true); }}
+          onChange={(e) => { setDraft(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setFocused(true); }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? draft.length)}
           onKeyDown={onKeyDown}
           onFocus={() => setFocused(true)}
           onClick={() => setFocused(true)}

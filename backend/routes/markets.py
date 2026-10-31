@@ -375,11 +375,17 @@ async def markets_home(request: Request):
     for t in tape:
         value, change_pct = t["value"], t["change_pct"]
         ov = live_overlay.get(t["name"])
-        if ov and ov[0] is not None:
+        tile_day = t.get("as_of")
+        # Only a live value WITH its day change replaces the tape. Yahoo's 2-day window can hold a single bar (before the
+        # open, or a short batch), which gives a close with no change: overlaying that wiped the tape's end-of-day change
+        # and the desk showed "— (—)" for NIFTY and BANK NIFTY (audit 2026-10-28).
+        if ov and ov[0] is not None and ov[1] is not None:
             value, change_pct = ov[0], ov[1]
+            tile_day = None          # the value is the live snapshot's now, not the daily bar's
         if value is None:
             continue
         indices.append({
+            "as_of":      tile_day,
             "name":       t["name"],
             "value":      value,
             "change":     _abs_change(value, change_pct),

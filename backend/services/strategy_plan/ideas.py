@@ -1,6 +1,8 @@
 """Strategy ideas from the AI opportunities (user requirement 2026-10-20). One call selects the top scanner setups
 (selection.py) and builds a full strategy plan for each with instrument "all" (cash, futures, options and combinations), from the
-scanner data already read for the request. Read-only; nothing is sent to a broker; nothing is written.
+scanner data already read for the request. Nothing is sent to a broker. Each idea carries its canonical TradePlan
+(`trade_plan`, trade_plan.py: the cash candidate's levels, which the row shows and its paper trade records); the route
+stores those plans insert-once (routes/strategy_plan.py), which is the only write.
 
 The response carries, per idea, the strategies side by side with the payoff engine's figures (max loss, max profit, breakevens, net
 reward : risk, capital at risk): nothing is calculated again here. `plan_inputs` is the exact body that rebuilds the idea's plan through
@@ -12,13 +14,13 @@ import asyncio
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from fastapi import Request
 
 from . import evidence as ev
 from .engine import CALCULATION_VERSION
-from .plan import build_plan, normalise_inputs
+from .plan import MARGIN_CAVEAT, build_plan, normalise_inputs
 from .rules import STRATEGY_RULES_VERSION
 from .rules import RULES
 from .selection import DEFAULT_LIMIT, MAX_LIMIT, scanner_view, select_opportunities
@@ -33,7 +35,8 @@ PASS_KEYS = ("capital", "risk_budget_inr", "risk_pct", "max_allocation_pct", "mi
 RANKING_NOTE = ("Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the "
                 "viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure "
                 "(a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital "
-                "at risk beside it. No probability and no composite score is produced.")
+                "at risk beside it. No probability and no composite score is produced. "
+                "Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending).")
 
 
 CHARTINK_RANKING = (" With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of "
@@ -118,21 +121,67 @@ def _loss(v: Optional[float]) -> Optional[float]:
     return None if v is None else -abs(v)
 
 
+def meets_min_reward_risk(status: Optional[str], net: Optional[float], gross: Optional[float], minimum: Optional[float]) -> Optional[bool]:
+    """Whether a viable strategy's SHOWN reward : risk (net, else gross) reaches the minimum (owner rule: 1.5 for directional
+    trades). None when the strategy is not viable or there is no ratio or minimum to compare. Credit structures keep this
+    rule until their own rule (net credit against the strike width) is merged; a card shows "below your minimum", never
+    "viable", for a ratio under it (audit 2026-10-28: a 0.19 : 1 strategy was labelled viable)."""
+    if status != "candidate" or minimum is None:
+        return None
+    got = net if net is not None else gross
+    return None if got is None else got >= minimum
+
+
 def strategies_of(plan: Dict[str, Any], symbol: str) -> List[Dict[str, Any]]:
     rows = {a["id"]: a for a in plan.get("alternatives") or []}
+    minimum = (plan.get("inputs") or {}).get("min_reward_risk")
     out = []
     for c in plan.get("candidates") or []:
         a = rows.get(c["id"], {})
         ex = ((c.get("payoff") or {}).get("expiry")) or {}
         why = (c.get("why_qualifies") or [None])[0] or next((r["message"] for r in c.get("reasons") or []), "")
-        out.append({"id": c["id"], "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
+        out.append({"id": c["id"], "trade_plan_id": (c.get("trade_plan") or {}).get("plan_id"),
+                    "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
                     "reasons": [{"code": r.get("code"), "message": r.get("message")} for r in c.get("reasons") or []],
                     "legs_text": legs_text(symbol, c.get("legs") or []), "max_loss": _loss(a.get("max_loss")), "max_loss_basis": a.get("max_loss_basis"),
                     "capital_at_risk": a.get("capital_at_risk"), "max_profit": ex.get("max_profit"), "profit_unbounded": bool(ex.get("profit_unbounded")),
                     "breakeven": a.get("breakeven") or [], "reward_risk_net": a.get("reward_risk_net"), "reward_risk_gross": a.get("reward_risk_gross"),
                     "sizing": _sizing_view(c), "liquidity_flags": a.get("liquidity_flags") or [], "why": why, "flags": list(c.get("warnings") or []),
-                    "actionable": bool(c.get("actionable"))})
+                    "actionable": bool(c.get("actionable")), "min_reward_risk": minimum,
+                    "meets_min_reward_risk": meets_min_reward_risk(c["status"], a.get("reward_risk_net"), a.get("reward_risk_gross"), minimum)})
     return out
+
+
+#: Sizes one TradePlan for the signed-in account: the risk service's plan_sizing.size_for (routes/strategy_plan.py passes it).
+Sizer = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
+
+
+def fit_trade_plan(plan: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The TradePlan of the plan's preferred strategy (the "strategy that fits" a card shows), or None."""
+    pref = plan.get("preferred")
+    return next((c.get("trade_plan") for c in plan.get("candidates") or [] if pref and c.get("id") == pref and c.get("trade_plan")), None)
+
+
+async def size_fit(idea: Dict[str, Any], plan: Dict[str, Any], sizer: Optional[Sizer]) -> None:
+    """Attach `account_size` (the risk service's sizing for YOUR account) to the idea's preferred strategy, so the card's
+    "strategy that fits" is sized like its trade plan, or says it is not (audit 2026-10-28: "Size 34 shares" beside
+    "Buy 700 shares…"). No sizer (the AI-watchlist job): nothing is attached. Never raises."""
+    if sizer is None or not idea.get("preferred"):
+        return
+    row = next((s for s in idea.get("strategies") or [] if s.get("id") == idea["preferred"]), None)
+    tp = fit_trade_plan(plan)
+    if row is None:
+        return
+    if tp is None:
+        row["account_size"] = {"status": "unavailable", "reason": "the strategy carries no trade plan to size"}
+        return
+    try:
+        row["account_size"] = await sizer(tp)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001 — the idea still answers; its card says the size is unavailable
+        logger.warning("ideas: sizing %s for %s failed: %s", tp.get("plan_id"), idea.get("symbol"), e)
+        row["account_size"] = {"status": "unavailable", "reason": f"the sizing could not be worked out ({type(e).__name__})"}
 
 
 def oi_view(snaps: Dict[str, Any]) -> Dict[str, Any]:
@@ -160,11 +209,19 @@ def chartink_part(setup: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: ch.get(k) for k in ("scans", "count", "fetched_at")} if ch else None
 
 
+def cash_trade_plan(plan: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The idea's canonical TradePlan: its cash candidate's (the levels the row shows and its paper trade records)."""
+    return next((c.get("trade_plan") for c in plan.get("candidates") or [] if c.get("segment") == "cash" and c.get("trade_plan")), None)
+
+
 def idea_of(rank: int, setup: Dict[str, Any], plan: Dict[str, Any], snaps: Dict[str, Any], passed: Dict[str, Any], ms: int) -> Dict[str, Any]:
     sym = setup["symbol"]
     sm = plan.get("evidence_summary") or {}
+    tp = cash_trade_plan(plan)
     return {"rank": rank, "symbol": sym, "name": setup.get("name"), "source": setup.get("source") or "ai_scanner", "chartink": chartink_part(setup),
-            "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": fno_eligible(snaps), "plan_id": plan["plan_id"], "plan_status": plan["status"], "status_reasons": plan.get("status_reasons") or [],
+            "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": fno_eligible(snaps), "plan_id": plan["plan_id"],
+            "trade_plan_id": tp["plan_id"] if tp else None, "trade_plan": tp,
+            "plan_status": plan["status"], "status_reasons": plan.get("status_reasons") or [],
             "would_change_if": plan.get("would_change_if") or [], "headline": plan.get("headline"),
             "evidence_summary": {g: sm.get(g) for g in ev.GROUPS if g in sm}, "oi_view": oi_view(snaps), "preferred": plan.get("preferred"),
             "strategies": strategies_of(plan, sym), "data_as_of": plan.get("data_as_of"), "plan_inputs": plan_body(sym, passed), "build_ms": ms}
@@ -174,7 +231,7 @@ def failed_idea(rank: int, setup: Dict[str, Any], passed: Dict[str, Any], err: B
     msg = f"{type(err).__name__}: {str(err)[:200]}"
     return {"rank": rank, "symbol": setup["symbol"], "name": setup.get("name"), "source": setup.get("source") or "ai_scanner", "chartink": chartink_part(setup),
             "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": None,
-            "plan_id": None, "plan_status": "insufficient_data",
+            "plan_id": None, "trade_plan_id": None, "trade_plan": None, "plan_status": "insufficient_data",
             "status_reasons": [{"code": "idea_build_failed", "message": f"The strategies for this stock could not be built: {msg}"}],
             "would_change_if": ["idea_build_failed: The data sources answering; rebuild the plan from the Strategy Builder."], "headline": None,
             "evidence_summary": {}, "oi_view": None, "preferred": None, "strategies": [], "data_as_of": None,
@@ -182,7 +239,7 @@ def failed_idea(rank: int, setup: Dict[str, Any], passed: Dict[str, Any], err: B
 
 
 async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[str, Any], applied: List[str], now: datetime, today: date,
-                      chartink_limit: int = RULES["chartink"]["limit_default"]) -> Dict[str, Any]:
+                      chartink_limit: int = RULES["chartink"]["limit_default"], sizer: Optional[Sizer] = None) -> Dict[str, Any]:
     t0 = time.monotonic()
     template, _ = normalise_inputs({"underlying": "TEMPLATE", "direction": "bullish", "instrument": "all", **passed})
     use_chartink = bool((template or {}).get("include_chartink"))
@@ -212,7 +269,9 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
                                                        company_name(setup["symbol"]))
                     setup = {**setup, "name": setup.get("name") or name}
                     plan = await asyncio.to_thread(build_plan, plan_in, snaps, now, today)
-                    return idea_of(rank, setup, plan, snaps, passed, int((time.monotonic() - t1) * 1000))
+                    idea = idea_of(rank, setup, plan, snaps, passed, int((time.monotonic() - t1) * 1000))
+                    await size_fit(idea, plan, sizer)
+                    return idea
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001 — one stock failing must not lose the others: it becomes an insufficient_data idea
@@ -231,10 +290,11 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
         "selection": {"source": sel["source"], "scan_date": sel["scan_date"], "rule": sel["rule"], "considered": sel["considered"],
                       "selected": sel["selected"], "excluded": [{"symbol": x["symbol"], "reason": x["reason"], "code": x["code"]} for x in sel["excluded"]],
                       "excluded_note": "Only setups ranked above the last selected one are listed.", "limit": limit, "empty_reason": sel["empty_reason"],
-                      "gate": sel["gate"], "source_failures": sel["source_failures"], "chartink": sel.get("chartink")},
+                      "gate": sel["gate"], "source_failures": sel["source_failures"], "chartink": sel.get("chartink"),
+                      "scan_basis": sel.get("scan_basis")},
         "inputs": inputs, "ranking_note": RANKING_NOTE + (CHARTINK_RANKING if use_chartink else ""), "ideas": ideas, "elapsed_ms": int((time.monotonic() - t0) * 1000),
         "caveats": ["Conditional research ideas, not advice and not an instruction to trade.",
                     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
                     "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
-                    "Margin is not estimated (no source exists in this system) and is not the maximum loss.", "Nothing is sent to a broker."],
+                    MARGIN_CAVEAT, "Nothing is sent to a broker."],
     }

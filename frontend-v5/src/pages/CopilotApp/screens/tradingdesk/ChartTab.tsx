@@ -37,7 +37,7 @@ import { fmtDay, fmtPrice, fmtSigned } from "../trading/parts";
 import { AddToList } from "../workspace/PersonalLists";
 import { CandleChart, CandleLegend, PLAIN_CHART_WORDS, TRADER_CHART_WORDS, type ChartEvent } from "./CandleChart";
 import {
-  INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, fullChartHref, scanDateLabel, setupLabel, useDailyBars, useIntradayAvailability, useIntradayBars,
+  INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, withLiveBar, fullChartHref, scanDateLabel, setupLabel, useDailyBars, useIntradayAvailability, useIntradayBars,
   deskLevels, useDeskLevels, useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
@@ -45,7 +45,8 @@ import { useDesk } from "./context";
 import { suggestionsFor, useDidYouMean } from "./symbol-lookup-data";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
 import { largestGap, rsiZone, type DailyBar } from "./indicators";
-import { CardHead, RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
+import { RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
+import { Widget } from "./widget";
 import { TrustLine } from "./trust";
 
 type Timeframe = "1M" | "3M" | "6M";
@@ -221,7 +222,11 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
 }) {
   const { persona } = useDesk();
   const words = persona === "investor" ? PLAIN_CHART_WORDS : TRADER_CHART_WORDS;
-  const bars = state.data?.kind === "ok" ? state.data.bars : null;
+  const rawBars = state.data?.kind === "ok" ? state.data.bars : null;
+  // Kite's session as the last candle: the forming bar while the feed is live, the final snapshot's bar after the close until the adjusted series has that day.
+  const liveBar = useLiveOverlay(symbol, rawBars?.length ? rawBars[rawBars.length - 1].day.slice(0, 10) : null);
+  const bars = useMemo(() => withLiveBar(rawBars, liveBar), [rawBars, liveBar]);
+  const liveBarKind = liveBar && bars !== rawBars ? liveBar.kind : null;      // withLiveBar hands back the same array when it changed nothing
   const hasLevels = !!setup && (setup.entry != null || setup.stop != null || setup.target != null);
   const n = bars ? Math.min(SESSIONS[tf], bars.length) : 0;
   const shown = useMemo(() => (bars ? bars.slice(bars.length - n) : null), [bars, n]);
@@ -244,7 +249,7 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
         testId="desk-chart-locked"
         title="Charting is not enabled for this account"
         body="Daily candles and the indicators worked out from them need the charting feature. The scanner levels and the risk desk still show."
-        needs={["The `charting` feature allowlist for this account (GET /api/research/chart-live/{symbol}/ohlcv answers 403 without it)."]}
+        needs={["The `charting` feature switched on for this account (the daily candles are refused without it)."]}
       />
     );
   }
@@ -277,7 +282,8 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
       />
       <CandleLegend ema={ov.ema && !!lines} ema200={ov.ema && !!lines && lines.ema200.some((v) => v != null)} vwap={ov.vwap && !!lines} levels={levelsOn} events={inView.length} words={words} span={tf} />
       <span data-testid="desk-chart-source" className="cp-mono-note" style={{ lineHeight: 1.6, fontSize: 9.5 }}>
-        NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · end of day · last session {fmtDay(bars[bars.length - 1].day)}
+        NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · {liveBarKind ? "adjusted end of day to" : "end of day · last session"} {fmtDay(rawBars?.[rawBars.length - 1]?.day ?? bars[bars.length - 1].day)}
+        {liveBarKind ? ` · last bar ${fmtDay(bars[bars.length - 1].day)} from Kite (${liveBarKind === "live" ? "live, still forming" : "the close"}), not yet in the adjusted series; the lines and indicators stop at the adjusted session` : ""}
         {n < SESSIONS[tf] ? ` · only ${n} sessions on record, all shown` : ""}
         {ok?.partial ? " · the data platform dropped some incomplete sessions from this series" : ""}
         {live?.adjustment_break
@@ -1036,7 +1042,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       <KV testId="desk-def-setup" k={plain ? "What the scanner found" : "Scanner setup (rules, not a prediction)"} v={setup ? setupLabel(setup, plain) : dash}
         why={setup ? (setup.why ?? "The scanner stored no rule text for this setup.") : "Not on today’s scanner, so there is no rules-based setup."} />
       <KV testId="desk-def-window" k={plain ? "Holding time" : "Holding window"} v={setup && (setup.daysMin != null || setup.daysMax != null) ? `${setup.daysMin ?? "—"}–${setup.daysMax ?? "—"} days` : dash}
-        why={setup && (setup.daysMin != null || setup.daysMax != null) ? "The pick’s own window." : "Only the scanner’s picks carry a holding window."} />
+        why={setup && (setup.daysMin != null || setup.daysMax != null) ? "The scanner idea’s own window." : "Only the scanner’s ideas with targets carry a holding window."} />
       <KV testId="desk-def-odds" k={plain ? "Chance of +5% next day" : "P(+5% next session)"} v={run ? `for ${fmtDay(run.target_session)}` : dash}
         why="The move-odds model’s estimate that the next session’s high reaches the last close plus 5%. One session only — never a multi-day horizon." />
       <KV testId="desk-def-record" k={plain ? "Past-record outcome" : "Historical outcome"} v={`within ${RECORD_HORIZON} sessions`}
@@ -1177,13 +1183,13 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   // ── 7 · levels ──
   const s7 = (
     <>
-      <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner pick" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
+      <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner idea" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
         why={lv.source === "scanner" ? "The scanner has levels for this stock, so they are shown instead of the rule’s." : lv.source === "rule" ? lv.rule?.label : lv.reason ?? undefined} />
       <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(lv.entry)} why={lv.entry == null ? lv.reason ?? "No entry." : lv.source === "rule" ? "The last close." : undefined} />
       <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(lv.stop)}
         why={lv.stop == null ? lv.reason ?? "No stop." : lv.source === "rule" ? (lv.rule?.stopBasis === "support20" ? "The 20-session low, closer than the ATR stop." : `${fmtNum(lv.rule?.constants.atr_multiple ?? 0, 1)} × ATR(${lv.rule?.constants.atr_period ?? 14}) below the entry.`) : undefined} />
       <KV testId="desk-lvl-target" k="Target" v={fmtPrice(lv.target)}
-        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s picks carry a target." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
+        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s ideas with targets carry one." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
       <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={lv.riskReward != null ? `${fmtNum(lv.riskReward, 1)} : 1` : dash} />
       <span style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)", paddingTop: 4 }}>
         {lv.source === "rule" ? `${lv.rule?.label}. ` : lv.source === "scanner" ? "Hypothetical levels from the scanner. " : ""}
@@ -1192,7 +1198,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       </span>
       <button type="button" data-testid="desk-lvl-strategy" onClick={() => openStrategy(symbol, { kind: "chart", bucket: setup?.bucket ?? null, date: scanIso })}
         style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12.5, color: "var(--mint)", fontFamily: "var(--sans)" }}>
-        Build a strategy for {symbol} ›
+        Chart Analysis for {symbol} ›
       </button>
     </>
   );
@@ -1315,16 +1321,15 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   const bodies: Record<SectionKey, ReactNode> = { definition: s1, model: s2, technical: s3, fundamentals: s4, events: s5, liquidity: s6, levels: s7, validation: s8, contra: s9, freshness: s10 };
 
   return (
-    <section data-testid="desk-detail" className="cp-card flex min-w-0 flex-col">
-      {phone ? (
-        <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--cp-line)" }}>
-          <span data-testid="desk-detail-title" className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>{plain ? "Everything about this idea" : "Opportunity detail"}</span>
-        </div>
-      ) : (
-        <CardHead num="03" title={plain ? "Everything about this idea" : "Opportunity detail"} testId="desk-detail-title">
-          <span className="cp-mono-note" style={{ fontSize: 9.5 }}>{company ? `${sym} · ${company}` : sym}</span>
-        </CardHead>
-      )}
+    <Widget
+      id={phone ? "chart.detail.phone" : "chart.detail"}
+      testId="desk-detail"
+      num={phone ? undefined : "03"}
+      title={plain ? "Everything about this idea" : "Opportunity detail"}
+      headTestId="desk-detail-title"
+      headPad={phone ? "12px 14px" : undefined}
+      actions={phone ? undefined : <span className="cp-mono-note" style={{ fontSize: 9.5 }}>{company ? `${sym} · ${company}` : sym}</span>}
+    >
       <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "10px 18px 0" }}>
         <span style={{ fontSize: 12, color: "var(--cp-ink-3)", flex: "1 1 200px" }}>{plain ? "Short answers first; open a section for the detail." : "Ten sections, summaries first; open one for its evidence."}</span>
         <button
@@ -1352,13 +1357,17 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
           method="Each section names its own source; missing figures show — with the reason"
         />
       </div>
-    </section>
+    </Widget>
   );
 }
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
-export default function ChartTab() {
+/**
+ * `riskPanel`: Trade Desk › Chart Analysis › Live chart replaces the risk desk's capital × risk-% calculator (the plan's
+ * §2b.1: a size never comes from a browser calculator) with the paper ticket sized by the risk service's `account_size`.
+ */
+export default function ChartTab({ riskPanel }: { riskPanel?: (symbol: string) => ReactNode } = {}) {
   const { mobile } = useCopilotShell();
   const { symbol: chosen, openTab, persona } = useDesk();
   const plain = persona === "investor";
@@ -1418,7 +1427,7 @@ export default function ChartTab() {
       mode="eod"
       asOf={bars?.length ? fmtDay(bars[bars.length - 1].day) : null}
       maker="rules"
-      method={live ? "Indicators: stock_features_daily engine (calculator.py) · scanner setups: rules" : "Scanner setups: rules"}
+      method={live ? "Indicators: the daily stock-features engine · scanner setups: rules" : "Scanner setups: rules"}
       status={barsQ.isError || liveQ.isError ? "failed" : null}
     />
   );
@@ -1444,14 +1453,13 @@ export default function ChartTab() {
         <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
           <ChartControls tf={tf} setTf={setTf} ov={ov} setOv={setOv} hasLevels={hasLevels} small />
         </div>
-        <section data-testid="desk-chart-card" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: 12 }}>
+        <Widget id="chart.card.phone" testId="desk-chart-card" title="Price chart" headPad="10px 12px" bodyStyle={{ gap: 10, padding: 12 }}>
           {body}
           <ChartToolbar symbol={symbol} company={company} setup={setup} iv={ivNow} setIv={setIv} enabledIntervals={enabledIntervals} />
           {trust}
-        </section>
+        </Widget>
 
-        <section data-testid="desk-analysis" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: 14 }}>
-          <span className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>03</span> · AI chart analysis</span>
+        <Widget id="chart.analysis.phone" testId="desk-analysis" num="03" title="AI chart analysis" headPad="12px 14px" bodyStyle={{ gap: 10, padding: 14 }}>
           <div data-testid="desk-chart-pills" className="flex flex-wrap" style={{ gap: 6 }}>
             {setup ? (
               <>
@@ -1470,12 +1478,11 @@ export default function ChartTab() {
           ) : (
             <NotOnScanner symbol={symbol} scanError={scan.isError} date={date} />
           )}
-        </section>
+        </Widget>
 
-        <section className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: "12px 6px" }}>
-          <span className="cp-eyebrow" style={{ padding: "0 8px" }}>Historical performance · similar setups</span>
+        <Widget id="chart.history.phone" title="Historical performance · similar setups" headPad="12px 14px" bodyStyle={{ gap: 10, padding: "12px 6px" }}>
           <HistoryTiles setup={setup} count={3} phone />
-        </section>
+        </Widget>
 
         <TradeScenarioCard symbol={symbol} setup={setup} />
 
@@ -1497,10 +1504,16 @@ export default function ChartTab() {
       style={{ gridTemplateColumns: sideBySide ? "minmax(0,7fr) minmax(0,5fr)" : "minmax(0,1fr)", gap: 16, alignItems: "start" }}
     >
       <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-        <section ref={setCard} data-testid="desk-chart-card" className="cp-card flex min-w-0 flex-col">
-          <CardHead num="03" title="AI Chart intelligence" padding="9px 12px 9px 18px" testId="desk-chart-title">
-            <ChartControls tf={tf} setTf={setTf} ov={ov} setOv={setOv} hasLevels={hasLevels} />
-          </CardHead>
+        <Widget
+          id="chart.card"
+          cardRef={setCard}
+          testId="desk-chart-card"
+          num="03"
+          title="AI Chart intelligence"
+          headPad="9px 12px 9px 18px"
+          headTestId="desk-chart-title"
+          actions={<ChartControls tf={tf} setTf={setTf} ov={ov} setOv={setOv} hasLevels={hasLevels} />}
+        >
           <HeadRow symbol={symbol} setup={setup} bars={bars} company={company} />
           <div className="flex flex-col" style={{ gap: 10, padding: "8px 18px 14px" }}>
             {body}
@@ -1531,10 +1544,10 @@ export default function ChartTab() {
           </div>
           <HistoryTiles setup={setup} count={4} />
           <div style={{ padding: "10px 18px 12px", borderTop: "1px solid var(--cp-line)", background: "var(--bg-0)", borderRadius: "0 0 14px 14px" }}>{trust}</div>
-        </section>
+        </Widget>
         <OpportunityDetail symbol={symbol} setup={setup} bars={bars} barsQ={barsQ} liveQ={liveQ} company={company} date={date} />
       </div>
-      <RiskDesk symbol={symbol} setup={setup} bars={bars} />
+      {riskPanel ? riskPanel(symbol) : <RiskDesk symbol={symbol} setup={setup} bars={bars} />}
     </div>
   );
 }

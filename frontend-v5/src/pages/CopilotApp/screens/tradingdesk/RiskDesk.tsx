@@ -12,7 +12,8 @@
  *   trade scenario          GET /api/positional/scenario (useScenario): the one sizing rule, on the server
  *                           (PRD §8.5): per-share downside and upside, reward : risk, quantity under the risk
  *                           budget, the allocation cap, a maximum quantity and the lot size, gross exposure,
- *                           costs (strategy_engine model: 0.05% slippage + ₹20 brokerage per side, editable),
+ *                           costs (the desk cost card desk-cost-v2: 0.05% slippage + ₹20 brokerage per side, editable,
+ *                           plus STT, exchange, SEBI, stamp duty and GST),
  *                           loss at the stop and profit at the target before and after costs. A read: it stores
  *                           nothing and sends nothing to a broker.
  *   your portfolio (§8.6)   GET /api/portfolio/holdings-enriched (useHoldingsEnriched): the stock and its sector
@@ -36,13 +37,16 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useHoldingsEnriched } from "@/hooks/use-portfolio";
 import { StockName } from "../../components/EntityIcon";
 import { Btn, ErrorBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, type Tone } from "../../components/ui";
+import { useLiveOverlay, type OverlayQuote } from "../../lib/useLiveQuotes";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { setupLabel, useDeskLevels, useScenario, useStockOdds, type DeskLevels, type Scenario, type ScenarioInputs } from "./chart-data";
 import { useDesk } from "./context";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
-import { useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
+import { costsBreakdownText, maxHoldFor, maxHoldNote, readCostsBreakdown, useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 import { largestGap, type DailyBar } from "./indicators";
+import { RiskReduceOffer } from "./RiskReduce";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 
 const CAPITALS = [
   { value: "200000", label: "₹2L", id: "2l" },
@@ -123,21 +127,6 @@ export function Segmented<T extends string | number>({ label, value, options, on
           </button>
         );
       })}
-    </div>
-  );
-}
-
-/** A module card's header bar (design-spec §1): "<mint>NN</mint> · Title" on bg-0, anything else pushed right. */
-export function CardHead({ num, title, children, padding = "13px 18px", testId }: { num: string; title: string; children?: ReactNode; padding?: string; testId?: string }) {
-  return (
-    <div
-      className="flex flex-wrap items-center"
-      style={{ gap: "8px 12px", padding, borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)", borderRadius: "14px 14px 0 0" }}
-    >
-      <span data-testid={testId} className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>
-        <span style={{ color: "var(--mint)" }}>{num}</span> · {title}
-      </span>
-      {children != null && <div className="flex flex-wrap items-center" style={{ gap: 8, marginLeft: "auto" }}>{children}</div>}
     </div>
   );
 }
@@ -516,7 +505,9 @@ function ScenarioOutputs({ st }: { st: ScenarioState }) {
       <OutRow testId="desk-scn-out-qty" k="Illustrative quantity" v={z ? `${fmtNum(z.quantity)} shares` : "—"} sub={z ? `Limited by ${BINDING[z.binding] ?? z.binding}: risk budget ${fmtINR(z.risk_budget)} → ${fmtNum(z.qty_by_risk)} shares${z.qty_by_allocation != null ? `; ${fmtNum(z.max_alloc_pct)}% cap → ${fmtNum(z.qty_by_allocation)}` : ""}${z.qty_by_max != null ? `; max ${fmtNum(z.qty_by_max)}` : ""}${z.lot_size > 1 ? `; lots of ${fmtNum(z.lot_size)}` : ""}.` : undefined} />
       <OutRow testId="desk-scn-out-gross" k="Gross exposure" v={z ? fmtINR(z.gross_exposure) : "—"} sub={z?.allocation_pct != null ? `${fmtPct(z.allocation_pct, { digits: 1 })} of capital` : undefined} />
       <OutRow testId="desk-scn-out-costs" k="Estimated costs · round trip" v={c ? `${fmtINR(c.round_trip_at_stop)} at the stop · ${c.round_trip_at_target != null ? `${fmtINR(c.round_trip_at_target)} at the target` : "no target"}` : "—"}
-        sub={`${plainNum(s.cost_model.slippage_pct_per_side)}% slippage + ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side (strategy_engine cost model); taxes not included.`} />
+        sub={c?.breakdown_at_stop
+          ? `At the stop: ${costsBreakdownText(readCostsBreakdown(c.breakdown_at_stop), (n) => fmtPrice(n))}. ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side is a desk assumption, not a broker's tariff; ${plainNum(s.cost_model.slippage_pct_per_side)}% slippage a side also covers the spread; DP charges and income tax are not included (${s.cost_model.version ?? "desk cost card"}).`
+          : `${plainNum(s.cost_model.slippage_pct_per_side)}% slippage + ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side; taxes not included.`} />
       <OutRow testId="desk-scn-out-loss" k="Loss at the stop" v={o ? `−${fmtINR(o.loss_at_stop_net)} after costs` : "—"} sub={o ? `−${fmtINR(o.loss_at_stop)} before costs` : undefined} />
       <OutRow testId="desk-scn-out-profit" k="Profit at the target" v={o?.profit_at_target_net != null ? `${fmtINR(o.profit_at_target_net, { signed: true })} after costs` : "—"} sub={o?.profit_at_target != null ? `${fmtINR(o.profit_at_target, { signed: true })} before costs` : "No target entered."} />
       {s.warnings.map((w) => <li key={w.code} data-testid={`desk-scn-warn-${w.code}`} style={{ fontSize: 12, color: "var(--amber)", paddingTop: 4 }}>{w.message}</li>)}
@@ -527,10 +518,11 @@ function ScenarioOutputs({ st }: { st: ScenarioState }) {
 // ── range bar ────────────────────────────────────────────────────────────
 
 /**
- * Stop → entry (red, flex 1) and entry → target (green, flex = reward ÷ risk), with the last close marked at its
- * price. Without a target only the red part is drawn.
+ * Stop → entry (red, flex 1) and entry → target (green, flex = reward ÷ risk), with the price marked at its
+ * place: Kite's live price while the feed is LIVE, otherwise the last close. Without a target only the red part is drawn.
  */
-function RangeBar({ entry, stop, target, ltp, plain }: { entry: number; stop: number; target: number | null; ltp: number | null; plain: boolean }) {
+function RangeBar({ entry, stop, target, ltp, live, plain }: { entry: number; stop: number; target: number | null; ltp: number | null; live: OverlayQuote | null; plain: boolean }) {
+  const isLive = live?.kind === "live";
   const rr = target != null && target > entry ? (target - entry) / (entry - stop) : null;
   const red = rr != null ? 1 / (1 + rr) : 1;
   let at: number | null = null;
@@ -551,11 +543,12 @@ function RangeBar({ entry, stop, target, ltp, plain }: { entry: number; stop: nu
           <div
             data-testid="desk-risk-ltp"
             data-at={at.toFixed(4)}
-            title={`Last close ${fmtPrice(ltp)}${where}`}
+            data-live={isLive ? "true" : undefined}
+            title={`${isLive ? "Live price (Kite)" : "Last close"} ${fmtPrice(ltp)}${where}`}
             style={{ position: "absolute", top: 0, left: `${at * 100}%`, transform: "translateX(-1px)", display: "flex", flexDirection: "column", alignItems: at > 0.75 ? "flex-end" : "flex-start" }}
           >
             <span className="cp-num" style={{ position: "absolute", top: -1, [at > 0.75 ? "right" : "left"]: 5, fontSize: 9.5, lineHeight: 1.2, whiteSpace: "nowrap", color: "var(--cp-ink)" }}>
-              Close {fmtPrice(ltp)}{where}
+              {isLive ? "Live" : "Close"} {fmtPrice(ltp)}{where}
             </span>
             <span style={{ position: "absolute", top: 12, left: 0, width: 2, height: 18, background: "var(--cp-ink)" }} />
           </div>
@@ -838,16 +831,23 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
   const stop = lv.stop;
   const target = lv.target;
   const rr = lv.riskReward;
-  const ltp = bars?.length ? bars[bars.length - 1].close : setup?.close ?? null;
+  // Kite's live price while the feed is LIVE (or the closing snapshot of a session the bars do not have yet); else the last end-of-day close.
+  const live = useLiveOverlay(sym, bars?.length ? bars[bars.length - 1].day : null);
+  const ltp = live ? live.ltp : bars?.length ? bars[bars.length - 1].close : setup?.close ?? null;
   const record = f.record;
   const capitalOpt = CAPITALS.find((c) => c.value === st.fields.capital)?.value ?? ("" as string);
   const riskOpt = RISKS.find((r) => r.value === st.fields.riskPct)?.value ?? ("" as string);
 
   return (
-    <section data-testid="desk-risk" data-layout="desk" className="cp-card flex min-w-0 flex-col">
-      <CardHead num="05" title="AI Risk desk" testId="desk-risk-title">
-        {setup && <span data-testid="desk-risk-status" data-status={setup.status}><Pill tone={RISK_STATUS[setup.status].tone}>{RISK_STATUS[setup.status].label}</Pill></span>}
-      </CardHead>
+    <Widget
+      id="risk.desk"
+      testId="desk-risk"
+      data={{ "data-layout": "desk" }}
+      num="05"
+      title="AI Risk desk"
+      headTestId="desk-risk-title"
+      actions={setup ? <span data-testid="desk-risk-status" data-status={setup.status}><Pill tone={RISK_STATUS[setup.status].tone}>{RISK_STATUS[setup.status].label}</Pill></span> : undefined}
+    >
 
       <div className="flex flex-col" style={{ gap: 16, padding: "16px 18px" }}>
         <div className="flex flex-wrap items-end justify-between" style={{ gap: "8px 16px" }}>
@@ -862,7 +862,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
         </div>
 
         {lv.source && entry != null && stop != null && entry > stop ? (
-          <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} plain={plain} />
+          <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} live={live} plain={plain} />
         ) : (
           <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
             {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner suggests an entry, stop and target only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}{lv.reason ? ` (${lv.reason})` : ""}
@@ -874,7 +874,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           </span>
         )}
         {setup && target == null && entry != null && (
-          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s picks carry one.</span>
+          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s ideas with a target carry one.</span>
         )}
 
         <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
@@ -927,11 +927,11 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           mode="eod"
           asOf={scan.data?.signalDate ? fmtDay(scan.data.signalDate) : scan.data?.watchAsOf ? fmtDay(scan.data.watchAsOf) : null}
           maker="rules"
-          method={st.q.data ? `PRD §8.5 sizing · costs ${plainNum(st.q.data.cost_model.slippage_pct_per_side)}% + ₹${fmtNum(st.q.data.cost_model.brokerage_inr_per_side)} a side (strategy_engine)` : "PRD §8.5 sizing on the server"}
+          method={st.q.data ? `PRD §8.5 sizing after costs · ${plainNum(st.q.data.cost_model.slippage_pct_per_side)}% + ₹${fmtNum(st.q.data.cost_model.brokerage_inr_per_side)} a side + STT, exchange, SEBI, stamp duty and GST (${st.q.data.cost_model.version ?? "desk cost card"})` : "PRD §8.5 sizing on the server"}
           status={st.q.isError ? "failed" : null}
         />
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -948,13 +948,16 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
   const target = lv.target;
   const rr = lv.riskReward;
   return (
-    <section data-testid="desk-risk" data-layout="phone" className="cp-card flex min-w-0 flex-col">
-      <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--cp-line)" }}>
-        <span data-testid="desk-risk-title" className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>05</span> · Trade scenario</span>
-        <span className="cp-eyebrow" style={{ marginLeft: "auto", fontSize: 9.5 }}>
-          {plain ? "Reward for risk" : "Reward / risk"} <span data-testid="desk-risk-rr" style={{ fontFamily: "var(--display)", fontSize: 18, letterSpacing: 0, textTransform: "none", color: rr != null ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>{rrText(rr)}</span>
-        </span>
-      </div>
+    <Widget
+      id="risk.scenario.phone"
+      testId="desk-risk"
+      data={{ "data-layout": "phone" }}
+      num="05"
+      title="Trade scenario"
+      headTestId="desk-risk-title"
+      headPad="12px 14px"
+      meta={<>{plain ? "Reward for risk" : "Reward / risk"} <span data-testid="desk-risk-rr" style={{ fontFamily: "var(--display)", fontSize: 18, letterSpacing: 0, textTransform: "none", color: rr != null ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>{rrText(rr)}</span></>}
+    >
       <div className="flex flex-col" style={{ gap: 12, padding: 14 }}>
         <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
           <StatTile k={plain ? "Chance of +5%" : "Move probability"} v={f.pValue} s={f.pNote} tone={f.pTone} size={28} testId="desk-risk-p5" />
@@ -977,7 +980,7 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
         <DeskActions symbol={sym} setup={setup} st={st} phone />
         <TrustLine testId="desk-risk-trust" source="Positional scanner levels · scenario route (server)" mode="eod" maker="rules" method="PRD §8.5 sizing on the server" status={st.q.isError ? "failed" : null} />
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -1029,6 +1032,8 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
   else if (!s || !sent) paperWhy = st.read.problems.length || (st.current && st.q.data?.valid === false) ? "Fix the scenario’s inputs first." : "Working out the quantity…";
   else if (qty == null || qty < 1) paperWhy = "The risk budget fits no whole share; pick more capital or a larger risk.";
   else {
+    // The setup's holding window (the scanner's timeframe_days_max) is the time exit: closed at that session's close.
+    const maxHold = maxHoldFor(setup.daysMax);
     paperBody = {
       symbol,
       quantity: qty,
@@ -1036,8 +1041,9 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
       stop_price: sent.stop,
       target_price: sendTarget,
       source: { kind: "scanner", ...(setup.bucket ? { bucket: setup.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
+      ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
     };
-    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
+    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${maxHoldNote(maxHold)}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
   }
 
   const level = setup?.trigger ?? setup?.entry ?? null;
@@ -1084,6 +1090,10 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
         </Outcome>
       )}
       {paperDone?.isError && <Outcome ok={false} testId="desk-risk-paper-error">Not added — {writeProblem(paperDone.error)}</Outcome>}
+      {paperDone?.isError && (
+        <RiskReduceOffer error={paperDone.error} testId="desk-risk-paper-reduce"
+          onAccept={(n) => { const last = paperDone.variables; if (last) paper.mutate({ ...last, quantity: n }); }} />
+      )}
       {alertDone?.isSuccess && (
         <Outcome ok testId="desk-risk-alert-done" onOpen={() => openTab("portfolio")} openLabel="See your alerts ›">
           Alert set: {symbol} above {fmtPrice(alertDone.variables?.level ?? null)}, checked against end-of-day highs.

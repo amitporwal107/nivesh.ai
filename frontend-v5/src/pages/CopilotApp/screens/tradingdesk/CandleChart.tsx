@@ -54,6 +54,59 @@ export interface ChartEvent {
   title: string;
 }
 
+/** A signal marker: a pill at the top of the price pane with a dotted line down to its bar (or, `below`, a tag under the
+ *  candles). `at` is a bar's `day` (its ISO time on an intraday chart); a marker whose bar is not drawn is skipped. */
+export interface ChartMarker {
+  at: string;
+  label: string;
+  /** A CSS colour (a var(--…) token). */
+  color: string;
+  title: string;
+  /** The toggle it belongs to (data-group), e.g. pattern / confirmation / volume / fno. */
+  group: string;
+}
+
+/** Extra horizontal levels (T1, T2, …): a dashed line, its value in the gutter and its name at the left. */
+export interface ChartLine { key: string; label: string; value: number; color: string }
+
+/** One signed value of a pane, drawn from the pane's zero line in its own colour (null: a gap). */
+export interface PaneBar { value: number | null; color: string }
+
+/** A pane under the volume strip on the same time axis and cursor (Live chart: futures OI, options). Bars in `bars` are
+ *  series side by side in each slot, each aligned to the chart's bars; `line` has its own scale, its last value in the
+ *  gutter. `empty` is drawn instead when there is nothing to draw, saying why. */
+export interface ChartPane {
+  key: string;
+  title: string;
+  bars?: PaneBar[][];
+  line?: { values: Array<number | null>; color: string; format: (v: number) => string } | null;
+  empty?: string | null;
+  /** Text for the second readout line at bar i, or null. */
+  readout?: (i: number) => string | null;
+}
+
+/** A market event under a bar: a lettered chip at the foot of the price pane (R results, F filing, C corporate action …). */
+export interface ChartGlyph { key: string; at: string; glyph: string; color: string; title: string; group: string; kind: string }
+
+/** The live chart's extras (Trade Desk › Chart Analysis › Live chart, the owner's design of 28 Oct). All optional. */
+export interface ChartExtras {
+  /** Panes under the volume strip (stacked, same time axis). */
+  panes?: ChartPane[];
+  /** Event chips at the foot of the price pane. */
+  glyphs?: ChartGlyph[];
+  /** The entry range, shaded; drawn only when low < high. */
+  band?: { low: number; high: number; label: string } | null;
+  lines?: ChartLine[];
+  markers?: ChartMarker[];
+  below?: ChartMarker[];
+  /** An open circle on the last close. */
+  lastDot?: boolean;
+  /** A note at the right edge of the plot, e.g. "VALID UNTIL 29 OCT 15:30". */
+  rightNote?: string | null;
+  /** Names on the level lines (STOP, ENTRY, T1 …) at the left of the plot. */
+  lineNames?: boolean;
+}
+
 /** What the legend and the level lines are called (trader or plain wording, design-spec §10). */
 export interface ChartWords {
   ema20: string;
@@ -111,7 +164,10 @@ function spread<T extends { y: number; h: number }>(items: T[], top: number, bot
   return out;
 }
 
-export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS, intraday = false }: {
+/** Pill width in viewBox units for a label (monospace 8.5). */
+const pillW = (label: string) => label.length * 5.3 + 10;
+
+export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS, intraday = false, extras }: {
   bars: DailyBar[];
   name: string;
   overlays: ChartOverlays;
@@ -122,38 +178,52 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
   words?: ChartWords;
   /** Bars are intraday: `day` is an ISO time with the IST offset and the labels show the time, not just the date. */
   intraday?: boolean;
+  extras?: ChartExtras;
 }) {
   const label = (d: string) => (intraday ? `${fmtDay(d.slice(0, 10))} ${d.slice(11, 16)}` : fmtDay(d));
   const [active, setActive] = useState<number | null>(null);
   const n = bars.length;
 
   const W = compact ? 330 : 540;
-  const priceH = compact ? 160 : 230;
+  const markers = extras?.markers ?? [];
+  const below = extras?.below ?? [];
+  const pillH = 12;
+  const head = markers.length ? 2 * (pillH + 3) + 4 : 0;          // two rows of pills above the candles
+  const priceH = (compact ? 160 : 230) + head;
   const gap = 6;
   const volH = compact ? 28 : 36;
+  const belowH = below.length ? 16 : 0;
   const gutter = compact ? 46 : 50;
-  const H = priceH + gap + volH;
+  const panes = extras?.panes ?? [];
+  const glyphs = extras?.glyphs ?? [];
+  const paneH = compact ? 48 : 62;
+  const panesTop = priceH + gap + volH + belowH + (panes.length ? 8 : 0);
+  const H = priceH + gap + volH + belowH + (panes.length ? 8 + panes.length * (paneH + 6) : 0);
   const plotW = W - gutter;
   const volTop = priceH + gap;
   const font = compact ? 8.5 : 9;
 
   const levels = overlays.levels ?? null;
-  const levelList: Array<{ key: "target" | "entry" | "stop"; label: string; value: number; color: string }> = [];
+  const levelList: Array<{ key: string; label: string; value: number; color: string }> = [];
   if (levels?.target != null) levelList.push({ key: "target", label: words.target, value: levels.target, color: UP });
   if (levels?.entry != null) levelList.push({ key: "entry", label: words.entry, value: levels.entry, color: ENTRY });
   if (levels?.stop != null) levelList.push({ key: "stop", label: words.stop, value: levels.stop, color: DOWN });
+  for (const l of extras?.lines ?? []) if (Number.isFinite(l.value)) levelList.push(l);
+  const band = extras?.band && extras.band.low < extras.band.high ? extras.band : null;
 
   const lineValues = [overlays.ema20, overlays.ema50, overlays.ema200, overlays.vwap20].flatMap((s) => (s ?? []).filter((v): v is number => v != null && Number.isFinite(v)));
-  const lo = Math.min(...bars.map((b) => b.low), ...lineValues, ...levelList.map((l) => l.value));
-  const hi = Math.max(...bars.map((b) => b.high), ...lineValues, ...levelList.map((l) => l.value));
+  const bandValues = band ? [band.low, band.high] : [];
+  const lo = Math.min(...bars.map((b) => b.low), ...lineValues, ...levelList.map((l) => l.value), ...bandValues);
+  const hi = Math.max(...bars.map((b) => b.high), ...lineValues, ...levelList.map((l) => l.value), ...bandValues);
   const room = (hi - lo || hi || 1) * 0.06;
   const min = lo - room;
   const range = hi + room - min;
+  const plotH = priceH - head;
   const maxVol = Math.max(...bars.map((b) => b.volume), 1);
 
   const slot = plotW / Math.max(n, 1);
   const x = (i: number) => (i + 0.5) * slot;
-  const y = (v: number) => priceH - ((v - min) / range) * priceH;
+  const y = (v: number) => head + plotH - ((v - min) / range) * plotH;
   const bodyW = Math.max(1, slot * 0.62);
   const ticks = niceTicks(lo, hi, compact ? 4 : 5);
 
@@ -166,11 +236,27 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
       { key: "last", y: y(last.close), h: tagH, text: gutterPrice(last.close), color: UP },
       ...levelList.map((l) => ({ key: l.key, y: y(l.value), h: 11, text: gutterPrice(l.value), color: l.color })),
     ],
-    0,
+    head,
     priceH,
   );
   const tagAt = gutterItems.find((g) => g.key === "last")?.y ?? y(last.close);
-  const axis = levelList.length ? [] : ticks.filter((v) => Math.abs(y(v) - tagAt) > tagH / 2 + 6 && y(v) > 5 && y(v) < priceH - 3);
+  const axis = levelList.length ? [] : ticks.filter((v) => Math.abs(y(v) - tagAt) > tagH / 2 + 6 && y(v) > head + 5 && y(v) < priceH - 3);
+
+  // Pills: placed left to right, each in the first of two rows where it does not overlap the previous pill of that row.
+  const dayIndex = new Map(bars.map((b, i) => [b.day, i] as const));
+  const rowEnd = [-Infinity, -Infinity];
+  const placed = markers
+    .map((m) => ({ m, i: dayIndex.get(m.at) }))
+    .filter((p): p is { m: ChartMarker; i: number } => p.i != null)
+    .sort((a, b) => a.i - b.i)
+    .map(({ m, i }) => {
+      const w = pillW(m.label);
+      const cx = Math.min(Math.max(x(i), w / 2), plotW - w / 2);
+      const row = cx - w / 2 > rowEnd[0] + 2 ? 0 : cx - w / 2 > rowEnd[1] + 2 ? 1 : 0;
+      rowEnd[row] = cx + w / 2;
+      return { m, i, w, cx, top: 2 + row * (pillH + 3) };
+    });
+  const belowTop = volTop + volH + 3;
 
   const onMove = (e: PointerEvent<SVGSVGElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -197,6 +283,18 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
         {label(shown.day)} · O {fmtPrice(shown.open)} · H {fmtPrice(shown.high)} · L {fmtPrice(shown.low)} · C {fmtPrice(shown.close)} · Vol {fmtShares(shown.volume)}
         {shownEvent ? ` · ${shownEvent.count} ${shownEvent.count === 1 ? "filing" : "filings"}` : ""}
       </span>
+      {(panes.length > 0 || glyphs.length > 0) && (() => {
+        const idx = active ?? n - 1;
+        const parts = [
+          ...panes.map((p) => p.readout?.(idx) ?? null),
+          ...glyphs.filter((g) => g.at === bars[idx].day).map((g) => `${g.glyph} ${g.title}`),
+        ].filter((t): t is string => !!t);
+        return parts.length ? (
+          <span data-testid="desk-chart-readout-panes" aria-live="polite" className="cp-num" style={{ fontSize: compact ? 10 : 10.5, color: "var(--cp-ink-3)", lineHeight: 1.5, marginTop: -4 }}>
+            {parts.join(" · ")}
+          </span>
+        ) : null;
+      })()}
       <svg
         data-testid="desk-chart-svg"
         data-compact={compact}
@@ -212,9 +310,17 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
         onBlur={() => setActive(null)}
       >
         {/* grid */}
-        {ticks.map((v) => (
+        {ticks.filter((v) => y(v) >= head).map((v) => (
           <line key={v} x1={0} y1={y(v)} x2={plotW} y2={y(v)} style={{ stroke: "var(--line-2)" }} strokeWidth={0.6} />
         ))}
+
+        {/* the entry range */}
+        {band && (
+          <g data-testid="desk-band" data-low={band.low} data-high={band.high}>
+            <title>{`${band.label} ${fmtPrice(band.low)}–${fmtPrice(band.high)}`}</title>
+            <rect x={0} y={y(band.high)} width={plotW} height={Math.max(1, y(band.low) - y(band.high))} style={{ fill: "color-mix(in srgb, var(--cp-indigo) 14%, transparent)" }} />
+          </g>
+        )}
 
         {/* volume */}
         {bars.map((b, i) => {
@@ -249,6 +355,7 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
               <title>{`${l.label} ${fmtPrice(l.value)}`}</title>
               <line x1={0} y1={y(l.value)} x2={plotW} y2={y(l.value)} style={{ stroke: l.color }} strokeWidth={1} strokeDasharray="4 4" />
               <text x={plotW + 4} y={at + 3} style={{ ...gutterText, fill: l.color }}>{gutterPrice(l.value)}</text>
+              {extras?.lineNames && <text data-testid={`desk-level-name-${l.key}`} x={3} y={y(l.value) - 3} style={{ ...gutterText, fontSize: font - 0.5, letterSpacing: "0.08em", fill: l.color }}>{l.label.toUpperCase()}</text>}
             </g>
           );
         })}
@@ -266,6 +373,39 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
           </text>
         </g>
 
+        {/* the last price: an open circle */}
+        {extras?.lastDot && <circle data-testid="desk-last-dot" cx={x(n - 1)} cy={y(last.close)} r={3.6} style={{ fill: "var(--bg-1)", stroke: UP }} strokeWidth={1.6} />}
+
+        {/* the validity note at the right edge */}
+        {extras?.rightNote && (
+          <text data-testid="desk-right-note" x={plotW - 4} y={head + 11} textAnchor="end" style={{ ...gutterText, fontSize: font - 0.5, letterSpacing: "0.08em", fill: "var(--cp-ink-3)" }}>{extras.rightNote}</text>
+        )}
+
+        {/* signal markers: pills with a dotted drop-line to the bar */}
+        {placed.map(({ m, i, w, cx, top }) => (
+          <g key={`m-${m.group}-${m.label}-${m.at}`} data-testid="desk-signal-marker" data-group={m.group} data-label={m.label} data-at={m.at}>
+            <title>{m.title}</title>
+            <line x1={x(i)} y1={top + pillH} x2={x(i)} y2={y(bars[i].high) - 2} style={{ stroke: m.color }} strokeWidth={0.9} strokeDasharray="1.5 2" />
+            <rect x={cx - w / 2} y={top} width={w} height={pillH} rx={6} style={{ fill: "var(--bg-1)", stroke: m.color }} strokeWidth={1} />
+            <text x={cx} y={top + 8.6} textAnchor="middle" style={{ fontFamily: "var(--mono)", fontSize: 7.6, letterSpacing: "0.06em", fill: m.color }}>{m.label}</text>
+          </g>
+        ))}
+
+        {/* F&O markers under the volume strip */}
+        {below.map((m) => {
+          const i = dayIndex.get(m.at);
+          if (i == null) return null;
+          const w = pillW(m.label);
+          const cx = Math.min(Math.max(x(i), w / 2), plotW - w / 2);
+          return (
+            <g key={`b-${m.label}-${m.at}`} data-testid="desk-fno-marker" data-group={m.group} data-label={m.label} data-at={m.at}>
+              <title>{m.title}</title>
+              <rect x={cx - w / 2} y={belowTop} width={w} height={pillH} rx={3} style={{ fill: `color-mix(in srgb, ${m.color} 16%, transparent)`, stroke: m.color }} strokeWidth={0.8} />
+              <text x={cx} y={belowTop + 8.6} textAnchor="middle" style={{ fontFamily: "var(--mono)", fontSize: 7.4, letterSpacing: "0.05em", fill: m.color }}>{m.label}</text>
+            </g>
+          );
+        })}
+
         {/* filings: a small diamond at the foot of the price pane, under the session */}
         {events.map((ev) => {
           const i = bars.findIndex((b) => b.day === ev.day);
@@ -276,6 +416,72 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
             <g key={`e-${ev.day}`} data-testid="desk-event-marker" data-day={ev.day} data-count={ev.count}>
               <title>{ev.title}</title>
               <path d={`M ${cx} ${cy - 4} L ${cx + 4} ${cy} L ${cx} ${cy + 4} L ${cx - 4} ${cy} Z`} style={{ fill: EVENT, stroke: "var(--bg-1)" }} strokeWidth={1} />
+            </g>
+          );
+        })}
+
+        {/* market events: lettered chips stacked up from the foot of the price pane */}
+        {(() => {
+          const stack = new Map<number, number>();
+          return glyphs.map((g) => {
+            const i = dayIndex.get(g.at);
+            if (i == null) return null;
+            const k = stack.get(i) ?? 0;
+            stack.set(i, k + 1);
+            const cx = x(i);
+            const cy = priceH - 7 - k * 11;
+            return (
+              <g key={`g-${g.key}`} data-testid="desk-event-glyph" data-kind={g.kind} data-group={g.group} data-at={g.at}>
+                <title>{g.title}</title>
+                <rect x={cx - 5} y={cy - 5} width={10} height={10} rx={2.5} style={{ fill: "var(--bg-1)", stroke: g.color }} strokeWidth={1} />
+                <text x={cx} y={cy + 2.6} textAnchor="middle" style={{ fontFamily: "var(--mono)", fontSize: 7, fontWeight: 600, fill: g.color }}>{g.glyph}</text>
+              </g>
+            );
+          });
+        })()}
+
+        {/* panes under the volume strip: same slots, own scales */}
+        {panes.map((p, k) => {
+          const top = panesTop + k * (paneH + 6);
+          const bandTop = top + 12;
+          const bandBot = top + paneH - 2;
+          const series = p.bars ?? [];
+          const vals = series.flatMap((sr) => sr.map((b) => b.value).filter((v): v is number => v != null && Number.isFinite(v)));
+          const hasNeg = vals.some((v) => v < 0);
+          const maxAbs = Math.max(...vals.map((v) => Math.abs(v)), 0) || 1;
+          const zero = hasNeg ? (bandTop + bandBot) / 2 : bandBot;
+          const half = hasNeg ? (bandBot - bandTop) / 2 : bandBot - bandTop;
+          const subW = series.length ? bodyW / series.length : bodyW;
+          const lv = (p.line?.values ?? []).filter((v): v is number => v != null && Number.isFinite(v));
+          const lmin = lv.length ? Math.min(...lv) : 0;
+          const lmax = lv.length ? Math.max(...lv) : 1;
+          const ly = (v: number) => bandBot - ((v - lmin) / ((lmax - lmin) || Math.abs(lmax) || 1)) * (bandBot - bandTop) * 0.92 - (bandBot - bandTop) * 0.04;
+          const lastLine = p.line ? [...p.line.values].reverse().find((v): v is number => v != null && Number.isFinite(v)) ?? null : null;
+          const drawn = !p.empty && (vals.length > 0 || lv.length > 0);
+          return (
+            <g key={`pane-${p.key}`} data-testid={`desk-pane-${p.key}`} data-empty={drawn ? "false" : "true"}>
+              <line x1={0} y1={top} x2={plotW} y2={top} style={{ stroke: "var(--line-2)" }} strokeWidth={0.6} />
+              <text x={2} y={top + 9} style={{ fontFamily: "var(--mono)", fontSize: 7.4, letterSpacing: "0.1em", fill: "var(--cp-ink-3)" }}>{p.title.toUpperCase()}</text>
+              {!drawn ? (
+                <text data-testid={`desk-pane-${p.key}-empty`} x={2} y={top + paneH / 2 + 6} style={{ fontSize: 8.5, fill: "var(--cp-ink-3)" }}>{p.empty ?? "No data for these bars."}</text>
+              ) : (
+                <>
+                  {hasNeg && <line x1={0} y1={zero} x2={plotW} y2={zero} style={{ stroke: "var(--line-3)" }} strokeWidth={0.6} />}
+                  {series.map((sr, si) => sr.map((b, i) => {
+                    if (b.value == null || !Number.isFinite(b.value) || i >= n) return null;
+                    const h = Math.max(0.8, (Math.abs(b.value) / maxAbs) * half);
+                    const bx = x(i) - bodyW / 2 + si * subW;
+                    return <rect key={`pb-${p.key}-${si}-${i}`} data-testid={`desk-pane-${p.key}-bar`} data-series={si} data-i={i} data-value={b.value}
+                      x={bx} y={b.value >= 0 ? zero - h : zero} width={Math.max(0.8, subW - 0.4)} height={h} style={{ fill: b.color }} opacity={active != null && i !== active ? 0.7 : 1} />;
+                  }))}
+                  {p.line && lv.length > 0 && (
+                    <>
+                      <path data-testid={`desk-pane-${p.key}-line`} d={seriesPath(p.line.values.slice(0, n), x, ly)} fill="none" style={{ stroke: p.line.color }} strokeWidth={1.3} />
+                      {lastLine != null && <text x={plotW + 4} y={ly(lastLine) + 3} style={{ ...gutterText, fontSize: font - 0.5, fill: p.line.color }}>{p.line.format(lastLine)}</text>}
+                    </>
+                  )}
+                </>
+              )}
             </g>
           );
         })}

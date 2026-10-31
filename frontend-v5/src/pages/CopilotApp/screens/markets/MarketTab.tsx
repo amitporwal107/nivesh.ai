@@ -58,7 +58,7 @@ function LiveChgCell({ symbol, pct, testId, eodDay }: { symbol: string; pct: num
 }
 
 function IndexCard({ ix, eodDay }: { ix: MarketIndex; eodDay?: string | null }) {
-  const q = useLiveOverlay(ix.name, eodDay);
+  const q = useLiveOverlay(ix.name, ix.as_of?.slice(0, 10) ?? eodDay);          // the tile's own daily-bar day first
   const value = q ? q.ltp : ix.value;
   const change = q ? q.change : ix.change;
   const pct = q ? q.changePct : ix.change_pct;

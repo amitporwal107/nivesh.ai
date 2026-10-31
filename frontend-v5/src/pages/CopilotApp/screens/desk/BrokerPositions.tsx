@@ -25,6 +25,7 @@
  * Not connected, in every state: the broker's day P&L and a stop or target per
  * position. No route returns them, so the block says so.
  */
+import { Widget } from "../tradingdesk/widget";
 import { useState, type ReactNode } from "react";
 import {
   Btn, DataTable, EmptyBlock, Footnote, LoadingBlock, NotConnected,
@@ -443,14 +444,17 @@ function AccountCard({ id, name, live, liveState, positions, positionsState, fun
   }
 
   return (
-    <section data-testid="broker-account-card" data-account-id={id} className="cp-card flex flex-col min-w-0" style={{ gap: 14, padding: "14px 0" }}>
-      <div style={{ padding: "0 16px", minWidth: 0 }}>
-        <BrokerName testId="trader-broker-account" name={name} sub={<span data-testid="broker-live-status">{status}</span>} size={28} />
-      </div>
+    <Widget
+      id={`broker.account.${id}`}
+      testId="broker-account-card"
+      data={{ "data-account-id": id }}
+      title={<BrokerName testId="trader-broker-account" name={name} sub={<span data-testid="broker-live-status">{status}</span>} size={28} />}
+      bodyStyle={{ gap: 14, padding: "14px 0" }}
+    >
       <FundsLine funds={funds} state={fundsState} name={name} />
       {holdings}
       {positionsSlot}
-    </section>
+    </Widget>
   );
 }
 

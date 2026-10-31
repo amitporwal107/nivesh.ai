@@ -25,6 +25,7 @@ import { nearestFuture, strikesAround, type ChainState, type FnoChain, type FnoF
 import { QueryProblem, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
 import type { DeskPersona } from "./context";
 import { BUILDUP_META, type BuildupLabel } from "./fno-buildup";
+import { Widget } from "./widget";
 
 export const CALL_COLOR = "var(--cp-danger)";
 export const PUT_COLOR = "var(--mint)";
@@ -64,16 +65,6 @@ export function istDay(iso: string | null | undefined): string | null {
 export const noRowsTitle = (symbol: string) => `No F&O rows for ${symbol} on the latest day`;
 
 // ── design primitives ────────────────────────────────────────────────────
-
-/** Card header bar: eyebrow left (`NN · Title`), an optional meta eyebrow pushed right. */
-export function CardHead({ children, meta, testId, pad = "13px 18px" }: { children: ReactNode; meta?: ReactNode; testId?: string; pad?: string }) {
-  return (
-    <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: pad, borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
-      <span data-testid={testId} className="cp-eyebrow flex flex-wrap items-center" style={{ gap: 8, minWidth: 0 }}>{children}</span>
-      {meta != null && <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{meta}</span>}
-    </div>
-  );
-}
 
 export interface SegOption<T extends string> {
   value: T;
@@ -283,6 +274,19 @@ const ivText = (iv: number | null | undefined) => (iv == null ? DASH : `${fmtNum
 const moveText = (m: number | null | undefined) => (m == null ? DASH : `±${fmtNum(m, 2)}`);
 
 /** The eight tiles of the design, from the chain summary, the nearest future and the build-up scan. */
+/** The OI range tile's line: what the two ends are, and, when the all-strike heaviest sits on the wrong side of the price, where it is and why it is not the floor or ceiling. */
+export function oiRangeNote(s: FnoSummary, plain: boolean): string {
+  const base = s.put_wall !== undefined
+    ? (plain ? "Most open bets: puts at or below the price → calls at or above it" : "Most put OI at or below the price → most call OI at or above it")
+    : (plain ? "Where most open bets sit: puts → calls" : "Most put OI → most call OI");
+  const spot = s.spot;
+  if (s.put_wall === undefined || spot == null) return base;
+  const extra: string[] = [];
+  if (s.max_put_oi && s.max_put_oi.strike > spot) extra.push(`The most put OI overall is at ${fmtLevel(s.max_put_oi.strike)}, above the price: in-the-money puts opened when it traded higher, not a floor.`);
+  if (s.max_call_oi && s.max_call_oi.strike < spot) extra.push(`The most call OI overall is at ${fmtLevel(s.max_call_oi.strike)}, below the price: in-the-money calls, not a ceiling.`);
+  return extra.length ? `${base}. ${extra.join(" ")}` : base;
+}
+
 export function chainTiles(s: FnoSummary, near: NearFuture | null, futuresNote: string, bu: UnderlyingBuildup, persona: DeskPersona): StatTile[] {
   const plain = persona === "investor";
   const basis = near?.future.basis ?? null;
@@ -334,8 +338,8 @@ export function chainTiles(s: FnoSummary, near: NearFuture | null, futuresNote: 
     },
     {
       k: "OI range",
-      v: s.max_put_oi && s.max_call_oi ? `${fmtLevel(s.max_put_oi.strike)} – ${fmtLevel(s.max_call_oi.strike)}` : DASH,
-      s: plain ? "Where most open bets sit: puts → calls" : "Most put OI → most call OI",
+      v: wallsOf(s).put && wallsOf(s).call ? `${fmtLevel(wallsOf(s).put!.strike)} – ${fmtLevel(wallsOf(s).call!.strike)}` : DASH,
+      s: oiRangeNote(s, plain),
       testId: "desk-fno-oi-range",
     },
     {
@@ -371,12 +375,25 @@ const TAG_TITLE: Record<string, string> = {
   MP: "Max pain",
 };
 
+/**
+ * The put wall (floor) and call wall (ceiling): the heaviest put OI at or below the spot and the heaviest call OI at or above it. After a sharp move the
+ * heaviest strike over EVERY strike can be an in-the-money one opened when the price was elsewhere (a "put wall" above the price), so the walls come from the
+ * route's OTM-side figures. An older backend without them falls back to the all-strike heaviest; a side with no strike is null, never the wrong-side one.
+ */
+export function wallsOf(s: FnoSummary): { put: { strike: number; oi: number } | null; call: { strike: number; oi: number } | null } {
+  return {
+    put: s.put_wall !== undefined ? s.put_wall : s.max_put_oi,
+    call: s.call_wall !== undefined ? s.call_wall : s.max_call_oi,
+  };
+}
+
 /** Which of ATM, R, S and MP a strike is. */
 export function strikeTags(s: FnoSummary, strike: number): string[] {
   const tags: string[] = [];
+  const w = wallsOf(s);
   if (s.atm_strike === strike) tags.push("ATM");
-  if (s.max_call_oi?.strike === strike) tags.push("R");
-  if (s.max_put_oi?.strike === strike) tags.push("S");
+  if (w.call?.strike === strike) tags.push("R");
+  if (w.put?.strike === strike) tags.push("S");
   if (s.max_pain === strike) tags.push("MP");
   return tags;
 }
@@ -391,9 +408,10 @@ export function chainRead(s: FnoSummary): string {
   if (!parts.length) return "This expiry has no open interest to read.";
   let out = `For the ${fmtDay(s.expiry)} expiry, ${parts.join(", ")}.`;
   out = out.charAt(0).toUpperCase() + out.slice(1);
-  if (s.spot != null && s.max_call_oi && s.max_put_oi) {
-    const lo = Math.min(s.max_put_oi.strike, s.max_call_oi.strike);
-    const hi = Math.max(s.max_put_oi.strike, s.max_call_oi.strike);
+  const w = wallsOf(s);
+  if (s.spot != null && w.call && w.put) {
+    const lo = Math.min(w.put.strike, w.call.strike);
+    const hi = Math.max(w.put.strike, w.call.strike);
     const where = s.spot < lo ? "below both" : s.spot > hi ? "above both" : "between the two";
     out += ` The end-of-day spot of ${fmtNum(s.spot, 2)} is ${where}.`;
   }
@@ -406,7 +424,7 @@ function sideFigures(side: FnoSide | null) {
   return { oi: side?.oi ?? null, change: side?.change_in_oi ?? null, close: side?.close ?? null };
 }
 
-const CHAIN_TEMPLATE = "76px minmax(0,1fr) 76px 104px 76px minmax(0,1fr) 76px";
+const CHAIN_TEMPLATE = "76px minmax(0,1fr) 108px 104px 108px minmax(0,1fr) 76px";
 
 // ── model detail: IV, Greeks and per-option OI build-up ──────────────────
 
@@ -501,7 +519,27 @@ function ChainModelDetail({ chain, rows }: { chain: FnoChain; rows: FnoStrike[] 
 }
 
 /** Design: "Option chain OI · SYM · expiry" — seven columns, OI bars, ATM / R / S / MP tags, a reading under it. */
-export function ChainOiTable({ chain }: { chain: FnoChain }) {
+/** The chain's trade buttons: which legs are on the Analyse panel, and the toggle (add a buy or sell at this strike and type, or take it off again). */
+export interface ChainTrades { has: (strike: number, kind: "call" | "put", side: "buy" | "sell") => boolean; toggle: (strike: number, kind: "call" | "put", side: "buy" | "sell") => void }
+
+function TradeButtons({ strike, kind, trades }: { strike: number; kind: "call" | "put"; trades: ChainTrades }) {
+  return (
+    <span className="inline-flex" style={{ gap: 3 }}>
+      {(["buy", "sell"] as const).map((side) => {
+        const on = trades.has(strike, kind, side);
+        return (
+          <button key={side} type="button" aria-pressed={on} aria-label={`${side === "buy" ? "Buy" : "Sell"} the ${fmtLevel(strike)} ${kind} (add to or remove from Analyse)`}
+            data-testid={`desk-chain-${side === "buy" ? "b" : "s"}-${kind}-${strike}`} onClick={() => trades.toggle(strike, kind, side)}
+            style={{ width: 22, height: 22, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", padding: 0,
+              border: `1px solid ${on ? (side === "buy" ? "var(--mint)" : "var(--cp-danger)") : "var(--line-2)"}`,
+              background: on ? (side === "buy" ? "var(--mint-soft)" : "var(--cp-danger-soft)") : "transparent", color: side === "buy" ? "var(--mint)" : "var(--cp-danger)" }}>{side === "buy" ? "B" : "S"}</button>
+        );
+      })}
+    </span>
+  );
+}
+
+export function ChainOiTable({ chain, trades }: { chain: FnoChain; trades?: ChainTrades }) {
   // On a narrow screen the table scrolls sideways; start it centred on the strike column, so calls sit to the left and puts to the right.
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -516,12 +554,9 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
   );
   const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
   return (
-    <section data-testid="desk-fno-chain" className="cp-card flex flex-col min-w-0" style={{ overflow: "hidden" }}>
-      <CardHead testId="desk-fno-chain-head" meta="R call wall · S put wall · MP max pain">
-        Option chain OI · {chain.symbol} · {fmtDay(s.expiry)}
-      </CardHead>
+    <Widget id="fno.chain" testId="desk-fno-chain" headTestId="desk-fno-chain-head" title={<>Option chain OI · {chain.symbol} · {fmtDay(s.expiry)}</>} meta="R call wall · S put wall · MP max pain">
       <div ref={scroller} data-testid="desk-fno-chain-scroll" className="cp-scroll overflow-x-auto" role="table" aria-label={`${chain.symbol} open interest by strike, ${fmtDay(s.expiry)} expiry`}>
-        <div style={{ minWidth: 700 }}>
+        <div style={{ minWidth: 780 }}>
           <div role="row" data-testid="desk-fno-chain-header" className="grid" style={{ gridTemplateColumns: CHAIN_TEMPLATE, gap: 10, padding: "10px 18px" }}>
             {head("call-chg", "Call OI chg", "left")}
             {head("call-oi", "Call OI", "right")}
@@ -551,7 +586,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
                   <span data-col="call-oi" className="cp-num" style={{ flex: "none", fontSize: 11, color: "var(--cp-ink-2)" }}>{fmtQty(c.oi)}</span>
                   <OiBar share={(c.oi ?? 0) / max} color={CALL_COLOR} leftwards />
                 </span>
-                <span role="cell" data-col="call-close" className="cp-num" style={{ textAlign: "right", color: "var(--cp-ink)" }}>{c.close == null ? DASH : fmtNum(c.close, 2)}</span>
+                <span role="cell" className="cp-num flex items-center justify-end" style={{ gap: 6, color: "var(--cp-ink)" }}>{trades && r.call && <TradeButtons strike={r.strike} kind="call" trades={trades} />}<span data-col="call-close">{c.close == null ? DASH : fmtNum(c.close, 2)}</span></span>
                 <span role="cell" data-col="strike" className="flex flex-col items-center" style={{ gap: 3 }}>
                   <span style={{ fontFamily: "var(--display)", fontSize: 18, lineHeight: 1, color: atm ? "var(--mint)" : "var(--cp-ink)" }}>{fmtLevel(r.strike)}</span>
                   {tags.length > 0 && (
@@ -562,7 +597,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
                     </span>
                   )}
                 </span>
-                <span role="cell" data-col="put-close" className="cp-num" style={{ color: "var(--cp-ink)" }}>{p.close == null ? DASH : fmtNum(p.close, 2)}</span>
+                <span role="cell" className="cp-num flex items-center" style={{ gap: 6, color: "var(--cp-ink)" }}><span data-col="put-close">{p.close == null ? DASH : fmtNum(p.close, 2)}</span>{trades && r.put && <TradeButtons strike={r.strike} kind="put" trades={trades} />}</span>
                 <span role="cell" className="flex items-center" style={{ gap: 6, minWidth: 0 }}>
                   <OiBar share={(p.oi ?? 0) / max} color={PUT_COLOR} />
                   <span data-col="put-oi" className="cp-num" style={{ flex: "none", fontSize: 11, color: "var(--cp-ink-2)" }}>{fmtQty(p.oi)}</span>
@@ -583,7 +618,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
         </span>
         <span className="cp-mono-note" style={{ lineHeight: 1.6 }}>NSE F&amp;O bhavcopy · end of day · as of {fmtDay(s.as_of)}</span>
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -591,8 +626,8 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
 
 /** Put wall, call wall, the spot and the expected-move band on one line, with their labels under it. */
 export function OiRangeBar({ s, testId }: { s: FnoSummary; testId: string }) {
-  const put = s.max_put_oi?.strike ?? null;
-  const call = s.max_call_oi?.strike ?? null;
+  const put = wallsOf(s).put?.strike ?? null;
+  const call = wallsOf(s).call?.strike ?? null;
   const spot = s.spot;
   const em = s.expected_move ?? null;
   const pts = [put, call, spot, spot != null && em != null ? spot - em : null, spot != null && em != null ? spot + em : null].filter((x): x is number => x != null);
