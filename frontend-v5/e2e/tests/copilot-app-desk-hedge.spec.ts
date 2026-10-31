@@ -70,6 +70,7 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
   test("HG-2 with the flag on the view is offered last, opens from the switcher, and runs once with the defaults", async ({ page }) => {
     const calls = await desk(page);
     await page.goto(LIMITS);
+    await expect(page.getByTestId("desk-view-hedge")).toBeVisible(SLOW);             // the switcher has rendered (evaluateAll does not wait)
     const keys = await page.getByTestId("desk-views").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     expect(keys).toEqual(["desk-view-limits", "desk-view-controls", "desk-view-log", "desk-view-hedge"]);
     await expect(page.getByTestId("desk-view-hedge")).toHaveText("Portfolio hedge");
@@ -92,7 +93,7 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
     await expect(page.getByTestId("hedge-kpi-beta-value")).toHaveText(d.beta.toFixed(2));
     await expect(page.getByTestId("hedge-kpi-fit-value")).toHaveText(`R² ${OK.confidence.r2.toFixed(2)}`);
     await expect(page.getByTestId("hedge-kpi-lots-value")).toHaveText(`${ex.executed_lots} of ${ex.required_lots.toFixed(2)}`);
-    await expect(page.getByTestId("hedge-kpi-covered-value")).toHaveText(`${Math.round(ex.protected_pct)}.0%`);
+    await expect(page.getByTestId("hedge-kpi-covered-value")).toHaveText(`${Math.round(ex.protected_pct)}%`);
     const bal = mode(OK, "balanced");
     const card = page.getByTestId("hedge-choice-balanced");
     await expect(card).toHaveAttribute("aria-pressed", "true");
