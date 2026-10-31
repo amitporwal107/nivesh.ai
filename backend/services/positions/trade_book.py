@@ -10,7 +10,8 @@ round trips.
                          count, first_seen_at, last_seen_at, changed_at, version}
                         Tenant-scoped: every read and write filters on user_id AND account_id. Holds what the broker said was
                         traded (symbol, side, quantity, price, time, ids); never a token, a key or an account number.
-                        Kept by the 17:30 IST broker daily sync (while the day's session is live) and by any review that asks.
+                        Kept by the 17:30 IST broker daily sync (while the day's session is live) and by any review that asks. A quiet WEEKDAY is kept
+                        (it says "looked, nothing traded"); a quiet weekend day is not (the market was shut).
 
 Matching (`match`): per account and contract, fills in time order, FIFO. A fill against an open lot of the OTHER side closes it
 (a partial fill closes part of it: the lot keeps the rest); what is left is OPEN and is shown unmatched. Partial fills of one
@@ -123,6 +124,8 @@ async def capture(db, doc: Dict[str, Any], *, now: Optional[datetime] = None) ->
     if cur and last and 0 <= (now - last).total_seconds() < TRADES_TTL_S:
         return {"state": CACHED, "day": day, "count": cur.get("count", 0), "changed": False}
     trades = await hub.read_account_trades(db, doc)
+    if not trades and now.astimezone(IST).weekday() >= 5:
+        return {"state": CAPTURED, "day": day, "count": 0, "changed": False, "kept": False}      # a weekend: the market was shut, no day to keep
     try:
         await ensure_indexes(db)
     except Exception as e:  # noqa: BLE001 — an index is a convenience

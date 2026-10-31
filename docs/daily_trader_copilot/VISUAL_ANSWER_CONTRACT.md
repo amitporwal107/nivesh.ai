@@ -162,3 +162,21 @@ names by `id`. The response is `{generated_at, mode, blocks: [...], refresh: {ac
 (the market closed, no live session). A failed ask keeps the blocks shown, the page says "Live feed lost" with the time of the last good read, backs
 off, and stops after three failures. `GET /api/positions/book/live` serves the open-trades answer. The server never calls a broker more than once
 per 15 s per account however many pages ask (see services/positions/book.py).
+
+
+## Broker trades in the daily review (31 Oct 2026)
+
+`daily_review` keeps its paper review exactly as it was and, when the user has broker trades on record, adds a section labelled BROKER, never merged into
+the paper figures (block ids `broker_*`; `broker-<broker>-<n>-<state>` notices):
+
+| block | content |
+|---|---|
+| notices | one per account that cannot supply trades: session ended (with a `connect_broker` "Sign in to <broker> again" action and how many days of its trade book are kept), a broker with no trade-book reader ("<Broker> has no trade-book reader yet, so its trades are not in this review"), a failed read; never an empty list that reads as "no trades" |
+| `broker_record` kpis | round trips closed, wins / losses, realised P&L (the broker's own fill prices, gross; charges are never estimated), unmatched legs |
+| `broker_trips` ranked | one row per round trip (contract, account, side, quantity in units, entry, exit, P&L, rules), badge `Broker` |
+| `broker_rules` list | did the trade follow its entry, stop-loss and exit rules: only where the user's own stop (set before the trade closed, `position_levels`) or a plan they recorded (before it opened, `trade_plans`) existed; otherwise "no plan recorded", never a guess |
+| `broker_open` list | legs with no other side in the trade books on record, shown as open; a sell with no buy is not assumed to be a short |
+
+Brokers return only the current day, so the day's fills of every live account are kept (change-only, one document per account and IST day, `broker_trade_days`) by
+the 17:30 IST broker daily sync and by any review; a week is answered from the days kept. Zerodha (`trades()`) and ICICI Direct (`/trades`) have readers; every other
+broker is "not supported" with its reason. Matching is FIFO per contract per account across the days kept; partial fills of one order are one round trip.

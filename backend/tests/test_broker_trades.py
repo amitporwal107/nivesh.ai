@@ -166,9 +166,11 @@ def test_bt4_a_day_is_kept_change_only_cached_and_tenant_scoped(kept):
     kept_doc = db["broker_trade_days"].docs[0]
     assert res["changed"] is True and kept_doc["version"] == 2 and kept_doc["count"] == 2 and len(db["broker_trade_days"].docs) == 1
     assert kept_doc["user_id"] == "u1" and kept_doc["account_id"] == "a1" and kept_doc["day"] == "2026-10-30"
-    # a quiet day is kept too (it says "looked, nothing traded")
+    # a quiet weekday is kept too (it says "looked, nothing traded"); a quiet Sunday is not (the market was shut)
     st.trades = []
-    run(tb.capture(db, {**d, "account_id": "a2"}, now=t0 + timedelta(days=1)))
+    run(tb.capture(db, {**d, "account_id": "a2"}, now=t0 + timedelta(days=1)))                    # Saturday 31 Oct? no: 30 Oct 2026 is a Friday, +1 is Saturday
+    assert [x["count"] for x in db["broker_trade_days"].docs] == [2]
+    run(tb.capture(db, {**d, "account_id": "a2"}, now=t0 + timedelta(days=4)))                    # Tuesday 3 Nov
     assert [x["count"] for x in db["broker_trade_days"].docs] == [2, 0]
     # tenant isolation: another user never sees or overwrites the account's days
     assert run(tb.stored_days(db, "u2", "a1")) == [] and len(run(tb.stored_days(db, "u1", "a1"))) == 1
