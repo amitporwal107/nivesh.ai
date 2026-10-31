@@ -24,8 +24,8 @@
  * Not used on purpose: POST /api/broker/connect-hosted and POST
  * /api/broker/connect. The first sends the user into a third-party trading
  * dashboard that can place orders; the second asks for an API key that can.
- * Not shown: open positions. The server can read them from a connected
- * account, but no screen in this app displays them yet.
+ * Open positions are one line on each account signed in on the broker's page (GET /api/broker/positions, the read the
+ * desk's broker block shares), with the way to the Open positions screen, which shows them in full.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -34,6 +34,7 @@ import { useMe } from "@/hooks/use-auth";
 import { BrokerIcon } from "../../components/EntityIcon";
 import { Btn, EmptyBlock, ErrorBlock, Eyebrow, LoadingBlock, Pill, errorSentence, fmtDate, fmtINR, fmtNum, humaniseTag, relTime, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { useBrokerPositions } from "../desk/broker";
 import { HoldingsFileUpload, InlineError, LinkButton } from "./parts";
 import { EXPORT_BROKERS, accountKeys } from "./queries";
 import {
@@ -187,6 +188,42 @@ function FetchedLine({ q, account }: { q: UseQueryResult<Record<string, BrokerFe
   return <span data-testid="broker-account-fetched" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{body}</span>;
 }
 
+/**
+ * What the broker holds besides holdings: its open positions, read live (owner, 31 Oct: "holdings are fetched but not
+ * open F&O positions"). One line, with the way to the Open positions screen. It shares the desk's one cached read, so the
+ * page makes a single request however many accounts it lists; a read that failed says so and never reads as "none".
+ */
+function PositionsLine({ account, enabled }: { account: BrokerAccount; enabled: boolean }) {
+  const { go } = useCopilotShell();
+  const q = useBrokerPositions(enabled);
+  if (!enabled) return null;
+  const mine = q.data?.accounts.find((a) => a.id === account.account_id);
+  let body: ReactNode;
+  if (q.isPending) body = <span className="cp-running">Reading open positions</span>;
+  else if (q.isError || !mine || !mine.ok) {
+    body = (
+      <>
+        Open positions couldn’t be read from this account just now.{" "}
+        <button type="button" data-testid="broker-positions-retry" onClick={() => void q.refetch()} style={{ color: "var(--cp-ink)", background: "none", border: 0, padding: 0, cursor: "pointer", fontSize: 13 }}>Retry ›</button>
+      </>
+    );
+  } else if (!mine.positions.length) {
+    body = "No open positions at this broker right now.";
+  } else {
+    const n = mine.positions.length;
+    const fno = mine.positions.filter((p) => p.fno).length;
+    body = (
+      <>
+        <span className="cp-num" data-testid="broker-positions-count" style={{ color: "var(--cp-ink)" }}>{fmtNum(n)}</span> open {n === 1 ? "position" : "positions"}
+        {fno > 0 && <> (<span className="cp-num" data-testid="broker-positions-fno" style={{ color: "var(--cp-ink)" }}>{fmtNum(fno)}</span> F&amp;O)</>}
+        {mine.asOf ? `, read ${relTime(mine.asOf)}` : ""}.{" "}
+        <button type="button" data-testid="broker-positions-open" onClick={() => go("page/positions")} style={{ color: "var(--mint)", background: "none", border: 0, padding: 0, cursor: "pointer", fontSize: 13 }}>Open positions ›</button>
+      </>
+    );
+  }
+  return <span data-testid="broker-positions-line" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{body}</span>;
+}
+
 function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetched: UseQueryResult<Record<string, BrokerFetched>> }) {
   const sync = useBrokerSync();
   const disconnect = useBrokerDisconnect();
@@ -254,6 +291,7 @@ function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetch
       )}
 
       <FetchedLine q={fetched} account={account} />
+      <PositionsLine account={account} enabled={!!account.native && canSync} />
 
       {account.last_error && !ended && !sync.isPending && !sync.data && (
         <InlineError>
@@ -291,9 +329,19 @@ function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetch
         )}
       </div>
 
-      {!sync.isPending && sync.data?.ok === true && (
+      {!sync.isPending && sync.data?.ok === true && !sync.data.value.partial && (
         <span role="status" data-testid="broker-sync-result" style={{ fontSize: 13, color: "var(--mint)" }}>
-          <span className="cp-num">{fmtNum(sync.data.value)}</span> {sync.data.value === 1 ? "holding" : "holdings"} read just now.
+          <span className="cp-num">{fmtNum(sync.data.value.count)}</span> {sync.data.value.count === 1 ? "holding" : "holdings"} read just now.
+        </span>
+      )}
+      {!sync.isPending && sync.data?.ok === true && sync.data.value.partial && (
+        // The broker's full list would not answer, so nothing was replaced: not a failure, and not a full sync.
+        <span role="status" data-testid="broker-sync-partial" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--amber)" }}>
+          {sync.data.value.partial}{" "}
+          {sync.data.value.count > 0
+            ? <>Your <span className="cp-num">{fmtNum(sync.data.value.count)}</span> {sync.data.value.count === 1 ? "holding" : "holdings"} on file were kept as they were.</>
+            : "Nothing was stored."}
+          {" "}Open positions are read separately, above.
         </span>
       )}
       {!sync.isPending && sync.data?.ok === false && (

@@ -44,6 +44,16 @@ class Holding:
     source_id: Optional[str] = None  # e.g. f"{exchange}:{symbol}"
 
 
+class PartialHoldings(list):
+    """Holdings read from a narrower view of the broker because its full list would not answer. It is a list, so every
+    reader of holdings works with it; `note` says in words what the narrower view leaves out. A live read shows it with that
+    note. A sync must not store it: that would replace the complete list on file with a smaller one."""
+
+    def __init__(self, rows, note: str) -> None:
+        super().__init__(rows)
+        self.note = note
+
+
 @dataclass
 class Position:
     symbol: str

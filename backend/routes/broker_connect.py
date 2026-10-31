@@ -177,12 +177,20 @@ class BrokerSessionExpiredException(BusinessException):
     http_status = 409
 
 
+class BrokerReadFailedException(IntegrationException):
+    """The broker would not return what a read asked for (its own error, a timeout). Answered 424, not 502: Cloudflare,
+    which fronts staging and production, replaces an origin 502 with its own page, which carries no CORS headers, so the
+    browser dropped the answer and the screen told the user their connection was down (owner, 31 Oct, ICICI Direct)."""
+    error_code = _hub.CODE_READ_FAILED
+    http_status = 424
+
+
 # Read failure code → the domain exception the global handler turns into the
-# standard error envelope (409 / 400 / 502).
+# standard error envelope (409 / 400 / 424).
 _READ_ERRORS = {
     _hub.CODE_SESSION_EXPIRED: BrokerSessionExpiredException,
     _hub.CODE_NOT_SUPPORTED: ValidationException,
-    _hub.CODE_READ_FAILED: IntegrationException,
+    _hub.CODE_READ_FAILED: BrokerReadFailedException,
 }
 
 
@@ -225,9 +233,10 @@ async def _sync_native_account(
         outcome="success",
         ip=request.client.host if request.client else "",
         ua=request.headers.get("user-agent", ""),
-        details={"broker": doc.get("broker"), "native": True, "count": result["count"]},
+        details={"broker": doc.get("broker"), "native": True, "count": result["count"],
+                 **({"partial": True} if result.get("partial") else {})},
     )
-    return {
+    out = {
         "ok": True,
         "count": result["count"],
         "holdings": result["holdings"],
@@ -236,6 +245,10 @@ async def _sync_native_account(
         "snapshot_id": result["snapshot_id"],
         "duplicates": result["duplicates"],
     }
+    if result.get("partial"):
+        # The broker's full list would not answer: nothing was stored, `count` is what is still on file, and this says why.
+        out["partial"] = result["partial"]
+    return out
 
 
 # Why an OpenAlgo account has no live read: its stored key is an OpenAlgo API
@@ -292,13 +305,16 @@ async def get_account_holdings(request: Request, account_id: str):
         rows = await _hub.read_account_holdings(db, doc)
     except Exception as e:  # noqa: BLE001
         raise _read_error(e, doc, "holdings") from None
-    return {
+    out = {
         **_account_entry(doc),
         "as_of": _now_iso(),
         "holdings": rows,
         "counts": {"total": len(rows)},
         "totals": _hub.holdings_totals(rows),
     }
+    if getattr(rows, "note", None):
+        out["partial"] = rows.note          # read from a narrower view of the broker: what it leaves out
+    return out
 
 
 @router.get("/holdings")
@@ -338,6 +354,8 @@ async def get_all_holdings(request: Request):
                     ok=True, holdings=rows, counts={"total": len(rows)},
                     totals=_hub.holdings_totals(rows),
                 )
+                if getattr(rows, "note", None):
+                    entry["partial"] = rows.note      # a narrower view of the broker: what it leaves out
         entry["as_of"] = _now_iso()
         return entry
 

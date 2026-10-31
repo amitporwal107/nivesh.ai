@@ -260,14 +260,14 @@ def test_native_sync_for_a_broker_with_no_reader_is_400(h, sib):
     assert h.audits[0]["outcome"] == "error"
 
 
-def test_native_sync_broker_failure_is_502_with_no_secret_anywhere(h, sib, caplog):
+def test_native_sync_broker_failure_is_424_with_no_secret_anywhere(h, sib, caplog):
     sib.holdings["ba_i"] = RuntimeError(f'broker payload {{"token":"{SECRET}","client":"{CLIENT_ID}"}}')
     with caplog.at_level("DEBUG"):
         res = h.post("/api/broker/accounts/ba_i/sync")
-    _error(res, 502, "BROKER_READ_FAILED", "Could not read holdings from ICICI Direct. Please try again.",
+    _error(res, 424, "BROKER_READ_FAILED", "Could not read holdings from ICICI Direct. Please try again.",
            [{"broker": "icicidirect", "account_id": "ba_i"}])
-    # The global handler logs a 5xx with its traceback: the broker's own error must not ride along.
-    assert "Domain error: Could not read holdings from ICICI Direct" in caplog.text
+    # A 424 is logged by the global handler as a warning with no traceback: the broker's own error must not ride along.
+    assert "Client error: Could not read holdings from ICICI Direct" in caplog.text
     acct = h.db.broker_accounts.one(account_id="ba_i")
     assert acct["last_error"] == "Could not read holdings from ICICI Direct. Please try again."
     assert h.audits == [{"user_id": "u1", "action": "broker_sync", "resource": "ba_i", "outcome": "error",
@@ -391,22 +391,22 @@ def test_positions_with_a_rejected_token_are_409_and_end_the_session(h, sib):
     _no_secret(res.text)
 
 
-def test_positions_broker_failure_is_502_with_no_secret_in_the_body(h, sib, caplog):
+def test_positions_broker_failure_is_424_with_no_secret_in_the_body(h, sib, caplog):
     sib.positions["ba_z"] = hub.BrokerReadError(f'upstream 500 {{"token":"{SECRET}"}}')
     with caplog.at_level("DEBUG"):
         res = h.get("/api/broker/accounts/ba_z/positions")
-    _error(res, 502, "BROKER_READ_FAILED", "Could not read net positions from Zerodha. Please try again.",
+    _error(res, 424, "BROKER_READ_FAILED", "Could not read net positions from Zerodha. Please try again.",
            [{"broker": "zerodha", "account_id": "ba_z"}])
-    assert "Domain error: Could not read net positions from Zerodha" in caplog.text
+    assert "Client error: Could not read net positions from Zerodha" in caplog.text
     assert h.db.broker_accounts.one(account_id="ba_z")["status"] == "active" and sib.ended == []
     _no_secret(res.text, caplog.text)
 
 
-def test_an_unexpected_failure_while_reading_positions_is_also_502(h, sib, caplog):
+def test_an_unexpected_failure_while_reading_positions_is_also_424(h, sib, caplog):
     sib.positions["ba_z"] = ZeroDivisionError(f"bug with {SECRET}")
     with caplog.at_level("DEBUG"):
         res = h.get("/api/broker/accounts/ba_z/positions")
-    _error(res, 502, "BROKER_READ_FAILED", "Could not read net positions from Zerodha. Please try again.")
+    _error(res, 424, "BROKER_READ_FAILED", "Could not read net positions from Zerodha. Please try again.")
     _no_secret(res.text, caplog.text)
 
 
@@ -719,3 +719,12 @@ def test_list_delete_and_the_openalgo_refusal_do_not_depend_on_the_flag(h, sib, 
     assert [a["account_id"] for a in h.db.broker_accounts.docs] == ["ba_i", "ba_u2"]
     assert h.get("/api/broker/supported").status_code == 200
     assert sib.reads() == []
+
+
+def test_a_failed_broker_read_is_never_answered_as_a_5xx(h, sib):
+    """Cloudflare fronts staging and production and replaces an origin 502 with its own page, which has no CORS headers: the
+    browser then drops the answer and the screen said "The request didn't reach the server" (owner, 31 Oct, when ICICI Direct's
+    /dematholdings answered API status 500 and every sync failed). The failure must reach the screen as a 4xx with its code."""
+    sib.holdings["ba_i"] = RuntimeError("the broker said no")
+    res = h.post("/api/broker/accounts/ba_i/sync")
+    assert res.status_code == 424 and res.json()["code"] == "BROKER_READ_FAILED"
