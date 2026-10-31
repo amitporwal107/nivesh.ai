@@ -1,8 +1,9 @@
 /**
  * `briefs`: cards of companies or filings — what the Copilot answers to "which companies report results?", "any order wins?",
- * "how were TCS results?" (owner, 31 Oct 2026). Each card: the company, when and what (sub), a badge in words (the desk's verdict
- * against the company's own past quarters, or an AI classifier's reading), the STORED AI summary verbatim (or "Not analysed yet"),
- * management-commentary points (shown on request), and the source filings to download.
+ * "how were TCS results?" (owner, 31 Oct 2026). Each card: the company, when and what (sub), a badge in words (a result's rating
+ * Below / Meets / Above expectation against the company's own baseline, or an AI classifier's reading), the five-line AI commentary
+ * with its signal chip (🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational, impact, confidence; owner, 1 Nov 2026), the STORED
+ * AI summary verbatim (or "Not analysed yet"), management-commentary points (shown on request), and the source filings to download.
  *
  * A link is drawn only when schema.ts's safeFilingUrl accepts it (https on an exchange or SEBI host); it opens in a new tab with
  * rel="noopener noreferrer". The block is one column of cards at any width, so a phone never scrolls sideways.
@@ -16,6 +17,32 @@ import { quiet } from "./common";
 type Brief = BriefsBlock["items"][number];
 const CLAMP_CHARS = 240;
 const MARK: Record<string, string> = { up: "▲", down: "▼", warn: "!", neutral: "›" };
+/** The signal chip's colour and its word for a screen reader (colour is never the only cue: the label is printed too). */
+const SIGNAL: Record<string, { color: string; word: string }> = {
+  up: { color: "var(--mint)", word: "Positive" }, down: { color: "var(--cp-danger)", word: "Negative" },
+  warn: { color: "var(--amber)", word: "Mixed" }, neutral: { color: "var(--cp-ink-3)", word: "Informational" },
+};
+
+function Commentary({ c }: { c: NonNullable<Brief["commentary"]> }) {
+  const sig = SIGNAL[c.signal.tone] ?? SIGNAL.neutral;
+  const chip = [c.signal.label, c.signal.impact ? `${c.signal.impact} impact` : null, c.signal.confidence != null ? `confidence ${c.signal.confidence}%` : null].filter(Boolean).join(" · ");
+  return (
+    <section data-testid="va-brief-commentary" data-tone={c.signal.tone} aria-label={`AI commentary, ${sig.word}`} className="flex min-w-0 flex-col"
+      style={{ gap: 5, padding: "8px 10px", borderRadius: 8, background: "var(--bg-2)", border: "1px solid var(--cp-line)" }}>
+      <span data-testid="va-brief-signal" className="inline-flex items-center" style={{ gap: 7, fontSize: 11.5, fontWeight: 600, color: sig.color, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        <span aria-hidden style={{ width: 9, height: 9, borderRadius: 999, background: sig.color, flex: "none" }} />
+        <span>{chip}</span>
+      </span>
+      <ol className="m-0 flex list-none flex-col p-0" style={{ gap: 3 }}>
+        {c.lines.map((l, i) => (
+          <li key={i} data-testid="va-brief-line" data-label={l.label} style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>
+            <strong style={{ color: "var(--cp-ink)", fontWeight: 600 }}>{l.label}:</strong> {l.text}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 function BriefCard({ it, ask }: { it: Brief; ask?: (q: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -38,6 +65,7 @@ function BriefCard({ it, ask }: { it: Brief; ask?: (q: string) => void }) {
         )}
       </div>
       {it.sub && <span data-testid="va-brief-sub" style={{ ...quiet, overflowWrap: "anywhere" }}>{it.sub}</span>}
+      {it.commentary && <Commentary c={it.commentary} />}
 
       {it.body ? (
         <p id={bodyId} data-testid="va-brief-body" className="m-0"

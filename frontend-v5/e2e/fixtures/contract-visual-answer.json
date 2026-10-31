@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up). Added 31 Oct 2026 (16 of 16 intents): results_calendar (the week of 26-31 Oct, built over the desk's results calendar and the stored filing analyses) and event_intelligence (the Orders chip of the Market Intelligence filings feed), captured the same way, read-only, from nivesh-staging-app-backend.",
+ "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up). Added 31 Oct 2026 (16 of 16 intents): results_calendar (the week of 26-31 Oct, built over the desk's results calendar and the stored filing analyses) and event_intelligence (the Orders chip of the Market Intelligence filings feed), captured the same way, read-only, from nivesh-staging-app-backend. UPDATE 1 Nov 2026 (early morning): results_calendar (period last_week, asked on Sunday 1 Nov) and event_intelligence (orders, week) re-captured from the branch fix/results-rating-labels the same way (overlay inside nivesh-staging-app-backend, read-only, auth stubbed, nothing written): results rated Below / Meets / Above expectation and each analysed card carries the five-line AI commentary.",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
@@ -7215,12 +7215,12 @@
   "results_calendar": {
    "schema": "visual-answer-v1",
    "intent": "results_calendar",
-   "title": "Results calendar · 26–31 Oct 2026",
-   "as_of": "2026-10-31",
-   "generated_at": "2026-10-31T22:01:49+05:30",
+   "title": "Results calendar · 19–24 Oct 2026",
+   "as_of": "2026-11-01",
+   "generated_at": "2026-11-01T03:26:13+05:30",
    "mode": "eod",
    "headline": {
-    "text": "524 companies report in 26–31 Oct 2026: 494 declared (113 with an AI summary), 24 awaiting figures, 6 still to report.",
+    "text": "166 companies report in 19–24 Oct 2026: 165 declared (50 with an AI summary), 1 awaiting figures.",
     "tone": "neutral"
    },
    "decision": null,
@@ -7233,31 +7233,27 @@
      "items": [
       {
        "label": "Companies",
-       "value": "524",
-       "sub": "26–31 Oct 2026"
+       "value": "166",
+       "sub": "19–24 Oct 2026"
       },
       {
        "label": "Declared",
-       "value": "494",
-       "sub": "113 with an AI summary, 381 not analysed yet"
+       "value": "165",
+       "sub": "50 with an AI summary, 115 not analysed yet"
       },
       {
        "label": "Figures awaited",
-       "value": "24",
+       "value": "1",
        "sub": "meeting held, results not loaded yet"
       },
       {
-       "label": "Still to report",
-       "value": "6"
-      },
-      {
        "label": "F&O names",
-       "value": "74"
+       "value": "37"
       },
       {
-       "label": "Above · in line · below",
-       "value": "9 · 137 · 16",
-       "sub": "332 not rated · against each company's own past quarters, not analyst consensus"
+       "label": "Above · meets · below",
+       "value": "2 · 51 · 3",
+       "sub": "109 not rated · expectation = each company's own baseline from its past quarters, not analyst consensus"
       }
      ]
     },
@@ -7265,458 +7261,690 @@
      "type": "briefs",
      "id": "declared",
      "title": "Declared results · AI summary, management commentary, source filings",
-     "note": "Showing 8 of 494 declared results: the ones with an AI summary first, F&O names first within them. The badge compares a result with the company's own past quarters (no analyst consensus is held), so nothing here is a beat or a miss. Summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "note": "Showing 8 of 165 declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and confidence are the analysis's, not recommendations.",
      "items": [
       {
-       "title": "Vedanta Limited",
-       "symbol": "VEDL",
-       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "In line with historical trend",
+       "title": "Hindustan Petroleum Corporation Limited",
+       "symbol": "HINDPETRO",
+       "sub": "Declared 22 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
        "tone": "neutral",
-       "body": "Vedanta reported record Q2 FY27 revenue of ₹25,812 crore, EBITDA of ₹9,938 crore (up 106% YoY) and PAT of ₹6,202 crore (up 151% YoY). Net debt fell by ₹4,624 crore to ₹3,675 crore (ND/EBITDA 0.1x), and a first interim dividend of ₹5 per share was declared.",
-       "body_note": "AI summary of the results filing, analysed 28 Oct 2026, filing read: strongly positive. Not a recommendation.",
+       "body": "HPCL reported Q2 FY27 standalone net profit of ₹3,483 crore (versus ₹3,830 crore in Q2 FY26) on revenue of ₹1,39,140 crore, while H1 FY27 standalone shows a net loss of ₹8,044 crore against a ₹8,201 crore profit a year earlier. GRM rose to US$32.15 per barrel in Q2 from US$8.80, with sales volume up 5.5% YoY.",
+       "body_note": "AI summary of the results filing, analysed 22 Oct 2026, filing read: slightly negative. Not a recommendation.",
        "points": [
         {
-         "text": "Press release · 28 Oct: Vedanta reported record Q2 FY27 revenue of ₹25,812 crore, EBITDA of ₹9,938 crore (up 106% YoY) and PAT of ₹6,202 crore (up 151% YoY). Net debt fell by ₹4,624 crore to ₹3,675 crore (ND/EBITDA 0.1x), and a first interim dividend of ₹5 per share was declared.",
+         "text": "Press release · 22 Oct: HPCL reported Q2 FY27 standalone net profit of ₹3,483 crore (versus ₹3,830 crore in Q2 FY26) on revenue of ₹1,39,140 crore, while H1 FY27 standalone shows a net loss of ₹8,044 crore against a ₹8,201 crore profit a year earlier. GRM rose to US$32.15 per barrel in Q2 from US$8.80, with sales volume up 5.5% YoY.",
          "tone": "neutral"
         },
         {
-         "text": "Record quarterly EBITDA and PAT, with EBITDA margin (ex-copper) at 60%, up 1055 bps YoY",
+         "text": "Q2 GRM of US$32.15/bbl versus US$8.80 a year earlier; refineries ran at 100% of capacity",
          "tone": "up"
         },
         {
-         "text": "Net debt cut to ₹3,675 crore, ND/EBITDA 0.1x; cash ₹26,622 crore; AA+/Stable reaffirmed",
+         "text": "Revenue up to ₹1,39,140 crore in Q2 from ₹1,10,323 crore; sales volumes up 5.5% YoY",
          "tone": "up"
         },
         {
-         "text": "Growth was supported by higher commodity prices and favourable forex, which may not persist",
+         "text": "H1 FY27 standalone net loss of ₹8,044 crore versus ₹8,201 crore profit in H1 FY26",
          "tone": "down"
         },
         {
-         "text": "Copper International sales down 74% YoY, hit by Strait of Hormuz closure",
+         "text": "Q2 profit lower than ₹3,830 crore a year ago despite much higher GRM, suggesting pressure elsewhere, likely marketing",
          "tone": "down"
         },
         {
-         "text": "Open question: Total dividend payout amount and record date for the ₹5 interim dividend",
+         "text": "Open question: Cause and size of the Q1 loss are not given",
          "tone": "neutral"
         },
         {
-         "text": "Investor presentation · 28 Oct: Vedanta reported record Q2 FY27 revenue of ₹25,812 crore, EBITDA of ₹9,938 crore (up 106% YoY) and PAT of ₹6,202 crore (up 151% YoY). Net debt fell by ₹4,624 crore to ₹3,675 crore (ND/EBITDA 0.1x), and a first interim dividend of ₹5 per share was declared.",
+         "text": "Business update · 22 Oct: HPCL's investor handout shows Q2 FY27 PAT of Rs 3,483 crore on revenue of Rs 1,39,140 crore, but H1 PAT is a loss of Rs 8,044 crore on revenue of Rs 2,84,267 crore. Refinery utilisation was 100.4% in Q2 and the Q2 GRM before export cess was US$32.15/bbl.",
          "tone": "neutral"
         }
        ],
        "links": [
         {
          "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/VEDL_28102026140745_VEDLSEIntimationOutcomeOfBM28October2026FinancialResultssigned.pdf",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDPETRO1_22102026165513_BM_H1_Results_signed.pdf",
          "kind": "pdf"
         },
         {
          "label": "Results press release (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/VEDL_28102026141425_2VEDLSEIntimationOutcomeOfBMPressReleaseAndIRPPTfinalsigned.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/VEDL_28102026141343_2VEDLSEIntimationOutcomeOfBMPressReleaseAndIRPPTfinalsigned.pdf",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDPETRO1_22102026172415_PressreleaseSEIntimation_signed.pdf",
          "kind": "pdf"
         },
         {
          "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/VEDL_29102026173812_VEDLSEIntimationTranscriptofConferenceCallfinal.pdf",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDPETRO1_23102026205920_Audio_Recording_ConCall.pdf",
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for VEDL?"
+       "ask": "Any recent announcements for HINDPETRO?",
+       "commentary": {
+        "signal": {
+         "label": "Slightly negative",
+         "tone": "down",
+         "impact": "High",
+         "confidence": 78
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "HPCL reported Q2 FY27 standalone net profit of ₹3,483 crore (versus ₹3,830 crore in Q2 FY26) on revenue of ₹1,39,140 crore, while H1 FY27 standalone shows a net loss of ₹8,044 crore against a ₹8,201…"
+         },
+         {
+          "label": "Why it matters",
+          "text": "H1 FY27 standalone net loss of ₹8,044 crore versus ₹8,201 crore profit in H1 FY26. Q2 profit lower than ₹3,830 crore a year ago despite much higher GRM, suggesting pressure elsewhere, likely marketing."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bearish — a slightly negative read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Cause and size of the Q1 loss are not given; Segment-wise profit for refining and marketing is not given"
+         },
+         {
+          "label": "AI take",
+          "text": "Slightly negative · High impact · confidence 78% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
-       "title": "Laurus Labs Limited",
-       "symbol": "LAURUSLABS",
-       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Filing read: strongly positive",
-       "tone": "up",
-       "body": "Laurus Labs' Q2 FY27 consolidated revenue rose to Rs 2,206.37 crore from Rs 1,653.47 crore a year earlier, and net profit after tax and associates rose to Rs 436.19 crore from Rs 194.49 crore. The board declared an interim dividend of Re 1.00 per share (record date November 6, 2026) and appointed a Joint Company Secretary.",
-       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: strongly positive. Not a recommendation.",
-       "points": [
-        {
-         "text": "Press release · 29 Oct: Laurus Labs reported Q2 FY27 revenue of ₹2,206 cr (+33%), EBITDA of ₹762 cr (+78%) and net profit of ₹441 cr (+126%); H1 revenue was ₹4,233 cr with EBITDA margin 33.2%. It also signed agreements to buy 60% of Galenvs Science and 52% of SI &C Resins, and declared an interim dividend of ₹1.00 per share.",
-         "tone": "neutral"
-        },
-        {
-         "text": "Q2 revenue up 33% and EBITDA up 78%, with margin expanding 8.5 points to 34.5%",
-         "tone": "up"
-        },
-        {
-         "text": "CDMO small molecules revenue up 86% in Q2 on commercial supplies and new assets; new Vizag peptide plant operational",
-         "tone": "up"
-        },
-        {
-         "text": "Bio (large molecules) revenue fell 38% in Q2 on campaign phasing",
-         "tone": "down"
-        },
-        {
-         "text": "API revenue nearly flat (+1%) and ARV revenue flat in Q2",
-         "tone": "down"
-        },
-        {
-         "text": "Open question: Consideration and funding for the Galenvs and SI &C Resins acquisitions are not stated",
-         "tone": "neutral"
-        }
-       ],
-       "links": [
-        {
-         "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026145355_Outcome29102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Results press release (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026153754_1PressRelease29102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026151833_InvPresentation29102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026210325_InvestorsCallAudio29102026.pdf",
-         "kind": "pdf"
-        }
-       ],
-       "ask": "Any recent announcements for LAURUSLABS?"
-      },
-      {
-       "title": "Dixon Technologies (India) Limited",
-       "symbol": "DIXON",
-       "sub": "Declared 30 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Filing read: moderately positive",
-       "tone": "up",
-       "body": "Dixon's consolidated Q2 revenue (including other income) was Rs 21,863 crore, up 42% year on year, with PAT of Rs 411 crore, up 45%. The Board also appointed Mr. Prithvi Vachani, son of the Executive Chairman, as Executive Director for 5 years, subject to shareholder approval.",
-       "body_note": "AI summary of the results filing, analysed 30 Oct 2026, filing read: moderately positive. Not a recommendation.",
-       "points": [
-        {
-         "text": "Investor presentation · 30 Oct: Dixon's consolidated Q2 revenue (including other income) was Rs 21,863 crore, up 42% year on year, with PAT of Rs 411 crore, up 45%. The Board also appointed Mr. Prithvi Vachani, son of the Executive Chairman, as Executive Director for 5 years, subject to shareholder approval.",
-         "tone": "neutral"
-        },
-        {
-         "text": "Consolidated Q2 revenue up 42% and PAT up 45% year on year",
-         "tone": "up"
-        },
-        {
-         "text": "EBITDA up 37% and PBT up 42% in the quarter",
-         "tone": "up"
-        },
-        {
-         "text": "Half-year profit growth is much slower (PAT up 10%, EBITDA up 8%), so growth is concentrated in Q2",
-         "tone": "down"
-        },
-        {
-         "text": "Standalone Q2 PAT fell to Rs 123.44 crore from Rs 498.10 crore in the prior quarter, as other income dropped to Rs 86.09 crore from Rs 540.28 crore",
-         "tone": "down"
-        },
-        {
-         "text": "Open question: Reasons for the large other income in the prior quarter and the Q2 drop",
-         "tone": "neutral"
-        }
-       ],
-       "links": [
-        {
-         "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/DIXON_30102026160547_Outcome30102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/DIXON_30102026161836_OutcomewithPPT30102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/DIXON_30102026203021_ConferenceCallRecordingIntimation30102026.pdf",
-         "kind": "pdf"
-        }
-       ],
-       "ask": "Any recent announcements for DIXON?"
-      },
-      {
-       "title": "GAIL (India) Limited",
-       "symbol": "GAIL",
-       "sub": "Declared 30 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Filing read: moderately positive",
-       "tone": "up",
-       "body": "GAIL reported Q2 FY27 standalone revenue of ₹45,924 crore and PAT of ₹4,650 crore, up from ₹4,292 crore in Q1. For H1 FY27, standalone PAT was ₹8,943 crore versus ₹4,104 crore a year earlier.",
-       "body_note": "AI summary of the results filing, analysed 30 Oct 2026, filing read: moderately positive. Not a recommendation.",
-       "points": [
-        {
-         "text": "Press release · 30 Oct: GAIL reported Q2 FY27 standalone revenue of ₹45,924 crore and PAT of ₹4,650 crore, up from ₹4,292 crore in Q1. For H1 FY27, standalone PAT was ₹8,943 crore versus ₹4,104 crore a year earlier.",
-         "tone": "neutral"
-        },
-        {
-         "text": "H1 standalone PAT of ₹8,943 crore is more than double ₹4,104 crore in H1 FY26; PBT rose to ₹11,611 crore from ₹5,357 crore",
-         "tone": "up"
-        },
-        {
-         "text": "Q2 PAT rose to ₹4,650 crore from ₹4,292 crore in Q1, and revenue rose to ₹45,924 crore from ₹38,981 crore",
-         "tone": "up"
-        },
-        {
-         "text": "Q2 PBT was only slightly higher than Q1 (₹5,838 crore vs ₹5,773 crore), so sequential profit growth is modest",
-         "tone": "down"
-        },
-        {
-         "text": "The filing mentions geopolitical headwinds",
-         "tone": "down"
-        },
-        {
-         "text": "Open question: Year-on-year Q2 figures are not given, only the sequential comparison with Q1",
-         "tone": "neutral"
-        },
-        {
-         "text": "Business update · 30 Oct: GAIL's board gave in-principle approval to list its wholly owned subsidiary GAIL Gas Limited through an IPO, diluting GAIL's stake by up to 25%. A final board approval on the extent of dilution, modality and terms will follow once GAIL Gas submits its proposal based on the BRLM's recommendations.",
-         "tone": "neutral"
-        }
-       ],
-       "links": [
-        {
-         "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/DEVIKA_30102026143000_UFR.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/DEVIKA_30102026153938_PPT.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/GAIL_30102026175400_audio.pdf",
-         "kind": "pdf"
-        }
-       ],
-       "ask": "Any recent announcements for GAIL?"
-      },
-      {
-       "title": "Ambuja Cements Limited",
-       "symbol": "AMBUJACEM",
-       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Filing read: moderately negative",
-       "tone": "down",
-       "body": "Ambuja's consolidated Q2 FY27 revenue was Rs 9,197 Cr, about flat YoY, with operating EBITDA of Rs 1,271 Cr (13.8% margin) against Rs 1,762 Cr (19.2%) a year earlier. Profit after tax fell to Rs 236 Cr from Rs 2,336 Cr, which included a Rs 1,697 Cr tax provision reversal.",
-       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
-       "points": [
-        {
-         "text": "Press release · 29 Oct: Ambuja's consolidated Q2 FY27 revenue was Rs 9,197 Cr, about flat YoY, with operating EBITDA of Rs 1,271 Cr (13.8% margin) against Rs 1,762 Cr (19.2%) a year earlier. Profit after tax fell to Rs 236 Cr from Rs 2,336 Cr, which included a Rs 1,697 Cr tax provision reversal.",
-         "tone": "neutral"
-        },
-        {
-         "text": "Trade volumes up 8.6% YoY, trade share up to 74%, premium products 37% of trade sales",
-         "tone": "up"
-        },
-        {
-         "text": "Debt-free balance sheet, net worth Rs 72,238 Cr, AAA/A1+ ratings",
-         "tone": "up"
-        },
-        {
-         "text": "Operating EBITDA down about 28% YoY; EBITDA per tonne Rs 770 versus Rs 1,061",
-         "tone": "down"
-        },
-        {
-         "text": "Total cost Rs 4,410 per tonne amid higher fuel and logistics costs",
-         "tone": "down"
-        },
-        {
-         "text": "Open question: Merger exchange ratio and the size of the EPS accretion are not stated.",
-         "tone": "neutral"
-        }
-       ],
-       "links": [
-        {
-         "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/AMBUJACEM_29102026142342_ACL_Results_29102926.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/AMBUJACEM_29102026143804_ACL_InvestorPresentation.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/AMBUJACEM_29102026193759_ACL_Audio_recording.pdf",
-         "kind": "pdf"
-        }
-       ],
-       "ask": "Any recent announcements for AMBUJACEM?"
-      },
-      {
-       "title": "InterGlobe Aviation Limited",
-       "symbol": "INDIGO",
-       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Filing read: moderately negative",
-       "tone": "down",
-       "body": "IndiGo reported Q2 FY27 revenue from operations up 25.9% to INR 233,638 million, but a net loss of INR 18,791 million (versus a loss of INR 25,821 million a year ago) as fuel cost rose 67.2% to INR 99,668 million. Excluding forex, the net loss was INR 7,237 million against a profit of INR 1,039 million a year earlier.",
-       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
-       "points": [
-        {
-         "text": "Press release · 29 Oct: IndiGo reported Q2 FY27 revenue from operations up 25.9% to INR 233,638 million, but a net loss of INR 18,791 million (versus a loss of INR 25,821 million a year ago) as fuel cost rose 67.2% to INR 99,668 million. Excluding forex, the net loss was INR 7,237 million against a profit of INR 1,039 million a year earlier.",
-         "tone": "neutral"
-        },
-        {
-         "text": "Revenue from operations up 25.9% and yield up 34.3% on capacity and yield management",
-         "tone": "up"
-        },
-        {
-         "text": "Net loss narrowed from INR 25,821 mn to INR 18,791 mn; EBITDAR rose to INR 24,599 mn",
-         "tone": "up"
-        },
-        {
-         "text": "Fuel cost up 67.2% and fuel CASK up 68.9%; rupee depreciation weighed on results",
-         "tone": "down"
-        },
-        {
-         "text": "Loss excluding forex of INR 7,237 mn versus a profit a year earlier; EBITDAR ex-forex margin fell to 15.5% from 20.5%",
-         "tone": "down"
-        },
-        {
-         "text": "Open question: Whether fuel prices and the rupee will ease in coming quarters",
-         "tone": "neutral"
-        }
-       ],
-       "links": [
-        {
-         "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026155229_Outcome_of_BM_29102026_Final.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Results press release (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026161010_Press_Release_29102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026160610_Investor_Presentation_29102026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026212609_Audio_Recording_29102026.pdf",
-         "kind": "pdf"
-        }
-       ],
-       "ask": "Any recent announcements for INDIGO?"
-      },
-      {
-       "title": "Adani Enterprises Limited",
-       "symbol": "ADANIENT",
-       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Filing read: moderately positive",
-       "tone": "up",
-       "body": "Adani Enterprises reported H1 FY27 consolidated revenue up 62% to Rs. 71,569 cr and EBITDA up 56% to Rs. 11,958 cr; Q2 EBITDA rose 62% to Rs. 6,316 cr. PAT attributable to owners fell 92% to Rs. 332 cr in H1 (a Rs. 2,644 cr exceptional item in FY27 versus a Rs. 3,583 cr item in FY26).",
-       "body_note": "AI summary of the results filing, analysed 28 Oct 2026, filing read: moderately positive. Not a recommendation.",
-       "points": [
-        {
-         "text": "Press release · 28 Oct: Adani Enterprises reported H1 FY27 consolidated revenue up 62% to Rs. 71,569 cr and EBITDA up 56% to Rs. 11,958 cr; Q2 EBITDA rose 62% to Rs. 6,316 cr. PAT attributable to owners fell 92% to Rs. 332 cr in H1 after a Rs. 2,644 cr one-time OFAC settlement and a prior-year exceptional gain.",
-         "tone": "neutral"
-        },
-        {
-         "text": "H1 EBITDA up 56% and Q2 EBITDA up 62%, with continuing PBT up 146% in Q2",
-         "tone": "up"
-        },
-        {
-         "text": "Copper ramp-up: H1 EBITDA Rs. 2,033 cr and sales volume 5.2x",
-         "tone": "up"
-        },
-        {
-         "text": "H1 PAT to owners down 92% to Rs. 332 cr; Q2 PAT down 55%",
-         "tone": "down"
-        },
-        {
-         "text": "ANIL ecosystem H1 EBITDA down 13% and PBT down 21%",
-         "tone": "down"
-        },
-        {
-         "text": "Open question: What changed in this revised release versus the earlier one",
-         "tone": "neutral"
-        },
-        {
-         "text": "Press release · 28 Oct: Adani Enterprises reported H1 FY27 consolidated revenue up 62% to Rs. 71,569 cr and EBITDA up 56% to Rs. 11,958 cr; Q2 EBITDA rose 62% to Rs. 6,316 cr. PAT attributable to owners fell 92% to Rs. 332 cr in H1 (a Rs. 2,644 cr exceptional item in FY27 versus a Rs. 3,583 cr item in FY26).",
-         "tone": "neutral"
-        }
-       ],
-       "links": [
-        {
-         "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/nishant_joshi_adani_com_28102026133333_AELBoardoutcome30092026.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Investor presentation (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/nishant_joshi_adani_com_28102026143849_AELsubmissionofPresentation.pdf",
-         "kind": "pdf"
-        },
-        {
-         "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/nishant_joshi_adani_com_28102026192346_SubmissionofAudioRecordingofInvCall28102026.pdf",
-         "kind": "pdf"
-        }
-       ],
-       "ask": "Any recent announcements for ADANIENT?"
-      },
-      {
-       "title": "Adani Ports and Special Economic Zone Limited",
-       "symbol": "ADANIPORTS",
-       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "In line with historical trend",
+       "title": "Hindustan Zinc Limited",
+       "symbol": "HINDZINC",
+       "sub": "Declared 19 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: no reliable baseline",
+       "badge": "Not rated",
        "tone": "neutral",
-       "body": "Q2 FY27 consolidated revenue rose 24% to ₹11,340 Cr, EBITDA 23% to ₹6,807 Cr and PAT 18% to ₹3,682 Cr. FY27 guidance was raised to revenue ₹44,000-46,000 Cr and EBITDA ₹26,000-27,000 Cr, with capex raised to ₹15,000-17,000 Cr.",
-       "body_note": "AI summary of the results filing, analysed 28 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "body": "Hindustan Zinc reported Q2 FY27 revenue of ₹15,093 crore (up 77% YoY), EBITDA of ₹9,285 crore (up 108%) and net profit of ₹6,412 crore (up 142%). Zinc cost of production fell 29% YoY to $703 per tonne and the EBITDA margin was 62%.",
+       "body_note": "AI summary of the results filing, analysed 19 Oct 2026, filing read: strongly positive. Not a recommendation.",
        "points": [
         {
-         "text": "Press release · 28 Oct: Q2 FY27 consolidated revenue rose 24% to ₹11,340 Cr, EBITDA 23% to ₹6,807 Cr and PAT 18% to ₹3,682 Cr. FY27 guidance was raised to revenue ₹44,000-46,000 Cr and EBITDA ₹26,000-27,000 Cr, with capex raised to ₹15,000-17,000 Cr.",
+         "text": "Press release · 19 Oct: Hindustan Zinc reported Q2 FY27 revenue of ₹15,093 crore (up 77% YoY), EBITDA of ₹9,285 crore (up 108%) and net profit of ₹6,412 crore (up 142%). Zinc cost of production fell 29% YoY to $703 per tonne and the EBITDA margin was 62%.",
          "tone": "neutral"
         },
         {
-         "text": "Broad-based growth: revenue +24% and EBITDA +23% YoY, with all segments growing",
+         "text": "Record quarterly net profit and EBITDA, up 142% and 108% YoY, with margin up about 900 bps to 62%",
          "tone": "up"
         },
         {
-         "text": "FY27 revenue and EBITDA guidance each raised by ₹1,000 Cr",
+         "text": "Zinc cost of production down 29% YoY to $703/t on better grades, higher output and renewable power",
          "tone": "up"
         },
         {
-         "text": "Capex guidance raised by ₹3,000 Cr to ₹15,000-17,000 Cr, increasing investment burden",
+         "text": "Growth is driven largely by higher metal prices and a stronger dollar, which are outside the company's control",
          "tone": "down"
         },
         {
-         "text": "PAT growth (18%) lags revenue and EBITDA growth; H1 PAT up 14%",
+         "text": "Input commodity prices rose and domestic coal usage fell, partly offsetting the cost gains",
          "tone": "down"
         },
         {
-         "text": "Open question: Reasons for the PAT growth lag, such as depreciation, interest or tax detail",
+         "text": "Open question: How much of the profit growth depends on metal prices and exchange rates rather than lasting operating gains",
          "tone": "neutral"
         }
        ],
        "links": [
         {
          "label": "Results filing (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/rkbhagia_28102026124014_OutcomeofBoardMeeting.pdf",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_19102026153330_Finaloutcome.pdf",
          "kind": "pdf"
         },
         {
          "label": "Results press release (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/rkbhagia_28102026124435_IntimationofPRandIP.pdf",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_19102026154508_SEintimationpressrelease.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_19102026154642_SEintimationinvestorpresentation.pdf",
          "kind": "pdf"
         },
         {
          "label": "Earnings call / investor meet (PDF)",
-         "url": "https://nsearchives.nseindia.com/corporate/rkbhagia_28102026212211_SEINTIMATION.pdf",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_23102026153438_SEIntimation23102026.pdf",
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for ADANIPORTS?"
+       "ask": "Any recent announcements for HINDZINC?",
+       "commentary": {
+        "signal": {
+         "label": "Strongly positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Hindustan Zinc reported Q2 FY27 revenue of ₹15,093 crore (up 77% YoY), EBITDA of ₹9,285 crore (up 108%) and net profit of ₹6,412 crore (up 142%)."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Record quarterly net profit and EBITDA, up 142% and 108% YoY, with margin up about 900 bps to 62%. Zinc cost of production down 29% YoY to $703/t on better grades, higher output and renewable power."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a strongly positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "How much of the profit growth depends on metal prices and exchange rates rather than lasting operating gains; Forward guidance on production, costs and capex"
+         },
+         {
+          "label": "AI take",
+          "text": "Strongly positive · High impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "CG Power and Industrial Solutions Limited",
+       "symbol": "CGPOWER",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Meets expectation",
+       "tone": "neutral",
+       "body": "CG Power reported Q2 FY27 standalone sales of INR 3,505 Cr (+32% YoY) and PAT of INR 450 Cr (+46%), with standalone order backlog at INR 21,820 Cr. The board also approved capacity capex in switchgear and power transformers, including about INR 300 Cr for the OIP unit and about INR 68 Cr for the T3 transformer facility.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: CG Power reported Q2 FY27 standalone sales of INR 3,505 Cr (+32% YoY) and PAT of INR 450 Cr (+46%), with standalone order backlog at INR 21,820 Cr. The board also approved capacity capex in switchgear and power transformers, including about INR 300 Cr for the OIP unit and about INR 68 Cr for the T3 transformer facility.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Standalone sales +32% and PAT +46% YoY; EBITDA margin up to 18.2% from 16.4%",
+         "tone": "up"
+        },
+        {
+         "text": "Order intake +90% YoY at INR 8,016 Cr; backlog +61% YoY gives multi-quarter visibility",
+         "tone": "up"
+        },
+        {
+         "text": "Industrial Systems PBIT margin slipped YoY (9.4% vs 9.7%); 6M EBITDA only +3%",
+         "tone": "down"
+        },
+        {
+         "text": "Semiconductor talent investments weigh on consolidated profit (INR 35 Cr, 91 bps impact)",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: How sustainable the Power Systems pricing and margin gains are",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/CGPOWER_23102026142554_OutcomeoftheBoardMeeting23102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/CGPOWER_23102026145423_SEDisclosure_PressRelease.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/CGPOWER_23102026190537_IntimationofRecording_InvestorCall_Q2_2026_27.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for CGPOWER?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "CG Power reported Q2 FY27 standalone sales of INR 3,505 Cr (+32% YoY) and PAT of INR 450 Cr (+46%), with standalone order backlog at INR 21,820 Cr."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Standalone sales +32% and PAT +46% YoY; EBITDA margin up to 18.2% from 16.4%. Order intake +90% YoY at INR 8,016 Cr; backlog +61% YoY gives multi-quarter visibility."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing; rated meets expectation against its own baseline."
+         },
+         {
+          "label": "What to watch",
+          "text": "How sustainable the Power Systems pricing and margin gains are; How the capex will be funded and the expected returns"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Coforge Limited",
+       "symbol": "COFORGE",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "Coforge reported Q2 revenue of INR 61,708 Mn, up 53.6% YoY (40.1% in USD terms), with EBIT margin of 16.0% and PAT of INR 5,881 Mn. It signed eight large deals, reported a $2.38 Bn next-12-month order book, and raised FY27 EBIT margin guidance from 15.5% to 16%.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: strongly positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: Coforge reported Q2 revenue of INR 61,708 Mn, up 53.6% YoY (40.1% in USD terms), with EBIT margin of 16.0% and PAT of INR 5,881 Mn. It signed eight large deals, reported a $2.38 Bn next-12-month order book, and raised FY27 EBIT margin guidance from 15.5% to 16%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Revenue up 53.6% YoY in INR and 40.1% in USD, with 10.1% sequential USD growth",
+         "tone": "up"
+        },
+        {
+         "text": "Record eight large deals; order intake $1.04 Bn; next-12-month order book $2.38 Bn, up 45% YoY",
+         "tone": "up"
+        },
+        {
+         "text": "Organic constant-currency growth was 3.8% sequentially, well below headline growth, implying inorganic or currency contribution",
+         "tone": "down"
+        },
+        {
+         "text": "PAT margin is lower than EBIT-level growth implies; PAT growth in USD (42.7%) trails EBIT growth",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Split of growth between acquisitions and organic business",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/COFORGE_23102026161820_BMOutcome23102026F.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/COFORGE_23102026163959_3PressReleaseF.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/COFORGE_24102026143550_8SignedTranscriptIntimation.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for COFORGE?",
+       "commentary": {
+        "signal": {
+         "label": "Strongly positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 85
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Coforge reported Q2 revenue of INR 61,708 Mn, up 53.6% YoY (40.1% in USD terms), with EBIT margin of 16.0% and PAT of INR 5,881 Mn."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Revenue up 53.6% YoY in INR and 40.1% in USD, with 10.1% sequential USD growth. Record eight large deals; order intake $1.04 Bn; next-12-month order book $2.38 Bn, up 45% YoY."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a strongly positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Split of growth between acquisitions and organic business; Reasons for PAT growth lagging EBIT growth (tax, interest, other items)"
+         },
+         {
+          "label": "AI take",
+          "text": "Strongly positive · Medium impact · confidence 85% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "IndusInd Bank Limited",
+       "symbol": "INDUSINDBK",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: no reliable baseline",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "IndusInd Bank reported Q2 FY27 net profit of ₹1,242 crore against a net loss of ₹437 crore a year earlier, with NII of ₹4,569 crore and PPOP of ₹2,874 crore. Gross NPA fell to 2.73% and net NPA to 0.83%, while NIM slipped to 3.23% and CRAR to 16.59%.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: IndusInd Bank reported Q2 FY27 net profit of ₹1,242 crore against a net loss of ₹437 crore a year earlier, with NII of ₹4,569 crore and PPOP of ₹2,874 crore. Gross NPA fell to 2.73% and net NPA to 0.83%, while NIM slipped to 3.23% and CRAR to 16.59%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Net profit of ₹1,242 crore versus a ₹437 crore loss a year ago; H1 profit ₹2,279 crore versus ₹167 crore",
+         "tone": "up"
+        },
+        {
+         "text": "Gross NPA down to 2.73% from 3.25% in June 2026 and 3.60% a year ago; provisions fell to ₹1,223 crore from ₹2,631 crore",
+         "tone": "up"
+        },
+        {
+         "text": "NIM fell to 3.23% from 3.32% and yield on assets fell to 8.35% from 8.75%",
+         "tone": "down"
+        },
+        {
+         "text": "CRAR fell to 16.59% from 17.10% and Tier 1 to 15.55%; LCR lower at 127% versus 132%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Details of the 'normalized' Q1 FY27 profit of ₹824 crore and any one-off items in Q2",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK3_23102026155243_Financialresultsfinalsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK4_23102026162409_finaluploadPRsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK4_23102026161027_Investor_Presentationmergedfinalsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK3_27102026112538_TranscriptofEarningCall.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for INDUSINDBK?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 85
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "IndusInd Bank reported Q2 FY27 net profit of ₹1,242 crore against a net loss of ₹437 crore a year earlier, with NII of ₹4,569 crore and PPOP of ₹2,874 crore."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Net profit of ₹1,242 crore versus a ₹437 crore loss a year ago; H1 profit ₹2,279 crore versus ₹167 crore. Gross NPA down to 2.73% from 3.25% in June 2026 and 3.60% a year ago; provisions fell to ₹1,223 crore from ₹2,631 crore."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Details of the 'normalized' Q1 FY27 profit of ₹824 crore and any one-off items in Q2; Return on assets and return on equity for the quarter"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 85% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "SBI Cards and Payment Services Limited",
+       "symbol": "SBICARD",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: no reliable baseline",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "SBI Card reported Q2 FY27 PAT of ₹778 Cr, up 75% from ₹445 Cr a year earlier, on total income of ₹5,302 Cr (up 3%). Profit growth was driven by a 37% fall in impairment costs to ₹819 Cr, while receivables fell 2% and earnings before credit costs fell 1%.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: SBI Card reported Q2 FY27 PAT of ₹778 Cr, up 75% from ₹445 Cr a year earlier, on total income of ₹5,302 Cr (up 3%). Profit growth was driven by a 37% fall in impairment costs to ₹819 Cr, while receivables fell 2% and earnings before credit costs fell 1%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "PAT up 75% YoY and 17% QoQ; ROAA 4.4% vs 2.6%, ROAE 18.4% vs 12.1%",
+         "tone": "up"
+        },
+        {
+         "text": "Credit costs down 37% YoY; gross NPA 1.90% vs 2.85%, net NPA 0.77% vs 1.29%",
+         "tone": "up"
+        },
+        {
+         "text": "Revenue growth only 3%; earnings before credit costs down 1% YoY",
+         "tone": "down"
+        },
+        {
+         "text": "Operating costs up 7% and finance costs up 4%, ahead of income growth",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Whether the lower credit cost is sustainable or reflects one-off provisioning or write-off effects",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICARDS_23102026143701_SEFilingOutcomeofBoardMeetingSep2026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICARDS_23102026150310_SEFilingPressReleaseSep2026signed.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICARDS_23102026145459_SEFilingInvestorPresentationSep2026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICPSL_23102026204327_SEFilingAudioRecordingSep2026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for SBICARD?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "SBI Card reported Q2 FY27 PAT of ₹778 Cr, up 75% from ₹445 Cr a year earlier, on total income of ₹5,302 Cr (up 3%)."
+         },
+         {
+          "label": "Why it matters",
+          "text": "PAT up 75% YoY and 17% QoQ; ROAA 4.4% vs 2.6%, ROAE 18.4% vs 12.1%. Credit costs down 37% YoY; gross NPA 1.90% vs 2.85%, net NPA 0.77% vs 1.29%."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Whether the lower credit cost is sustainable or reflects one-off provisioning or write-off effects; Management guidance on receivables growth and margins"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Adani Energy Solutions Limited",
+       "symbol": "ADANIENSOL",
+       "sub": "Declared 22 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "AESL reported Q2FY27 consolidated total income of Rs 10,239 crore (up 51%), EBITDA of Rs 3,548 crore (up 67%) and PAT of Rs 1,364 crore (up 145% from Rs 557 crore). H1FY27 EBITDA was Rs 6,726 crore (up 62%) and PAT Rs 2,600 crore, with a transmission pipeline of ~Rs 87,000 crore.",
+       "body_note": "AI summary of the results filing, analysed 22 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 22 Oct: AESL reported Q2FY27 consolidated total income of Rs 10,239 crore (up 51%), EBITDA of Rs 3,548 crore (up 67%) and PAT of Rs 1,364 crore (up 145% from Rs 557 crore). H1FY27 EBITDA was Rs 6,726 crore (up 62%) and PAT Rs 2,600 crore, with a transmission pipeline of ~Rs 87,000 crore.",
+         "tone": "neutral"
+        },
+        {
+         "text": "PAT up 145% and EBITDA up 67% YoY in Q2, with H1 EBITDA up 62%",
+         "tone": "up"
+        },
+        {
+         "text": "Energy solutions platform added Rs 803 crore operating EBITDA in Q2 versus Rs 11 crore a year earlier",
+         "tone": "up"
+        },
+        {
+         "text": "Transmission and distribution revenue growth was modest (distribution revenue up 2% in Q2; transmission up 17%)",
+         "tone": "down"
+        },
+        {
+         "text": "Smart meters installed in Q2 and H1 fell YoY (1.3 vs 1.8 million; 3.5 vs 4.2 million)",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Debt levels, interest costs and cash flow are not given",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ADANITRANS_22102026144617_UFR_FINAL.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ADANITRANS_26102026190834_AESL_-_Audio.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ADANIENSOL?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 85
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "AESL reported Q2FY27 consolidated total income of Rs 10,239 crore (up 51%), EBITDA of Rs 3,548 crore (up 67%) and PAT of Rs 1,364 crore (up 145% from Rs 557 crore)."
+         },
+         {
+          "label": "Why it matters",
+          "text": "PAT up 145% and EBITDA up 67% YoY in Q2, with H1 EBITDA up 62%. Energy solutions platform added Rs 803 crore operating EBITDA in Q2 versus Rs 11 crore a year earlier."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Debt levels, interest costs and cash flow are not given; How much of the profit growth comes from other income or one-time items"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 85% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "AU Small Finance Bank Limited",
+       "symbol": "AUBANK",
+       "sub": "Declared 24 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "AU Small Finance Bank reported Q2 FY27 PAT of ₹858 cr, up 53% YoY, with NII up 32% to ₹2,820 cr and core PPoP up 31% to ₹1,480 cr. Deposits grew 28.6% to ₹1,70,460 cr, gross loan portfolio grew 25.1%, GNPA improved to 1.99% and ICRA moved its outlook to Positive.",
+       "body_note": "AI summary of the results filing, analysed 26 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 24 Oct: AU Small Finance Bank reported Q2 FY27 PAT of ₹858 cr, up 53% YoY, with NII up 32% to ₹2,820 cr and core PPoP up 31% to ₹1,480 cr. Deposits grew 28.6% to ₹1,70,460 cr, gross loan portfolio grew 25.1%, GNPA improved to 1.99% and ICRA moved its outlook to Positive.",
+         "tone": "neutral"
+        },
+        {
+         "text": "PAT up 53% YoY; RoA 1.7% and RoE 16.1% versus 1.4% and 12.4% a year earlier",
+         "tone": "up"
+        },
+        {
+         "text": "NIM up 33 bps to 5.8% as cost of funds fell 43 bps; NII up 32%",
+         "tone": "up"
+        },
+        {
+         "text": "Opex up 26% YoY to ₹2,077 cr, though cost-to-assets edged down",
+         "tone": "down"
+        },
+        {
+         "text": "Gross advance yields fell 27 bps on mix change; average LCR slipped to 116% from 119%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Capital adequacy ratio and any capital raising plans are not shown in the available text",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_24102026152406_BM_Outcome.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_24102026152913_Press_Release.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_24102026153558_Investor_Presentation.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_28102026192812_Investor_call_transcript_SE_Submission.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for AUBANK?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "AU Small Finance Bank reported Q2 FY27 PAT of ₹858 cr, up 53% YoY, with NII up 32% to ₹2,820 cr and core PPoP up 31% to ₹1,480 cr."
+         },
+         {
+          "label": "Why it matters",
+          "text": "PAT up 53% YoY; RoA 1.7% and RoE 16.1% versus 1.4% and 12.4% a year earlier. NIM up 33 bps to 5.8% as cost of funds fell 43 bps; NII up 32%."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Capital adequacy ratio and any capital raising plans are not shown in the available text; Forward guidance is not given"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       }
      ]
     },
@@ -7759,180 +7987,12 @@
      ],
      "rows": [
       {
-       "symbol": "TATASTEEL",
-       "ask": "How were TATASTEEL results?",
+       "symbol": "PITTIENG",
+       "ask": "How were PITTIENG results?",
        "cells": {
-        "symbol": "TATASTEEL",
-        "name": "Tata Steel Limited",
-        "date": "27 Oct",
-        "status": "Figures awaited",
-        "fno": "F&O",
-        "sector": "Metals & Mining"
-       }
-      },
-      {
-       "symbol": "ACEVECTOR",
-       "ask": "How were ACEVECTOR results?",
-       "cells": {
-        "symbol": "ACEVECTOR",
-        "name": "AceVector Limited",
-        "date": "26 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "DALBHARAT",
-       "ask": "How were DALBHARAT results?",
-       "cells": {
-        "symbol": "DALBHARAT",
-        "name": "Dalmia Bharat Limited",
-        "date": "26 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "Construction Materials"
-       }
-      },
-      {
-       "symbol": "VNL",
-       "ask": "How were VNL results?",
-       "cells": {
-        "symbol": "VNL",
-        "name": "Vishal Nirmiti Limited",
-        "date": "28 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "MTARTECH",
-       "ask": "How were MTARTECH results?",
-       "cells": {
-        "symbol": "MTARTECH",
-        "name": "Mtar Technologies Limited",
-        "date": "29 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "Capital Goods"
-       }
-      },
-      {
-       "symbol": "TITAGARH",
-       "ask": "How were TITAGARH results?",
-       "cells": {
-        "symbol": "TITAGARH",
-        "name": "TITAGARH RAIL SYSTEMS LIMITED",
-        "date": "29 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "Capital Goods"
-       }
-      },
-      {
-       "symbol": "BKMINDST",
-       "ask": "How were BKMINDST results?",
-       "cells": {
-        "symbol": "BKMINDST",
-        "name": "Bkm Industries Limited",
-        "date": "30 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "AURIONPRO",
-       "ask": "How were AURIONPRO results?",
-       "cells": {
-        "symbol": "AURIONPRO",
-        "name": "Aurionpro Solutions Limited",
-        "date": "31 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "Information Technology"
-       }
-      },
-      {
-       "symbol": "BIRLACORPN",
-       "ask": "How were BIRLACORPN results?",
-       "cells": {
-        "symbol": "BIRLACORPN",
-        "name": "Birla Corporation Limited",
-        "date": "31 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "Construction Materials"
-       }
-      },
-      {
-       "symbol": "ESSENTIA",
-       "ask": "How were ESSENTIA results?",
-       "cells": {
-        "symbol": "ESSENTIA",
-        "name": "Integra Essentia Limited",
-        "date": "31 Oct",
-        "status": "Due",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "GANGOTRI",
-       "ask": "How were GANGOTRI results?",
-       "cells": {
-        "symbol": "GANGOTRI",
-        "name": "Gangotri Textiles Limited",
-        "date": "31 Oct",
-        "status": "Due",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "IITL",
-       "ask": "How were IITL results?",
-       "cells": {
-        "symbol": "IITL",
-        "name": "Industrial Investment Trust Limited",
-        "date": "31 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "LATENTVIEW",
-       "ask": "How were LATENTVIEW results?",
-       "cells": {
-        "symbol": "LATENTVIEW",
-        "name": "Latent View Analytics Limited",
-        "date": "31 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "Information Technology"
-       }
-      },
-      {
-       "symbol": "LGBBROSLTD",
-       "ask": "How were LGBBROSLTD results?",
-       "cells": {
-        "symbol": "LGBBROSLTD",
-        "name": "LG Balakrishnan & Bros Limited",
-        "date": "31 Oct",
-        "status": "Figures awaited",
-        "fno": "—",
-        "sector": "—"
-       }
-      },
-      {
-       "symbol": "MASKINVEST",
-       "ask": "How were MASKINVEST results?",
-       "cells": {
-        "symbol": "MASKINVEST",
-        "name": "Mask Investments Limited",
-        "date": "31 Oct",
+        "symbol": "PITTIENG",
+        "name": "Pitti Engineering Limited",
+        "date": "22 Oct",
         "status": "Figures awaited",
         "fno": "—",
         "sector": "—"
@@ -7946,7 +8006,7 @@
      "title": null,
      "note": null,
      "tone": "info",
-     "text": "Showing 8 of 494 declared results and 15 of 30 still to report. The full calendar, with every company's score and the market's reaction, is in Market Intelligence.",
+     "text": "Showing 8 of 165 declared results and all 1 still to report. The full calendar, with every company's score and the market's reaction, is in Market Intelligence.",
      "actions": [
       {
        "kind": "open_market_intel",
@@ -7960,13 +8020,13 @@
     "sources": [
      {
       "name": "Results calendar (NSE board-meeting dates, DaaS events calendar)",
-      "as_of": "2026-10-31",
+      "as_of": "2026-11-01",
       "status": "fresh",
       "note": null
      },
      {
       "name": "Companies' exchange filings (DaaS announcements)",
-      "as_of": "2026-10-31",
+      "as_of": "2026-11-01",
       "status": "fresh",
       "note": "8 of 8 companies read"
      }
@@ -7992,17 +8052,17 @@
      "query": "Any M&A announcements today?"
     }
    ],
-   "caveat": "Built from exchange filings and board-meeting dates, data of 31 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from exchange filings and board-meeting dates, data of 1 Nov 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
   },
   "event_intelligence": {
    "schema": "visual-answer-v1",
    "intent": "event_intelligence",
    "title": "Order wins · last 7 days",
    "as_of": "2026-10-31",
-   "generated_at": "2026-10-31T22:01:50+05:30",
+   "generated_at": "2026-11-01T03:26:13+05:30",
    "mode": "eod",
    "headline": {
-    "text": "Order filings in the last 7 days: 74. All 8 shown have an AI summary.",
+    "text": "Order filings in the last 7 days: 67. All 8 shown have an AI summary.",
     "tone": "neutral"
    },
    "decision": null,
@@ -8029,7 +8089,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for GAYAPROJ?"
+       "ask": "Any recent announcements for GAYAPROJ?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Gayatri Projects has been awarded a contract by B-RIDE, under a joint venture, for design and construction of civil works from Bennigenahalli to Jakkur on Corridor-4 of the Bengaluru Suburban…"
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Knowledge Marine & Engineering Works Limited",
@@ -8047,7 +8137,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for KMEW?"
+       "ask": "Any recent announcements for KMEW?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "KMEW received a work order from New Mangalore Port Authority for maintenance dredging over FY2026-27 to FY2028-29, valued at ₹303.17 crore including GST."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Oswal Pumps Limited",
@@ -8065,7 +8185,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for OSWALPUMPS?"
+       "ask": "Any recent announcements for OSWALPUMPS?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Oswal Pumps received an additional order from MSEDCL for 10,000 off-grid DC solar water pumping systems under PM Kusum B, worth about Rs."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Acme Solar Holdings Limited",
@@ -8083,7 +8233,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for ACMESOLAR?"
+       "ask": "Any recent announcements for ACMESOLAR?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "ACME Solar, through subsidiary ACME Marigold Urja, signed a PPA with NTPC for a 400 MW ISTS-connected FDRE project at a tariff of INR 4.37 per unit."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Afcons Infrastructure Limited",
@@ -8101,7 +8281,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for AFCONS?"
+       "ask": "Any recent announcements for AFCONS?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Afcons secured two EPC contracts in Uttar Pradesh worth about ₹3,469 crore combined: the ₹2,086 crore Jewar Link Expressway from UPEIDA and a ₹1,383 crore underground section of Lucknow Metro…"
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Texmaco Rail & Engineering Limited",
@@ -8119,7 +8329,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for TEXRAIL?"
+       "ask": "Any recent announcements for TEXRAIL?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Ministry of Railways exercised the option clause to raise the BOXNS wagon order from 3,400 to 4,420 wagons, an additional 1,020 wagons valued at Rs."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "NBCC (India) Limited",
@@ -8137,7 +8377,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for NBCC?"
+       "ask": "Any recent announcements for NBCC?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "NBCC concluded an e-auction selling about 8.80 lac sq. ft of residential apartments at Avenue Towers, Africa Avenue Marg, Sarojini Nagar, New Delhi, for a total sale value of approx."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Dilip Buildcon Limited",
@@ -8155,7 +8425,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for DBL?"
+       "ask": "Any recent announcements for DBL?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Dilip Buildcon received a Letter of Award from NHAI for a 4-lane elevated corridor on NH-65 in Solapur (9.66 km) on Hybrid Annuity Mode, worth Rs 688.23 crore excluding GST."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       }
      ]
     },
@@ -8165,7 +8465,7 @@
      "title": null,
      "note": null,
      "tone": "info",
-     "text": "Showing 8 of 74 order filings from the last 7 days: the ones with an AI summary first, then by impact, then newest. 8 shown have an AI summary; the rest are not analysed yet. Tone and impact are an AI classifier's reading of each filing, not a view on the stock. Every filing is in Market Intelligence.",
+     "text": "Showing 8 of 67 order filings from the last 7 days: the ones with an AI summary first, then by impact, then newest. 8 shown have an AI summary; the rest are not analysed yet. Tone and impact are an AI classifier's reading of each filing, not a view on the stock. Every filing is in Market Intelligence.",
      "actions": [
       {
        "kind": "open_market_intel",

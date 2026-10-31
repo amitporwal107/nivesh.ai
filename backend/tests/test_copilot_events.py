@@ -212,11 +212,11 @@ def nse(name):
     return f"https://nsearchives.nseindia.com/corporate/{name}.pdf"
 
 
-def outlook(summary=None, band=None, mat=None, analyzed="2026-10-29T09:30:00+00:00", aid=None):
+def outlook(summary=None, band=None, mat=None, analyzed="2026-10-29T09:30:00+00:00", aid=None, conf=70.0):
     if summary is None:
         return {"analysed": False, "summary": None, "net_band": None, "net_impact_score": None, "confidence_score": None,
                 "materiality_score": None, "event_ts": None, "analyzed_at": None, "announcement_id": None, "reason": "not analysed"}
-    return {"analysed": True, "summary": summary, "net_band": band, "net_impact_score": 20.0, "confidence_score": 70.0,
+    return {"analysed": True, "summary": summary, "net_band": band, "net_impact_score": 20.0, "confidence_score": conf,
             "materiality_score": mat, "event_ts": "2026-10-28T10:00:00+00:00", "analyzed_at": analyzed, "announcement_id": aid, "reason": None}
 
 
@@ -400,7 +400,7 @@ def test_ev_b1_this_week_counts_cards_and_the_due_list(ev):
     assert (kp["Companies"]["value"], kp["Declared"]["value"], kp["Figures awaited"]["value"], kp["Still to report"]["value"], kp["F&O names"]["value"]) \
         == ("15", "12", "1", "2", "4")
     assert kp["Declared"]["sub"] == "3 with an AI summary, 9 not analysed yet"
-    assert kp["Above · in line · below"]["value"] == "1 · 1 · 1" and kp["Above · in line · below"]["sub"].startswith("9 not rated")
+    assert kp["Above · meets · below"]["value"] == "1 · 1 · 1" and kp["Above · meets · below"]["sub"].startswith("9 not rated")
     assert [b["id"] for b in p["blocks"] if b["type"] != "notice"] == ["counts", "declared", "due"] and p["blocks"][-1]["id"] == "more"
 
 
@@ -421,10 +421,10 @@ def test_ev_b2_cards_are_the_stored_summaries_analysed_first_f_and_o_favoured_ca
 
 def test_ev_b3_the_badge_is_the_desks_verdict_else_the_filing_read_else_not_rated(ev):
     cards = {c["symbol"]: c for c in blk(calendar(), "declared")["items"]}
-    assert (cards["RELI"]["badge"], cards["RELI"]["tone"]) == ("Above historical trend", "up")
-    assert (cards["ALPHA"]["badge"], cards["ALPHA"]["tone"]) == ("Well below historical trend", "down")
-    assert (cards["BETA"]["badge"], cards["BETA"]["tone"]) == ("Filing read: neutral mixed", "neutral")
-    assert (cards["FNOA"]["badge"], cards["FNOA"]["tone"]) == ("In line with historical trend", "neutral")
+    assert (cards["RELI"]["badge"], cards["RELI"]["tone"]) == ("Above expectation", "up")
+    assert (cards["ALPHA"]["badge"], cards["ALPHA"]["tone"]) == ("Well below expectation", "down")
+    assert (cards["BETA"]["badge"], cards["BETA"]["tone"]) == ("Not rated", "neutral")
+    assert (cards["FNOA"]["badge"], cards["FNOA"]["tone"]) == ("Meets expectation", "neutral")
     assert (cards["FNOB"]["badge"], cards["FNOB"]["tone"]) == ("Not rated", "neutral")
     assert "F&O" in cards["RELI"]["sub"] and "Q2 FY27" in cards["RELI"]["sub"] and "28 Oct" in cards["RELI"]["sub"]
     assert "consensus" in blk(calendar(), "declared")["note"]
@@ -714,7 +714,7 @@ def test_ev_s1_a_stocks_results_are_one_card_with_summary_commentary_and_links(e
     cards = blk(p, "events")["items"]
     assert len(cards) == 1
     c = cards[0]
-    assert c["body"] == "TCS stored result summary." and c["badge"] == "In line with historical trend" and "Q2 FY27" in c["sub"] and "9 Oct 2026" in c["sub"]
+    assert c["body"] == "TCS stored result summary." and c["badge"] == "Meets expectation" and "Q2 FY27" in c["sub"] and "9 Oct 2026" in c["sub"]
     assert [l["label"] for l in c["links"]][:2] == ["Results filing (PDF)", "Investor presentation (PDF)"]
     pts = [x["text"] for x in c["points"]]
     assert any("deal wins were strong" in t for t in pts) and any("call transcript" in t for t in pts)       # the file's analysis + the feed's other earnings filing
@@ -771,7 +771,7 @@ def test_ev_c1_the_contract_check_covers_briefs_and_the_new_action(ev):
 
 def test_ev_f1_the_facts_carry_the_cards_so_the_engine_explains_only_what_is_shown(ev):
     f = facts(calendar())
-    assert "RELI stored summary." in f and "Above historical trend" in f and "Not analysed yet" in f and "source link" in f
+    assert "RELI stored summary." in f and "Above expectation" in f and "Not analysed yet" in f and "source link" in f
     assert "VISUAL_ANSWER (results_calendar)" in f and len(f) <= 6100
 
 
@@ -836,3 +836,134 @@ def test_ev_w2_the_committed_mock_fixture_is_what_the_builders_make_today(ev):
         pytest.skip("the frontend fixtures are not in this checkout")
     doc = json.loads(CAPTURE.read_text(encoding="utf-8"))
     assert doc["about"].startswith("MOCK") and doc["payloads"] == now
+
+
+
+# ═════ Rating against expectation and the five-line AI read (owner, 1 Nov 2026) ═════
+# EX-1 … EX-7 of test_reports/copilot_results_rating_20261101.md. MOCK — not real data.
+from services.copilot_visual import events_builders as eb                                  # noqa: E402
+
+
+@pytest.mark.parametrize("label, intensity, badge, tone", [
+    ("above", "outstanding", "Well above expectation", "up"), ("above", None, "Above expectation", "up"),
+    ("in_line", None, "Meets expectation", "neutral"),
+    ("below", None, "Below expectation", "down"), ("below", "well_below", "Well below expectation", "down"),
+    (None, None, "Not rated", "neutral"),
+])
+def test_ex1_the_badge_is_below_meets_or_above_expectation(label, intensity, badge, tone):
+    row = rrow("X", verdict=label, intensity=intensity, ol=outlook("S.", "strongly_positive", 80.0))
+    assert eb._verdict_badge(row) == (badge, tone)          # a filing's sentiment is NOT passed off as a rating against expectation
+
+
+def test_ex2_an_unrated_card_says_why_in_plain_words_and_the_filing_read_stays_in_its_note(ev):
+    cards = {c["symbol"]: c for c in blk(calendar(), "declared")["items"]}
+    assert cards["FNOB"]["badge"] == "Not rated" and "Not rated: baseline too uncertain" in cards["FNOB"]["sub"]
+    assert cards["BETA"]["badge"] == "Not rated" and "filing read: neutral mixed" in cards["BETA"]["body_note"]       # the sentiment is in the note
+    assert "Not rated" not in cards["RELI"]["sub"]
+
+
+def test_ex3_the_counts_strip_names_the_basis_of_expectation(ev):
+    kp = {i["label"]: i for i in blk(calendar(), "counts")["items"]}
+    sub = kp["Above · meets · below"]["sub"]
+    assert "expectation" in sub and "own baseline" in sub and "not analyst consensus" in sub
+    note = blk(calendar(), "declared")["note"]
+    assert "expectation" in note and "consensus" in note and "historical trend" not in note
+
+
+# ── CM-1 … CM-8: the five-line AI commentary of an event (owner, 1 Nov 2026: What happened / Why it matters / Market impact /
+#    What to watch / AI take, with a signal, an impact level and a confidence) — assembled ONLY from the stored AI read ──────────
+NOT_STATED = "Not stated in the stored AI read."
+LABELS = ["What happened", "Why it matters", "Market impact", "What to watch", "AI take"]
+
+
+def rich_file(sym, aid, pos=(), neg=(), unk=(), band="strongly_positive", conf=82.0):
+    it = aitem("results", f"{sym} stored result summary.", pos=pos, neg=neg, unk=unk, aid=aid)
+    it.update(band=band, confidence=conf)
+    return afile(sym, mgmt=[it])
+
+
+def ccard(ev_, sym):
+    return next(c for c in blk(calendar(), "declared")["items"] if c["symbol"] == sym)
+
+
+def test_cm1_a_results_card_carries_five_lines_and_a_signal_from_the_stored_read(ev):
+    ev.rows = [rrow("STRONG", verdict="above", ol=outlook("STRONG revenue rose 80% YoY. EBITDA tripled and margins widened.", "strongly_positive", 80.0, aid="a1", conf=82.0))]
+    ev.files["STRONG"] = rich_file("STRONG", "a1", pos=["Margins widened to 31%", "Order book up 40%"], unk=["Whether the margin gain is sustainable", "Guidance for H2"])
+    c = ccard(ev, "STRONG")["commentary"]
+    assert [l["label"] for l in c["lines"]] == LABELS
+    t = {l["label"]: l["text"] for l in c["lines"]}
+    assert t["What happened"] == "STRONG revenue rose 80% YoY."                                    # the stored text, first sentence, verbatim
+    assert t["Why it matters"] == "Margins widened to 31%. Order book up 40%."                    # the stored positives
+    assert t["Market impact"].startswith("Bullish") and "strongly positive" in t["Market impact"] and "above expectation" in t["Market impact"].lower()
+    assert t["What to watch"] == "Whether the margin gain is sustainable; Guidance for H2"
+    assert t["AI take"].startswith("Strongly positive · High impact · confidence 82%") and "not a recommendation" in t["AI take"].lower()
+    assert c["signal"] == {"label": "Strongly positive", "tone": "up", "impact": "High", "confidence": 82}
+
+
+@pytest.mark.parametrize("band, tone, label, view", [
+    ("extremely_positive", "up", "Extremely positive", "Bullish"), ("moderately_positive", "up", "Moderately positive", "Bullish"),
+    ("slightly_positive", "up", "Slightly positive", "Bullish"), ("neutral_mixed", "warn", "Mixed or neutral", "Mixed"),
+    ("slightly_negative", "down", "Slightly negative", "Bearish"), ("strongly_negative", "down", "Strongly negative", "Bearish"),
+    (None, "neutral", "Informational", "Neutral"),
+])
+def test_cm2_the_signal_and_the_view_follow_the_stored_band(ev, band, tone, label, view):
+    ev.rows = [rrow("SIG", ol=outlook("SIG did something. More.", band, 60.0, aid="a1"))]
+    ev.files["SIG"] = rich_file("SIG", "a1", band=band)
+    c = ccard(ev, "SIG")["commentary"]
+    assert (c["signal"]["tone"], c["signal"]["label"]) == (tone, label)
+    assert {l["label"]: l["text"] for l in c["lines"]}["Market impact"].startswith(view)
+
+
+def test_cm3_why_it_matters_uses_the_positives_for_a_positive_read_the_negatives_for_a_negative_and_both_for_mixed(ev):
+    ev.rows = [rrow("POS", ol=outlook("P.", "moderately_positive", 50.0, aid="p")), rrow("NEG", ol=outlook("N.", "moderately_negative", 50.0, aid="n")),
+               rrow("MIX", ol=outlook("M.", "neutral_mixed", 50.0, aid="m"))]
+    for sym, aid, band in (("POS", "p", "moderately_positive"), ("NEG", "n", "moderately_negative"), ("MIX", "m", "neutral_mixed")):
+        ev.files[sym] = rich_file(sym, aid, pos=["good thing"], neg=["bad thing"], band=band)
+    why = lambda s: {l["label"]: l["text"] for l in ccard(ev, s)["commentary"]["lines"]}["Why it matters"]
+    assert why("POS") == "good thing." and why("NEG") == "bad thing." and why("MIX") == "For: good thing. Against: bad thing."
+
+
+def test_cm4_a_line_the_stored_read_does_not_support_says_so_and_is_never_invented(ev):
+    ev.rows = [rrow("BARE", ol=outlook("BARE reported results. Nothing else.", "moderately_positive", None, aid="b", conf=None))]
+    ev.files["BARE"] = rich_file("BARE", "b", conf=None)
+    c = ccard(ev, "BARE")["commentary"]
+    t = {l["label"]: l["text"] for l in c["lines"]}
+    assert t["Why it matters"] == NOT_STATED and t["What to watch"] == NOT_STATED
+    assert c["signal"]["impact"] is None and c["signal"]["confidence"] is None
+    assert t["AI take"].startswith("Moderately positive") and "impact" not in t["AI take"].split("—")[0] and "confidence" not in t["AI take"].split("—")[0]
+
+
+@pytest.mark.parametrize("mat, level", [(90.0, "High"), (70.0, "High"), (69.9, "Medium"), (45.0, "Medium"), (44.9, "Low"), (0.0, "Low")])
+def test_cm5_impact_levels_are_fixed_thresholds_of_the_stored_materiality(ev, mat, level):
+    ev.rows = [rrow("IMP", ol=outlook("IMP did it.", "moderately_positive", mat, aid="i"))]
+    ev.files["IMP"] = rich_file("IMP", "i")
+    assert ccard(ev, "IMP")["commentary"]["signal"]["impact"] == level
+
+
+def test_cm6_an_unanalysed_result_has_no_commentary_at_all(ev):
+    c = next(c for c in blk(calendar(), "declared")["items"] if c["symbol"] == "FNOB")
+    assert "commentary" not in c and c["body"] is None and c["body_note"] == "Not analysed yet"
+
+
+def test_cm7_a_feed_event_gets_the_five_lines_from_the_classifiers_one_line_sentiment_and_impact(ev):
+    ev.feed = {"orders": [frow(1, "ORDR", one="ORDR won a Rs 500 Cr order from a state utility. Execution over 24 months.", impact="high", sentiment="positive")]}
+    p = events("orders")
+    c = blk(p, "events")["items"][0]["commentary"]
+    t = {l["label"]: l["text"] for l in c["lines"]}
+    assert [l["label"] for l in c["lines"]] == LABELS
+    assert t["What happened"] == "ORDR won a Rs 500 Cr order from a state utility." and t["Market impact"].startswith("Bullish")
+    assert t["Why it matters"] == NOT_STATED and t["What to watch"] == NOT_STATED          # the classifier stores no factors or open questions
+    assert c["signal"] == {"label": "Positive", "tone": "up", "impact": "High", "confidence": None}
+
+
+def test_cm8_the_contract_check_covers_the_commentary(ev):
+    ev.rows = [rrow("STRONG", ol=outlook("S. T.", "strongly_positive", 80.0, aid="a1"))]
+    ev.files["STRONG"] = rich_file("STRONG", "a1", pos=["x"])
+    p = calendar()
+    assert validate(p) == []
+    bad = json.loads(json.dumps(p))
+    blk(bad, "declared")["items"][0]["commentary"]["lines"] = [{"label": "What happened"}]
+    assert any("commentary" in x for x in validate(bad))
+    bad2 = json.loads(json.dumps(p))
+    blk(bad2, "declared")["items"][0]["commentary"]["signal"]["tone"] = "purple"
+    assert any("commentary" in x for x in validate(bad2))
