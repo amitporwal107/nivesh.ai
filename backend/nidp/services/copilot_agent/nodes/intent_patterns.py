@@ -64,14 +64,29 @@ _P_MARKET = re.compile(
     re.IGNORECASE,
 )
 
+# The ticker-shaped token is matched case-SENSITIVELY (`(?-i:...)`): compiled
+# IGNORECASE it also matched ordinary words, so "What are my open trades doing?",
+# "How much should I risk?" and "What did I learn…" were routed to the stock
+# analyst, which replied "Which stock…?". A lower-case company or ticker ("how is
+# tcs doing") still routes here through _P_STOCK_ANY_CASE + the symbol resolver
+# (match_agent). "this/that stock" is a stock question without a name, and keeps
+# its route (the analyst asks which stock).
 _P_STOCK = re.compile(
     r"\b((?:what|how|analyse|analyze|tell me about|research|buy|sell|hold)\s+"
-    r"(?:is\s+)?[A-Z]{2,10}\b|"
+    r"(?:is\s+)?(?-i:[A-Z]{2,10})\b|"
     r"technical\s+(?:analysis|view|setup|signal|chart|indicator)|"
     r"fundamentals?\s+(?:of|for)|"
     r"pe\s+ratio|pb\s+ratio|roe|eps|revenue|pat|ebitda|"
     r"rsi|macd|sma|ema|support|resistance|breakout|"
-    r"[A-Z]{2,10}\s+(?:stock|share|equity|target|price))\b",
+    r"(?:this|that)\s+(?:stock|share|scrip)|"
+    r"(?-i:[A-Z]{2,10})\s+(?:stock|share|equity|target|price))\b",
+    re.IGNORECASE,
+)
+# The same two token clauses in any case. Only a match whose message names a stock
+# the resolver knows routes to the stock analyst (match_agent).
+_P_STOCK_ANY_CASE = re.compile(
+    r"\b(?:(?:what|how|analyse|analyze|tell me about|research|buy|sell|hold)\s+"
+    r"(?:is\s+)?[a-z]{2,10}|[a-z]{2,10}\s+(?:stock|share|equity|target|price))\b",
     re.IGNORECASE,
 )
 
@@ -497,4 +512,16 @@ def match_agent(text: str) -> Optional[str]:
     for pattern, agent in _POST_PATTERNS:
         if pattern.search(text):
             return agent
+    if _P_STOCK_ANY_CASE.search(text) and _names_a_stock(text):
+        return STOCK
     return None
+
+
+def _names_a_stock(text: str) -> bool:
+    """True when the symbol resolver finds a stock in the message (company name,
+    short form, or ticker in any case). Never raises."""
+    try:
+        from services.copilot_tools.symbol_resolver import resolve_symbol
+        return bool(resolve_symbol(text).symbol)
+    except Exception:  # noqa: BLE001 — never let resolution break routing
+        return False

@@ -6,6 +6,8 @@ What is replaced, and by what (MOCK — not real data; every symbol, level and i
   * the desk's plan builder's I/O: `collect_snapshots` (live sources), `build_plan` (returns a canned StrategyPlan in the
     real shape), `attach_symbol_suggestions` / `finish_plan` (identity), `routes.strategy_plan.store_trade_plans`
     (records what it would store), and the risk service's sizing (`copilot_trade_idea._size`);
+  * the NSE symbol master check (`copilot_trade_idea.in_symbol_master`, MOCK: listed) in the builder fixture; the
+    TI-13 cases run the real check over a MOCK universe;
   * for the stream route: the harness of tests/test_broker_contract_chart.py (fake chat DB, a fake engine that records
     its input, fake user) — the route itself runs for real.
 The input normalisation (normalise_inputs), the card, the facts text and the route's wiring run for real.
@@ -135,6 +137,10 @@ def builder(monkeypatch):
     monkeypatch.setattr(sources, "finish_plan", same)
     monkeypatch.setattr(plan_route, "store_trade_plans", store)
     monkeypatch.setattr(ti, "_size", size)
+
+    async def in_master(symbol):                       # the NSE symbol master (MOCK: every symbol is listed)
+        return True
+    monkeypatch.setattr(ti, "in_symbol_master", in_master)
     return b
 
 
@@ -244,28 +250,34 @@ def ideas(monkeypatch):
 
 
 def test_ti9_a_trading_question_gets_the_plan_card_first_and_the_engine_gets_the_facts(stream, ideas):
+    # Since the Daily Trader Copilot's visual answer (services/copilot_visual, 30 Oct 2026), a trading question about one
+    # stock is a `stock_decision`: the plan is built ONCE and travels inside the visual answer (its trade_plan block), so
+    # the answer's one card is `visual_answer`, not a separate trade_plan card. tests/test_copilot_visual_chat.py has
+    # the full checks; here: one build, one card, the engine still gets TRADE_PLAN and is pinned to the stock analyst.
     calls, _ = ideas
     frames, saved = stream(message="Plan a breakout trade for FIXCO", persona="investor")
     assert calls == [("u1", "FIXCO", "Plan a breakout trade for FIXCO")]
     widgets = [f for f in frames if f["type"] == "widget"]
-    assert [w["widget_type"] for w in widgets] == ["trade_plan"]                    # the engine's own card is dropped
+    assert [w["widget_type"] for w in widgets] == ["visual_answer"]                 # the engine's own card is dropped
     kinds = [f["type"] for f in frames]
     assert kinds.index("widget") < kinds.index("token")
-    assert saved["widget"]["widget_type"] == "trade_plan"
+    assert saved["widget"]["widget_type"] == "visual_answer"
     engine_input = ENGINE_INPUTS[-1]
     told = engine_input["messages"][-1].content
     assert told.startswith("Plan a breakout trade for FIXCO\n\n") and "TRADE_PLAN: MOCK facts for FIXCO" in told
     from services.llm_safety import wrap_external_data
-    assert told == "Plan a breakout trade for FIXCO\n\n" + wrap_external_data("TRADE_PLAN: MOCK facts for FIXCO", source="trade_plan")
+    assert told.endswith(wrap_external_data("TRADE_PLAN: MOCK facts for FIXCO", source="trade_plan"))
+    assert 'source="visual_answer">VISUAL_ANSWER for FIXCO (stock_decision)' in told
     pin = engine_input["pinned_agent"]
     assert getattr(pin, "value", pin) == "stock_analyst"
 
 
 def test_ti9_no_setup_keeps_the_engines_card_but_still_tells_the_engine(stream, ideas):
+    # No setup: the visual answer still says so (its decision), and the engine still gets the plan's facts.
     _, widget = ideas
     widget[0] = None
     frames, saved = stream(message="Plan a breakout trade for FIXCO", persona="investor")
-    assert [f["widget_type"] for f in frames if f["type"] == "widget"] == ["instrument_detail"]
+    assert [f["widget_type"] for f in frames if f["type"] == "widget"] == ["visual_answer"]
     assert "TRADE_PLAN: MOCK facts for FIXCO" in ENGINE_INPUTS[-1]["messages"][-1].content
 
 
@@ -299,3 +311,81 @@ def test_ti12_the_stock_analyst_has_the_trade_plan_rules():
                    "entry waits until it is confirmed", "the invalidation (stop) level", "the capital at risk",
                    "If TRADE_PLAN says no card is shown", "never say \"buy now\"", "Do not use \"recommend\""):
         assert phrase in s, phrase
+
+
+# ── TI-13 (copilot_chat_p0, 30 Oct): trading words are not symbols ───────────
+# The real resolver and the real symbol_for (not mocked): "F&O", "GIFT", "PCR", "P&L"… used to pass through as symbols,
+# a plan was built for them and the turn was pinned to the stock analyst.
+REAL_IN_MASTER = ti.in_symbol_master
+
+
+@pytest.mark.parametrize("message", [
+    "Which F&O setups are attractive?", "What does GIFT Nifty say about the open?", "What is the PCR for NIFTY?",
+    "What is my P&L today?", "Is IV high on BANKNIFTY?", "Where is OI building up?", "Which ATM strike?",
+    "Is VIX rising?", "What is my MTM?", "Where should my SL be?", "What are FII and DII doing?",
+    "What is the expected move in NIFTY?",
+])
+def test_ti13_trading_words_are_not_symbols(message):
+    assert ti.symbol_for(message) is None, message
+
+
+@pytest.mark.parametrize("message, symbol", [
+    ("Trade plan for INFY", "INFY"), ("trade setup in tcs", "TCS"), ("Is PERSISTENT a buy?", "PERSISTENT"),
+    ("F&O setup on RELIANCE", "RELIANCE"),
+])
+def test_ti13_real_stocks_still_resolve(message, symbol):
+    assert ti.symbol_for(message) == symbol
+
+
+class _Universe:
+    """MOCK: the NSE symbol master holds these symbols only."""
+    entries = {"PERSISTENT": {}, "TVSMOTOR": {}}
+
+
+def test_ti13_a_passed_through_symbol_must_be_in_the_symbol_master(builder, monkeypatch):
+    from services import symbol_lookup
+    monkeypatch.setattr(ti, "in_symbol_master", REAL_IN_MASTER)
+
+    async def universe(force=False):
+        return _Universe()
+    monkeypatch.setattr(symbol_lookup, "get_universe", universe)
+    assert run(ti.build("REQ", "u1", "FAKECO", "trade FAKECO")) is None
+    assert builder.snapshot_calls == []                                  # nothing is read or stored for a non-stock
+    assert run(ti.build("REQ", "u1", "PERSISTENT", "trade PERSISTENT")).widget is not None
+    assert run(REAL_IN_MASTER("INFY")) is True                           # a curated ticker needs no look-up
+
+
+def test_ti13_an_unreadable_symbol_master_gives_no_plan(builder, monkeypatch):
+    from services import symbol_lookup
+    monkeypatch.setattr(ti, "in_symbol_master", REAL_IN_MASTER)
+
+    async def down(force=False):
+        raise RuntimeError("MOCK: the symbol universe could not be read")
+    monkeypatch.setattr(symbol_lookup, "get_universe", down)
+    assert run(ti.build("REQ", "u1", "PERSISTENT", "trade PERSISTENT")) is None
+    assert builder.snapshot_calls == []
+
+
+def test_ti13_a_loaded_master_also_guards_the_resolver(monkeypatch):
+    from services import symbol_lookup
+    from services.copilot_tools.symbol_resolver import resolve_symbol
+    monkeypatch.setitem(symbol_lookup._cache, "u", _Universe())
+    assert resolve_symbol("Is FAKECO a buy?").symbol is None
+    assert resolve_symbol("Is PERSISTENT a buy?").symbol == "PERSISTENT"
+    monkeypatch.setitem(symbol_lookup._cache, "u", None)                 # not loaded: nothing is known, pass through
+    assert resolve_symbol("Is FAKECO a buy?").symbol == "FAKECO"
+
+
+def test_ti13_a_trader_question_about_fno_is_not_pinned_to_the_stock_analyst(stream, monkeypatch):
+    # "Which F&O setups are attractive?" is now Release 2's own fno_setups intent (services/copilot_visual), legitimately
+    # pinned to market_analyst — that is no longer this regression: use an F&O word this message mentions but no intent
+    # answers (test_ti13_trading_words_are_not_symbols' own fixture), so the guard stays on the symbol pass-through bug.
+    calls = []
+
+    async def build(request, user_id, symbol, message):
+        calls.append(symbol)
+        return None
+    monkeypatch.setattr(chat._trade_idea, "build", build)               # symbol_for is the real one
+    stream(message="What is my MTM?", persona="trader")
+    assert calls == []
+    assert ENGINE_INPUTS[-1]["pinned_agent"] is None                    # the router decides

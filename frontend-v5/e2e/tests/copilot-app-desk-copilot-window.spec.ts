@@ -144,6 +144,20 @@ test.describe("MOCK — not real data: the desk Copilot window", () => {
     expect(streams[0]).toMatchObject({ message: "How is the market today?", surface: "trading_desk" });
   });
 
+  test("DT-9 the empty dock shows the Daily Trader's six entry points; a pick puts its lead question in the box", async ({ page }) => {
+    const streams = await desk(page);
+    const tiles = page.getByTestId("dock-daily");
+    await expect(tiles.getByRole("button")).toHaveText(["Market pulse", "Find opportunities", "My positions", "F&O strategies", "Manage risk", "Daily review"]);
+    await page.getByTestId("dock-daily-risk").click();
+    await expect(page.getByTestId("dock-input")).toHaveValue("How much should I risk?");
+    await expect(page.getByTestId("dock-input")).toBeFocused();
+    expect(streams).toHaveLength(0);                       // a pick fills the box; it does not send
+    await page.getByTestId("dock-send").click();
+    await expect.poll(() => streams.length, SLOW).toBe(1);
+    expect(streams[0]).toMatchObject({ message: "How much should I risk?", surface: "trading_desk" });
+    await expect(page.getByTestId("dock-daily")).toHaveCount(0);  // the thread replaces the empty state
+  });
+
   test("FW-8 below 1400px nothing changes: the Copilot button, no Float", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await mockApi(page, "populated");
