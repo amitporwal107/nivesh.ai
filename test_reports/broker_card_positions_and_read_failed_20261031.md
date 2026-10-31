@@ -77,8 +77,46 @@ read is fixed text in `hub_reads.describe_failure`; the broker's own error is no
   does not depend on it: a 4xx passes either way. After deploy, press Sync now while ICICI's demat call still fails; the card should say
   "ICICI Direct did not return your holdings. Try again in a little while."
 - A signed-in walk of the deployed card.
-- ICICI's `/dematholdings` itself. Nivesh cannot fix it. A fallback that syncs from `/portfolioholdings` alone is possible but those rows
-  carry no ISIN, which the "broker wins" reconcile keys on: left for an owner decision.
+- ICICI's `/dematholdings` itself: Nivesh cannot fix it. The fallback below was approved by the owner ("we should display positions and portfolio holdings at least").
+
+
+## Follow-up (owner, 31 Oct): when ICICI's demat list fails, show what does answer
+The owner: with `/dematholdings` failing, "we should display Positions … Portfolio holdings at least". Built on the same branch:
+
+- **Adapter** (`services/brokers/icicidirect.py`): if `/dematholdings` fails with an ICICI error (not a rejected session), `fetch_holdings` reads
+  the NSE equity portfolio view alone and returns `PartialHoldings` (a list with a `note`): stock code, quantity, average and market price,
+  no ISIN, derivative rows (those with an expiry) and zero quantities skipped. If the portfolio view fails or is empty too, the demat error
+  is raised as before; a rejected session is never hidden.
+- **Live views** (`GET /api/broker/holdings`, `/accounts/{id}/holdings`): the rows are shown and the entry carries `partial` (the note).
+- **Sync** (`POST …/sync`): a partial read stores nothing, so the complete list on file is never replaced by a smaller one; the response is
+  200 with `count` = what is still on file, `holdings: []` and `partial`. No snapshot is written; the audit row has `details.partial: true`.
+- **Screens:** the card shows the note and "Your 3 holdings on file were kept as they were" in amber (not an error, not "read just now");
+  the desk's live block shows the note above the table and "Live · partial · read …" in its status.
+
+| ID | Scenario | Type | Expected | Result |
+|----|----------|------|----------|--------|
+| BC-11 | demat fails (HTTP 200, API status 500), portfolio view answers | unit | `PartialHoldings`: equity and ETF rows, no ISIN, no derivative, no zero quantity, note names the count and what is missing | PASS |
+| BC-12 | portfolio view also fails; or is empty | unit | the demat failure is raised | PASS (2 tests) |
+| BC-13 | demat rejected with 401 | unit | `IciciDirectSessionExpired`, not the fallback | PASS |
+| BC-14 | live holdings, both routes | unit | rows plus `partial`; a full read has no `partial` key | PASS |
+| BC-15 | sync with a partial read after a full sync | unit | 200, `count` unchanged, nothing stored, no new snapshot, `last_error` null, audit `partial` | PASS |
+| BC-16 | card after Sync now with a partial answer | e2e | note and "kept as they were"; no error line; no "read just now"; stored count unchanged | PASS |
+| BC-17 | desk live block, one account partial | e2e | note shown, status "Live · partial", rows listed, no error; the other account unaffected | PASS |
+
+- **Real data (read-only, owner's live ICICI session, overlay of the branch's `services/brokers`, removed afterwards):** ICICI's demat list was
+  answering again at that moment, so a live read returned the full 5 holdings with ISINs and no note: the fallback did not trigger. It was
+  therefore called directly with a stand-in demat error and the real session:
+```
+type: PartialHoldings | holdings: 6
+note: ICICI Direct's demat holdings list is not answering, so these 6 holdings are from its NSE equity portfolio view. Holdings outside NSE equity (other exchanges, bonds, funds) and ISINs are missing.
+with ISIN: 0 | with avg price: 6 | with last price: 6 | etf: 0
+live rows: 6 | totals computable: {'invested_rs': True, 'value_rs': True, 'pnl_rs': True, 'pnl_pct': True}
+```
+  **Not shown live end to end:** the fallback firing on ICICI's real failure (the failure had cleared). The failure's shape (HTTP 200, API status 500)
+  is the one captured earlier today and used in the unit tests.
+- **pytest:** `test_broker_live_holdings`, `test_broker_icicidirect`, `test_broker_connect_native_routes`, `test_broker_hub_reads` → `283 passed`.
+  **Full CI allowlist** (288 files): `20 failed, 7619 passed, 34 skipped`; the 20 failures are exactly the 20 recorded for a clean `origin/dev`.
+- **Playwright:** account, broker-paper, contract-chart, positions, screens specs → `136 passed`, 4 skipped (screenshots); the eight Copilot specs → `146 passed`, 2 skipped. tsc and build clean.
 
 ## Inputs required from user
 - A staging session token for the signed-in walk; the owner's call on the demat fallback.

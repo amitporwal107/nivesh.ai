@@ -350,6 +350,22 @@ test.describe("Broker connections — accounts and the broker list", () => {
     expect(calls.map((r) => r.method())).toEqual(["POST"]);
   });
 
+  test("Sync now: a broker whose full list would not answer is a partial read, not an error; what is on file is kept", async ({ page }) => {
+    // MOCK — not real data: the response routes/broker_connect.py :: sync_broker_account gives when ICICI's /dematholdings fails.
+    const note = "ICICI Direct's demat holdings list is not answering, so these 6 holdings are from its NSE equity portfolio view. Holdings outside NSE equity (other exchanges, bonds, funds) and ISINs are missing.";
+    await page.route("**/api/broker/accounts/ba_fixture00001/sync", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, count: 3, holdings: [], snapshot_id: null, duplicates: {}, partial: note }) }));
+    await page.goto(`${APP}/page/brokers`);
+    const first = page.getByTestId("broker-account").nth(0);
+    await first.getByTestId("broker-sync").click();
+    const partial = first.getByTestId("broker-sync-partial");
+    await expect(partial).toContainText(note);
+    await expect(partial).toContainText("Your 3 holdings on file were kept as they were.");
+    await expect(first.getByTestId("broker-sync-error")).toHaveCount(0);              // not a failure
+    await expect(first.getByTestId("broker-sync-result")).toHaveCount(0);             // and not "read just now"
+    await expect(first.getByTestId("broker-account-meta")).toContainText("3 holdings"); // the stored count did not change
+  });
+
   test("Sync now: a failed read is shown in plain words, is sent once, and the server's wording goes to admins only", async ({ page }) => {
     let posts = 0;
     // A 5xx from the hosted-middleware path, in the app's error envelope.

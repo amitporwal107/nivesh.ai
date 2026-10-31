@@ -54,7 +54,7 @@ import httpx
 from . import registry
 from ._helpers import detect_etf, require
 from .base import (
-    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, Position,
+    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, PartialHoldings, Position,
 )
 
 SLUG = "icicidirect"
@@ -232,6 +232,41 @@ async def exchange_code(*, code: str, state: str, redirect_uri: str) -> AccessTo
 
 
 # ── Holdings ─────────────────────────────────────────────────────────────
+_PORTFOLIO_NSE = {"exchange_code": "NSE", "from_date": "", "to_date": "", "stock_code": "", "portfolio_type": ""}
+
+
+async def _portfolio_view_only(token: AccessToken, demat_error: Exception) -> List[Holding]:
+    """The NSE equity portfolio view alone, for when `/dematholdings` fails: ICICI stock code, quantity, average and market
+    price. There is no ISIN (the demat list carries it) and nothing outside NSE equity (other exchanges, bonds, funds), which
+    the note says. If this view fails too, the demat failure is the one raised."""
+    try:
+        rows = await _signed_get("portfolioholdings", _PORTFOLIO_NSE, token, "portfolio holdings") or []
+    except Exception:  # noqa: BLE001 — the first failure is the one that explains the read
+        raise demat_error
+    out: List[Holding] = []
+    for p in rows:
+        code = str(p.get("stock_code") or "").strip().upper()
+        quantity = float(p.get("quantity") or 0)
+        # A row with an expiry is a derivative, not a holding.
+        if not code or quantity <= 0 or p.get("expiry_date"):
+            continue
+        out.append(Holding(
+            isin=None,
+            symbol=code,
+            asset_type="etf" if detect_etf(code) else "equity",
+            quantity=quantity,
+            avg_price=float(p.get("average_price") or 0),
+            current_price=float(p.get("current_market_price") or 0),
+            exchange="NSE",
+            source_id=f"{SLUG}:{code}",
+        ))
+    if not out:
+        raise demat_error
+    return PartialHoldings(out, (
+        f"{DISPLAY}'s demat holdings list is not answering, so these {len(out)} holdings are from its NSE equity portfolio view. "
+        "Holdings outside NSE equity (other exchanges, bonds, funds) and ISINs are missing."))
+
+
 async def fetch_holdings(token: AccessToken) -> List[Holding]:
     """Demat holdings, priced from the NSE equity portfolio.
 
@@ -242,12 +277,15 @@ async def fetch_holdings(token: AccessToken) -> List[Holding]:
     the key to enrich on. A portfolio row with no demat row is left out:
     it has no ISIN to identify it.
     """
-    demat = await _signed_get("dematholdings", {}, token, "demat holdings") or []
-    portfolio = await _signed_get(
-        "portfolioholdings",
-        {"exchange_code": "NSE", "from_date": "", "to_date": "", "stock_code": "", "portfolio_type": ""},
-        token, "portfolio holdings",
-    ) or []
+    try:
+        demat = await _signed_get("dematholdings", {}, token, "demat holdings") or []
+    except IciciDirectSessionExpired:
+        raise
+    except IciciDirectError as demat_error:
+        # ICICI's demat list answers HTTP 200 with API status 500 for hours at a time while the same session reads the
+        # portfolio view and positions fine (owner, 31 Oct): show what does answer, and say what is missing.
+        return await _portfolio_view_only(token, demat_error)
+    portfolio = await _signed_get("portfolioholdings", _PORTFOLIO_NSE, token, "portfolio holdings") or []
     priced: Dict[str, Dict[str, Any]] = {}
     for p in portfolio:
         priced.setdefault(str(p.get("stock_code") or "").strip().upper(), p)

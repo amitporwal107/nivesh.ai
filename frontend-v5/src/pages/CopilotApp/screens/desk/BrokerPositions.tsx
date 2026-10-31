@@ -404,7 +404,7 @@ function AccountCard({ id, name, live, liveState, positions, positionsState, fun
 }) {
   let status: string;
   if (liveState === "pending") status = "Reading holdings…";
-  else if (live?.ok) status = `Live · read ${fmtReadTime(live.asOf)}`;
+  else if (live?.ok) status = `Live${live.partial ? " · partial" : ""} · read ${fmtReadTime(live.asOf)}`;
   else if (live?.errorCode === SESSION_ENDED) status = "Session ended · reconnect to read live";
   else if (live?.errorCode === NOT_SUPPORTED) status = "Not read live";
   else status = "Live read failed";
@@ -415,6 +415,10 @@ function AccountCard({ id, name, live, liveState, positions, positionsState, fun
   } else if (live?.ok) {
     holdings = live.holdings.length ? (
       <div className="flex flex-col" style={{ gap: 8 }}>
+        {live.partial && (
+          // The broker's full list would not answer: what is shown is a narrower view, and this says what it leaves out.
+          <div data-testid="broker-live-partial" role="status" style={{ ...quietLine, padding: "0 16px", color: "var(--amber)" }}>{live.partial}</div>
+        )}
         <LiveHoldingsTable rows={live.holdings} />
         <LiveTotals account={live} name={name} />
       </div>

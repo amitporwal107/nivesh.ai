@@ -329,9 +329,19 @@ function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetch
         )}
       </div>
 
-      {!sync.isPending && sync.data?.ok === true && (
+      {!sync.isPending && sync.data?.ok === true && !sync.data.value.partial && (
         <span role="status" data-testid="broker-sync-result" style={{ fontSize: 13, color: "var(--mint)" }}>
-          <span className="cp-num">{fmtNum(sync.data.value)}</span> {sync.data.value === 1 ? "holding" : "holdings"} read just now.
+          <span className="cp-num">{fmtNum(sync.data.value.count)}</span> {sync.data.value.count === 1 ? "holding" : "holdings"} read just now.
+        </span>
+      )}
+      {!sync.isPending && sync.data?.ok === true && sync.data.value.partial && (
+        // The broker's full list would not answer, so nothing was replaced: not a failure, and not a full sync.
+        <span role="status" data-testid="broker-sync-partial" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--amber)" }}>
+          {sync.data.value.partial}{" "}
+          {sync.data.value.count > 0
+            ? <>Your <span className="cp-num">{fmtNum(sync.data.value.count)}</span> {sync.data.value.count === 1 ? "holding" : "holdings"} on file were kept as they were.</>
+            : "Nothing was stored."}
+          {" "}Open positions are read separately, above.
         </span>
       )}
       {!sync.isPending && sync.data?.ok === false && (

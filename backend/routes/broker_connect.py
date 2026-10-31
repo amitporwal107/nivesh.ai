@@ -233,9 +233,10 @@ async def _sync_native_account(
         outcome="success",
         ip=request.client.host if request.client else "",
         ua=request.headers.get("user-agent", ""),
-        details={"broker": doc.get("broker"), "native": True, "count": result["count"]},
+        details={"broker": doc.get("broker"), "native": True, "count": result["count"],
+                 **({"partial": True} if result.get("partial") else {})},
     )
-    return {
+    out = {
         "ok": True,
         "count": result["count"],
         "holdings": result["holdings"],
@@ -244,6 +245,10 @@ async def _sync_native_account(
         "snapshot_id": result["snapshot_id"],
         "duplicates": result["duplicates"],
     }
+    if result.get("partial"):
+        # The broker's full list would not answer: nothing was stored, `count` is what is still on file, and this says why.
+        out["partial"] = result["partial"]
+    return out
 
 
 # Why an OpenAlgo account has no live read: its stored key is an OpenAlgo API
@@ -300,13 +305,16 @@ async def get_account_holdings(request: Request, account_id: str):
         rows = await _hub.read_account_holdings(db, doc)
     except Exception as e:  # noqa: BLE001
         raise _read_error(e, doc, "holdings") from None
-    return {
+    out = {
         **_account_entry(doc),
         "as_of": _now_iso(),
         "holdings": rows,
         "counts": {"total": len(rows)},
         "totals": _hub.holdings_totals(rows),
     }
+    if getattr(rows, "note", None):
+        out["partial"] = rows.note          # read from a narrower view of the broker: what it leaves out
+    return out
 
 
 @router.get("/holdings")
@@ -346,6 +354,8 @@ async def get_all_holdings(request: Request):
                     ok=True, holdings=rows, counts={"total": len(rows)},
                     totals=_hub.holdings_totals(rows),
                 )
+                if getattr(rows, "note", None):
+                    entry["partial"] = rows.note      # a narrower view of the broker: what it leaves out
         entry["as_of"] = _now_iso()
         return entry
 
