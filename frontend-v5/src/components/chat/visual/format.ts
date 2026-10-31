@@ -35,9 +35,16 @@ export function fmtCr(n: number | null | undefined): string {
   return `${n > 0 ? "+" : n < 0 ? MINUS : ""}₹${group(Math.abs(n), 2)} Cr`;
 }
 
+/** A signed rupee amount, a profit or loss: "+₹1,234.50" / "−₹80.00" / "₹0.00". */
+export function fmtRs(n: number | null | undefined): string {
+  if (!ok(n)) return "—";
+  return `${n > 0 ? "+" : n < 0 ? MINUS : ""}₹${group(Math.abs(n), 2)}`;
+}
+
 /** A value in a bars or heatmap block's unit. An unknown unit prints the number and the unit after it. */
 export function fmtUnit(n: number | null | undefined, unit: string): string {
   switch (unit) {
+    case "₹": return fmtRs(n);
     case "₹ Cr": return fmtCr(n);
     case "%": return fmtPct(n);
     case "×": return fmtX(n);

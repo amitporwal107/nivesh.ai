@@ -1,12 +1,12 @@
 {
- "about": "REAL staging capture, 30 Oct 2026 (12 of 12 Release-1 + Release-2 intents, re-captured after fixing a compliance wording bug: fno_setups/trade_validity/position_size generated follow-up/row-ask text reading \"Is X a buy now?\", the exact phrase payload.py's own facts() instruction forbids the engine from saying; replaced with \"What's the setup for X?\" (backend/services/copilot_visual/builders.py). Built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing, so nothing this capture ran writes to Mongo; the fno_top reader's own store call is covered by a unit test instead, test_b27 in test_copilot_visual.py). stock_decision/trade_validity/exit_options/position_size's plan ids are therefore not in trade_plans (33 plans would have stored); top_opportunities' and fno_setups' plan ids ARE real TradePlans the AI watchlist / /top route already stores in production (5 of 5 each). fno_setups' and position_size's risk-profile source read stale this run (a null date), shown honestly as stale rather than guessed. The user is a real staging account with 3 open paper trades (SONACOMS, COFORGE, ICICIBANK).",
+ "about": "REAL staging capture, 31 Oct 2026 00:11 UTC (13 of 13 Release-1 + 2 + 3 intents; market data of the 30 Oct 2026 session). Built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Stubbed: auth (an internal request as a real staging user) and EVERY database write: each module's db was a proxy whose writes were recorded and dropped (7 blocked: index creation by the paper-trades route, one target_allocations update; nothing written, checked by counting recent rows afterwards). So GET /api/desk/paper-trades' exit rule evaluated but closed nothing, and plans stock_decision & co. build were not stored. top_opportunities' and fno_setups' plan ids are TradePlans already stored on staging (5 of 5 each). fno_setups' source and position_size's risk profile read stale (a null date), shown as stale rather than guessed. The user is a real staging account with 3 open paper trades (SONACOMS, COFORGE, ICICIBANK), no closed paper trade and 31 risk decisions: daily_review (asked on Saturday 31 Oct) falls back to 30 Oct, the latest session with activity, and shows its 3 refused entry requests; its populated branches (KPIs, plan vs actual, equity curve) are covered by unit tests B-28 … B-36 on MOCK data, not by this capture.",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
    "intent": "market_view",
    "title": "Market view · Nifty and Bank Nifty",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:16+05:30",
+   "generated_at": "2026-10-31T05:41:40+05:30",
    "mode": "eod",
    "headline": {
     "text": "Nifty 50 rose 0.51% to 23,053.10; 26% of stocks advanced; India VIX 15.30.",
@@ -898,7 +898,7 @@
    "intent": "smart_money",
    "title": "Where smart money is moving",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:16+05:30",
+   "generated_at": "2026-10-31T05:41:40+05:30",
    "mode": "eod",
    "headline": {
     "text": "FIIs bought a net ₹3,598.54 Cr and DIIs sold a net ₹817.51 Cr in cash on 30 Oct; 24 F&O stocks show long buildup and 33 short covering.",
@@ -1723,7 +1723,7 @@
    "intent": "top_opportunities",
    "title": "Today's top 5 ideas",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:16+05:30",
+   "generated_at": "2026-10-31T05:41:40+05:30",
    "mode": "eod",
    "headline": {
     "text": "4 of the scanner's top 5 on 30 Oct have a setup with levels.",
@@ -1926,7 +1926,7 @@
    "intent": "breakouts",
    "title": "Confirmed breakouts",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:19+05:30",
+   "generated_at": "2026-10-31T05:41:43+05:30",
    "mode": "eod",
    "headline": null,
    "decision": null,
@@ -1974,7 +1974,7 @@
    "intent": "unusual_volume",
    "title": "Unusual volume",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:20+05:30",
+   "generated_at": "2026-10-31T05:41:44+05:30",
    "mode": "eod",
    "headline": {
     "text": "74 eligible stocks traded with unusually high volume on 30 Oct; DHANUKA led at 66.8× its 20-day average.",
@@ -1982,6 +1982,14 @@
    },
    "decision": null,
    "blocks": [
+    {
+     "type": "notice",
+     "id": "stale-0",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "NSE delivery (nidp.delivery_data) is from 29 Oct 2026, older than the previous session (30 Oct 2026): shown with its date, not as today's."
+    },
     {
      "type": "bars",
      "id": "rvol",
@@ -2226,11 +2234,11 @@
      {
       "name": "NSE delivery (nidp.delivery_data)",
       "as_of": "2026-10-29",
-      "status": "fresh",
+      "status": "stale",
       "note": null
      }
     ],
-    "stale": false,
+    "stale": true,
     "missing": []
    },
    "follow_ups": [
@@ -2254,7 +2262,7 @@
    "intent": "stock_decision",
    "title": "PNB · entry, stop and targets",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:25+05:30",
+   "generated_at": "2026-10-31T05:41:48+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹18,720.00, stop ₹120.73, first target ₹127.09.",
@@ -3085,7 +3093,7 @@
    "intent": "expected_move",
    "title": "Expected move in Nifty",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:25+05:30",
+   "generated_at": "2026-10-31T05:41:49+05:30",
    "mode": "eod",
    "headline": {
     "text": "The Nifty options price a move of about ±231.20 points (±1.00%) to the 3 Nov 2026 expiry; PCR 1.62, max pain 23,000.00.",
@@ -3810,7 +3818,7 @@
    "intent": "open_trades",
    "title": "Your open trades",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:25+05:30",
+   "generated_at": "2026-10-31T05:41:49+05:30",
    "mode": "eod",
    "headline": {
     "text": "3 open paper trades, unrealised ₹1,101.62.",
@@ -3975,7 +3983,7 @@
    "intent": "fno_setups",
    "title": "F&O setups that fit today",
    "as_of": null,
-   "generated_at": "2026-10-30T23:03:28+05:30",
+   "generated_at": "2026-10-31T05:41:52+05:30",
    "mode": "eod",
    "headline": {
     "text": "5 F&O setups fit today's regime (Bearish).",
@@ -3989,7 +3997,7 @@
      "title": null,
      "note": null,
      "tone": "warn",
-     "text": "Desk F&O board (StrategyPlan, fit to today's regime) is from an unknown date, older than the previous session (29 Oct 2026): shown with its date, not as today's."
+     "text": "Desk F&O board (StrategyPlan, fit to today's regime) is from an unknown date, older than the previous session (30 Oct 2026): shown with its date, not as today's."
     },
     {
      "type": "ranked",
@@ -4164,7 +4172,7 @@
    "intent": "trade_validity",
    "title": "PNB · is the setup still valid?",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:30+05:30",
+   "generated_at": "2026-10-31T05:41:53+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the setup recorded earlier still holds under today's rules.",
@@ -4196,18 +4204,6 @@
     "plan_id": "tp_bd406bb5b717fda5"
    },
    "blocks": [
-    {
-     "type": "list",
-     "id": "changes",
-     "title": "What has changed since it was recorded",
-     "note": null,
-     "items": [
-      {
-       "text": "The recorded plan is still the one in force today.",
-       "tone": null
-      }
-     ]
-    },
     {
      "type": "candles",
      "id": "chart",
@@ -4827,6 +4823,11 @@
        "kind": "stop",
        "price": 120.73,
        "label": "Today's stop ₹120.73"
+      },
+      {
+       "kind": "entry",
+       "price": 122.85,
+       "label": "Recorded entry ₹122.85"
       }
      ],
      "band": null
@@ -4882,7 +4883,7 @@
    "intent": "exit_options",
    "title": "SONACOMS · hold, trail or exit",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:30+05:30",
+   "generated_at": "2026-10-31T05:41:54+05:30",
    "mode": "eod",
    "headline": {
     "text": "SONACOMS: unrealised ₹486.20, ₹890.50 against stop ₹824.60, target ₹957.41.",
@@ -5606,8 +5607,8 @@
    "schema": "visual-answer-v1",
    "intent": "position_size",
    "title": "How much to risk in PNB",
-   "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T23:03:32+05:30",
+   "as_of": "2026-10-31",
+   "generated_at": "2026-10-31T05:41:55+05:30",
    "mode": "eod",
    "headline": {
     "text": "Your risk budget and today's usage.",
@@ -5621,7 +5622,7 @@
      "title": null,
      "note": null,
      "tone": "warn",
-     "text": "Your risk profile (risk_profiles) is from an unknown date, older than the previous session (29 Oct 2026): shown with its date, not as today's."
+     "text": "Your risk profile (risk_profiles) is from an unknown date, older than the previous session (30 Oct 2026): shown with its date, not as today's."
     },
     {
      "type": "kpis",
@@ -5699,7 +5700,7 @@
      },
      {
       "name": "Your paper account's risk book (equity, day/week P&L, open risk)",
-      "as_of": "2026-10-30",
+      "as_of": "2026-10-31",
       "status": "fresh",
       "note": null
      }
@@ -5723,6 +5724,91 @@
     {
      "label": "What's the setup on this stock?",
      "query": "What's the setup on this stock?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 31 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "daily_review": {
+   "schema": "visual-answer-v1",
+   "intent": "daily_review",
+   "title": "Your trading review · 30 Oct 2026",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-31T05:41:55+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Nothing was recorded on 31 Oct 2026; the latest session with activity is 30 Oct 2026. No paper trade closed; the risk checks refused 3 of 3 entry requests.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "no-closes",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "No closed paper trades are on record yet."
+    },
+    {
+     "type": "list",
+     "id": "risk_checks",
+     "title": "What the risk checks said",
+     "note": null,
+     "items": [
+      {
+       "text": "3 entry requests checked: 0 allowed, 0 reduced, 3 refused.",
+       "tone": null
+      },
+      {
+       "text": "Refused for plan levels mismatch (3×).",
+       "tone": "warn"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "hit-rate",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "There is no live hit-rate for the desk's signals yet: no signal outcome has been recorded (positional_outcomes is empty), and the idea scorecard is a static backtest, not a live figure. This review is your own paper record only."
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Your closed paper trades (desk_paper_trades)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Your entry risk checks (risk_decisions)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "How did I do this week?",
+     "query": "How did I do this week?"
+    },
+    {
+     "label": "What are my open trades doing?",
+     "query": "What are my open trades doing?"
+    },
+    {
+     "label": "How much should I risk?",
+     "query": "How much should I risk?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
     }
    ],
    "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
