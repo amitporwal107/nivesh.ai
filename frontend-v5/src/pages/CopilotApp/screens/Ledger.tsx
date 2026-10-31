@@ -38,6 +38,7 @@ import {
   type HealthView, type ValuePoint,
 } from "./portfolio/data";
 import { HeaderRow, NoPortfolio } from "./portfolio/parts";
+import { usePositionsTile } from "./positions/PositionsTile";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const RING = 2 * Math.PI * 40;
@@ -232,6 +233,7 @@ function LedgerBody({ data }: { data: EnrichedHoldingsRes }) {
   const pf = usePortfolioContext();
   const gain = num(data.totals?.pnl_rs);
   const withXirr = data.holdings.filter((h) => h.xirr_pct != null).length;
+  const positionsTile = usePositionsTile();
   const tiles: TileItem[] = [
     {
       k: "Market value",
@@ -246,6 +248,7 @@ function LedgerBody({ data }: { data: EnrichedHoldingsRes }) {
       tone: signTone(gain),
     },
     { k: "XIRR", v: <span data-testid="ledger-xirr">{fmtPct(num(data.totals?.xirr_pct))}</span>, s: `${withXirr} of ${data.holdings.length} holdings` },
+    positionsTile,
   ];
   return (
     <>

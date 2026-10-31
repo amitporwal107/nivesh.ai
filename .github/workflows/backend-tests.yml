@@ -248,6 +248,7 @@ jobs:
           tests/test_portfolio_risk_drawdown.py
           tests/test_portfolio_scope.py
           tests/test_portfolio_sync_to_nidp.py
+          tests/test_positions.py
           tests/test_positional_calibration.py
           tests/test_positional_desk_fields.py
           tests/test_positional_engine.py
