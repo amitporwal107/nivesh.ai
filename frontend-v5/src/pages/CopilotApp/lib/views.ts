@@ -97,6 +97,7 @@ export const WORKSPACE_NAV: NavItem[] = [
   { view: "page/history", label: "Past conversations" },
   { view: "page/plan", label: "Action plan" },
   { view: "page/ledger", label: "Portfolio ledger" },
+  { view: "page/positions", label: "Open positions" },
   { view: "page/paper", label: "Paper trades" },
   { view: "page/brokers", label: "Broker connections" },
   { view: "page/settings", label: "Settings" },

@@ -23,6 +23,7 @@ export const SCREENS: Record<string, Screen> = {
   "page/saved": lazy(() => import("./Saved")),
   "page/plan": lazy(() => import("./Plan")),
   "page/ledger": lazy(() => import("./Ledger")),
+  "page/positions": lazy(() => import("./positions/OpenPositions")),
   "page/paper": lazy(() => import("./Paper")),
   "page/brokers": lazy(() => import("./Brokers")),
   "page/settings": lazy(() => import("./Settings")),

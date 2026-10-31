@@ -174,6 +174,11 @@ def analyse(legs: Sequence[Dict[str, Any]], spot: Optional[float], levels: Optio
     basis = _risk_basis(legs, ext["loss_unbounded"])
     at_stop, at_stop_basis = _at_level(legs, stop, spot)
     at_target, _ = _at_level(legs, target, spot)
+    # "Risk left" (the owner's Trader design): what the group would lose from the current price to the stop, on the
+    # same valuation as the figure at the stop.
+    now = None
+    if at_stop is not None:
+        now = today_pnl(legs, spot, spot) if at_stop_basis == "today" else expiry_pnl(legs, spot)
     out["payoff"] = {
         "breakevens": [r2(x) for x in be["all"]],
         "max_profit": None if ext["profit_unbounded"] else r2(ext["max_profit"]),
@@ -185,6 +190,7 @@ def analyse(legs: Sequence[Dict[str, Any]], spot: Optional[float], levels: Optio
         "pnl_at_stop_rs": r2(at_stop),
         "loss_at_stop_rs": r2(max(-at_stop, 0.0)) if at_stop is not None else None,
         "pnl_at_stop_basis": at_stop_basis,
+        "risk_to_stop_rs": r2(max(now - at_stop, 0.0)) if now is not None else None,
         "pnl_at_target_rs": r2(at_target),
         "gross": True,
     }

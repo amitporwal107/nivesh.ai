@@ -171,6 +171,7 @@ def test_an1_a_long_future_shows_the_loss_at_the_stop_never_the_price_at_zero():
     assert p["risk_basis"] == "stop" and p["max_loss"] is None
     assert p["pnl_at_stop_rs"] == round((824.6 - 868.0) * 1225, 2)
     assert p["loss_at_stop_rs"] == round((868.0 - 824.6) * 1225, 2)
+    assert p["risk_to_stop_rs"] == round((890.5 - 824.6) * 1225, 2)     # from the current price down to the stop
     nostop = analytics.analyse(legs, 890.5, None)
     assert nostop["payoff"]["loss_at_stop_rs"] is None and nostop["payoff"]["max_loss"] is None
     assert [w["code"] for w in nostop["warnings"]] == ["no_stop"]
