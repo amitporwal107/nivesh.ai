@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon background: the V5 "न" mark's mint gradient (.nv-mark in src/index.css, 140deg). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="315"
+        android:startColor="@color/nv_mint"
+        android:endColor="@color/nv_mint_2" />
+</shape>
