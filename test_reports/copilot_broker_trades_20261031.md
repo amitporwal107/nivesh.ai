@@ -46,7 +46,7 @@ Plan adherence is assessed only where the user's own stop (set before the trade 
 
 ## API / Endpoint Tests (staging)
 - **pytest** (`WT=/home/deploy/nivesh-wt-broker pt.sh tests/test_broker_trades.py -q`): `21 passed`; with the neighbouring suites (copilot_visual, chat, open_book, positions, suggestions, every test_broker_* file): `997 passed, 2 skipped` (before the weekend-skip edit; `tests/test_broker_trades.py` rerun after it: 21 passed).
-- **CI allowlist on a full layout:** see the final section (run on this branch's head).
+- **CI allowlist on a full layout** (this branch's head `ef8ca537`, with `tests/test_open_book.py` and `tests/test_broker_trades.py` added to the list; research/tests/fixtures from origin/dev 0e73741f): `13 failed, 7731 passed, 34 skipped` against the baseline of 13 failures on origin/dev: the failing NAMES are identical (`comm` of the failing names = 0 differences; cron-line / schedule tests that read files outside the repo layout).
 - **Real staging, read-only**, this branch over the owner's real accounts, 1 Nov 2026 (Sunday), `daily_review` day and week, unedited (stores stubbed):
 ```
 KEEP would store 0 fills for 2026-11-01          <- Zerodha's live session: kite.trades() answered, 0 fills (market shut)
