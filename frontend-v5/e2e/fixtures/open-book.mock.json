@@ -1,0 +1,2020 @@
+{
+ "note": "MOCK — not real data. The real builder over backend/tests/test_open_book.py's invented world; regenerate with that file.",
+ "live": {
+  "schema": "visual-answer-v1",
+  "intent": "open_trades",
+  "title": "Your open trades",
+  "as_of": "2026-10-30",
+  "generated_at": "2026-10-30T16:30:00+05:30",
+  "mode": "mixed",
+  "headline": {
+   "text": "5 open broker positions in 3 underlyings; 1 open paper trade, unrealised ₹80.00.",
+   "tone": "down"
+  },
+  "decision": null,
+  "blocks": [
+   {
+    "type": "kpis",
+    "id": "book",
+    "title": "Your broker book",
+    "note": null,
+    "items": [
+     {
+      "label": "Broker positions",
+      "value": "5",
+      "sub": "ICICI Direct 5"
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "−₹27,037.50",
+      "sub": "the brokers' own figures; 2 marked at the last price",
+      "tone": "down"
+     },
+     {
+      "label": "Margin required",
+      "value": "₹110,000.00",
+      "sub": "Zerodha's calculator, F&O legs (2 of 2 underlyings)"
+     },
+     {
+      "label": "Available cash",
+      "value": "₹200,000.00",
+      "sub": "the brokers' own figures"
+     },
+     {
+      "label": "Used margin",
+      "value": "₹80,000.00",
+      "sub": "the brokers' own figures"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "positions",
+    "title": "Broker positions · 5",
+    "note": "The brokers' own quantities, averages and P&L. Shares move with Kite's live price while the market is open; a future or option keeps its broker price from the last read (shown on hover).",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Position",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "account",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "avg",
+      "label": "Average",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "ltp",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ADANIPORTS",
+      "ask": "Is my trade in ADANIPORTS still valid?",
+      "tone": "down",
+      "badge": "Live",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:30:00",
+       "pnl": "Marked at the last price (quantity × (price − average)), before charges: ICICI Direct sent no P&L for this row.",
+       "qty": "1 lot × 475"
+      },
+      "cells": {
+       "symbol": "ADANIPORTS 23 Nov 2026 FUT",
+       "account": "ICICI Direct",
+       "qty": 475,
+       "avg": 1800.0,
+       "ltp": 1790.0,
+       "pnl": -4750.0
+      }
+     },
+     {
+      "symbol": "EXIDEIND",
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tone": "down",
+      "badge": "Live",
+      "tips": {
+       "ltp": "Kite live (the platform's feed) · 16:30:00",
+       "pnl": "ICICI Direct's own P&L at 16:30:00, moved by quantity × the price change since (Kite live). Before charges."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "account": "ICICI Direct",
+       "qty": 500,
+       "avg": 400.0,
+       "ltp": 381.0,
+       "pnl": -9500.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "down",
+      "badge": "Live",
+      "tips": {
+       "ltp": "Kite live (the platform's feed) · 16:30:00",
+       "pnl": "ICICI Direct's own P&L at 16:30:00, moved by quantity × the price change since (Kite live). Before charges."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "account": "ICICI Direct",
+       "qty": 700,
+       "avg": 200.0,
+       "ltp": 181.0,
+       "pnl": -13300.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "up",
+      "badge": "Live",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:30:00",
+       "pnl": "Marked at the last price (quantity × (price − average)), before charges: ICICI Direct sent no P&L for this row.",
+       "qty": "1 lot × 1825"
+      },
+      "cells": {
+       "symbol": "SWIGGY 23 Nov 2026 170 PE",
+       "account": "ICICI Direct",
+       "qty": 1825,
+       "avg": 4.0,
+       "ltp": 4.5,
+       "pnl": 912.5
+      }
+     },
+     {
+      "symbol": "SGBT54",
+      "tone": "down",
+      "badge": "Not mapped",
+      "tips": {
+       "symbol": "ICICI Direct code SGBT54 is not in ICICI's security master"
+      },
+      "cells": {
+       "symbol": "SGBT54",
+       "account": "ICICI Direct",
+       "qty": -4,
+       "avg": 14000.0,
+       "ltp": 14100.0,
+       "pnl": -400.0
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "levels",
+    "title": "Stops, loss at the stop and margin, by underlying",
+    "note": "Your own stops and targets (or the plan you recorded when you set none). The loss at the stop is gross and is never the price falling to zero. Margin is Zerodha's calculator for the F&O legs.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Underlying",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "spot",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "to_stop",
+      "label": "To stop",
+      "align": "right",
+      "format": "pct"
+     },
+     {
+      "key": "risk",
+      "label": "Loss at stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "margin",
+      "label": "Margin required",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "expiry",
+      "label": "Expires",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ADANIPORTS",
+      "tone": null,
+      "ask": "Is my trade in ADANIPORTS still valid?",
+      "tips": {
+       "symbol": "ADANIPORTS 23 Nov 2026 FUT (475)",
+       "spot": "NSE end of day · 2026-10-30",
+       "stop": "From the plan you recorded (tp_ADANIPORTS); you set none",
+       "risk": "If the price reaches your stop (1,750.00), valued today; gross, before charges. Never the price falling to zero.",
+       "margin": "Zerodha margin calculator · the platform's Kite login. A calculation for these contracts, not your broker's own requirement."
+      },
+      "cells": {
+       "symbol": "ADANIPORTS",
+       "spot": 1849.99,
+       "stop": 1750.0,
+       "target": 1900.0,
+       "to_stop": 5.4,
+       "risk": -26216.8,
+       "margin": 55000.0,
+       "expiry": "23 Nov · 24d"
+      }
+     },
+     {
+      "symbol": "EXIDEIND",
+      "tone": null,
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tips": {
+       "symbol": "EXIDEIND (500)",
+       "spot": "Kite live · 2026-10-30T11:00:00+00:00",
+       "stop": "Set by you (your Nivesh-side level)",
+       "risk": "If the price reaches your stop (360.00), valued today; gross, before charges. Never the price falling to zero.",
+       "margin": "Shares are paid in full: no exchange margin to calculate."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "spot": 381.0,
+       "stop": 360.0,
+       "target": 440.0,
+       "to_stop": 5.51,
+       "risk": -20000.0,
+       "margin": "None (shares)",
+       "expiry": null
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "tone": null,
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tips": {
+       "symbol": "SWIGGY (700) · SWIGGY 23 Nov 2026 170 PE (1825)",
+       "spot": "Kite live · 2026-10-30T11:00:00+00:00",
+       "stop": "Set by you (your Nivesh-side level)",
+       "risk": "A defined-risk structure: the most it can lose at expiry, gross, before charges.",
+       "margin": "Zerodha margin calculator · the platform's Kite login. A calculation for these contracts (the F&O legs only; shares are paid in full), not your broker's own requirement."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "spot": 181.0,
+       "stop": 170.0,
+       "target": null,
+       "to_stop": 6.08,
+       "risk": -28300.0,
+       "margin": 55000.0,
+       "expiry": "23 Nov · 24d"
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "accounts",
+    "title": "Your broker accounts",
+    "note": "Available cash, collateral and used margin are each broker's own figures, read only while the session is live.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "state",
+      "label": "State",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "avail",
+      "label": "Available cash",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "collateral",
+      "label": "Collateral",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "used",
+      "label": "Used margin",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "read",
+      "label": "Read",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ICICI Direct",
+      "tone": null,
+      "cells": {
+       "symbol": "ICICI Direct",
+       "state": "Live",
+       "avail": 200000.0,
+       "collateral": 50000.0,
+       "used": 80000.0,
+       "read": "Positions 16:30:00, funds 16:30:00"
+      },
+      "tips": null,
+      "badge": "Live"
+     }
+    ]
+   },
+   {
+    "type": "list",
+    "id": "commentary",
+    "title": "Checks against your stops and plans",
+    "note": "Worked out by the platform from the book above. The written commentary explains these; it adds no figure.",
+    "items": [
+     {
+      "text": "1 broker row(s) could not be named as NSE contracts (SGBT54); nothing is worked out from them.",
+      "tone": "warn"
+     },
+     {
+      "text": "ADANIPORTS: 5.40% above the stop 1,750.00; the loss at that stop is ₹26,216.80 (gross) (from your recorded plan).",
+      "tone": null
+     },
+     {
+      "text": "ADANIPORTS: the plan you recorded on 28 Oct 2026 (bullish; entry 1,800.00, stop 1,750.00, target 1,900.00) points the same way as this position; its stop and target are used here because you set none.",
+      "tone": null
+     },
+     {
+      "text": "ADANIPORTS: margin for its F&O legs is ₹55,000.00 (Zerodha's calculator), 27.5% of ICICI Direct's available ₹200,000.00.",
+      "tone": null
+     },
+     {
+      "text": "EXIDEIND: 5.51% above the stop 360.00; the loss at that stop is ₹20,000.00 (gross) (your level).",
+      "tone": null
+     },
+     {
+      "text": "SWIGGY: 6.08% above the stop 170.00; the loss at that stop is ₹16,614.71 (gross) (your level).",
+      "tone": null
+     },
+     {
+      "text": "SWIGGY: margin for its F&O legs is ₹55,000.00 (Zerodha's calculator), 27.5% of ICICI Direct's available ₹200,000.00.",
+      "tone": null
+     },
+     {
+      "text": "ICICI Direct: available ₹200,000.00, collateral ₹50,000.00, used margin ₹80,000.00 (the broker's own funds figures).",
+      "tone": null
+     },
+     {
+      "text": "No P&L was sent for ADANIPORTS, SWIGGY: it is marked at the last price, before charges.",
+      "tone": null
+     },
+     {
+      "text": "No plan of yours is on record for EXIDEIND, SWIGGY, so no plan is compared with them.",
+      "tone": null
+     }
+    ]
+   },
+   {
+    "type": "kpis",
+    "id": "summary",
+    "title": "Your open paper trades",
+    "note": null,
+    "items": [
+     {
+      "label": "Open",
+      "value": "1",
+      "sub": null
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "₹80.00",
+      "sub": "net of estimated costs",
+      "tone": "up"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "trades",
+    "title": "1 open paper trade",
+    "note": "Paper, not a broker's. Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Stock",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "entry",
+      "label": "Entry",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "last",
+      "label": "Last close",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "Unrealised P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "AAA",
+      "ask": "Should I book profits or hold AAA?",
+      "tone": "up",
+      "cells": {
+       "symbol": "AAA",
+       "qty": 10,
+       "entry": 100.0,
+       "last": 108.0,
+       "stop": 92.0,
+       "target": 120.0,
+       "pnl": 80.0
+      }
+     }
+    ]
+   },
+   {
+    "type": "notice",
+    "id": "read-only",
+    "title": null,
+    "note": null,
+    "tone": "info",
+    "text": "Nivesh reads your broker positions; it cannot place, modify or cancel an order. These are checks to review, not recommendations."
+   }
+  ],
+  "evidence": [],
+  "data_quality": {
+   "sources": [
+    {
+     "name": "Your broker positions (read from the broker)",
+     "as_of": "2026-10-30",
+     "status": "fresh",
+     "note": null
+    },
+    {
+     "name": "Your broker accounts' funds (read from the broker)",
+     "as_of": "2026-10-30",
+     "status": "fresh",
+     "note": null
+    },
+    {
+     "name": "Share prices (the platform's Kite live feed)",
+     "as_of": "2026-10-30",
+     "status": "fresh",
+     "note": null
+    },
+    {
+     "name": "Margin required (Zerodha margin calculator)",
+     "as_of": "2026-10-30",
+     "status": "fresh",
+     "note": null
+    },
+    {
+     "name": "Your paper trades (desk_paper_trades, marked at the last available close)",
+     "as_of": "2026-10-29",
+     "status": "fresh",
+     "note": null
+    }
+   ],
+   "stale": false,
+   "missing": []
+  },
+  "follow_ups": [
+   {
+    "label": "How much should I risk?",
+    "query": "How much should I risk?"
+   },
+   {
+    "label": "Which F&O setups are attractive?",
+    "query": "Which F&O setups are attractive?"
+   },
+   {
+    "label": "What is the market view today?",
+    "query": "What is the market view today?"
+   },
+   {
+    "label": "Today's top 5 opportunities",
+    "query": "Today's top 5 opportunities"
+   }
+  ],
+  "caveat": "Read from your broker at 16:30:00 IST; shares move with Kite's live price, futures and options keep the broker's last price. Nivesh cannot place, modify or cancel an order. Ideas to review, not recommendations.",
+  "refresh": {
+   "path": "/api/positions/book/live",
+   "interval_s": 5,
+   "block_ids": [
+    "book",
+    "positions",
+    "levels",
+    "accounts",
+    "commentary"
+   ]
+  }
+ },
+ "tick": {
+  "generated_at": "2026-10-30T16:30:05+05:30",
+  "mode": "mixed",
+  "blocks": [
+   {
+    "type": "kpis",
+    "id": "book",
+    "title": "Your broker book",
+    "note": null,
+    "items": [
+     {
+      "label": "Broker positions",
+      "value": "5",
+      "sub": "ICICI Direct 5"
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "−₹31,637.50",
+      "sub": "the brokers' own figures; 2 marked at the last price",
+      "tone": "down"
+     },
+     {
+      "label": "Margin required",
+      "value": "₹110,000.00",
+      "sub": "Zerodha's calculator, F&O legs (2 of 2 underlyings)"
+     },
+     {
+      "label": "Available cash",
+      "value": "₹200,000.00",
+      "sub": "the brokers' own figures"
+     },
+     {
+      "label": "Used margin",
+      "value": "₹80,000.00",
+      "sub": "the brokers' own figures"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "positions",
+    "title": "Broker positions · 5",
+    "note": "The brokers' own quantities, averages and P&L. Shares move with Kite's live price while the market is open; a future or option keeps its broker price from the last read (shown on hover).",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Position",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "account",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "avg",
+      "label": "Average",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "ltp",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ADANIPORTS",
+      "ask": "Is my trade in ADANIPORTS still valid?",
+      "tone": "down",
+      "badge": "Live",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:30:00",
+       "pnl": "Marked at the last price (quantity × (price − average)), before charges: ICICI Direct sent no P&L for this row.",
+       "qty": "1 lot × 475"
+      },
+      "cells": {
+       "symbol": "ADANIPORTS 23 Nov 2026 FUT",
+       "account": "ICICI Direct",
+       "qty": 475,
+       "avg": 1800.0,
+       "ltp": 1790.0,
+       "pnl": -4750.0
+      }
+     },
+     {
+      "symbol": "EXIDEIND",
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tone": "down",
+      "badge": "Live",
+      "tips": {
+       "ltp": "Kite live (the platform's feed) · 16:30:05",
+       "pnl": "ICICI Direct's own P&L at 16:30:00, moved by quantity × the price change since (Kite live). Before charges."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "account": "ICICI Direct",
+       "qty": 500,
+       "avg": 400.0,
+       "ltp": 390.0,
+       "pnl": -5000.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "down",
+      "badge": "Live",
+      "tips": {
+       "ltp": "Kite live (the platform's feed) · 16:30:05",
+       "pnl": "ICICI Direct's own P&L at 16:30:00, moved by quantity × the price change since (Kite live). Before charges."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "account": "ICICI Direct",
+       "qty": 700,
+       "avg": 200.0,
+       "ltp": 168.0,
+       "pnl": -22400.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "up",
+      "badge": "Live",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:30:00",
+       "pnl": "Marked at the last price (quantity × (price − average)), before charges: ICICI Direct sent no P&L for this row.",
+       "qty": "1 lot × 1825"
+      },
+      "cells": {
+       "symbol": "SWIGGY 23 Nov 2026 170 PE",
+       "account": "ICICI Direct",
+       "qty": 1825,
+       "avg": 4.0,
+       "ltp": 4.5,
+       "pnl": 912.5
+      }
+     },
+     {
+      "symbol": "SGBT54",
+      "tone": "down",
+      "badge": "Not mapped",
+      "tips": {
+       "symbol": "ICICI Direct code SGBT54 is not in ICICI's security master"
+      },
+      "cells": {
+       "symbol": "SGBT54",
+       "account": "ICICI Direct",
+       "qty": -4,
+       "avg": 14000.0,
+       "ltp": 14100.0,
+       "pnl": -400.0
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "levels",
+    "title": "Stops, loss at the stop and margin, by underlying",
+    "note": "Your own stops and targets (or the plan you recorded when you set none). The loss at the stop is gross and is never the price falling to zero. Margin is Zerodha's calculator for the F&O legs.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Underlying",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "spot",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "to_stop",
+      "label": "To stop",
+      "align": "right",
+      "format": "pct"
+     },
+     {
+      "key": "risk",
+      "label": "Loss at stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "margin",
+      "label": "Margin required",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "expiry",
+      "label": "Expires",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ADANIPORTS",
+      "tone": null,
+      "ask": "Is my trade in ADANIPORTS still valid?",
+      "tips": {
+       "symbol": "ADANIPORTS 23 Nov 2026 FUT (475)",
+       "spot": "NSE end of day · 2026-10-30",
+       "stop": "From the plan you recorded (tp_ADANIPORTS); you set none",
+       "risk": "If the price reaches your stop (1,750.00), valued today; gross, before charges. Never the price falling to zero.",
+       "margin": "Zerodha margin calculator · the platform's Kite login. A calculation for these contracts, not your broker's own requirement."
+      },
+      "cells": {
+       "symbol": "ADANIPORTS",
+       "spot": 1849.99,
+       "stop": 1750.0,
+       "target": 1900.0,
+       "to_stop": 5.4,
+       "risk": -26216.8,
+       "margin": 55000.0,
+       "expiry": "23 Nov · 24d"
+      }
+     },
+     {
+      "symbol": "EXIDEIND",
+      "tone": null,
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tips": {
+       "symbol": "EXIDEIND (500)",
+       "spot": "Kite live · 2026-10-30T11:00:05+00:00",
+       "stop": "Set by you (your Nivesh-side level)",
+       "risk": "If the price reaches your stop (360.00), valued today; gross, before charges. Never the price falling to zero.",
+       "margin": "Shares are paid in full: no exchange margin to calculate."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "spot": 390.0,
+       "stop": 360.0,
+       "target": 440.0,
+       "to_stop": 7.69,
+       "risk": -20000.0,
+       "margin": "None (shares)",
+       "expiry": null
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "tone": "down",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tips": {
+       "symbol": "SWIGGY (700) · SWIGGY 23 Nov 2026 170 PE (1825)",
+       "spot": "Kite live · 2026-10-30T11:00:05+00:00",
+       "stop": "Set by you (your Nivesh-side level)",
+       "risk": "A defined-risk structure: the most it can lose at expiry, gross, before charges.",
+       "margin": "Zerodha margin calculator · the platform's Kite login. A calculation for these contracts (the F&O legs only; shares are paid in full), not your broker's own requirement."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "spot": 168.0,
+       "stop": 170.0,
+       "target": null,
+       "to_stop": -1.19,
+       "risk": -28300.0,
+       "margin": 55000.0,
+       "expiry": "23 Nov · 24d"
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "accounts",
+    "title": "Your broker accounts",
+    "note": "Available cash, collateral and used margin are each broker's own figures, read only while the session is live.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "state",
+      "label": "State",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "avail",
+      "label": "Available cash",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "collateral",
+      "label": "Collateral",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "used",
+      "label": "Used margin",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "read",
+      "label": "Read",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ICICI Direct",
+      "tone": null,
+      "cells": {
+       "symbol": "ICICI Direct",
+       "state": "Live",
+       "avail": 200000.0,
+       "collateral": 50000.0,
+       "used": 80000.0,
+       "read": "Positions 16:30:00, funds 16:30:00"
+      },
+      "tips": null,
+      "badge": "Live"
+     }
+    ]
+   },
+   {
+    "type": "list",
+    "id": "commentary",
+    "title": "Checks against your stops and plans",
+    "note": "Worked out by the platform from the book above. The written commentary explains these; it adds no figure.",
+    "items": [
+     {
+      "text": "SWIGGY: The price (168.00) is past your stop (170.00). (long position)",
+      "tone": "warn"
+     },
+     {
+      "text": "1 broker row(s) could not be named as NSE contracts (SGBT54); nothing is worked out from them.",
+      "tone": "warn"
+     },
+     {
+      "text": "ADANIPORTS: 5.40% above the stop 1,750.00; the loss at that stop is ₹26,216.80 (gross) (from your recorded plan).",
+      "tone": null
+     },
+     {
+      "text": "ADANIPORTS: the plan you recorded on 28 Oct 2026 (bullish; entry 1,800.00, stop 1,750.00, target 1,900.00) points the same way as this position; its stop and target are used here because you set none.",
+      "tone": null
+     },
+     {
+      "text": "ADANIPORTS: margin for its F&O legs is ₹55,000.00 (Zerodha's calculator), 27.5% of ICICI Direct's available ₹200,000.00.",
+      "tone": null
+     },
+     {
+      "text": "EXIDEIND: 7.69% above the stop 360.00; the loss at that stop is ₹20,000.00 (gross) (your level).",
+      "tone": null
+     },
+     {
+      "text": "SWIGGY: margin for its F&O legs is ₹55,000.00 (Zerodha's calculator), 27.5% of ICICI Direct's available ₹200,000.00.",
+      "tone": null
+     },
+     {
+      "text": "ICICI Direct: available ₹200,000.00, collateral ₹50,000.00, used margin ₹80,000.00 (the broker's own funds figures).",
+      "tone": null
+     },
+     {
+      "text": "No P&L was sent for ADANIPORTS, SWIGGY: it is marked at the last price, before charges.",
+      "tone": null
+     },
+     {
+      "text": "No plan of yours is on record for EXIDEIND, SWIGGY, so no plan is compared with them.",
+      "tone": null
+     }
+    ]
+   }
+  ],
+  "refresh": {
+   "active": true,
+   "interval_s": 5,
+   "why": null
+  }
+ },
+ "tick_closed": {
+  "generated_at": "2026-10-30T16:35:05+05:30",
+  "mode": "eod",
+  "blocks": [
+   {
+    "type": "kpis",
+    "id": "book",
+    "title": "Your broker book",
+    "note": null,
+    "items": [
+     {
+      "label": "Broker positions",
+      "value": "5",
+      "sub": "ICICI Direct 5"
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "−₹28,237.50",
+      "sub": "the brokers' own figures; 2 marked at the last price",
+      "tone": "down"
+     },
+     {
+      "label": "Margin required",
+      "value": "₹110,000.00",
+      "sub": "Zerodha's calculator, F&O legs (2 of 2 underlyings)"
+     },
+     {
+      "label": "Available cash",
+      "value": "₹200,000.00",
+      "sub": "the brokers' own figures"
+     },
+     {
+      "label": "Used margin",
+      "value": "₹80,000.00",
+      "sub": "the brokers' own figures"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "positions",
+    "title": "Broker positions · 5",
+    "note": "The brokers' own quantities, averages and P&L. Shares move with Kite's live price while the market is open; a future or option keeps its broker price from the last read (shown on hover).",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Position",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "account",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "avg",
+      "label": "Average",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "ltp",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ADANIPORTS",
+      "ask": "Is my trade in ADANIPORTS still valid?",
+      "tone": "down",
+      "badge": "Read 16:35",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:35:05",
+       "pnl": "Marked at the last price (quantity × (price − average)), before charges: ICICI Direct sent no P&L for this row.",
+       "qty": "1 lot × 475"
+      },
+      "cells": {
+       "symbol": "ADANIPORTS 23 Nov 2026 FUT",
+       "account": "ICICI Direct",
+       "qty": 475,
+       "avg": 1800.0,
+       "ltp": 1790.0,
+       "pnl": -4750.0
+      }
+     },
+     {
+      "symbol": "EXIDEIND",
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tone": "down",
+      "badge": "Read 16:35",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:35:05",
+       "pnl": "ICICI Direct's own P&L, as read at 16:35:05."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "account": "ICICI Direct",
+       "qty": 500,
+       "avg": 400.0,
+       "ltp": 380.0,
+       "pnl": -10000.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "down",
+      "badge": "Read 16:35",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:35:05",
+       "pnl": "ICICI Direct's own P&L, as read at 16:35:05."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "account": "ICICI Direct",
+       "qty": 700,
+       "avg": 200.0,
+       "ltp": 180.0,
+       "pnl": -14000.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "up",
+      "badge": "Read 16:35",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 16:35:05",
+       "pnl": "Marked at the last price (quantity × (price − average)), before charges: ICICI Direct sent no P&L for this row.",
+       "qty": "1 lot × 1825"
+      },
+      "cells": {
+       "symbol": "SWIGGY 23 Nov 2026 170 PE",
+       "account": "ICICI Direct",
+       "qty": 1825,
+       "avg": 4.0,
+       "ltp": 4.5,
+       "pnl": 912.5
+      }
+     },
+     {
+      "symbol": "SGBT54",
+      "tone": "down",
+      "badge": "Not mapped",
+      "tips": {
+       "symbol": "ICICI Direct code SGBT54 is not in ICICI's security master"
+      },
+      "cells": {
+       "symbol": "SGBT54",
+       "account": "ICICI Direct",
+       "qty": -4,
+       "avg": 14000.0,
+       "ltp": 14100.0,
+       "pnl": -400.0
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "levels",
+    "title": "Stops, loss at the stop and margin, by underlying",
+    "note": "Your own stops and targets (or the plan you recorded when you set none). The loss at the stop is gross and is never the price falling to zero. Margin is Zerodha's calculator for the F&O legs.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Underlying",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "spot",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "to_stop",
+      "label": "To stop",
+      "align": "right",
+      "format": "pct"
+     },
+     {
+      "key": "risk",
+      "label": "Loss at stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "margin",
+      "label": "Margin required",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "expiry",
+      "label": "Expires",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ADANIPORTS",
+      "tone": null,
+      "ask": "Is my trade in ADANIPORTS still valid?",
+      "tips": {
+       "symbol": "ADANIPORTS 23 Nov 2026 FUT (475)",
+       "spot": "NSE end of day · 2026-10-30",
+       "stop": "From the plan you recorded (tp_ADANIPORTS); you set none",
+       "risk": "If the price reaches your stop (1,750.00), valued today; gross, before charges. Never the price falling to zero.",
+       "margin": "Zerodha margin calculator · the platform's Kite login. A calculation for these contracts, not your broker's own requirement."
+      },
+      "cells": {
+       "symbol": "ADANIPORTS",
+       "spot": 1849.99,
+       "stop": 1750.0,
+       "target": 1900.0,
+       "to_stop": 5.4,
+       "risk": -26216.8,
+       "margin": 55000.0,
+       "expiry": "23 Nov · 24d"
+      }
+     },
+     {
+      "symbol": "EXIDEIND",
+      "tone": null,
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tips": {
+       "symbol": "EXIDEIND (500)",
+       "spot": "Kite live · 2026-10-30T11:05:05+00:00",
+       "stop": "Set by you (your Nivesh-side level)",
+       "risk": "If the price reaches your stop (360.00), valued today; gross, before charges. Never the price falling to zero.",
+       "margin": "Shares are paid in full: no exchange margin to calculate."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "spot": 390.0,
+       "stop": 360.0,
+       "target": 440.0,
+       "to_stop": 7.69,
+       "risk": -20000.0,
+       "margin": "None (shares)",
+       "expiry": null
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "tone": "down",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tips": {
+       "symbol": "SWIGGY (700) · SWIGGY 23 Nov 2026 170 PE (1825)",
+       "spot": "Kite live · 2026-10-30T11:05:05+00:00",
+       "stop": "Set by you (your Nivesh-side level)",
+       "risk": "A defined-risk structure: the most it can lose at expiry, gross, before charges.",
+       "margin": "Zerodha margin calculator · the platform's Kite login. A calculation for these contracts (the F&O legs only; shares are paid in full), not your broker's own requirement."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "spot": 168.0,
+       "stop": 170.0,
+       "target": null,
+       "to_stop": -1.19,
+       "risk": -28300.0,
+       "margin": 55000.0,
+       "expiry": "23 Nov · 24d"
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "accounts",
+    "title": "Your broker accounts",
+    "note": "Available cash, collateral and used margin are each broker's own figures, read only while the session is live.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "state",
+      "label": "State",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "avail",
+      "label": "Available cash",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "collateral",
+      "label": "Collateral",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "used",
+      "label": "Used margin",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "read",
+      "label": "Read",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ICICI Direct",
+      "tone": null,
+      "cells": {
+       "symbol": "ICICI Direct",
+       "state": "Live",
+       "avail": 200000.0,
+       "collateral": 50000.0,
+       "used": 80000.0,
+       "read": "Positions 16:35:05, funds 16:35:05"
+      },
+      "tips": null,
+      "badge": null
+     }
+    ]
+   },
+   {
+    "type": "list",
+    "id": "commentary",
+    "title": "Checks against your stops and plans",
+    "note": "Worked out by the platform from the book above. The written commentary explains these; it adds no figure.",
+    "items": [
+     {
+      "text": "SWIGGY: The price (168.00) is past your stop (170.00). (long position)",
+      "tone": "warn"
+     },
+     {
+      "text": "1 broker row(s) could not be named as NSE contracts (SGBT54); nothing is worked out from them.",
+      "tone": "warn"
+     },
+     {
+      "text": "ADANIPORTS: 5.40% above the stop 1,750.00; the loss at that stop is ₹26,216.80 (gross) (from your recorded plan).",
+      "tone": null
+     },
+     {
+      "text": "ADANIPORTS: the plan you recorded on 28 Oct 2026 (bullish; entry 1,800.00, stop 1,750.00, target 1,900.00) points the same way as this position; its stop and target are used here because you set none.",
+      "tone": null
+     },
+     {
+      "text": "ADANIPORTS: margin for its F&O legs is ₹55,000.00 (Zerodha's calculator), 27.5% of ICICI Direct's available ₹200,000.00.",
+      "tone": null
+     },
+     {
+      "text": "EXIDEIND: 7.69% above the stop 360.00; the loss at that stop is ₹20,000.00 (gross) (your level).",
+      "tone": null
+     },
+     {
+      "text": "SWIGGY: margin for its F&O legs is ₹55,000.00 (Zerodha's calculator), 27.5% of ICICI Direct's available ₹200,000.00.",
+      "tone": null
+     },
+     {
+      "text": "ICICI Direct: available ₹200,000.00, collateral ₹50,000.00, used margin ₹80,000.00 (the broker's own funds figures).",
+      "tone": null
+     },
+     {
+      "text": "No P&L was sent for ADANIPORTS, SWIGGY: it is marked at the last price, before charges.",
+      "tone": null
+     },
+     {
+      "text": "No plan of yours is on record for EXIDEIND, SWIGGY, so no plan is compared with them.",
+      "tone": null
+     }
+    ]
+   }
+  ],
+  "refresh": {
+   "active": false,
+   "interval_s": 5,
+   "why": "the market is closed"
+  }
+ },
+ "no_broker": {
+  "schema": "visual-answer-v1",
+  "intent": "open_trades",
+  "title": "Your open trades",
+  "as_of": "2026-10-29",
+  "generated_at": "2026-10-30T16:30:00+05:30",
+  "mode": "eod",
+  "headline": {
+   "text": "1 open paper trade, unrealised ₹80.00.",
+   "tone": "up"
+  },
+  "decision": null,
+  "blocks": [
+   {
+    "type": "notice",
+    "id": "no-broker",
+    "title": null,
+    "note": null,
+    "tone": "info",
+    "text": "No broker is connected, so only your paper trades are shown. Connect your broker to see your real positions, their margin and live prices here.",
+    "actions": [
+     {
+      "kind": "connect_broker",
+      "label": "Connect a broker"
+     }
+    ]
+   },
+   {
+    "type": "kpis",
+    "id": "summary",
+    "title": "Your open paper trades",
+    "note": null,
+    "items": [
+     {
+      "label": "Open",
+      "value": "1",
+      "sub": null
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "₹80.00",
+      "sub": "net of estimated costs",
+      "tone": "up"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "trades",
+    "title": "1 open paper trade",
+    "note": "Paper, not a broker's. Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Stock",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "entry",
+      "label": "Entry",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "last",
+      "label": "Last close",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "Unrealised P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "AAA",
+      "ask": "Should I book profits or hold AAA?",
+      "tone": "up",
+      "cells": {
+       "symbol": "AAA",
+       "qty": 10,
+       "entry": 100.0,
+       "last": 108.0,
+       "stop": 92.0,
+       "target": 120.0,
+       "pnl": 80.0
+      }
+     }
+    ]
+   }
+  ],
+  "evidence": [],
+  "data_quality": {
+   "sources": [
+    {
+     "name": "Your paper trades (desk_paper_trades, marked at the last available close)",
+     "as_of": "2026-10-29",
+     "status": "fresh",
+     "note": null
+    }
+   ],
+   "stale": false,
+   "missing": []
+  },
+  "follow_ups": [
+   {
+    "label": "How much should I risk?",
+    "query": "How much should I risk?"
+   },
+   {
+    "label": "Which F&O setups are attractive?",
+    "query": "Which F&O setups are attractive?"
+   },
+   {
+    "label": "What is the market view today?",
+    "query": "What is the market view today?"
+   },
+   {
+    "label": "Today's top 5 opportunities",
+    "query": "Today's top 5 opportunities"
+   }
+  ],
+  "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+ },
+ "ended": {
+  "schema": "visual-answer-v1",
+  "intent": "open_trades",
+  "title": "Your open trades",
+  "as_of": "2026-10-30",
+  "generated_at": "2026-10-30T16:30:00+05:30",
+  "mode": "eod",
+  "headline": {
+   "text": "2 open broker positions in 2 underlyings, unrealised −₹24,000.00 (a stored read, not live); 1 open paper trade, unrealised ₹80.00.",
+   "tone": "down"
+  },
+  "decision": null,
+  "blocks": [
+   {
+    "type": "notice",
+    "id": "ended-ba_test1",
+    "title": null,
+    "note": null,
+    "tone": "warn",
+    "text": "Your ICICI Direct session has ended, so live positions, funds and margin are not available. Sign in to ICICI Direct again to see them. Showing the last stored read, as of 30 Oct 2026, 15:30 IST (not live).",
+    "actions": [
+     {
+      "kind": "connect_broker",
+      "label": "Sign in to ICICI Direct again"
+     }
+    ]
+   },
+   {
+    "type": "kpis",
+    "id": "book",
+    "title": "Your broker book",
+    "note": null,
+    "items": [
+     {
+      "label": "Broker positions",
+      "value": "2",
+      "sub": "ICICI Direct 2"
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "−₹24,000.00",
+      "sub": "the brokers' own figures",
+      "tone": "down"
+     },
+     {
+      "label": "Margin required",
+      "value": null,
+      "sub": "no F&O positions"
+     },
+     {
+      "label": "Available cash",
+      "value": null,
+      "sub": "not available: no live session"
+     },
+     {
+      "label": "Used margin",
+      "value": null,
+      "sub": "not available: no live session"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "positions",
+    "title": "Broker positions · 2",
+    "note": "The brokers' own quantities, averages and P&L. Shares move with Kite's live price while the market is open; a future or option keeps its broker price from the last read (shown on hover).",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Position",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "account",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "avg",
+      "label": "Average",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "ltp",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "EXIDEIND",
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tone": "down",
+      "badge": "As of 30 Oct 15:30",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 15:30:00 (a stored read, not live)",
+       "pnl": "ICICI Direct's own P&L, as read at 15:30:00."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "account": "ICICI Direct",
+       "qty": 500,
+       "avg": 400.0,
+       "ltp": 380.0,
+       "pnl": -10000.0
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tone": "down",
+      "badge": "As of 30 Oct 15:30",
+      "tips": {
+       "ltp": "ICICI Direct's own price in its read at 15:30:00 (a stored read, not live)",
+       "pnl": "ICICI Direct's own P&L, as read at 15:30:00."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "account": "ICICI Direct",
+       "qty": 700,
+       "avg": 200.0,
+       "ltp": 180.0,
+       "pnl": -14000.0
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "levels",
+    "title": "Stops, loss at the stop and margin, by underlying",
+    "note": "Your own stops and targets (or the plan you recorded when you set none). The loss at the stop is gross and is never the price falling to zero. Margin is Zerodha's calculator for the F&O legs.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Underlying",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "spot",
+      "label": "Price",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "to_stop",
+      "label": "To stop",
+      "align": "right",
+      "format": "pct"
+     },
+     {
+      "key": "risk",
+      "label": "Loss at stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "margin",
+      "label": "Margin required",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "expiry",
+      "label": "Expires",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "EXIDEIND",
+      "tone": null,
+      "ask": "Is my trade in EXIDEIND still valid?",
+      "tips": {
+       "symbol": "EXIDEIND (500)",
+       "spot": "the broker · 2026-10-30T10:00:00+00:00",
+       "risk": "Without a stop the loss at a stop cannot be shown, and a to-zero figure is not the risk of a position.",
+       "margin": "Shares are paid in full: no exchange margin to calculate."
+      },
+      "cells": {
+       "symbol": "EXIDEIND",
+       "spot": 380.0,
+       "stop": "No stop set",
+       "target": null,
+       "to_stop": null,
+       "risk": "No stop set",
+       "margin": "None (shares)",
+       "expiry": null
+      }
+     },
+     {
+      "symbol": "SWIGGY",
+      "tone": null,
+      "ask": "Is my trade in SWIGGY still valid?",
+      "tips": {
+       "symbol": "SWIGGY (700)",
+       "spot": "the broker · 2026-10-30T10:00:00+00:00",
+       "risk": "Without a stop the loss at a stop cannot be shown, and a to-zero figure is not the risk of a position.",
+       "margin": "Shares are paid in full: no exchange margin to calculate."
+      },
+      "cells": {
+       "symbol": "SWIGGY",
+       "spot": 180.0,
+       "stop": "No stop set",
+       "target": null,
+       "to_stop": null,
+       "risk": "No stop set",
+       "margin": "None (shares)",
+       "expiry": null
+      }
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "accounts",
+    "title": "Your broker accounts",
+    "note": "Available cash, collateral and used margin are each broker's own figures, read only while the session is live.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Account",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "state",
+      "label": "State",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "avail",
+      "label": "Available cash",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "collateral",
+      "label": "Collateral",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "used",
+      "label": "Used margin",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "read",
+      "label": "Read",
+      "align": "left",
+      "format": "text"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "ICICI Direct",
+      "tone": "warn",
+      "cells": {
+       "symbol": "ICICI Direct",
+       "state": "Session ended",
+       "avail": "Not available",
+       "collateral": "Not available",
+       "used": "Not available",
+       "read": "Last stored read 30 Oct 15:30"
+      },
+      "tips": {
+       "avail": "Your ICICI Direct session has ended. Reconnect the account to continue.",
+       "collateral": "Your ICICI Direct session has ended. Reconnect the account to continue.",
+       "used": "Your ICICI Direct session has ended. Reconnect the account to continue."
+      },
+      "badge": null
+     }
+    ]
+   },
+   {
+    "type": "list",
+    "id": "commentary",
+    "title": "Checks against your stops and plans",
+    "note": "Worked out by the platform from the book above. The written commentary explains these; it adds no figure.",
+    "items": [
+     {
+      "text": "EXIDEIND: no stop of yours and no matching plan is on record, so the loss at a stop cannot be shown.",
+      "tone": "warn"
+     },
+     {
+      "text": "EXIDEIND: the figures are from the stored read of 30 Oct 2026, 15:30 IST (ICICI Direct, session ended): the position may have changed since.",
+      "tone": "warn"
+     },
+     {
+      "text": "SWIGGY: no stop of yours and no matching plan is on record, so the loss at a stop cannot be shown.",
+      "tone": "warn"
+     },
+     {
+      "text": "SWIGGY: the figures are from the stored read of 30 Oct 2026, 15:30 IST (ICICI Direct, session ended): the position may have changed since.",
+      "tone": "warn"
+     },
+     {
+      "text": "No plan of yours is on record for EXIDEIND, SWIGGY, so no plan is compared with them.",
+      "tone": null
+     }
+    ]
+   },
+   {
+    "type": "kpis",
+    "id": "summary",
+    "title": "Your open paper trades",
+    "note": null,
+    "items": [
+     {
+      "label": "Open",
+      "value": "1",
+      "sub": null
+     },
+     {
+      "label": "Unrealised P&L",
+      "value": "₹80.00",
+      "sub": "net of estimated costs",
+      "tone": "up"
+     }
+    ]
+   },
+   {
+    "type": "ranked",
+    "id": "trades",
+    "title": "1 open paper trade",
+    "note": "Paper, not a broker's. Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
+    "columns": [
+     {
+      "key": "symbol",
+      "label": "Stock",
+      "align": "left",
+      "format": "text"
+     },
+     {
+      "key": "qty",
+      "label": "Qty",
+      "align": "right",
+      "format": "int"
+     },
+     {
+      "key": "entry",
+      "label": "Entry",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "last",
+      "label": "Last close",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "stop",
+      "label": "Stop",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "target",
+      "label": "Target",
+      "align": "right",
+      "format": "price"
+     },
+     {
+      "key": "pnl",
+      "label": "Unrealised P&L",
+      "align": "right",
+      "format": "price"
+     }
+    ],
+    "rows": [
+     {
+      "symbol": "AAA",
+      "ask": "Should I book profits or hold AAA?",
+      "tone": "up",
+      "cells": {
+       "symbol": "AAA",
+       "qty": 10,
+       "entry": 100.0,
+       "last": 108.0,
+       "stop": 92.0,
+       "target": 120.0,
+       "pnl": 80.0
+      }
+     }
+    ]
+   },
+   {
+    "type": "notice",
+    "id": "read-only",
+    "title": null,
+    "note": null,
+    "tone": "info",
+    "text": "Nivesh reads your broker positions; it cannot place, modify or cancel an order. These are checks to review, not recommendations."
+   }
+  ],
+  "evidence": [],
+  "data_quality": {
+   "sources": [
+    {
+     "name": "Your broker positions (last stored read) · ICICI Direct",
+     "as_of": "2026-10-30",
+     "status": "fresh",
+     "note": null
+    },
+    {
+     "name": "Your paper trades (desk_paper_trades, marked at the last available close)",
+     "as_of": "2026-10-29",
+     "status": "fresh",
+     "note": null
+    }
+   ],
+   "stale": false,
+   "missing": []
+  },
+  "follow_ups": [
+   {
+    "label": "How much should I risk?",
+    "query": "How much should I risk?"
+   },
+   {
+    "label": "Which F&O setups are attractive?",
+    "query": "Which F&O setups are attractive?"
+   },
+   {
+    "label": "What is the market view today?",
+    "query": "What is the market view today?"
+   },
+   {
+    "label": "Today's top 5 opportunities",
+    "query": "Today's top 5 opportunities"
+   }
+  ],
+  "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+ }
+}
