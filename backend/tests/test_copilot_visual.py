@@ -2,7 +2,8 @@
 
 Covers R-1 … R-17, B-1 … B-26, C-1, F-1 of test_reports/dtc_visual_backend_20261030.md (CH-* are in
 tests/test_copilot_visual_chat.py; C-2 checks the REAL staging capture). R-11 … R-17 and B-14 … B-26 are the five
-Release-2 intents (owner, 30 Oct: "complete Release 2 and Release 3").
+Release-2 intents (owner, 30 Oct: "complete Release 2 and Release 3"); R-18 … R-20 and B-28 … B-39 are Release 3's
+daily_review (test_reports/dtc_r3_daily_review_backend_20261031.md).
 
 What is replaced (MOCK — not real data; every symbol, level and figure below is invented): the readers in
 services/copilot_visual/readers.py (each existing route / DaaS read) and the freshness window. The resolver, the
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,9 +69,9 @@ def test_r3_top_n_is_read_and_capped():
 @pytest.mark.parametrize("message, persona", [
     ("Show the FIXCO chart", "trader"),
     ("Tell me about TVSMOTOR", "trader"),
-    ("What should I avoid today?", "trader"),             # Release 3
-    ("What did I learn from today's trades?", "trader"),  # Release 3
+    ("What should I avoid today?", "trader"),             # Q14, not built
     ("How is my portfolio doing?", "trader"),             # the CAS-portfolio_analyst's book, not the paper desk's
+    ("How did I do in my portfolio this year?", "trader"),  # the CAS book again, even with review words
     ("What is my overall P&L?", "trader"),
     ("Should I average down on INFY?", "trader"),         # Release 3
     ("Is RELIANCE a buy now?", "investor"),              # buy-now words are a trader's question only
@@ -117,6 +119,31 @@ def test_r17_thread_symbol_also_resolves_validity_and_exit():
     assert (got.name, got.symbol, got.symbol_from_thread) == ("exit_options", "INFY", True)
     assert wants_thread_symbol("Is my trade still valid?", "trader")
     assert wants_thread_symbol("Should I book profits?", "trader")
+
+
+# ── Release 3: daily_review ──────────────────────────────────────────────────
+@pytest.mark.parametrize("message, persona, period", [
+    ("What did I learn from today's trades?", "trader", "day"),
+    ("How did I do today?", None, "day"),
+    ("How did I do this week?", "trader", "week"),
+    ("What were my mistakes today?", "trader", "day"),
+    ("mistakes this week", None, "week"),
+    ("Review my trades today", "investor", "day"),
+    ("Weekly review of my trading", None, "week"),
+    ("How did I do on the TCS trade today?", "trader", "day"),       # a named stock is one row of the day's review
+])
+def test_r18_daily_review(message, persona, period):
+    got = resolve_intent(message, persona, None)
+    assert got is not None, message
+    assert (got.name, got.symbol, got.params) == ("daily_review", None, {"period": period})
+    assert not wants_thread_symbol(message, persona)                 # no thread read for a review
+
+
+def test_r20_the_earlier_intents_are_unchanged_next_to_the_review():
+    assert resolve_intent("How are my trades going today?", "trader").name == "open_trades"
+    assert resolve_intent("Review my open trades", "trader").name == "open_trades"
+    assert resolve_intent("Is my trade in TCS still valid?", "trader").name == "trade_validity"
+    assert resolve_intent("What is the market view today?", "trader").name == "market_view"
 
 
 @pytest.mark.parametrize("message", ["What is the PCR of F&O?", "P&L of GIFT", "ATM IV and OI", "VIX entry", "NIFTY target",
@@ -239,6 +266,43 @@ FNO_TOP = {"regime": REGIME, "classes": {"index_options": {"ideas": [fno_idea("N
            "stock_fno": {"ideas": [fno_idea("RELIANCE", view="down", plan_id="tp_reliance")]}}}
 
 
+# ── Release 3 fixture data (MOCK — not real data) ─────────────────────────────
+def closed(symbol, day="2026-10-30", reason="target", entry=100.0, fill=100.0, stop=95.0, target=110.0, out=110.0,
+           net=95.0, kind="cash", held=3, flags=None, closed_at=None):
+    return {"id": f"ct_{symbol}_{day}", "kind": kind, "symbol": symbol, "status": "closed", "quantity": 10,
+            "entry_price": entry, "sim_entry_price": fill, "stop_price": stop, "target_price": target,
+            "exit_price": out, "exit_reason": reason, "exit_session": day,
+            "closed_at": closed_at or f"{day}T14:30:00+00:00", "realized_pnl_rs": None if net is None else net + 5,
+            "net_pnl_rs": net, "held_sessions": held, "flags": flags or []}
+
+
+def closed_book():
+    """Newest close first, as the reader returns them: 2 closed on TODAY (one target, one gapped stop), a not-entered
+    one on TODAY, and 2 on earlier sessions for the curve."""
+    return [closed("AAA", reason="target", out=110.0, net=95.0),
+            closed("BBB", reason="stop", entry=200.0, fill=200.0, stop=190.0, target=230.0, out=187.0, net=-135.0,
+                   flags=[{"code": "gap_through_stop", "text": "MOCK gap", "session": "2026-10-30", "price": 187.0}]),
+            closed("CCC", reason="entry_not_reached", out=None, net=None, held=None),
+            closed("DDD", day="2026-10-28", reason="manual", out=104.0, net=36.0),
+            closed("EEE", day="2026-10-20", reason="target", out=110.0, net=95.0)]
+
+
+def decision(i, outcome, day="2026-10-30", codes=(), severity="block", supersedes=None, hour=5):
+    row = {"_id": f"rd{i}", "at": f"{day}T{hour:02d}:00:00+00:00", "outcome": outcome, "symbol": "AAA",
+           "reasons": [{"code": c, "severity": severity, "message": f"MOCK {c} message"} for c in codes]}
+    if supersedes:
+        row["supersedes"] = supersedes
+    return row
+
+
+def decisions():
+    return [decision(1, "allowed"), decision(2, "reduced", codes=("position_reduced",), severity="reduce"),
+            decision(3, "blocked", codes=("sector_exceeded",)), decision(4, "blocked", codes=("sector_exceeded",)),
+            decision(5, "blocked", codes=("plan_levels_mismatch",), severity="reject"),
+            decision(6, "blocked", codes=("reservation_refused",), supersedes="rd1"),     # rd1's reservation was refused
+            decision(7, "blocked", day="2026-10-27", codes=("duplicate_open_trade",))]
+
+
 def splan(status, with_tp=True):
     return {"status": status, "preferred": "c1" if status == "plan" else None,
             "status_reasons": [] if status == "plan" else [{"code": "x", "message": f"MOCK reason {status}"}],
@@ -274,7 +338,7 @@ class Src:
                                                                     scan_row("LOW", 1.0, 1.1)]},
                   "delivery": {"as_of_date": "2026-10-28", "deliverable_pct": 45.5}, "bars": bars(300),
                   "open_trades": OPEN_TRADES, "fno_top": FNO_TOP, "risk_profile": RISK_PROFILE, "risk_book": RISK_BOOK,
-                  "latest_trade_plan": stored_plan()}
+                  "latest_trade_plan": stored_plan(), "closed_trades": closed_book(), "risk_decisions": decisions()}
         self.calls = []
 
         def make(name, key=None):
@@ -308,7 +372,7 @@ class Src:
             return WINDOW
         for name in ("market_snapshot", "sector_returns", "chain", "fii_dii", "buildup", "regime", "watchlist_day",
                      "positional_watchlist", "scan_snapshot", "open_trades", "fno_top", "risk_profile", "risk_book",
-                     "latest_trade_plan"):
+                     "latest_trade_plan", "closed_trades", "risk_decisions"):
             mp.setattr(rd, name, make(name))
         mp.setattr(rd, "delivery_latest", make("delivery_latest", "delivery"))
         mp.setattr(rd, "stock_bars", make("stock_bars", "bars"))
@@ -715,6 +779,183 @@ def test_b27_fno_top_stores_its_trade_plans_like_the_route_does(monkeypatch):
     out = asyncio.run(rd.fno_top("REQ", "u1", limit=5))
     assert out is top
     assert stored == [("u1", ["tp_a", "tp_b"])]
+
+
+# ── B-28 … B-39: daily_review (Release 3, Q15) ───────────────────────────────
+def review(period="day", **kw):
+    return build("daily_review", params={"period": period}, **kw)
+
+
+def kp(p, bid="record"):
+    return {i["label"]: i for i in next(b for b in blocks(p, "kpis") if b["id"] == bid)["items"]}
+
+
+def listed(p, bid):
+    return [i["text"] for i in next(b for b in blocks(p, "list") if b["id"] == bid)["items"]]
+
+
+def test_b28_the_days_record(src):
+    p = review()
+    assert p["as_of"] == "2026-10-30" and p["title"] == "Your trading review · 30 Oct 2026"
+    k = kp(p)
+    assert (k["Closed"]["value"], k["Closed"]["sub"]) == ("2", "1 not entered")                 # B-36
+    assert k["Wins / losses"]["value"] == "1 / 1" and k["Win rate"]["value"] == "50%"
+    assert k["Realised P&L"]["value"] == "−₹40.00" and k["Realised P&L"]["tone"] == "down"      # 95 − 135
+    assert k["Average R"]["value"] == "+0.35R"                                                   # (2.00 − 1.30) / 2
+    rows = blocks(p, "ranked")[0]["rows"]
+    assert [r["symbol"] for r in rows] == ["AAA", "BBB", "CCC"]
+    assert rows[0]["cells"]["r"] == "+2.00R" and rows[1]["cells"]["r"] == "−1.30R"
+    assert rows[1]["cells"]["exit"] == "Stop" and rows[2]["cells"]["exit"] == "Entry not reached"
+    assert rows[2]["cells"]["pnl"] is None and rows[0].get("ask") is None
+    exits = listed(p, "exits")
+    assert exits[0] == "2 of 2 exits came from the plan's own rules (1 stop, 1 target); 0 were closed by you."
+    assert any(t.startswith("1 stop exit filled below the stop (BBB)") for t in exits)
+    assert "Largest result: AAA +₹95.00; smallest: BBB −₹135.00." in exits
+    assert any("closed without an entry" in t for t in exits)
+    curve = next(b for b in blocks(p, "bars") if b["id"] == "curve")
+    assert curve["unit"] == "₹" and curve["orientation"] == "v"
+    assert [(i["label"], i["value"]) for i in curve["items"]] == [("20 Oct", 95.0), ("28 Oct", 131.0), ("30 Oct", 91.0)]
+    assert any(n["id"] == "hit-rate" and "no live hit-rate" in n["text"] for n in blocks(p, "notice"))
+    assert p["headline"]["text"] == "2 paper trades closed on 30 Oct 2026: 1 win, 1 loss, net −₹40.00."
+    assert [(s["status"], s["as_of"]) for s in p["data_quality"]["sources"]] == [("fresh", "2026-10-30")] * 2
+
+
+def test_b34_risk_checks_counted_once_with_the_top_refusal(src):
+    p = review()
+    checks = listed(p, "risk_checks")
+    # rd1 was superseded by rd6 (its reservation refused): 5 requests, not 6.
+    assert checks[0] == "5 entry requests checked: 0 allowed, 1 reduced, 4 refused."
+    assert checks[1] == "Refused for sector exceeded (2×): MOCK sector_exceeded message"
+    assert "Refused for plan levels mismatch (1×): MOCK plan_levels_mismatch message" in checks
+    since = next(a for n, a in src.calls if n == "risk_decisions")[1]
+    assert since == "2026-07-01T18:30:00+00:00"                     # IST midnight, 120 days before 30 Oct, in UTC
+
+
+def test_b29_nothing_today_falls_back_to_the_latest_session_with_its_date(src):
+    src.v["closed_trades"] = [t for t in closed_book() if t["exit_session"] < "2026-10-30"]
+    src.v["risk_decisions"] = [d for d in decisions() if d["at"] < "2026-10-30"]
+    p = review()
+    assert p["as_of"] == "2026-10-28" and p["title"] == "Your trading review · 28 Oct 2026"
+    assert p["headline"]["text"] == ("Nothing was recorded on 30 Oct 2026; the latest session with activity is 28 Oct 2026. "
+                                     "1 paper trade closed: 1 win, 0 losses, net +₹36.00.")
+    assert p["data_quality"]["stale"] is True                       # older than the previous session: said, not hidden
+    assert any("28 Oct 2026, older than the previous session" in n["text"] for n in blocks(p, "notice"))
+    assert any(n["text"] == "No entry request was checked by the risk rules on 28 Oct 2026." for n in blocks(p, "notice"))
+
+
+def test_b30_the_week(src):
+    p = review("week")
+    assert p["title"] == "Your trading review · 26 Oct – 30 Oct 2026" and p["as_of"] == "2026-10-30"
+    assert p["headline"]["text"] == "3 paper trades closed this week: 2 wins, 1 loss, net −₹4.00."
+    assert listed(p, "risk_checks")[0] == "6 entry requests checked: 0 allowed, 1 reduced, 5 refused."
+    assert p["follow_ups"][0]["query"] == "What did I learn from today's trades?"
+
+
+def test_b31_nothing_on_record(src):
+    src.v["closed_trades"], src.v["risk_decisions"] = [], []
+    p = review()
+    assert p["headline"]["text"] == "No closed paper trades or risk checks are on record yet, so there is nothing to review."
+    assert not blocks(p, "kpis") and not blocks(p, "ranked") and not blocks(p, "bars")       # nothing invented
+    texts = [n["text"] for n in blocks(p, "notice")]
+    assert "No closed paper trades are on record yet." in texts
+    assert "No entry request was checked by the risk rules on 30 Oct 2026." in texts
+    assert p["as_of"] == "2026-10-30" and p["headline"]["tone"] == "neutral"
+
+
+def test_b32_the_trades_read_fails(src):
+    src.fail.add("closed_trades")
+    p = review()
+    assert any("MOCK closed_trades down" in m for m in p["data_quality"]["missing"])
+    assert not blocks(p, "kpis") and not blocks(p, "ranked") and not blocks(p, "bars")
+    assert listed(p, "risk_checks")[0].startswith("5 entry requests checked")
+    assert p["headline"]["text"] == ("Your closed paper trades could not be read; the risk checks refused 4 of 5 entry "
+                                     "requests on 30 Oct 2026.")
+
+
+def test_b33_the_decisions_read_fails(src):
+    src.fail.add("risk_decisions")
+    p = review()
+    assert any("MOCK risk_decisions down" in m for m in p["data_quality"]["missing"])
+    assert not any(b["id"] == "risk_checks" for b in blocks(p, "list"))
+    assert kp(p)["Closed"]["value"] == "2" and p["headline"]["text"].startswith("2 paper trades closed on 30 Oct 2026")
+
+
+def test_b35_no_stop_to_measure_against(src):
+    src.v["closed_trades"] = [
+        closed("AAA"),
+        {**closed("NIFTY", kind="strategy", out=None, net=50.0), "family_name": "Bull call spread", "stop_price": None,
+         "target_price": None, "entry_price": None, "sim_entry_price": None, "stop_underlying": 22800.0,
+         "target_underlying": 23400.0},
+        closed("ZZZ", stop=101.0, fill=100.0, out=99.0, net=-12.0)]
+    p = review()
+    k = kp(p)
+    assert k["Average R"]["value"] == "+2.00R" and k["Average R"]["sub"] == "1 of 3 had a stop to measure against, before costs"
+    rows = {r["symbol"]: r["cells"] for r in blocks(p, "ranked")[0]["rows"]}
+    assert rows["NIFTY"]["r"] is None and rows["ZZZ"]["r"] is None
+    assert rows["NIFTY"]["exit"] == "Target · Bull call spread" and rows["NIFTY"]["stop"] == 22800.0
+    assert rows["NIFTY"]["planned"] is None and rows["NIFTY"]["out"] is None
+
+
+def test_b35b_no_stop_at_all(src):
+    src.v["closed_trades"] = [closed("ZZZ", stop=None, out=99.0, net=-12.0)]
+    k = kp(review())
+    assert k["Average R"]["value"] is None and k["Average R"]["sub"] == "no trade had a stop to measure against"
+
+
+def test_b37_wording_and_follow_ups(src):
+    from services.copilot_visual.intents import resolve_intent as ri
+    for p in (review(), review("week")):
+        text = json.dumps(p, ensure_ascii=False)
+        assert not re.search(r"\b(buy now|strong buy|recommended|pick|you should)\b", text, re.I)   # the frontend's own check
+        for f in p["follow_ups"]:
+            got = ri(f["query"], "trader")
+            assert got is not None and got.name in builders.BUILDERS, f["query"]
+
+
+def test_b38_facts_carry_the_review(src):
+    f = facts(review())
+    assert f.startswith("VISUAL_ANSWER (daily_review)")
+    assert "The record · 30 Oct 2026: Closed 2 (1 not entered)" in f
+    assert "Plan vs actual · 3 closed (columns: Stock, Exit, Planned entry, Fill, Stop, Target, Exit price, R, Net P&L)" in f
+    assert "Equity curve: cumulative realised P&L [₹]: 20 Oct 95.00; 28 Oct 131.00; 30 Oct 91.00" in f
+    assert "What the risk checks said: 5 entry requests checked" in f
+
+
+def test_b39_the_readers_are_plain_reads(monkeypatch):
+    import deps
+    from routes import desk_trading
+
+    class Cursor:
+        def __init__(self, docs):
+            self.docs, self.order = docs, None
+
+        def sort(self, *a):
+            self.order = a
+            return self
+
+        async def to_list(self, n):
+            return self.docs[:n]
+
+    class Coll:
+        def __init__(self, docs):
+            self.docs, self.seen = docs, []
+
+        def find(self, flt, proj=None):
+            self.seen.append((flt, proj))
+            return Cursor(self.docs)
+
+    trades, decs = Coll([{"_id": "t1", "status": "closed"}]), Coll([{"_id": "rd1"}])
+    monkeypatch.setattr(deps, "db", {"desk_paper_trades": trades, "risk_decisions": decs})
+    monkeypatch.setattr(desk_trading, "_public", lambda d: {"shaped": d["_id"]})
+
+    async def never(*a, **k):
+        raise AssertionError("the review must not call the GET route: it runs the exit rule (a write)")
+    monkeypatch.setattr(desk_trading, "list_paper_trades", never)
+    assert asyncio.run(rd.closed_trades("u1", 5)) == [{"shaped": "t1"}]
+    assert trades.seen[0][0] == {"user_id": "u1", "status": "closed"}
+    assert asyncio.run(rd.risk_decisions("u1", "2026-10-01T00:00:00+00:00")) == [{"_id": "rd1"}]
+    flt, proj = decs.seen[0]
+    assert flt == {"user_id": "u1", "at": {"$gte": "2026-10-01T00:00:00+00:00"}} and "snapshot" not in proj
 
 
 # ── C-1: the contract check catches what the frontend would drop ─────────────

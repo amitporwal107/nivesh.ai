@@ -19,6 +19,8 @@ Which node explains each answer (the pin):
                                               rules, so they stay off the stock analyst too.
     stock_decision, trade_validity, exit_options
                                               stock_analyst — it has the TRADE_PLAN rules ("How to trade it, an idea").
+    daily_review                              market_analyst — the account's own record of closed trades and risk
+                                              checks; it explains the figures it is handed and gives no advice.
 
 stock_decision builds the desk's plan ONCE (services/copilot_trade_idea.build, which stores its TradePlans as the
 trade-idea pre-step always has). The dashboard carries the plan as a `trade_plan` block, so the separate trade_plan card
@@ -50,7 +52,8 @@ __all__ = ["INTENTS", "Intent", "VisualAnswer", "build", "facts", "last_symbol_f
 AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "expected_move": "market_analyst",
              "top_opportunities": "market_analyst", "breakouts": "market_analyst", "unusual_volume": "market_analyst",
              "stock_decision": "stock_analyst", "open_trades": "market_analyst", "fno_setups": "market_analyst",
-             "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst"}
+             "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
+             "daily_review": "market_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 

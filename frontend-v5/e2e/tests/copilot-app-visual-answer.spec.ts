@@ -26,7 +26,7 @@ const PAYLOADS: Record<string, Payload> = Array.isArray(RAW)
   ? Object.fromEntries(RAW.map((p: Payload) => [p.intent, p]))
   : Array.isArray(RAW.payloads) ? Object.fromEntries(RAW.payloads.map((p: Payload) => [p.intent, p])) : RAW.payloads;
 const INTENTS = ["market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size"]
+  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review"]
   .filter((i) => PAYLOADS[i]);
 const CARD = JSON.parse(fs.readFileSync(path.join(FIX, "contract-decision-card.json"), "utf-8"));
 const PLANS: Record<string, unknown> = {
@@ -48,7 +48,8 @@ const fPct = (n: number | null) => (n == null ? "—" : `${sign(n)}${nf(Math.abs
 const fX = (n: number | null) => (n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(n), 1, 2)}×`);
 const fInt = (n: number | null) => (n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(Math.round(n)), 0, 0)}`);
 const fCr = (n: number | null) => (n == null ? "—" : `${sign(n)}₹${nf(Math.abs(n), 2, 2)} Cr`);
-const fUnit = (n: number | null, unit: string) => unit === "₹ Cr" ? fCr(n) : unit === "%" ? fPct(n) : unit === "×" ? fX(n) : unit === "count" ? fInt(n)
+const fRs = (n: number | null) => (n == null ? "—" : `${sign(n)}₹${nf(Math.abs(n), 2, 2)}`);
+const fUnit = (n: number | null, unit: string) => unit === "₹" ? fRs(n) : unit === "₹ Cr" ? fCr(n) : unit === "%" ? fPct(n) : unit === "×" ? fX(n) : unit === "count" ? fInt(n)
   : n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(n), 0, 2)} ${unit}`.trim();
 const fCell = (v: unknown, format?: string) => v == null ? "—" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "string" ? v
   : format === "price" ? fPrice(v as number) : format === "pct" ? fPct(v as number) : format === "x" ? fX(v as number) : format === "int" ? fInt(v as number) : nf(v as number, 0, 2);
@@ -345,6 +346,21 @@ test.describe(`visual answer (${path.basename(SOURCE)}${SOURCE === REAL ? "" : "
     await expect(page.getByTestId("thread-turn").first()).toHaveAttribute("data-state", "saved", SLOW);
     await expect(page.getByTestId("va-invalid")).toContainText("This visual answer could not be shown");
     await expect(page.getByTestId("answer-text")).toContainText(ANSWER);
+  });
+
+  test("VA-20 a ₹ bars block (the daily review's equity curve) prints signed rupees, on the axis too — MOCK block", async ({ page }) => {
+    // The real capture's account has no closed paper trade, so its daily_review has no curve; this block is the shape
+    // backend/services/copilot_visual/builders.py daily_review sends (MOCK — not real data: invented values).
+    const p = structuredClone(PAYLOADS.daily_review ?? PAYLOADS[INTENTS[0]]);
+    p.blocks.push({ type: "bars", id: "curve", title: "Equity curve: cumulative realised P&L", unit: "₹", orientation: "v",
+      note: "MOCK — not real data.", items: [{ label: "20 Oct", value: 95 }, { label: "28 Oct", value: 131 }, { label: "30 Oct", value: -40.5 }] });
+    await askInThread(page, p);
+    const va = page.getByTestId("va");
+    await expectBlocks(va, p);
+    const curve = va.locator('[data-testid="va-block"][data-block-id="curve"]');
+    await expect(curve.getByTestId("va-bar-value")).toHaveText(["+₹95.00", "+₹131.00", `${MINUS}₹40.50`]);
+    await expect(curve.getByTestId("va-bars")).toHaveAttribute("data-unit", "₹");
+    await expect(curve.getByTestId("va-bars-svg")).toContainText("₹");
   });
 
   for (const intent of INTENTS) {

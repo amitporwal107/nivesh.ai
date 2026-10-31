@@ -119,9 +119,15 @@ Sized from the 30-Oct Hub audit (`audits/D_portfolio_hub.md`). The single bigges
 ### R3 — Daily review and the real suggestion engine
 Sized from the 30-Oct suggestions audit (`audits/E_suggestions.md`). The suggestion engine itself is sized L.
 
-- **Q15 "What did I learn from today's trades?"** Build plan-vs-actual, rule adherence, win/loss and an equity curve
-  from the existing paper-trade journal and risk-decision log. `positional_outcomes` is empty today, so there is no
-  live signal hit-rate yet; the idea scorecard is a static backtest file ("no measurable skill"), not a live number.
+- **Q15 "What did I learn from today's trades?" (BUILT, branch `feat/dtc-r3-daily-review`, PR pending, stacked on
+  #422)** — visual-answer intent `daily_review`: the paper book's closed trades for the day (or the ISO week), plan vs
+  actual with the R achieved, how each exit happened (the plan's rules vs closed by you, gaps through the stop), what
+  the risk checks refused, and a `₹` equity curve of cumulative net realised P&L. When nothing was recorded that day it
+  reviews the latest day with activity and names both dates (stale notice when older than the previous session). It
+  says plainly that there is no live signal hit-rate (`positional_outcomes` is empty; the idea scorecard is a static
+  backtest). Staging has no closed paper trade yet, so the real capture shows the empty-trades branch with 3 refused
+  entry requests; the populated branches are unit-tested on MOCK data. Reports:
+  `test_reports/dtc_r3_daily_review_{backend,frontend}_20261031.md`.
 - **The suggestion engine**, replacing today's static, scored prompt list:
   - the 5 stores from the brief: `suggestion_rules`, `suggestion_events`, `suggestion_instances`,
     `suggestion_feedback`, `query_templates` (today: nothing — no code, no collections);

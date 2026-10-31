@@ -78,7 +78,7 @@ Each block is `{ "type": …, "id": "…", "title": "…", "note": "…" | null,
 |---|---|---|
 | `kpis` | `items: [{label, value, sub?, tone?: up\|down\|neutral\|warn}]` | a strip of figures |
 | `candles` | `symbol, bars: [{d, o, h, l, c, v}]`, `overlays?: {ema20?, ema50?, ema200?}` (series aligned to bars), `levels?: [{kind: support\|resistance\|entry\|stop\|target\|wall_call\|wall_put\|max_pain, price, label}]`, `band?: {low, high, label}` | the desk's CandleChart with dashed level lines and a shaded band |
-| `bars` | `unit: "₹ Cr"\|"%"\|"×"\|"count"`, `orientation: "h"\|"v"`, `items: [{label, value, tone?, sub?}]`, `baseline?: number` | horizontal or vertical bars, signed colours |
+| `bars` | `unit: "₹"\|"₹ Cr"\|"%"\|"×"\|"count"`, `orientation: "h"\|"v"`, `items: [{label, value, tone?, sub?}]`, `baseline?: number` | horizontal or vertical bars, signed colours; `"₹"` prints a signed rupee amount (`+₹1,234.50`, Release 3's equity curve) |
 | `heatmap` | `unit: "%"`, `cells: [{label, value, group?, sub?}]` | a grid of tiles coloured by value |
 | `quadrant` | `x: {label, unit}`, `y: {label, unit}`, `quadrants: {tr, tl, br, bl}` (names), `points: [{label, x, y, quadrant}]` | a 2×2 scatter, e.g. price change vs OI change (long buildup …) |
 | `ranked` | `columns: [{key, label, align?: "left"\|"right", format?: "price"\|"pct"\|"x"\|"int"\|"text"}]`, `rows: [{symbol?, cells: {key: value}, tone?, plan_id?, ask?}]` | a ranked table; a row with `ask` asks that follow-up; a row with `plan_id` opens its plan |
@@ -101,5 +101,13 @@ Formats: prices in ₹ with two decimals; percentages with a sign and two decima
 | `stock_decision` | Is X a buy now? Entry, target and stop-loss for X? | decision · candles X with entry/stop/targets · kpis (R:R, size, max loss) · trade_plan | the desk plan (copilot_trade_idea.build) and its TradePlan |
 | `expected_move` | What is the expected move in Nifty? | kpis (ATM IV, expected move ±, PCR, max pain, expiry) · candles NIFTY with the band and the OI walls | F&O chain summary (end of day) |
 
-Releases 2 and 3 add `open_trades`, `trade_validity`, `exit_options`, `fno_setups`, `position_size`, `avoid_today` and
-`daily_review`, with their own blocks (payoff, exposure, gauge, equity curve). They follow this contract.
+Release 2 added `open_trades`, `trade_validity`, `exit_options`, `fno_setups` and `position_size` with the blocks above
+(no new block type). Release 3:
+
+| intent | Trader asks (examples) | blocks (smallest useful set) | sources (existing) |
+|---|---|---|---|
+| `daily_review` | What did I learn from today's trades? How did I do this week? My mistakes today? | kpis (closed, wins / losses, win rate, net realised P&L, average R) · ranked plan vs actual (planned entry, fill, stop, target, exit, R, net P&L) · list how the trades ended (plan's rules vs closed by you, gaps through the stop) · list what the risk checks refused · bars `₹` equity curve (cumulative net realised P&L per session) · notice: no live signal hit-rate | the paper book's closed trades (`desk_paper_trades`, read directly, not through the GET route that runs the exit rule) and the risk decisions log (`risk_decisions`) |
+
+`daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
+recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
+day older than the previous session carries the stale notice. `avoid_today` (Q14) is not built.

@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import readers as rd
 from .intents import Intent
 from .payload import (
-    DECISION_LABELS, Sources, assemble, block, candle_bars, crore, day_text, follow, iso_day, level, notice, num, pct,
-    price, r2, short_day, times, tone_of, why,
+    DECISION_LABELS, IST, MINUS, Sources, assemble, block, candle_bars, crore, day_text, follow, iso_day, level, notice,
+    num, pct, price, r2, rupees, short_day, times, tone_of, why,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ SRC_FNO_TOP = "Desk F&O board (StrategyPlan, fit to today's regime)"
 SRC_RISK_PROFILE = "Your risk profile (risk_profiles)"
 SRC_RISK_BOOK = "Your paper account's risk book (equity, day/week P&L, open risk)"
 SRC_TRADE_PLANS = "A plan recorded earlier (trade_plans)"
+SRC_CLOSED = "Your closed paper trades (desk_paper_trades)"
+SRC_DECISIONS = "Your entry risk checks (risk_decisions)"
 
 
 async def _try(coro) -> Tuple[Any, Optional[BaseException]]:
@@ -1032,10 +1036,282 @@ async def exit_options(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                            "What is the market view today?", "How much should I risk?"), now=ctx.get("now"))
 
 
+# ── Release 3 ────────────────────────────────────────────────────────────────
+
+REVIEW_TRADES = 300          # newest closed trades read; the curve says so when the read is full
+REVIEW_LOOKBACK_DAYS = 120   # decisions read this far back, to find the latest session with activity
+CURVE_SESSIONS = 20
+REVIEW_ROWS = 15
+RULE_EXITS = ("stop", "trailing_stop", "target", "time", "trend", "premium_stop", "premium_target", "expiry")
+YOUR_EXITS = ("manual", "roll")
+NOT_ENTERED = ("entry_not_reached", "cancelled")
+EXIT_LABELS = {"stop": "Stop", "trailing_stop": "Trailing stop", "target": "Target", "time": "Max hold reached",
+               "trend": "Trend exit", "premium_stop": "Premium stop", "premium_target": "Premium target",
+               "expiry": "Expiry", "manual": "Closed by you", "roll": "Rolled", "risk_control": "Risk control",
+               "entry_not_reached": "Entry not reached", "cancelled": "Cancelled"}
+REFUSING = ("block", "halt", "reject", "defer")           # services/risk_gate/service.py BLOCKING
+HIT_RATE_NOTE = ("There is no live hit-rate for the desk's signals yet: no signal outcome has been recorded "
+                 "(positional_outcomes is empty), and the idea scorecard is a static backtest, not a live figure. "
+                 "This review is your own paper record only.")
+
+
+def _ist_day(v: Any) -> Optional[str]:
+    """The IST calendar day of a stored UTC time (an ISO string or a datetime), or of a plain date."""
+    if isinstance(v, str) and len(v) > 10:
+        try:
+            v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            return iso_day(v)
+    if isinstance(v, datetime) and v.tzinfo is None:
+        v = v.replace(tzinfo=timezone.utc)
+    return iso_day(v)
+
+
+def _close_day(t: Dict[str, Any]) -> Optional[str]:
+    return iso_day(t.get("exit_session")) or _ist_day(t.get("closed_at"))
+
+
+def _r_multiple(t: Dict[str, Any]) -> Optional[float]:
+    """(exit − fill) ÷ (fill − stop) for a share trade with its planned stop below the fill; None otherwise (an F&O
+    structure has no per-share stop, and a stop at or above the fill gives no risk to measure against)."""
+    if t.get("kind") not in (None, "cash"):
+        return None
+    fill = num(t.get("sim_entry_price")) if num(t.get("sim_entry_price")) is not None else num(t.get("entry_price"))
+    stop, out = num(t.get("stop_price")), num(t.get("exit_price"))
+    if fill is None or stop is None or out is None or fill - stop <= 0:
+        return None
+    return round((out - fill) / (fill - stop), 2)
+
+
+def _r_text(r: Optional[float]) -> Optional[str]:
+    return None if r is None else ("+" if r >= 0 else MINUS) + f"{abs(r):.2f}R"
+
+
+def _outcome(row: Dict[str, Any]) -> str:
+    o = str(row.get("outcome") or "").lower()
+    return "allowed" if o.startswith("allow") else "reduced" if o.startswith("reduc") else \
+        "refused" if o.startswith(("block", "refus", "reject")) else "other"
+
+
+def _review_period(mode: str, today: date, active: List[str]) -> Tuple[date, date, bool]:
+    """(start, end, fell_back). The day (or ISO week) asked about when it has activity; else the latest day (week) that
+    has; else the day (week) asked about, empty."""
+    days = sorted({date.fromisoformat(d) for d in active if d and d <= today.isoformat()})
+    if mode == "week":
+        start = today - timedelta(days=today.weekday())
+        if any(start <= d <= today for d in days) or not days:
+            return start, today, False
+        last = days[-1]
+        return last - timedelta(days=last.weekday()), last, True
+    if today in days or not days:
+        return today, today, False
+    return days[-1], days[-1], True
+
+
+def _on(mode: str, period: str, this: bool = False) -> str:
+    """'on 30 Oct 2026' for a day; 'this week' / 'in 26 Oct – 30 Oct 2026' for a week."""
+    return f"on {period}" if mode == "day" else ("this week" if this else f"in {period}")
+
+
+def _period_text(mode: str, start: date, end: date) -> str:
+    if mode == "week":
+        return f"{short_day(start)} – {day_text(end)}" if start != end else day_text(end)
+    return day_text(start)
+
+
+async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Q15 "What did I learn from today's trades?" — the paper book's own record for the day (or the ISO week): what
+    closed and how (plan vs actual, R achieved), which exits came from the plan's rules and which from you, what the
+    risk checks refused, and the curve of realised P&L. Facts from the record, never advice; there is no live signal
+    hit-rate to quote, and the answer says so."""
+    src: Sources = ctx["src"]
+    uid = ctx["user_id"]
+    mode = "week" if (intent.params or {}).get("period") == "week" else "day"
+    today = src.w.today if src.w is not None else datetime.now(IST).date()
+    since = datetime.combine(today - timedelta(days=REVIEW_LOOKBACK_DAYS), time(0), IST).astimezone(timezone.utc).isoformat()
+    (closed, e_c), (decs, e_d) = await asyncio.gather(_try(rd.closed_trades(uid, REVIEW_TRADES)),
+                                                      _try(rd.risk_decisions(uid, since)))
+    closed = [t for t in closed or [] if isinstance(t, dict)] if not e_c else []
+    decs = [d for d in decs or [] if isinstance(d, dict)] if not e_d else []
+    superseded = {d.get("supersedes") for d in decs if d.get("supersedes")}
+    decs = [d for d in decs if d.get("_id") not in superseded]          # a refused reservation's row replaces the first
+    active = [_close_day(t) for t in closed] + [_ist_day(d.get("at")) for d in decs]
+    start, end, fell_back = _review_period(mode, today, [a for a in active if a])
+    s_iso, e_iso = start.isoformat(), end.isoformat()
+
+    def in_period(day: Optional[str]) -> bool:
+        return day is not None and s_iso <= day <= e_iso
+    trades = [t for t in closed if in_period(_close_day(t))]
+    period_decs = [d for d in decs if in_period(_ist_day(d.get("at")))]
+    # The record is read now: it is today's unless the answer falls back to an older day or week, which then carries
+    # that date (and the stale notice when it is older than the previous session).
+    as_of = e_iso if fell_back else today.isoformat()
+    for name, err in ((SRC_CLOSED, e_c), (SRC_DECISIONS, e_d)):
+        if err:
+            src.miss(name, why(err))
+        else:
+            src.add(name, as_of)
+    blocks: List[Dict[str, Any]] = []
+    period = _period_text(mode, start, end)
+
+    entered = [t for t in trades if t.get("exit_reason") not in NOT_ENTERED]
+    not_entered = len(trades) - len(entered)
+    nets = [num(t.get("net_pnl_rs")) for t in entered]
+    known = [n for n in nets if n is not None]
+    wins, losses = sum(1 for n in known if n > 0), sum(1 for n in known if n < 0)
+    total = round(sum(known), 2) if known else None
+    rs = [r for r in (_r_multiple(t) for t in entered) if r is not None]
+    if not e_c and trades:
+        decided = wins + losses
+        blocks.append(block("kpis", "record", f"The record · {period}", None, items=[
+            _kpi("Closed", str(len(entered)), f"{not_entered} not entered" if not_entered else None),
+            _kpi("Wins / losses", f"{wins} / {losses}", "by net P&L"),
+            _kpi("Win rate", f"{wins / decided * 100:.0f}%" if decided else None,
+                 f"of {decided} trade{'s' if decided != 1 else ''} with a result" if decided else "no trade with a net result"),
+            _kpi("Realised P&L", rupees(total), "net of estimated costs" + (
+                f"; {len(nets) - len(known)} without a net figure left out" if len(known) < len(nets) else ""), tone_of(total)),
+            _kpi("Average R", _r_text(round(sum(rs) / len(rs), 2)) if rs else None,
+                 f"{len(rs)} of {len(entered)} had a stop to measure against, before costs" if rs
+                 else "no trade had a stop to measure against")]))
+        rows = []
+        for t in trades[:REVIEW_ROWS]:
+            sym = t.get("symbol")
+            r = _r_multiple(t)
+            strategy = t.get("kind") not in (None, "cash")
+            label = EXIT_LABELS.get(t.get("exit_reason") or "", t.get("exit_reason") or "—")
+            net = num(t.get("net_pnl_rs"))
+            rows.append({"symbol": sym, "tone": tone_of(net), "cells": {
+                "symbol": sym, "exit": label + (f" · {t.get('family_name')}" if strategy and t.get("family_name") else ""),
+                "planned": None if strategy else r2(t.get("entry_price")),
+                "fill": None if strategy else r2(t.get("sim_entry_price")),
+                "stop": r2(t.get("stop_underlying") if strategy else t.get("stop_price")),
+                "target": r2(t.get("target_underlying") if strategy else t.get("target_price")),
+                "out": None if strategy else r2(t.get("exit_price")),
+                "r": _r_text(r), "pnl": r2(net)}})
+        blocks.append(block("ranked", "plan_vs_actual", f"Plan vs actual · {len(trades)} closed",
+                            "Planned entry, stop and target against the fill and the exit. R = (exit − fill) ÷ (fill − stop), "
+                            "before costs; an F&O structure's stop and target are underlying levels and it has no R here.",
+                            columns=[{"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
+                                     {"key": "exit", "label": "Exit", "align": "left", "format": "text"},
+                                     {"key": "planned", "label": "Planned entry", "align": "right", "format": "price"},
+                                     {"key": "fill", "label": "Fill", "align": "right", "format": "price"},
+                                     {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
+                                     {"key": "target", "label": "Target", "align": "right", "format": "price"},
+                                     {"key": "out", "label": "Exit price", "align": "right", "format": "price"},
+                                     {"key": "r", "label": "R", "align": "right", "format": "text"},
+                                     {"key": "pnl", "label": "Net P&L", "align": "right", "format": "price"}],
+                            rows=rows))
+        facts_list: List[Dict[str, Any]] = []
+        if entered:
+            reasons = Counter(t.get("exit_reason") for t in entered)
+            by_rule = sum(reasons[k] for k in RULE_EXITS)
+            mine = [t.get("symbol") for t in entered if t.get("exit_reason") in YOUR_EXITS]
+            parts = ", ".join(f"{reasons[k]} {EXIT_LABELS[k].lower()}" for k in RULE_EXITS if reasons[k])
+            facts_list.append({"text": f"{by_rule} of {len(entered)} exits came from the plan's own rules"
+                                       + (f" ({parts})" if parts else "") + f"; {len(mine)} "
+                                       + ("was" if len(mine) == 1 else "were") + " closed by you"
+                                       + (f" ({', '.join(s for s in mine if s)})" if mine else "") + ".", "tone": None})
+            if reasons["risk_control"]:
+                facts_list.append({"text": f"{reasons['risk_control']} closed by a risk control.", "tone": "warn"})
+            gaps = [t.get("symbol") for t in entered
+                    if any(isinstance(f, dict) and f.get("code") == "gap_through_stop" for f in t.get("flags") or [])]
+            if gaps:
+                facts_list.append({"text": f"{len(gaps)} stop exit{'s' if len(gaps) != 1 else ''} filled below the stop "
+                                           f"({', '.join(s for s in gaps if s)}): the session opened through it, so the loss "
+                                           "was larger than the stop distance.", "tone": "warn"})
+            scored = [(t.get("symbol"), num(t.get("net_pnl_rs"))) for t in entered if num(t.get("net_pnl_rs")) is not None]
+            if scored:
+                best, worst = max(scored, key=lambda x: x[1]), min(scored, key=lambda x: x[1])
+                facts_list.append({"text": f"Largest result: {best[0]} {rupees(best[1])}"
+                                           + (f"; smallest: {worst[0]} {rupees(worst[1])}." if worst is not best else "."),
+                                   "tone": None})
+            held = [num(t.get("held_sessions")) for t in entered if num(t.get("held_sessions")) is not None]
+            if held:
+                facts_list.append({"text": f"Held {sum(held) / len(held):.1f} sessions on average, entry to exit.", "tone": None})
+        if not_entered:
+            facts_list.append({"text": f"{not_entered} trade{'s' if not_entered != 1 else ''} closed without an entry "
+                                       "(the entry level was not reached, or it was cancelled): no P&L.", "tone": None})
+        if facts_list:
+            blocks.append(block("list", "exits", "How the trades ended", None, items=facts_list))
+    elif not e_c:
+        blocks.append(notice(f"No paper trade closed {_on(mode, period)}." if closed else
+                             "No closed paper trades are on record yet.", "info", "no-closes"))
+    if not e_d:
+        if period_decs:
+            n = Counter(_outcome(d) for d in period_decs)
+            items = [{"text": f"{len(period_decs)} entry request{'s' if len(period_decs) != 1 else ''} checked: "
+                              f"{n['allowed']} allowed, {n['reduced']} reduced, {n['refused']} refused"
+                              + (f", {n['other']} other" if n["other"] else "") + ".", "tone": None}]
+            refusals: Counter = Counter()
+            example: Dict[str, str] = {}
+            for d in period_decs:
+                if _outcome(d) != "refused":
+                    continue
+                rs_ = [x for x in d.get("reasons") or [] if isinstance(x, dict)]
+                hard = [x for x in rs_ if x.get("severity") in REFUSING] or rs_
+                for x in hard:
+                    code = x.get("code") or "unspecified"
+                    refusals[code] += 1
+                    example.setdefault(code, str(x.get("message") or "").strip())
+            for code, k in refusals.most_common(3):
+                msg = example.get(code) or ""
+                items.append({"text": f"Refused for {code.replace('_', ' ')} ({k}×)" + (f": {msg[:160]}" if msg else "."),
+                              "tone": "warn"})
+            blocks.append(block("list", "risk_checks", "What the risk checks said", None, items=items))
+        else:
+            blocks.append(notice(f"No entry request was checked by the risk rules {_on(mode, period)}.", "info", "no-checks"))
+    curve_src = [(_close_day(t), num(t.get("net_pnl_rs"))) for t in closed
+                 if t.get("exit_reason") not in NOT_ENTERED and _close_day(t) and _close_day(t) <= e_iso]
+    by_day: Dict[str, float] = {}
+    for day, net in curve_src:
+        if net is not None:
+            by_day[day] = by_day.get(day, 0.0) + net
+    days = sorted(by_day)[-CURVE_SESSIONS:]
+    if days:
+        run, items = 0.0, []
+        for d in days:
+            run += by_day[d]
+            items.append({"label": short_day(d), "value": round(run, 2)})
+        blocks.append(block("bars", "curve", "Equity curve: cumulative realised P&L",
+                            f"Net of estimated costs, one bar per session with a close, {day_text(days[0])} to "
+                            f"{day_text(days[-1])}; paper account, not a time-weighted return"
+                            + (f"; the newest {REVIEW_TRADES} closed trades are read" if len(closed) >= REVIEW_TRADES else "") + ".",
+                            unit="₹", orientation="v", items=items))
+    blocks.append(notice(HIT_RATE_NOTE, "info", "hit-rate"))
+
+    refused = sum(1 for d in period_decs if _outcome(d) == "refused")
+    checks = (f"the risk checks refused {refused} of {len(period_decs)} entry request{'s' if len(period_decs) != 1 else ''}"
+              if period_decs else None)
+    when = "" if fell_back else " " + _on(mode, period, this=True)
+    if e_c and e_d:
+        head = None
+    elif e_c:
+        head = "Your closed paper trades could not be read" + (f"; {checks}{when}." if checks else ".")
+    elif not closed and not decs:
+        head = "No closed paper trades or risk checks are on record yet, so there is nothing to review." if not e_d else \
+            "No closed paper trades are on record yet."
+    else:
+        lead = (f"Nothing was recorded {_on(mode, day_text(today), this=True)}; the latest "
+                f"{'session' if mode == 'day' else 'week'} with activity is {period}. ") if fell_back else ""
+        if entered:
+            body = (f"{len(entered)} paper trade{'s' if len(entered) != 1 else ''} closed{when}: "
+                    f"{wins} win{'s' if wins != 1 else ''}, {losses} loss{'es' if losses != 1 else ''}"
+                    + (f", net {rupees(total)}" if total is not None else "") + ".")
+        else:
+            body = f"No paper trade closed{when}" + (f"; {checks}." if checks else ".")
+        head = lead + body
+    other = "What did I learn from today's trades?" if mode == "week" else "How did I do this week?"
+    return assemble("daily_review", f"Your trading review · {period}", as_of, head,
+                    tone_of(total) if entered else "neutral", blocks, src,
+                    follow(other, "What are my open trades doing?", "How much should I risk?", "What is the market view today?"),
+                    now=ctx.get("now"))
+
+
 BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportunities": top_opportunities,
             "breakouts": breakouts, "unusual_volume": unusual_volume, "stock_decision": stock_decision,
             "expected_move": expected_move, "open_trades": open_trades, "fno_setups": fno_setups,
-            "trade_validity": trade_validity, "exit_options": exit_options, "position_size": position_size}
+            "trade_validity": trade_validity, "exit_options": exit_options, "position_size": position_size,
+            "daily_review": daily_review}
 
 
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",
