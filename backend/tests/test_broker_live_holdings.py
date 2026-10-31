@@ -260,11 +260,11 @@ def test_one_accounts_holdings_with_a_rejected_token_are_409_and_end_the_session
     _no_secret(res.text)
 
 
-def test_one_accounts_holdings_broker_failure_is_502_with_no_secret(h, sib, caplog):
+def test_one_accounts_holdings_broker_failure_is_424_with_no_secret(h, sib, caplog):
     sib.holdings["ba_i"] = RuntimeError(f'upstream 500 {{"token":"{SECRET}","client":"{CLIENT_ID}"}}')
     with caplog.at_level("DEBUG"):
         res = h.get("/api/broker/accounts/ba_i/holdings")
-    _error(res, 502, "BROKER_READ_FAILED", "Could not read holdings from ICICI Direct. Please try again.",
+    _error(res, 424, "BROKER_READ_FAILED", "Could not read holdings from ICICI Direct. Please try again.",
            [{"broker": "icicidirect", "account_id": "ba_i"}])
     assert sib.ended == [] and h.db.broker_accounts.one(account_id="ba_i")["last_error"] is None
     _no_secret(res.text, caplog.text)

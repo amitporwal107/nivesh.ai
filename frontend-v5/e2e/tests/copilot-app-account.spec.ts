@@ -72,6 +72,27 @@ async function nativeAccounts(page: Page) {
     { ...HOLDINGS[1], broker_account_id: "ba_fixture00011" },
     HOLDINGS[3],
   ]);
+  await positionsRoute(page, [positionsOf("ba_fixture00011", 5, 2), { account_id: "ba_fixture00012", ok: false, error: { code: "BROKER_SESSION_EXPIRED", message: "Your Upstox session has ended. Reconnect the account to continue." }, as_of: NOW, positions: [] }]);
+}
+
+const NOW = new Date().toISOString();
+
+/** GET /api/broker/positions (routes/broker_connect.py :: get_all_positions) in the real shape. MOCK — not real data. */
+const positionsOf = (accountId: string, total: number, fno: number) => ({
+  account_id: accountId, broker: "zerodha", broker_display: "Zerodha", label: null, ok: true, error: null, as_of: NOW,
+  positions: Array.from({ length: total }, (_, i) => i < fno
+    ? { symbol: i === 0 ? "ADANIPORTS" : "SWIGGY", exchange: "NFO", quantity: i === 0 ? 475 : -1825, avg_price: 100, last_price: 101, pnl: 10, product: null, product_raw: i === 0 ? "Futures" : "Options",
+        segment: "fno", is_intraday: false, instrument_type: i === 0 ? "FUT" : "PE", expiry: "2026-11-23", strike: i === 0 ? null : 170, kind: "net", name: null }
+    : { symbol: `EQ${i}`, exchange: "NSE", quantity: 10, avg_price: 100, last_price: 101, pnl: 10, product: "delivery", product_raw: "BTST",
+        segment: "equity", is_intraday: false, instrument_type: null, expiry: null, strike: null, kind: "net", name: null }),
+});
+async function positionsRoute(page: Page, accounts: unknown[], status = 200): Promise<{ calls: number }> {
+  const seen = { calls: 0 };
+  await page.route("**/api/broker/positions*", (route) => {
+    seen.calls += 1;
+    return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(status === 200 ? { as_of: NOW, kind: "net", segment: "all", accounts } : { detail: "boom" }) });
+  });
+  return seen;
 }
 
 /**
@@ -158,7 +179,8 @@ test.describe("Broker connections — accounts and the broker list", () => {
     await expect(first.getByTestId("broker-fetched-count")).toHaveText("3");
     await expect(first.getByTestId("broker-fetched-value")).toHaveText("₹2,002");
     await expect(first.getByTestId("broker-account-fetched")).toContainText("1 without a price");
-    // Nothing is claimed about positions on a card: no screen shows them.
+    // The holdings line claims nothing about positions; these two hosted accounts are not read live, so there is no positions line.
+    await expect(first.getByTestId("broker-positions-line")).toHaveCount(0);
     await expect(first.getByTestId("broker-account-fetched")).not.toContainText("positions");
 
     // Account 2: never read, nothing stored.
@@ -178,8 +200,10 @@ test.describe("Broker connections — accounts and the broker list", () => {
     await expect(page.getByTestId("gmail-source").locator(brokerIcon)).toHaveAttribute("data-key", "gmail");
 
     await expect(page.getByTestId("broker-readonly-note")).toContainText("never places, changes or cancels an order");
-    // Positions: the page says plainly that no screen shows them.
-    await expect(page.getByRole("row").filter({ hasText: "Open positions in a connected broker account" })).toContainText("Not shown");
+    // Positions: the page says they are read live, not stored, and are shown.
+    const posRow = page.getByRole("row").filter({ hasText: "Open positions in a connected broker account" });
+    await expect(posRow).toContainText("not stored");
+    await expect(posRow).not.toContainText("Not shown");
     // Nothing on the screen offers to trade.
     await expect(page.getByTestId("screen-page-brokers").getByRole("button", { name: TRADE })).toHaveCount(0);
   });
@@ -585,6 +609,37 @@ test.describe("Broker connections — sign-in, sessions and coming back", () => 
     await expect(live.getByTestId("broker-account-fetched")).not.toContainText("positions");
   });
 
+  test("an account signed in on the broker's page also says how many open positions it holds, with the way to them", async ({ page }) => {
+    await page.goto(`${APP}/page/brokers`);
+    const live = page.getByTestId("broker-account").nth(0);
+    const line = live.getByTestId("broker-positions-line");
+    await expect(line).toContainText("open positions", { timeout: 15_000 });
+    await expect(live.getByTestId("broker-positions-count")).toHaveText("5");
+    await expect(live.getByTestId("broker-positions-fno")).toHaveText("2");
+    await expect(line).toContainText("read ");
+    // The expired account is not read: it has no positions line, only its Reconnect.
+    await expect(page.getByTestId("broker-account").nth(1).getByTestId("broker-positions-line")).toHaveCount(0);
+    await live.getByTestId("broker-positions-open").click();
+    await expect(page).toHaveURL(/\/page\/positions$/);
+  });
+
+  test("open positions: one account with none says so; a read that failed says it could not be read, never 'none', and retries", async ({ page }) => {
+    const seen = await positionsRoute(page, [positionsOf("ba_fixture00011", 0, 0)]);
+    await page.goto(`${APP}/page/brokers`);
+    const live = page.getByTestId("broker-account").nth(0);
+    await expect(live.getByTestId("broker-positions-line")).toHaveText("No open positions at this broker right now.", { timeout: 15_000 });
+    expect(seen.calls).toBe(1);                                                    // one shared read, not one per card
+
+    await page.unroute("**/api/broker/positions*");
+    const failed = await positionsRoute(page, [], 500);
+    await page.reload();
+    const again = page.getByTestId("broker-account").nth(0).getByTestId("broker-positions-line");
+    await expect(again).toContainText("couldn’t be read from this account just now", { timeout: 15_000 });
+    await expect(again).not.toContainText("No open positions");
+    await again.getByTestId("broker-positions-retry").click();
+    await expect.poll(() => failed.calls, { timeout: 15_000 }).toBeGreaterThan(1);
+  });
+
   test("an expired session says so and offers Reconnect, which leaves for the broker", async ({ page }) => {
     const hits = await startRoute(page, "upstox");
     await page.goto(`${APP}/page/brokers`);
@@ -638,7 +693,7 @@ test.describe("Broker connections — sign-in, sessions and coming back", () => 
     const cases: Array<[number, string, string, string]> = [
       [409, "BROKER_SESSION_EXPIRED", "Your Zerodha session has ended. Reconnect the account to continue.", "Your Zerodha session has ended. Sign in again, then sync."],
       [400, "BROKER_READ_NOT_SUPPORTED", "Reading holdings is not available for Zerodha.", "Nivesh can’t read holdings from this kind of Zerodha account yet."],
-      [502, "BROKER_READ_FAILED", "Could not read holdings from Zerodha. Please try again.", "Zerodha did not return your holdings. Try again in a little while."],
+      [424, "BROKER_READ_FAILED", "Could not read holdings from Zerodha. Please try again.", "Zerodha did not return your holdings. Try again in a little while."],
     ];
     for (const [status, code, message, sentence] of cases) {
       reply = { status, body: envelope(status, code, message, who) };
@@ -968,7 +1023,7 @@ test.describe("Settings — broker hub", () => {
     await expect(live.getByTestId("broker-sync-result")).toHaveText("5 holdings read just now.");
     expect(calls).toEqual(["POST"]);
 
-    reply = { status: 502, body: envelope(502, "BROKER_READ_FAILED", "upstream kite.trade timed out after 12s", [{ broker: "zerodha", account_id: "ba_fixture00011" }]) };
+    reply = { status: 424, body: envelope(424, "BROKER_READ_FAILED", "upstream kite.trade timed out after 12s", [{ broker: "zerodha", account_id: "ba_fixture00011" }]) };
     await live.getByTestId("broker-sync").click();
     await expect(live.getByTestId("broker-sync-error")).toHaveText("Zerodha did not return your holdings. Try again in a little while.");
     await expect(live.getByTestId("broker-sync-result")).toHaveCount(0);

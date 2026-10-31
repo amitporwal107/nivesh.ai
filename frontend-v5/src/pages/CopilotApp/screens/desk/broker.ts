@@ -747,7 +747,7 @@ export type ChartFailure =
   | "not_supported" // 400 BROKER_READ_NOT_SUPPORTED: this broker or kind of account has no contract chart
   | "not_enabled" // 403: reading from a broker is switched off for the user
   | "no_account" // 404: the account is not the caller's
-  | "broker_failed" // 502 BROKER_READ_FAILED: the broker did not answer the read
+  | "broker_failed" // 424 BROKER_READ_FAILED: the broker did not answer the read
   | "read_failed" // any other refusal
   | "unreachable" // no answer: offline, or the read took too long
   | "wrong_shape"; // a 200 that is not the documented body

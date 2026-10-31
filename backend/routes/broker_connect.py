@@ -177,12 +177,20 @@ class BrokerSessionExpiredException(BusinessException):
     http_status = 409
 
 
+class BrokerReadFailedException(IntegrationException):
+    """The broker would not return what a read asked for (its own error, a timeout). Answered 424, not 502: Cloudflare,
+    which fronts staging and production, replaces an origin 502 with its own page, which carries no CORS headers, so the
+    browser dropped the answer and the screen told the user their connection was down (owner, 31 Oct, ICICI Direct)."""
+    error_code = _hub.CODE_READ_FAILED
+    http_status = 424
+
+
 # Read failure code → the domain exception the global handler turns into the
-# standard error envelope (409 / 400 / 502).
+# standard error envelope (409 / 400 / 424).
 _READ_ERRORS = {
     _hub.CODE_SESSION_EXPIRED: BrokerSessionExpiredException,
     _hub.CODE_NOT_SUPPORTED: ValidationException,
-    _hub.CODE_READ_FAILED: IntegrationException,
+    _hub.CODE_READ_FAILED: BrokerReadFailedException,
 }
 
 

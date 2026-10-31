@@ -111,7 +111,7 @@ export function useBrokerAdapters() {
 // Every error is the app's standard envelope (backend/core/error_handlers.py):
 // { status, error, code, message, details: [{ broker, account_id }], … }.
 // A failed read is keyed on `code`: BROKER_SESSION_EXPIRED (409),
-// BROKER_READ_NOT_SUPPORTED (400), BROKER_READ_FAILED (502). A switched-off
+// BROKER_READ_NOT_SUPPORTED (400), BROKER_READ_FAILED (424). A switched-off
 // `broker_hub` flag is 403 with the message "feature_not_enabled". A bare
 // { detail } body (a proxy in front of the server) is read as well.
 
