@@ -1,0 +1,4519 @@
+{
+ "about": "REAL staging capture, 30 Oct 2026 (generated 2026-10-30T12:00:51+05:30 IST, data of the 29 Oct 2026 session): one visual-answer-v1 payload per Release-1 intent, built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres (read only), questions asked as the Trader persona. Stubs: sign-in (the route functions were called with an internal request and their get_current_user returned a real staging user with a paper account) and, for stock_decision only, the TradePlan store (nothing written). So the stock_decision plan_id tp_16af164648ee9112 is NOT in Mongo trade_plans and GET /api/desk/trade-plans/{id} answers 404 for it; the top_opportunities plan_ids are the AI watchlist's stored plans (5 of 5 found in trade_plans). Every figure is the platform's own; see each payload's data_quality. Written by the capture script described in test_reports/dtc_visual_backend_20261030.md. Re-captured 30 Oct after the stock_decision change that shows the account's risk-limit refusal (same 29 Oct session data).",
+ "payloads": {
+  "market_view": {
+   "schema": "visual-answer-v1",
+   "intent": "market_view",
+   "title": "Market view · Nifty and Bank Nifty",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:19:58+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Nifty 50 rose 1.05% to 22,936.75; 60% of stocks advanced; India VIX 15.12.",
+    "tone": "up"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "day",
+     "title": "The day",
+     "note": null,
+     "items": [
+      {
+       "label": "Nifty 50",
+       "value": "22,936.75",
+       "sub": "+1.05% on 29 Oct",
+       "tone": "up"
+      },
+      {
+       "label": "Bank Nifty",
+       "value": "54,909.65",
+       "sub": "+1.18% on 29 Oct",
+       "tone": "up"
+      },
+      {
+       "label": "India VIX",
+       "value": "15.12",
+       "sub": "−6.94% on the day",
+       "tone": "neutral"
+      },
+      {
+       "label": "Breadth",
+       "value": "1,995 up · 1,275 down",
+       "sub": "60% of 3,339 stocks advanced",
+       "tone": "up"
+      },
+      {
+       "label": "FII cash",
+       "value": "−₹943.60 Cr",
+       "sub": "net, 29 Oct",
+       "tone": "down"
+      },
+      {
+       "label": "DII cash",
+       "value": "+₹1,924.41 Cr",
+       "sub": "net, 29 Oct",
+       "tone": "up"
+      },
+      {
+       "label": "Regime",
+       "value": "Mixed",
+       "sub": "desk-regime-v1 · 29 Oct"
+      }
+     ]
+    },
+    {
+     "type": "candles",
+     "id": "nifty",
+     "title": "Nifty 50 · 60 sessions",
+     "note": "Dashed: the option walls and max pain of the nearest expiry. Shaded: the expected move from the ATM straddle.",
+     "symbol": "NIFTY",
+     "bars": [
+      {
+       "d": "2026-08-04",
+       "o": 24703.9,
+       "h": 24703.9,
+       "l": 24427.95,
+       "c": 24614.9,
+       "v": null
+      },
+      {
+       "d": "2026-08-05",
+       "o": 24669.2,
+       "h": 24677.6,
+       "l": 24497.95,
+       "c": 24624.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-06",
+       "o": 24641.0,
+       "h": 24677.05,
+       "l": 24604.15,
+       "c": 24636.0,
+       "v": null
+      },
+      {
+       "d": "2026-08-07",
+       "o": 24538.9,
+       "h": 24630.4,
+       "l": 24522.75,
+       "c": 24570.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-10",
+       "o": 24581.25,
+       "h": 24620.95,
+       "l": 24511.1,
+       "c": 24583.8,
+       "v": null
+      },
+      {
+       "d": "2026-08-11",
+       "o": 24575.1,
+       "h": 24576.85,
+       "l": 24429.25,
+       "c": 24471.7,
+       "v": null
+      },
+      {
+       "d": "2026-08-12",
+       "o": 24472.45,
+       "h": 24473.3,
+       "l": 24265.95,
+       "c": 24435.95,
+       "v": null
+      },
+      {
+       "d": "2026-08-13",
+       "o": 24431.6,
+       "h": 24431.6,
+       "l": 24311.4,
+       "c": 24395.85,
+       "v": null
+      },
+      {
+       "d": "2026-08-14",
+       "o": 24361.9,
+       "h": 24405.2,
+       "l": 24296.8,
+       "c": 24366.0,
+       "v": null
+      },
+      {
+       "d": "2026-08-17",
+       "o": 24343.45,
+       "h": 24360.1,
+       "l": 24226.95,
+       "c": 24287.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-18",
+       "o": 24223.85,
+       "h": 24269.65,
+       "l": 24154.9,
+       "c": 24154.9,
+       "v": null
+      },
+      {
+       "d": "2026-08-19",
+       "o": 24152.05,
+       "h": 24172.85,
+       "l": 24025.65,
+       "c": 24078.3,
+       "v": null
+      },
+      {
+       "d": "2026-08-20",
+       "o": 24225.45,
+       "h": 24265.15,
+       "l": 24184.55,
+       "c": 24231.85,
+       "v": null
+      },
+      {
+       "d": "2026-08-21",
+       "o": 24284.05,
+       "h": 24284.05,
+       "l": 24206.8,
+       "c": 24252.0,
+       "v": null
+      },
+      {
+       "d": "2026-08-24",
+       "o": 24285.05,
+       "h": 24313.0,
+       "l": 24144.3,
+       "c": 24219.05,
+       "v": null
+      },
+      {
+       "d": "2026-08-25",
+       "o": 24175.75,
+       "h": 24334.55,
+       "l": 24115.45,
+       "c": 24334.55,
+       "v": null
+      },
+      {
+       "d": "2026-08-26",
+       "o": 24341.95,
+       "h": 24378.6,
+       "l": 24207.75,
+       "c": 24207.75,
+       "v": null
+      },
+      {
+       "d": "2026-08-27",
+       "o": 24277.6,
+       "h": 24297.45,
+       "l": 24090.85,
+       "c": 24090.85,
+       "v": null
+      },
+      {
+       "d": "2026-08-28",
+       "o": 24122.6,
+       "h": 24188.3,
+       "l": 24076.85,
+       "c": 24175.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-31",
+       "o": 24117.55,
+       "h": 24128.7,
+       "l": 23993.6,
+       "c": 24080.4,
+       "v": null
+      },
+      {
+       "d": "2026-09-01",
+       "o": 24077.55,
+       "h": 24143.15,
+       "l": 23952.55,
+       "c": 24055.8,
+       "v": null
+      },
+      {
+       "d": "2026-09-02",
+       "o": 23858.0,
+       "h": 23914.45,
+       "l": 23786.8,
+       "c": 23914.45,
+       "v": null
+      },
+      {
+       "d": "2026-09-03",
+       "o": 23997.95,
+       "h": 24025.4,
+       "l": 23873.45,
+       "c": 23873.45,
+       "v": null
+      },
+      {
+       "d": "2026-09-04",
+       "o": 23910.9,
+       "h": 24005.75,
+       "l": 23895.85,
+       "c": 23897.7,
+       "v": null
+      },
+      {
+       "d": "2026-09-07",
+       "o": 23883.15,
+       "h": 23890.0,
+       "l": 23737.9,
+       "c": 23779.15,
+       "v": null
+      },
+      {
+       "d": "2026-09-08",
+       "o": 23743.1,
+       "h": 23758.95,
+       "l": 23623.1,
+       "c": 23635.1,
+       "v": null
+      },
+      {
+       "d": "2026-09-09",
+       "o": 23522.05,
+       "h": 23571.55,
+       "l": 23431.5,
+       "c": 23431.5,
+       "v": null
+      },
+      {
+       "d": "2026-09-10",
+       "o": 23446.6,
+       "h": 23494.95,
+       "l": 23380.1,
+       "c": 23477.8,
+       "v": null
+      },
+      {
+       "d": "2026-09-11",
+       "o": 23270.3,
+       "h": 23448.1,
+       "l": 23231.4,
+       "c": 23398.1,
+       "v": null
+      },
+      {
+       "d": "2026-09-15",
+       "o": 23576.15,
+       "h": 23592.85,
+       "l": 23118.6,
+       "c": 23118.6,
+       "v": null
+      },
+      {
+       "d": "2026-09-16",
+       "o": 23201.6,
+       "h": 23284.75,
+       "l": 23116.1,
+       "c": 23217.6,
+       "v": null
+      },
+      {
+       "d": "2026-09-17",
+       "o": 23195.25,
+       "h": 23363.55,
+       "l": 23193.65,
+       "c": 23270.6,
+       "v": null
+      },
+      {
+       "d": "2026-09-18",
+       "o": 23334.7,
+       "h": 23389.15,
+       "l": 23286.6,
+       "c": 23346.4,
+       "v": null
+      },
+      {
+       "d": "2026-09-21",
+       "o": 23330.2,
+       "h": 23466.8,
+       "l": 23314.8,
+       "c": 23414.3,
+       "v": null
+      },
+      {
+       "d": "2026-09-22",
+       "o": 23454.05,
+       "h": 23489.0,
+       "l": 23285.75,
+       "c": 23329.0,
+       "v": null
+      },
+      {
+       "d": "2026-09-23",
+       "o": 23352.15,
+       "h": 23466.9,
+       "l": 23349.55,
+       "c": 23446.8,
+       "v": null
+      },
+      {
+       "d": "2026-09-24",
+       "o": 23221.8,
+       "h": 23281.95,
+       "l": 23046.15,
+       "c": 23063.1,
+       "v": null
+      },
+      {
+       "d": "2026-09-25",
+       "o": 23035.0,
+       "h": 23162.7,
+       "l": 23020.95,
+       "c": 23140.5,
+       "v": null
+      },
+      {
+       "d": "2026-09-28",
+       "o": 23064.9,
+       "h": 23080.25,
+       "l": 22762.2,
+       "c": 22780.25,
+       "v": null
+      },
+      {
+       "d": "2026-09-29",
+       "o": 22732.45,
+       "h": 22753.25,
+       "l": 22569.65,
+       "c": 22716.2,
+       "v": null
+      },
+      {
+       "d": "2026-09-30",
+       "o": 22665.0,
+       "h": 22809.35,
+       "l": 22595.2,
+       "c": 22620.45,
+       "v": null
+      },
+      {
+       "d": "2026-10-01",
+       "o": 22543.7,
+       "h": 22610.6,
+       "l": 22217.3,
+       "c": 22421.95,
+       "v": null
+      },
+      {
+       "d": "2026-10-05",
+       "o": 22532.4,
+       "h": 22621.8,
+       "l": 22397.1,
+       "c": 22555.75,
+       "v": null
+      },
+      {
+       "d": "2026-10-06",
+       "o": 22603.25,
+       "h": 22776.1,
+       "l": 22561.6,
+       "c": 22776.1,
+       "v": null
+      },
+      {
+       "d": "2026-10-07",
+       "o": 22690.45,
+       "h": 22717.65,
+       "l": 22546.3,
+       "c": 22603.05,
+       "v": null
+      },
+      {
+       "d": "2026-10-08",
+       "o": 22599.05,
+       "h": 22599.05,
+       "l": 22179.9,
+       "c": 22231.8,
+       "v": null
+      },
+      {
+       "d": "2026-10-09",
+       "o": 22314.95,
+       "h": 22580.75,
+       "l": 22294.75,
+       "c": 22520.45,
+       "v": null
+      },
+      {
+       "d": "2026-10-12",
+       "o": 22593.2,
+       "h": 22651.1,
+       "l": 22304.45,
+       "c": 22363.35,
+       "v": null
+      },
+      {
+       "d": "2026-10-13",
+       "o": 22364.15,
+       "h": 22721.95,
+       "l": 22288.45,
+       "c": 22721.95,
+       "v": null
+      },
+      {
+       "d": "2026-10-14",
+       "o": 22715.75,
+       "h": 22757.95,
+       "l": 22558.95,
+       "c": 22622.7,
+       "v": null
+      },
+      {
+       "d": "2026-10-15",
+       "o": 22671.3,
+       "h": 23056.4,
+       "l": 22637.4,
+       "c": 22997.35,
+       "v": null
+      },
+      {
+       "d": "2026-10-16",
+       "o": 23065.1,
+       "h": 23149.85,
+       "l": 22913.8,
+       "c": 23146.15,
+       "v": null
+      },
+      {
+       "d": "2026-10-19",
+       "o": 23150.85,
+       "h": 23175.25,
+       "l": 22845.0,
+       "c": 22888.95,
+       "v": null
+      },
+      {
+       "d": "2026-10-21",
+       "o": 23016.0,
+       "h": 23120.9,
+       "l": 22649.9,
+       "c": 22811.35,
+       "v": null
+      },
+      {
+       "d": "2026-10-22",
+       "o": 22687.75,
+       "h": 22785.0,
+       "l": 22554.85,
+       "c": 22687.65,
+       "v": null
+      },
+      {
+       "d": "2026-10-23",
+       "o": 22742.2,
+       "h": 22787.25,
+       "l": 22372.0,
+       "c": 22600.0,
+       "v": null
+      },
+      {
+       "d": "2026-10-26",
+       "o": 22524.4,
+       "h": 22753.2,
+       "l": 22387.35,
+       "c": 22753.2,
+       "v": null
+      },
+      {
+       "d": "2026-10-27",
+       "o": 22708.8,
+       "h": 22829.75,
+       "l": 22636.85,
+       "c": 22749.75,
+       "v": null
+      },
+      {
+       "d": "2026-10-28",
+       "o": 22678.0,
+       "h": 22778.05,
+       "l": 22497.7,
+       "c": 22698.85,
+       "v": null
+      },
+      {
+       "d": "2026-10-29",
+       "o": 22690.65,
+       "h": 22961.95,
+       "l": 22656.75,
+       "c": 22936.75,
+       "v": null
+      }
+     ],
+     "overlays": {
+      "ema20": [
+       24210.2,
+       24249.67,
+       24286.46,
+       24313.53,
+       24339.27,
+       24351.88,
+       24359.89,
+       24363.31,
+       24363.57,
+       24356.34,
+       24337.15,
+       24312.5,
+       24304.82,
+       24299.79,
+       24292.1,
+       24296.14,
+       24287.72,
+       24268.97,
+       24260.09,
+       24242.97,
+       24225.15,
+       24195.56,
+       24164.88,
+       24139.43,
+       24105.12,
+       24060.36,
+       24000.47,
+       23950.69,
+       23898.06,
+       23823.83,
+       23766.09,
+       23718.9,
+       23683.42,
+       23657.79,
+       23626.48,
+       23609.37,
+       23557.34,
+       23517.64,
+       23447.42,
+       23377.78,
+       23305.65,
+       23221.49,
+       23158.08,
+       23121.7,
+       23072.31,
+       22992.26,
+       22947.33,
+       22891.71,
+       22875.54,
+       22851.46,
+       22865.36,
+       22892.1,
+       22891.8,
+       22884.14,
+       22865.42,
+       22840.15,
+       22831.86,
+       22824.04,
+       22812.12,
+       22823.99
+      ],
+      "ema50": [
+       24070.46,
+       24092.19,
+       24113.52,
+       24131.45,
+       24149.19,
+       24161.83,
+       24172.58,
+       24181.34,
+       24188.58,
+       24192.47,
+       24190.99,
+       24186.57,
+       24188.35,
+       24190.85,
+       24191.95,
+       24197.54,
+       24197.94,
+       24193.74,
+       24193.03,
+       24188.62,
+       24183.41,
+       24172.86,
+       24161.12,
+       24150.79,
+       24136.22,
+       24116.56,
+       24089.7,
+       24065.7,
+       24039.52,
+       24003.41,
+       23972.59,
+       23945.06,
+       23921.59,
+       23901.69,
+       23879.23,
+       23862.28,
+       23830.93,
+       23803.86,
+       23763.72,
+       23722.64,
+       23679.42,
+       23630.1,
+       23587.97,
+       23556.13,
+       23518.76,
+       23468.29,
+       23431.12,
+       23389.25,
+       23363.08,
+       23334.04,
+       23320.84,
+       23313.99,
+       23297.32,
+       23278.26,
+       23255.1,
+       23229.41,
+       23210.74,
+       23192.66,
+       23173.29,
+       23164.02
+      ]
+     },
+     "levels": [
+      {
+       "kind": "wall_call",
+       "price": 23500.0,
+       "label": "Call wall 23,500.00"
+      },
+      {
+       "kind": "wall_put",
+       "price": 22000.0,
+       "label": "Put wall 22,000.00"
+      },
+      {
+       "kind": "max_pain",
+       "price": 22900.0,
+       "label": "Max pain 22,900.00"
+      }
+     ],
+     "band": {
+      "low": 22657.9,
+      "high": 23215.6,
+      "label": "Expected move to 3 Nov 2026 (ATM straddle ±278.85)"
+     }
+    },
+    {
+     "type": "heatmap",
+     "id": "sectors",
+     "title": "Sectors on the day",
+     "note": null,
+     "unit": "%",
+     "cells": [
+      {
+       "label": "Power",
+       "value": 3.21,
+       "group": null,
+       "sub": "1w +3.15%"
+      },
+      {
+       "label": "Realty",
+       "value": 2.75,
+       "group": null,
+       "sub": "1w +2.03%"
+      },
+      {
+       "label": "FMCG",
+       "value": 2.34,
+       "group": null,
+       "sub": "1w +1.80%"
+      },
+      {
+       "label": "PSU Banks",
+       "value": 2.2,
+       "group": null,
+       "sub": "1w +0.67%"
+      },
+      {
+       "label": "Private Banks",
+       "value": 1.24,
+       "group": null,
+       "sub": "1w +0.69%"
+      },
+      {
+       "label": "Telecom",
+       "value": 1.19,
+       "group": null,
+       "sub": "1w +2.44%"
+      },
+      {
+       "label": "Banks",
+       "value": 1.18,
+       "group": null,
+       "sub": "1w −0.03%"
+      },
+      {
+       "label": "Consumer Durables",
+       "value": 1.18,
+       "group": null,
+       "sub": "1w +0.90%"
+      },
+      {
+       "label": "Financial Services",
+       "value": 1.17,
+       "group": null,
+       "sub": "1w +0.19%"
+      },
+      {
+       "label": "Media",
+       "value": 1.1,
+       "group": null,
+       "sub": "1w +4.47%"
+      },
+      {
+       "label": "Energy",
+       "value": 1.01,
+       "group": null,
+       "sub": "1w +0.56%"
+      },
+      {
+       "label": "IT",
+       "value": 0.99,
+       "group": null,
+       "sub": "1w −0.67%"
+      },
+      {
+       "label": "Metals",
+       "value": 0.67,
+       "group": null,
+       "sub": "1w +0.42%"
+      },
+      {
+       "label": "Pharma",
+       "value": 0.64,
+       "group": null,
+       "sub": "1w +4.35%"
+      },
+      {
+       "label": "Healthcare",
+       "value": 0.58,
+       "group": null,
+       "sub": "1w +4.37%"
+      },
+      {
+       "label": "Oil & Gas",
+       "value": 0.54,
+       "group": null,
+       "sub": "1w −0.89%"
+      },
+      {
+       "label": "Chemicals",
+       "value": 0.48,
+       "group": null,
+       "sub": "1w −0.19%"
+      },
+      {
+       "label": "Capital Goods",
+       "value": 0.33,
+       "group": null,
+       "sub": "1w +0.78%"
+      },
+      {
+       "label": "Cement",
+       "value": -0.08,
+       "group": null,
+       "sub": "1w −0.85%"
+      },
+      {
+       "label": "Auto",
+       "value": -0.24,
+       "group": null,
+       "sub": "1w +2.54%"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "NSE index closes (nidp.index_eod)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NIDP market snapshot (breadth, FII/DII cash)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE FII/DII cash (nidp.fii_dii_flows)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Desk regime (desk-regime-v1)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE F&O bhavcopy · NIFTY option chain",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE sector indices (desk sector returns)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    },
+    {
+     "label": "What is the expected move in Nifty?",
+     "query": "What is the expected move in Nifty?"
+    },
+    {
+     "label": "Which breakouts are confirmed?",
+     "query": "Which breakouts are confirmed?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "smart_money": {
+   "schema": "visual-answer-v1",
+   "intent": "smart_money",
+   "title": "Where smart money is moving",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:19:58+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "FIIs sold a net ₹943.60 Cr and DIIs bought a net ₹1,924.41 Cr in cash on 29 Oct; 74 F&O stocks show long buildup and 103 short covering.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "flows",
+     "title": "Flows and positioning",
+     "note": null,
+     "items": [
+      {
+       "label": "FII cash · 29 Oct",
+       "value": "−₹943.60 Cr",
+       "sub": null,
+       "tone": "down"
+      },
+      {
+       "label": "FII · 10 sessions",
+       "value": "−₹4,110.69 Cr",
+       "sub": "sum of the daily nets",
+       "tone": "down"
+      },
+      {
+       "label": "DII cash · 29 Oct",
+       "value": "+₹1,924.41 Cr",
+       "sub": null,
+       "tone": "up"
+      },
+      {
+       "label": "DII · 10 sessions",
+       "value": "+₹14,527.60 Cr",
+       "sub": "sum of the daily nets",
+       "tone": "up"
+      },
+      {
+       "label": "Long buildup",
+       "value": "74",
+       "sub": "of 218 F&O stocks",
+       "tone": "up"
+      },
+      {
+       "label": "Short covering",
+       "value": "103",
+       "sub": "of 218 F&O stocks",
+       "tone": "up"
+      },
+      {
+       "label": "Short buildup",
+       "value": "27",
+       "sub": "of 218 F&O stocks",
+       "tone": "down"
+      },
+      {
+       "label": "Long unwinding",
+       "value": "14",
+       "sub": "of 218 F&O stocks",
+       "tone": "down"
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "fii",
+     "title": "FII cash, last 10 sessions",
+     "note": "Net buy − sell, ₹ crore (NSE provisional).",
+     "unit": "₹ Cr",
+     "orientation": "v",
+     "items": [
+      {
+       "label": "15 Oct",
+       "value": -5285.37,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "16 Oct",
+       "value": 1165.92,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "19 Oct",
+       "value": -1148.64,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "21 Oct",
+       "value": 1022.32,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "22 Oct",
+       "value": -3458.7,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "23 Oct",
+       "value": 887.65,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "26 Oct",
+       "value": -1462.49,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "27 Oct",
+       "value": 4240.39,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "28 Oct",
+       "value": 871.83,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "29 Oct",
+       "value": -943.6,
+       "tone": "down",
+       "sub": null
+      }
+     ],
+     "baseline": 0
+    },
+    {
+     "type": "bars",
+     "id": "dii",
+     "title": "DII cash, last 10 sessions",
+     "note": "Net buy − sell, ₹ crore (NSE provisional).",
+     "unit": "₹ Cr",
+     "orientation": "v",
+     "items": [
+      {
+       "label": "15 Oct",
+       "value": 3319.39,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "16 Oct",
+       "value": -3661.28,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "19 Oct",
+       "value": 3201.19,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "21 Oct",
+       "value": 1614.32,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "22 Oct",
+       "value": 2891.32,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "23 Oct",
+       "value": 3235.36,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "26 Oct",
+       "value": 2609.57,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "27 Oct",
+       "value": -1250.03,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "28 Oct",
+       "value": 643.35,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "29 Oct",
+       "value": 1924.41,
+       "tone": "up",
+       "sub": null
+      }
+     ],
+     "baseline": 0
+    },
+    {
+     "type": "heatmap",
+     "id": "rotation",
+     "title": "Sector rotation · 1 week",
+     "note": "Sector index returns over 1 week.",
+     "unit": "%",
+     "cells": [
+      {
+       "label": "Media",
+       "value": 4.47,
+       "group": null,
+       "sub": "1d +1.10% · 1m +7.54%"
+      },
+      {
+       "label": "Healthcare",
+       "value": 4.37,
+       "group": null,
+       "sub": "1d +0.58% · 1m −2.08%"
+      },
+      {
+       "label": "Pharma",
+       "value": 4.35,
+       "group": null,
+       "sub": "1d +0.64% · 1m −0.19%"
+      },
+      {
+       "label": "Power",
+       "value": 3.15,
+       "group": null,
+       "sub": "1d +3.21% · 1m −1.84%"
+      },
+      {
+       "label": "Auto",
+       "value": 2.54,
+       "group": null,
+       "sub": "1d −0.24% · 1m −3.32%"
+      },
+      {
+       "label": "Telecom",
+       "value": 2.44,
+       "group": null,
+       "sub": "1d +1.19% · 1m +5.24%"
+      },
+      {
+       "label": "Realty",
+       "value": 2.03,
+       "group": null,
+       "sub": "1d +2.75% · 1m −3.65%"
+      },
+      {
+       "label": "FMCG",
+       "value": 1.8,
+       "group": null,
+       "sub": "1d +2.34% · 1m −3.05%"
+      },
+      {
+       "label": "Consumer Durables",
+       "value": 0.9,
+       "group": null,
+       "sub": "1d +1.18% · 1m −7.90%"
+      },
+      {
+       "label": "Capital Goods",
+       "value": 0.78,
+       "group": null,
+       "sub": "1d +0.33% · 1m −5.81%"
+      },
+      {
+       "label": "Private Banks",
+       "value": 0.69,
+       "group": null,
+       "sub": "1d +1.24% · 1m +2.18%"
+      },
+      {
+       "label": "PSU Banks",
+       "value": 0.67,
+       "group": null,
+       "sub": "1d +2.20% · 1m +3.57%"
+      },
+      {
+       "label": "Energy",
+       "value": 0.56,
+       "group": null,
+       "sub": "1d +1.01% · 1m −3.80%"
+      },
+      {
+       "label": "Metals",
+       "value": 0.42,
+       "group": null,
+       "sub": "1d +0.67% · 1m −7.83%"
+      },
+      {
+       "label": "Financial Services",
+       "value": 0.19,
+       "group": null,
+       "sub": "1d +1.17% · 1m +0.13%"
+      },
+      {
+       "label": "Banks",
+       "value": -0.03,
+       "group": null,
+       "sub": "1d +1.18% · 1m +0.80%"
+      },
+      {
+       "label": "Chemicals",
+       "value": -0.19,
+       "group": null,
+       "sub": "1d +0.48% · 1m −6.24%"
+      },
+      {
+       "label": "IT",
+       "value": -0.67,
+       "group": null,
+       "sub": "1d +0.99% · 1m +13.46%"
+      },
+      {
+       "label": "Cement",
+       "value": -0.85,
+       "group": null,
+       "sub": "1d −0.08% · 1m −3.69%"
+      },
+      {
+       "label": "Oil & Gas",
+       "value": -0.89,
+       "group": null,
+       "sub": "1d +0.54% · 1m −2.89%"
+      }
+     ]
+    },
+    {
+     "type": "quadrant",
+     "id": "buildup",
+     "title": "F&O buildup · price vs open interest",
+     "note": "The 40 stock futures with the largest open-interest change on 29 Oct; a reading of two figures, not a record of who traded.",
+     "x": {
+      "label": "Price change",
+      "unit": "%"
+     },
+     "y": {
+      "label": "OI change",
+      "unit": "%"
+     },
+     "quadrants": {
+      "tr": "Long buildup",
+      "tl": "Short buildup",
+      "br": "Short covering",
+      "bl": "Long unwinding"
+     },
+     "points": [
+      {
+       "label": "COROMANDEL",
+       "x": -0.3,
+       "y": 394.0,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "DATAPATTNS",
+       "x": 0.4,
+       "y": 106.84,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "KARURVYSYA",
+       "x": 1.35,
+       "y": 96.3,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "SYRMA",
+       "x": 6.65,
+       "y": 87.56,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "CUB",
+       "x": 5.03,
+       "y": 40.56,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "NAVINFLUOR",
+       "x": -2.23,
+       "y": 34.63,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "HEROMOTOCO",
+       "x": -4.11,
+       "y": 16.2,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "PNBHOUSING",
+       "x": -1.4,
+       "y": 10.82,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "PIDILITIND",
+       "x": 2.2,
+       "y": 8.09,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "TVSMOTOR",
+       "x": 1.78,
+       "y": -7.48,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "SWIGGY",
+       "x": 0.84,
+       "y": 7.26,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "AMBUJACEM",
+       "x": 1.37,
+       "y": 6.46,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "JSWENERGY",
+       "x": 6.6,
+       "y": -5.51,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "RADICO",
+       "x": 2.17,
+       "y": 5.48,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "APLAPOLLO",
+       "x": 1.37,
+       "y": -5.4,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "DELHIVERY",
+       "x": 2.56,
+       "y": 5.3,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "ENRIN",
+       "x": -0.36,
+       "y": 5.3,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "GVT&D",
+       "x": 0.57,
+       "y": -5.23,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "MAXHEALTH",
+       "x": -0.26,
+       "y": 5.09,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "UJJIVANSFB",
+       "x": 2.85,
+       "y": 5.02,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "HINDZINC",
+       "x": 1.36,
+       "y": -4.97,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "MANAPPURAM",
+       "x": 4.71,
+       "y": -4.83,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "MOTILALOFS",
+       "x": 1.71,
+       "y": -4.72,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "LTF",
+       "x": 2.56,
+       "y": -4.69,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "SUZLON",
+       "x": -1.84,
+       "y": 4.64,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "APOLLOHOSP",
+       "x": 0.69,
+       "y": -4.38,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "GMRAIRPORT",
+       "x": -2.77,
+       "y": 4.34,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "TRENT",
+       "x": -1.2,
+       "y": 4.32,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "UNITDSPR",
+       "x": 4.92,
+       "y": -4.27,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "POLYCAB",
+       "x": 0.72,
+       "y": -4.15,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "LAURUSLABS",
+       "x": 3.2,
+       "y": -3.95,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "MARICO",
+       "x": 3.61,
+       "y": -3.91,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "BANKINDIA",
+       "x": 2.19,
+       "y": -3.82,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "CHOLAFIN",
+       "x": 3.86,
+       "y": -3.67,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "NESTLEIND",
+       "x": 1.47,
+       "y": 3.62,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "UPL",
+       "x": 1.17,
+       "y": 3.62,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "VOLTAS",
+       "x": 2.77,
+       "y": -3.55,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "BHARATFORG",
+       "x": 0.15,
+       "y": 3.51,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "HINDUNILVR",
+       "x": 2.95,
+       "y": -3.45,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "RBLBANK",
+       "x": 2.7,
+       "y": 3.45,
+       "quadrant": "Long buildup"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "strongest",
+     "title": "Strongest long buildup and short covering",
+     "note": "Long buildup ranked by OI change, short covering by price change (nearest-expiry futures).",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Stock",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "buildup",
+       "label": "Buildup",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "price",
+       "label": "Price %",
+       "align": "right",
+       "format": "pct"
+      },
+      {
+       "key": "oi",
+       "label": "OI %",
+       "align": "right",
+       "format": "pct"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "DATAPATTNS",
+       "cells": {
+        "symbol": "DATAPATTNS",
+        "buildup": "Long buildup",
+        "price": 0.4,
+        "oi": 106.84
+       },
+       "tone": "up",
+       "ask": "Trade plan for DATAPATTNS"
+      },
+      {
+       "symbol": "KARURVYSYA",
+       "cells": {
+        "symbol": "KARURVYSYA",
+        "buildup": "Long buildup",
+        "price": 1.35,
+        "oi": 96.3
+       },
+       "tone": "up",
+       "ask": "Trade plan for KARURVYSYA"
+      },
+      {
+       "symbol": "SYRMA",
+       "cells": {
+        "symbol": "SYRMA",
+        "buildup": "Long buildup",
+        "price": 6.65,
+        "oi": 87.56
+       },
+       "tone": "up",
+       "ask": "Trade plan for SYRMA"
+      },
+      {
+       "symbol": "CUB",
+       "cells": {
+        "symbol": "CUB",
+        "buildup": "Long buildup",
+        "price": 5.03,
+        "oi": 40.56
+       },
+       "tone": "up",
+       "ask": "Trade plan for CUB"
+      },
+      {
+       "symbol": "PIDILITIND",
+       "cells": {
+        "symbol": "PIDILITIND",
+        "buildup": "Long buildup",
+        "price": 2.2,
+        "oi": 8.09
+       },
+       "tone": "up",
+       "ask": "Trade plan for PIDILITIND"
+      },
+      {
+       "symbol": "JSWENERGY",
+       "cells": {
+        "symbol": "JSWENERGY",
+        "buildup": "Short covering",
+        "price": 6.6,
+        "oi": -5.51
+       },
+       "tone": "up",
+       "ask": "Trade plan for JSWENERGY"
+      },
+      {
+       "symbol": "ADANIPORTS",
+       "cells": {
+        "symbol": "ADANIPORTS",
+        "buildup": "Short covering",
+        "price": 6.05,
+        "oi": -0.7
+       },
+       "tone": "up",
+       "ask": "Trade plan for ADANIPORTS"
+      },
+      {
+       "symbol": "UNITDSPR",
+       "cells": {
+        "symbol": "UNITDSPR",
+        "buildup": "Short covering",
+        "price": 4.92,
+        "oi": -4.27
+       },
+       "tone": "up",
+       "ask": "Trade plan for UNITDSPR"
+      },
+      {
+       "symbol": "HYUNDAI",
+       "cells": {
+        "symbol": "HYUNDAI",
+        "buildup": "Short covering",
+        "price": 4.79,
+        "oi": -1.1
+       },
+       "tone": "up",
+       "ask": "Trade plan for HYUNDAI"
+      },
+      {
+       "symbol": "MANAPPURAM",
+       "cells": {
+        "symbol": "MANAPPURAM",
+        "buildup": "Short covering",
+        "price": 4.71,
+        "oi": -4.83
+       },
+       "tone": "up",
+       "ask": "Trade plan for MANAPPURAM"
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "index_futures",
+     "title": "Index futures",
+     "note": null,
+     "items": [
+      {
+       "text": "BANKNIFTY: short covering",
+       "sub": "price +1.18%, OI −4.12%",
+       "tone": "up"
+      },
+      {
+       "text": "FINNIFTY: short covering",
+       "sub": "price +1.25%, OI −4.95%",
+       "tone": "up"
+      },
+      {
+       "text": "MIDCPNIFTY: long buildup",
+       "sub": "price +0.73%, OI +1.27%",
+       "tone": "up"
+      },
+      {
+       "text": "NIFTY: short covering",
+       "sub": "price +1.18%, OI −1.44%",
+       "tone": "up"
+      },
+      {
+       "text": "NIFTYFPI: short buildup",
+       "sub": "price −0.78%, OI +200.00%",
+       "tone": "down"
+      },
+      {
+       "text": "NIFTYNXT50: long buildup",
+       "sub": "price +1.08%, OI +9.03%",
+       "tone": "up"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "NSE FII/DII cash (nidp.fii_dii_flows)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE F&O bhavcopy · futures build-up",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE sector indices (desk sector returns)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    },
+    {
+     "label": "Which breakouts are confirmed?",
+     "query": "Which breakouts are confirmed?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Which stocks have unusual volume?",
+     "query": "Which stocks have unusual volume?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "top_opportunities": {
+   "schema": "visual-answer-v1",
+   "intent": "top_opportunities",
+   "title": "Today's top 5 ideas",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:19:58+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "4 of the scanner's top 5 on 29 Oct have a setup with levels; 1 wait for confirmation.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "ranked",
+     "id": "top",
+     "title": "Top 5 by the scanner's score · 29 Oct",
+     "note": "Reward:risk is the first target's R multiple, before charges. Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending). With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
+     "columns": [
+      {
+       "key": "rank",
+       "label": "#",
+       "align": "right",
+       "format": "int"
+      },
+      {
+       "key": "symbol",
+       "label": "Stock",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "setup",
+       "label": "Setup",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "status",
+       "label": "Status",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "entry",
+       "label": "Entry",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "stop",
+       "label": "Stop",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "target",
+       "label": "Target",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "score",
+       "label": "Score",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "PNB",
+       "plan_id": "tp_3fd429c9f6c6e921",
+       "ask": "Trade plan for PNB",
+       "tone": "up",
+       "cells": {
+        "rank": 1,
+        "symbol": "PNB",
+        "setup": "Wait for breakout confirmation",
+        "status": "Setup ready",
+        "entry": 125.35,
+        "stop": 120.67,
+        "target": 134.71,
+        "rr": 2.0,
+        "score": 75.6
+       }
+      },
+      {
+       "symbol": "LAURUSLABS",
+       "plan_id": "tp_3df58bc61b6bad4f",
+       "ask": "Trade plan for LAURUSLABS",
+       "tone": "up",
+       "cells": {
+        "rank": 2,
+        "symbol": "LAURUSLABS",
+        "setup": "Breakout",
+        "status": "Setup ready",
+        "entry": 2244.0,
+        "stop": 2151.16,
+        "target": 2429.68,
+        "rr": 2.0,
+        "score": 75.1
+       }
+      },
+      {
+       "symbol": "ANANDRATHI",
+       "plan_id": "tp_513d12b22dc17a50",
+       "ask": "Trade plan for ANANDRATHI",
+       "tone": "up",
+       "cells": {
+        "rank": 3,
+        "symbol": "ANANDRATHI",
+        "setup": "Trend pullback",
+        "status": "Setup ready",
+        "entry": 2270.0,
+        "stop": 2005.82,
+        "target": 2798.36,
+        "rr": 2.0,
+        "score": 74.6
+       }
+      },
+      {
+       "symbol": "TVSMOTOR",
+       "plan_id": "tp_cec8796ecc10febd",
+       "ask": "Trade plan for TVSMOTOR",
+       "tone": "up",
+       "cells": {
+        "rank": 4,
+        "symbol": "TVSMOTOR",
+        "setup": "Pre-breakout",
+        "status": "Setup ready",
+        "entry": 4312.41,
+        "stop": 4130.22,
+        "target": 4676.79,
+        "rr": 2.0,
+        "score": 74.6
+       }
+      },
+      {
+       "symbol": "IIFLCAPS",
+       "plan_id": "tp_197efaebad61c165",
+       "ask": "Trade plan for IIFLCAPS",
+       "tone": "neutral",
+       "cells": {
+        "rank": 5,
+        "symbol": "IIFLCAPS",
+        "setup": "Pre-breakout",
+        "status": "Wait",
+        "entry": 336.48,
+        "stop": 331.48,
+        "target": 346.48,
+        "rr": 2.0,
+        "score": 73.3
+       }
+      }
+     ]
+    },
+    {
+     "type": "trade_plan",
+     "id": "first",
+     "title": "The first idea's plan · PNB",
+     "note": null,
+     "plan_id": "tp_3fd429c9f6c6e921"
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "AI scanner watchlist (Top 10, stored nightly)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which breakouts are confirmed?",
+     "query": "Which breakouts are confirmed?"
+    },
+    {
+     "label": "Which stocks have unusual volume?",
+     "query": "Which stocks have unusual volume?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "breakouts": {
+   "schema": "visual-answer-v1",
+   "intent": "breakouts",
+   "title": "Confirmed breakouts",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:20:01+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "1 stock closed just above the breakout level on at least 1.5× the usual volume on 29 Oct.",
+    "tone": "up"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "ranked",
+     "id": "list",
+     "title": "Breakouts confirmed on 29 Oct",
+     "note": "Rule (smart_v2): close 0–3% above the breakout level, 3-session volume ≥ 1.5× the prior 20, stage BREAKOUT or EARLY_BREAKOUT, gap-up ≤ 5%. Stop = level − 1.5 × ATR(14).",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Stock",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "level",
+       "label": "Breakout level",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "close",
+       "label": "Close",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "above",
+       "label": "Above level",
+       "align": "right",
+       "format": "pct"
+      },
+      {
+       "key": "volx",
+       "label": "Volume ×",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "stop",
+       "label": "Stop",
+       "align": "right",
+       "format": "price"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "LAURUSLABS",
+       "ask": "Trade plan for LAURUSLABS",
+       "tone": "up",
+       "cells": {
+        "symbol": "LAURUSLABS",
+        "level": 2244.0,
+        "close": 2244.0,
+        "above": 0.0,
+        "volx": 1.66,
+        "stop": 2151.16
+       }
+      }
+     ]
+    },
+    {
+     "type": "candles",
+     "id": "first",
+     "title": "LAURUSLABS · the breakout",
+     "note": "Scanner prices are warehouse_adjusted; the chart is split/bonus adjusted.",
+     "symbol": "LAURUSLABS",
+     "bars": [
+      {
+       "d": "2026-08-04",
+       "o": 1811.0,
+       "h": 1850.0,
+       "l": 1806.1,
+       "c": 1850.0,
+       "v": 1405192.0
+      },
+      {
+       "d": "2026-08-05",
+       "o": 1854.0,
+       "h": 1856.6,
+       "l": 1834.5,
+       "c": 1835.0,
+       "v": 2090998.0
+      },
+      {
+       "d": "2026-08-06",
+       "o": 1843.0,
+       "h": 1854.9,
+       "l": 1830.0,
+       "c": 1830.0,
+       "v": 2037418.0
+      },
+      {
+       "d": "2026-08-07",
+       "o": 1838.0,
+       "h": 1856.0,
+       "l": 1833.2,
+       "c": 1844.3,
+       "v": 1553067.0
+      },
+      {
+       "d": "2026-08-10",
+       "o": 1845.0,
+       "h": 1870.8,
+       "l": 1832.8,
+       "c": 1854.0,
+       "v": 1386592.0
+      },
+      {
+       "d": "2026-08-11",
+       "o": 1851.0,
+       "h": 1859.0,
+       "l": 1833.1,
+       "c": 1858.0,
+       "v": 1514239.0
+      },
+      {
+       "d": "2026-08-12",
+       "o": 1856.3,
+       "h": 1862.3,
+       "l": 1835.0,
+       "c": 1850.0,
+       "v": 1088545.0
+      },
+      {
+       "d": "2026-08-13",
+       "o": 1850.0,
+       "h": 1851.7,
+       "l": 1820.6,
+       "c": 1851.7,
+       "v": 1345856.0
+      },
+      {
+       "d": "2026-08-14",
+       "o": 1849.9,
+       "h": 1853.2,
+       "l": 1777.7,
+       "c": 1787.3,
+       "v": 1581352.0
+      },
+      {
+       "d": "2026-08-17",
+       "o": 1770.0,
+       "h": 1824.0,
+       "l": 1769.4,
+       "c": 1809.7,
+       "v": 1631767.0
+      },
+      {
+       "d": "2026-08-18",
+       "o": 1810.0,
+       "h": 1824.6,
+       "l": 1802.1,
+       "c": 1814.0,
+       "v": 1291914.0
+      },
+      {
+       "d": "2026-08-19",
+       "o": 1814.0,
+       "h": 1818.0,
+       "l": 1789.9,
+       "c": 1801.8,
+       "v": 1426377.0
+      },
+      {
+       "d": "2026-08-20",
+       "o": 1819.0,
+       "h": 1832.0,
+       "l": 1813.8,
+       "c": 1825.0,
+       "v": 1315065.0
+      },
+      {
+       "d": "2026-08-21",
+       "o": 1825.0,
+       "h": 1836.4,
+       "l": 1790.3,
+       "c": 1802.0,
+       "v": 1401995.0
+      },
+      {
+       "d": "2026-08-24",
+       "o": 1800.0,
+       "h": 1810.8,
+       "l": 1790.0,
+       "c": 1801.0,
+       "v": 2894242.0
+      },
+      {
+       "d": "2026-08-25",
+       "o": 1808.0,
+       "h": 1869.4,
+       "l": 1796.5,
+       "c": 1866.2,
+       "v": 3550945.0
+      },
+      {
+       "d": "2026-08-26",
+       "o": 1871.1,
+       "h": 1898.3,
+       "l": 1857.4,
+       "c": 1887.0,
+       "v": 3334188.0
+      },
+      {
+       "d": "2026-08-27",
+       "o": 1891.3,
+       "h": 1930.0,
+       "l": 1878.4,
+       "c": 1929.4,
+       "v": 4249869.0
+      },
+      {
+       "d": "2026-08-28",
+       "o": 1929.7,
+       "h": 1938.5,
+       "l": 1910.1,
+       "c": 1938.5,
+       "v": 2231476.0
+      },
+      {
+       "d": "2026-08-31",
+       "o": 1945.0,
+       "h": 1949.0,
+       "l": 1847.8,
+       "c": 1915.0,
+       "v": 30995343.0
+      },
+      {
+       "d": "2026-09-01",
+       "o": 1888.9,
+       "h": 1895.0,
+       "l": 1837.4,
+       "c": 1861.6,
+       "v": 3530385.0
+      },
+      {
+       "d": "2026-09-02",
+       "o": 1853.2,
+       "h": 1864.4,
+       "l": 1811.7,
+       "c": 1864.0,
+       "v": 2265630.0
+      },
+      {
+       "d": "2026-09-03",
+       "o": 1864.9,
+       "h": 1876.6,
+       "l": 1852.6,
+       "c": 1868.5,
+       "v": 1506361.0
+      },
+      {
+       "d": "2026-09-04",
+       "o": 1855.0,
+       "h": 1871.8,
+       "l": 1835.2,
+       "c": 1840.0,
+       "v": 1075943.0
+      },
+      {
+       "d": "2026-09-07",
+       "o": 1840.0,
+       "h": 1876.7,
+       "l": 1832.7,
+       "c": 1876.7,
+       "v": 1148664.0
+      },
+      {
+       "d": "2026-09-08",
+       "o": 1870.8,
+       "h": 1952.0,
+       "l": 1862.7,
+       "c": 1946.9,
+       "v": 2115447.0
+      },
+      {
+       "d": "2026-09-09",
+       "o": 1946.9,
+       "h": 1955.0,
+       "l": 1917.9,
+       "c": 1937.0,
+       "v": 1822218.0
+      },
+      {
+       "d": "2026-09-10",
+       "o": 1932.6,
+       "h": 1950.5,
+       "l": 1920.9,
+       "c": 1945.0,
+       "v": 1067622.0
+      },
+      {
+       "d": "2026-09-11",
+       "o": 1943.0,
+       "h": 1981.8,
+       "l": 1918.1,
+       "c": 1969.0,
+       "v": 2277375.0
+      },
+      {
+       "d": "2026-09-15",
+       "o": 1975.0,
+       "h": 1981.0,
+       "l": 1915.6,
+       "c": 1926.9,
+       "v": 1538262.0
+      },
+      {
+       "d": "2026-09-16",
+       "o": 1924.6,
+       "h": 1940.4,
+       "l": 1863.5,
+       "c": 1905.5,
+       "v": 2871410.0
+      },
+      {
+       "d": "2026-09-17",
+       "o": 1898.0,
+       "h": 1964.5,
+       "l": 1894.8,
+       "c": 1948.1,
+       "v": 1645108.0
+      },
+      {
+       "d": "2026-09-18",
+       "o": 1962.0,
+       "h": 1982.0,
+       "l": 1954.0,
+       "c": 1954.0,
+       "v": 2655873.0
+      },
+      {
+       "d": "2026-09-21",
+       "o": 1966.6,
+       "h": 2023.5,
+       "l": 1963.8,
+       "c": 2017.5,
+       "v": 2170267.0
+      },
+      {
+       "d": "2026-09-22",
+       "o": 2018.0,
+       "h": 2032.8,
+       "l": 2002.2,
+       "c": 2006.5,
+       "v": 1487044.0
+      },
+      {
+       "d": "2026-09-23",
+       "o": 2009.5,
+       "h": 2037.2,
+       "l": 1999.7,
+       "c": 2034.0,
+       "v": 1363988.0
+      },
+      {
+       "d": "2026-09-24",
+       "o": 2021.1,
+       "h": 2055.3,
+       "l": 2020.0,
+       "c": 2026.2,
+       "v": 1388039.0
+      },
+      {
+       "d": "2026-09-25",
+       "o": 2026.0,
+       "h": 2040.0,
+       "l": 1979.2,
+       "c": 2007.0,
+       "v": 1442142.0
+      },
+      {
+       "d": "2026-09-28",
+       "o": 2000.0,
+       "h": 2012.3,
+       "l": 1984.8,
+       "c": 2010.7,
+       "v": 950451.0
+      },
+      {
+       "d": "2026-09-29",
+       "o": 2020.7,
+       "h": 2024.9,
+       "l": 1979.0,
+       "c": 1979.0,
+       "v": 2431575.0
+      },
+      {
+       "d": "2026-09-30",
+       "o": 1993.0,
+       "h": 2001.6,
+       "l": 1955.1,
+       "c": 1980.0,
+       "v": 1397926.0
+      },
+      {
+       "d": "2026-10-01",
+       "o": 1973.6,
+       "h": 2006.9,
+       "l": 1952.1,
+       "c": 1984.0,
+       "v": 1459687.0
+      },
+      {
+       "d": "2026-10-05",
+       "o": 1994.0,
+       "h": 2002.0,
+       "l": 1955.1,
+       "c": 1971.4,
+       "v": 1374138.0
+      },
+      {
+       "d": "2026-10-06",
+       "o": 1968.9,
+       "h": 2054.9,
+       "l": 1958.0,
+       "c": 2050.0,
+       "v": 2197316.0
+      },
+      {
+       "d": "2026-10-07",
+       "o": 2052.0,
+       "h": 2065.2,
+       "l": 2035.6,
+       "c": 2052.8,
+       "v": 1499990.0
+      },
+      {
+       "d": "2026-10-08",
+       "o": 2055.0,
+       "h": 2055.0,
+       "l": 1997.9,
+       "c": 1997.9,
+       "v": 1394208.0
+      },
+      {
+       "d": "2026-10-09",
+       "o": 1997.9,
+       "h": 2048.0,
+       "l": 1988.9,
+       "c": 2036.6,
+       "v": 1358268.0
+      },
+      {
+       "d": "2026-10-12",
+       "o": 2044.1,
+       "h": 2069.2,
+       "l": 2036.1,
+       "c": 2069.2,
+       "v": 1417097.0
+      },
+      {
+       "d": "2026-10-13",
+       "o": 2047.1,
+       "h": 2065.0,
+       "l": 2007.8,
+       "c": 2059.4,
+       "v": 1141354.0
+      },
+      {
+       "d": "2026-10-14",
+       "o": 2049.0,
+       "h": 2057.3,
+       "l": 2019.2,
+       "c": 2036.9,
+       "v": 1301046.0
+      },
+      {
+       "d": "2026-10-15",
+       "o": 2025.0,
+       "h": 2046.3,
+       "l": 2008.0,
+       "c": 2018.5,
+       "v": 858713.0
+      },
+      {
+       "d": "2026-10-16",
+       "o": 2030.4,
+       "h": 2086.0,
+       "l": 2028.7,
+       "c": 2060.1,
+       "v": 1606547.0
+      },
+      {
+       "d": "2026-10-19",
+       "o": 2060.1,
+       "h": 2089.0,
+       "l": 2052.2,
+       "c": 2069.0,
+       "v": 1133053.0
+      },
+      {
+       "d": "2026-10-21",
+       "o": 2052.9,
+       "h": 2079.8,
+       "l": 1993.4,
+       "c": 2012.5,
+       "v": 1275844.0
+      },
+      {
+       "d": "2026-10-22",
+       "o": 1993.5,
+       "h": 2019.8,
+       "l": 1956.6,
+       "c": 2002.5,
+       "v": 1538717.0
+      },
+      {
+       "d": "2026-10-23",
+       "o": 1987.5,
+       "h": 2009.6,
+       "l": 1933.5,
+       "c": 1970.0,
+       "v": 1893713.0
+      },
+      {
+       "d": "2026-10-26",
+       "o": 1960.0,
+       "h": 2058.9,
+       "l": 1951.6,
+       "c": 2058.9,
+       "v": 1858328.0
+      },
+      {
+       "d": "2026-10-27",
+       "o": 2075.0,
+       "h": 2143.1,
+       "l": 2067.4,
+       "c": 2142.0,
+       "v": 3117057.0
+      },
+      {
+       "d": "2026-10-28",
+       "o": 2142.0,
+       "h": 2198.8,
+       "l": 2131.7,
+       "c": 2181.9,
+       "v": 2200731.0
+      },
+      {
+       "d": "2026-10-29",
+       "o": 2190.0,
+       "h": 2244.0,
+       "l": 2166.0,
+       "c": 2244.0,
+       "v": 2900789.0
+      }
+     ],
+     "overlays": {
+      "ema20": [
+       1664.99,
+       1681.18,
+       1695.35,
+       1709.54,
+       1723.3,
+       1736.13,
+       1746.97,
+       1756.94,
+       1759.84,
+       1764.58,
+       1769.29,
+       1772.39,
+       1777.4,
+       1779.74,
+       1781.77,
+       1789.81,
+       1799.06,
+       1811.48,
+       1823.57,
+       1832.28,
+       1835.07,
+       1837.83,
+       1840.75,
+       1840.68,
+       1844.11,
+       1853.9,
+       1861.81,
+       1869.74,
+       1879.19,
+       1883.73,
+       1885.81,
+       1891.74,
+       1897.67,
+       1909.08,
+       1918.36,
+       1929.37,
+       1938.59,
+       1945.11,
+       1951.36,
+       1953.99,
+       1956.47,
+       1959.09,
+       1960.26,
+       1968.81,
+       1976.81,
+       1978.82,
+       1984.32,
+       1992.4,
+       1998.78,
+       2002.41,
+       2003.95,
+       2009.29,
+       2014.98,
+       2014.74,
+       2013.58,
+       2009.43,
+       2014.14,
+       2026.32,
+       2041.13,
+       2060.45
+      ],
+      "ema50": [
+       1524.9,
+       1537.06,
+       1548.55,
+       1560.15,
+       1571.67,
+       1582.9,
+       1593.37,
+       1603.5,
+       1610.71,
+       1618.52,
+       1626.18,
+       1633.07,
+       1640.6,
+       1646.93,
+       1652.97,
+       1661.33,
+       1670.18,
+       1680.34,
+       1690.47,
+       1699.27,
+       1705.64,
+       1711.85,
+       1717.99,
+       1722.78,
+       1728.81,
+       1737.37,
+       1745.19,
+       1753.03,
+       1761.5,
+       1767.99,
+       1773.38,
+       1780.23,
+       1787.05,
+       1796.08,
+       1804.33,
+       1813.34,
+       1821.69,
+       1828.96,
+       1836.08,
+       1841.69,
+       1847.11,
+       1852.48,
+       1857.14,
+       1864.71,
+       1872.08,
+       1877.02,
+       1883.27,
+       1890.57,
+       1897.19,
+       1902.67,
+       1907.21,
+       1913.2,
+       1919.31,
+       1922.97,
+       1926.09,
+       1927.81,
+       1932.95,
+       1941.15,
+       1950.59,
+       1962.1
+      ]
+     },
+     "levels": [
+      {
+       "kind": "resistance",
+       "price": 2244.0,
+       "label": "Breakout level ₹2,244.00"
+      },
+      {
+       "kind": "stop",
+       "price": 2151.16,
+       "label": "Stop ₹2,151.16"
+      }
+     ],
+     "band": null
+    },
+    {
+     "type": "bars",
+     "id": "volx",
+     "title": "Volume against the usual",
+     "note": "Mean volume of the last 3 sessions ÷ the mean of the 20 before.",
+     "unit": "×",
+     "orientation": "h",
+     "items": [
+      {
+       "label": "LAURUSLABS",
+       "value": 1.66,
+       "tone": "up",
+       "sub": null
+      }
+     ],
+     "baseline": 1.0
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Positional scanner watchlist (breakout_confirmed)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Entry, target and stop-loss for LAURUSLABS",
+     "query": "Entry, target and stop-loss for LAURUSLABS"
+    },
+    {
+     "label": "Which stocks have unusual volume?",
+     "query": "Which stocks have unusual volume?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "unusual_volume": {
+   "schema": "visual-answer-v1",
+   "intent": "unusual_volume",
+   "title": "Unusual volume",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:20:02+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "65 eligible stocks traded with unusually high volume on 29 Oct; VGUARD led at 82.5× its 20-day average.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "bars",
+     "id": "rvol",
+     "title": "Relative volume · top 10 on 29 Oct",
+     "note": "The day's volume ÷ its 20-session average; z = standard deviations above that average.",
+     "unit": "×",
+     "orientation": "h",
+     "items": [
+      {
+       "label": "VGUARD",
+       "value": 82.47,
+       "tone": "up",
+       "sub": "z 148.8"
+      },
+      {
+       "label": "EQUITASBNK",
+       "value": 49.28,
+       "tone": "down",
+       "sub": "z 147.9"
+      },
+      {
+       "label": "SANOFICONR",
+       "value": 52.01,
+       "tone": "up",
+       "sub": "z 54.1"
+      },
+      {
+       "label": "IIFLCAPS",
+       "value": 14.5,
+       "tone": "up",
+       "sub": "z 23.0"
+      },
+      {
+       "label": "HUBTOWN",
+       "value": 24.06,
+       "tone": "up",
+       "sub": "z 21.9"
+      },
+      {
+       "label": "SGMART",
+       "value": 16.13,
+       "tone": "up",
+       "sub": "z 17.4"
+      },
+      {
+       "label": "APOLLOPIPE",
+       "value": 11.94,
+       "tone": "up",
+       "sub": "z 16.9"
+      },
+      {
+       "label": "BSOFT",
+       "value": 21.07,
+       "tone": "up",
+       "sub": "z 16.4"
+      },
+      {
+       "label": "INDSWFTLAB",
+       "value": 7.33,
+       "tone": "up",
+       "sub": "z 14.5"
+      },
+      {
+       "label": "RPOWER",
+       "value": 5.97,
+       "tone": "up",
+       "sub": "z 13.9"
+      }
+     ],
+     "baseline": 1.0
+    },
+    {
+     "type": "ranked",
+     "id": "table",
+     "title": "Price and delivery",
+     "note": "65 eligible stocks met the rule (volume z-score ≥ 2); the top 10 by z-score.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Stock",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "close",
+       "label": "Close",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "chg",
+       "label": "Price %",
+       "align": "right",
+       "format": "pct"
+      },
+      {
+       "key": "rvol",
+       "label": "Volume ×",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "deliv",
+       "label": "Delivery % (29 Oct)",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "VGUARD",
+       "ask": "Trade plan for VGUARD",
+       "tone": "up",
+       "cells": {
+        "symbol": "VGUARD",
+        "close": 284.85,
+        "chg": 7.9,
+        "rvol": 82.47,
+        "deliv": "12.04%"
+       }
+      },
+      {
+       "symbol": "EQUITASBNK",
+       "ask": "Trade plan for EQUITASBNK",
+       "tone": "down",
+       "cells": {
+        "symbol": "EQUITASBNK",
+        "close": 57.17,
+        "chg": -12.22,
+        "rvol": 49.28,
+        "deliv": "41.45%"
+       }
+      },
+      {
+       "symbol": "SANOFICONR",
+       "ask": "Trade plan for SANOFICONR",
+       "tone": "up",
+       "cells": {
+        "symbol": "SANOFICONR",
+        "close": 3468.0,
+        "chg": 4.37,
+        "rvol": 52.01,
+        "deliv": "40.62%"
+       }
+      },
+      {
+       "symbol": "IIFLCAPS",
+       "ask": "Trade plan for IIFLCAPS",
+       "tone": "up",
+       "cells": {
+        "symbol": "IIFLCAPS",
+        "close": 347.75,
+        "chg": 0.45,
+        "rvol": 14.5,
+        "deliv": "74.97%"
+       }
+      },
+      {
+       "symbol": "HUBTOWN",
+       "ask": "Trade plan for HUBTOWN",
+       "tone": "up",
+       "cells": {
+        "symbol": "HUBTOWN",
+        "close": 183.89,
+        "chg": 6.7,
+        "rvol": 24.06,
+        "deliv": "10.07%"
+       }
+      },
+      {
+       "symbol": "SGMART",
+       "ask": "Trade plan for SGMART",
+       "tone": "up",
+       "cells": {
+        "symbol": "SGMART",
+        "close": 864.55,
+        "chg": 7.67,
+        "rvol": 16.13,
+        "deliv": "19.52%"
+       }
+      },
+      {
+       "symbol": "APOLLOPIPE",
+       "ask": "Trade plan for APOLLOPIPE",
+       "tone": "up",
+       "cells": {
+        "symbol": "APOLLOPIPE",
+        "close": 544.25,
+        "chg": 12.96,
+        "rvol": 11.94,
+        "deliv": "16.27%"
+       }
+      },
+      {
+       "symbol": "BSOFT",
+       "ask": "Trade plan for BSOFT",
+       "tone": "up",
+       "cells": {
+        "symbol": "BSOFT",
+        "close": 342.5,
+        "chg": 11.89,
+        "rvol": 21.07,
+        "deliv": "8.47%"
+       }
+      },
+      {
+       "symbol": "INDSWFTLAB",
+       "ask": "Trade plan for INDSWFTLAB",
+       "tone": "up",
+       "cells": {
+        "symbol": "INDSWFTLAB",
+        "close": 409.8,
+        "chg": 8.14,
+        "rvol": 7.33,
+        "deliv": "31.87%"
+       }
+      },
+      {
+       "symbol": "RPOWER",
+       "ask": "Trade plan for RPOWER",
+       "tone": "up",
+       "cells": {
+        "symbol": "RPOWER",
+        "close": 18.98,
+        "chg": 9.14,
+        "rvol": 5.97,
+        "deliv": "11.87%"
+       }
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Stock features + NSE bhavcopy (scan snapshot)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE delivery (nidp.delivery_data)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which breakouts are confirmed?",
+     "query": "Which breakouts are confirmed?"
+    },
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "stock_decision": {
+   "schema": "visual-answer-v1",
+   "intent": "stock_decision",
+   "title": "PNB · entry, stop and targets",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:20:07+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹23,760.00, stop ₹120.67, first target ₹130.36.",
+    "tone": "up"
+   },
+   "decision": {
+    "status": "setup_ready",
+    "label": "Setup ready",
+    "reason": "Covered call (shares + short call): net premium ₹23,760.00, stop ₹120.67 (underlying).",
+    "conditions": [
+     {
+      "text": "Trend: Trend up: close 123.90 vs EMA50 116.60, EMA20 118.89.",
+      "met": true
+     },
+     {
+      "text": "Relative strength: 63-session return +16.96% against the benchmark.",
+      "met": true
+     },
+     {
+      "text": "Momentum: MACD histogram +0.54, 20-day change +10.87%.",
+      "met": true
+     },
+     {
+      "text": "Fits your risk limits: The smallest valid size (one lot per leg) exceeds the per-trade budget",
+      "met": false
+     }
+    ],
+    "invalidation": "the thesis is wrong if the underlying closes beyond this level (₹120.67)",
+    "plan_id": "tp_16af164648ee9112"
+   },
+   "blocks": [
+    {
+     "type": "candles",
+     "id": "chart",
+     "title": "PNB · the plan on the chart",
+     "note": null,
+     "symbol": "PNB",
+     "bars": [
+      {
+       "d": "2026-08-04",
+       "o": 113.49,
+       "h": 114.0,
+       "l": 112.64,
+       "c": 113.99,
+       "v": 7961139.0
+      },
+      {
+       "d": "2026-08-05",
+       "o": 114.16,
+       "h": 115.2,
+       "l": 113.3,
+       "c": 113.55,
+       "v": 10371553.0
+      },
+      {
+       "d": "2026-08-06",
+       "o": 113.55,
+       "h": 114.85,
+       "l": 113.2,
+       "c": 114.3,
+       "v": 11910351.0
+      },
+      {
+       "d": "2026-08-07",
+       "o": 114.01,
+       "h": 115.37,
+       "l": 113.6,
+       "c": 114.81,
+       "v": 11202537.0
+      },
+      {
+       "d": "2026-08-10",
+       "o": 114.81,
+       "h": 115.19,
+       "l": 113.2,
+       "c": 113.5,
+       "v": 11111923.0
+      },
+      {
+       "d": "2026-08-11",
+       "o": 113.5,
+       "h": 114.3,
+       "l": 112.3,
+       "c": 114.03,
+       "v": 14258368.0
+      },
+      {
+       "d": "2026-08-12",
+       "o": 113.95,
+       "h": 119.5,
+       "l": 113.72,
+       "c": 118.98,
+       "v": 51235935.0
+      },
+      {
+       "d": "2026-08-13",
+       "o": 118.62,
+       "h": 119.35,
+       "l": 117.31,
+       "c": 117.59,
+       "v": 10028318.0
+      },
+      {
+       "d": "2026-08-14",
+       "o": 117.88,
+       "h": 118.9,
+       "l": 117.4,
+       "c": 118.0,
+       "v": 11249012.0
+      },
+      {
+       "d": "2026-08-17",
+       "o": 117.11,
+       "h": 118.06,
+       "l": 115.32,
+       "c": 117.32,
+       "v": 12881843.0
+      },
+      {
+       "d": "2026-08-18",
+       "o": 117.0,
+       "h": 117.99,
+       "l": 116.5,
+       "c": 116.5,
+       "v": 7856627.0
+      },
+      {
+       "d": "2026-08-19",
+       "o": 116.45,
+       "h": 117.59,
+       "l": 116.03,
+       "c": 117.48,
+       "v": 7920810.0
+      },
+      {
+       "d": "2026-08-20",
+       "o": 117.9,
+       "h": 119.1,
+       "l": 117.44,
+       "c": 118.0,
+       "v": 8551120.0
+      },
+      {
+       "d": "2026-08-21",
+       "o": 117.45,
+       "h": 117.52,
+       "l": 115.41,
+       "c": 116.55,
+       "v": 14049357.0
+      },
+      {
+       "d": "2026-08-24",
+       "o": 116.5,
+       "h": 117.03,
+       "l": 115.0,
+       "c": 115.86,
+       "v": 10613260.0
+      },
+      {
+       "d": "2026-08-25",
+       "o": 115.61,
+       "h": 116.9,
+       "l": 115.01,
+       "c": 115.93,
+       "v": 13026659.0
+      },
+      {
+       "d": "2026-08-26",
+       "o": 116.93,
+       "h": 118.2,
+       "l": 116.39,
+       "c": 116.7,
+       "v": 7741983.0
+      },
+      {
+       "d": "2026-08-27",
+       "o": 116.7,
+       "h": 117.2,
+       "l": 115.07,
+       "c": 115.4,
+       "v": 10955188.0
+      },
+      {
+       "d": "2026-08-28",
+       "o": 114.81,
+       "h": 115.75,
+       "l": 114.42,
+       "c": 115.4,
+       "v": 8502644.0
+      },
+      {
+       "d": "2026-08-31",
+       "o": 115.0,
+       "h": 115.35,
+       "l": 113.16,
+       "c": 114.23,
+       "v": 18423594.0
+      },
+      {
+       "d": "2026-09-01",
+       "o": 114.49,
+       "h": 116.5,
+       "l": 114.07,
+       "c": 115.22,
+       "v": 10969598.0
+      },
+      {
+       "d": "2026-09-02",
+       "o": 114.65,
+       "h": 117.25,
+       "l": 113.92,
+       "c": 117.0,
+       "v": 21100041.0
+      },
+      {
+       "d": "2026-09-03",
+       "o": 117.95,
+       "h": 118.25,
+       "l": 116.32,
+       "c": 116.32,
+       "v": 11831844.0
+      },
+      {
+       "d": "2026-09-04",
+       "o": 116.9,
+       "h": 118.05,
+       "l": 116.45,
+       "c": 117.0,
+       "v": 11160741.0
+      },
+      {
+       "d": "2026-09-07",
+       "o": 116.41,
+       "h": 117.17,
+       "l": 115.55,
+       "c": 115.6,
+       "v": 11062919.0
+      },
+      {
+       "d": "2026-09-08",
+       "o": 115.75,
+       "h": 116.68,
+       "l": 114.95,
+       "c": 116.0,
+       "v": 11972532.0
+      },
+      {
+       "d": "2026-09-09",
+       "o": 115.25,
+       "h": 117.0,
+       "l": 115.25,
+       "c": 115.61,
+       "v": 11691129.0
+      },
+      {
+       "d": "2026-09-10",
+       "o": 115.5,
+       "h": 118.2,
+       "l": 115.47,
+       "c": 116.85,
+       "v": 18231772.0
+      },
+      {
+       "d": "2026-09-11",
+       "o": 116.0,
+       "h": 117.79,
+       "l": 114.52,
+       "c": 116.75,
+       "v": 11479971.0
+      },
+      {
+       "d": "2026-09-15",
+       "o": 116.75,
+       "h": 117.23,
+       "l": 114.7,
+       "c": 114.7,
+       "v": 12031284.0
+      },
+      {
+       "d": "2026-09-16",
+       "o": 114.73,
+       "h": 117.48,
+       "l": 114.63,
+       "c": 116.8,
+       "v": 18494065.0
+      },
+      {
+       "d": "2026-09-17",
+       "o": 116.8,
+       "h": 119.4,
+       "l": 116.36,
+       "c": 116.47,
+       "v": 15924714.0
+      },
+      {
+       "d": "2026-09-18",
+       "o": 117.0,
+       "h": 117.5,
+       "l": 116.5,
+       "c": 117.27,
+       "v": 16061334.0
+      },
+      {
+       "d": "2026-09-21",
+       "o": 117.23,
+       "h": 118.58,
+       "l": 116.64,
+       "c": 118.0,
+       "v": 8624424.0
+      },
+      {
+       "d": "2026-09-22",
+       "o": 118.45,
+       "h": 118.74,
+       "l": 116.7,
+       "c": 117.0,
+       "v": 8967547.0
+      },
+      {
+       "d": "2026-09-23",
+       "o": 116.61,
+       "h": 118.9,
+       "l": 116.61,
+       "c": 118.3,
+       "v": 12840968.0
+      },
+      {
+       "d": "2026-09-24",
+       "o": 117.25,
+       "h": 118.67,
+       "l": 117.06,
+       "c": 117.12,
+       "v": 10755825.0
+      },
+      {
+       "d": "2026-09-25",
+       "o": 117.12,
+       "h": 118.01,
+       "l": 116.23,
+       "c": 116.6,
+       "v": 8069096.0
+      },
+      {
+       "d": "2026-09-28",
+       "o": 116.55,
+       "h": 116.55,
+       "l": 112.07,
+       "c": 112.6,
+       "v": 14250157.0
+      },
+      {
+       "d": "2026-09-29",
+       "o": 112.55,
+       "h": 113.98,
+       "l": 110.56,
+       "c": 111.75,
+       "v": 25885049.0
+      },
+      {
+       "d": "2026-09-30",
+       "o": 111.8,
+       "h": 114.9,
+       "l": 111.8,
+       "c": 113.06,
+       "v": 15255055.0
+      },
+      {
+       "d": "2026-10-01",
+       "o": 113.06,
+       "h": 113.38,
+       "l": 109.37,
+       "c": 109.57,
+       "v": 11365686.0
+      },
+      {
+       "d": "2026-10-05",
+       "o": 110.65,
+       "h": 113.58,
+       "l": 110.5,
+       "c": 112.35,
+       "v": 12282429.0
+      },
+      {
+       "d": "2026-10-06",
+       "o": 112.36,
+       "h": 113.0,
+       "l": 111.17,
+       "c": 111.92,
+       "v": 8421589.0
+      },
+      {
+       "d": "2026-10-07",
+       "o": 111.6,
+       "h": 115.1,
+       "l": 110.55,
+       "c": 114.59,
+       "v": 18275898.0
+      },
+      {
+       "d": "2026-10-08",
+       "o": 114.73,
+       "h": 117.45,
+       "l": 113.71,
+       "c": 115.29,
+       "v": 20438240.0
+      },
+      {
+       "d": "2026-10-09",
+       "o": 115.5,
+       "h": 117.95,
+       "l": 114.9,
+       "c": 116.98,
+       "v": 12666514.0
+      },
+      {
+       "d": "2026-10-12",
+       "o": 116.99,
+       "h": 117.33,
+       "l": 114.76,
+       "c": 116.0,
+       "v": 8980416.0
+      },
+      {
+       "d": "2026-10-13",
+       "o": 115.45,
+       "h": 117.25,
+       "l": 115.18,
+       "c": 116.55,
+       "v": 11211261.0
+      },
+      {
+       "d": "2026-10-14",
+       "o": 116.8,
+       "h": 119.64,
+       "l": 115.58,
+       "c": 118.5,
+       "v": 21611333.0
+      },
+      {
+       "d": "2026-10-15",
+       "o": 118.55,
+       "h": 118.79,
+       "l": 114.63,
+       "c": 115.05,
+       "v": 17212388.0
+      },
+      {
+       "d": "2026-10-16",
+       "o": 116.29,
+       "h": 116.4,
+       "l": 114.1,
+       "c": 116.3,
+       "v": 15709991.0
+      },
+      {
+       "d": "2026-10-19",
+       "o": 120.87,
+       "h": 125.22,
+       "l": 120.0,
+       "c": 121.9,
+       "v": 78115490.0
+      },
+      {
+       "d": "2026-10-21",
+       "o": 122.5,
+       "h": 124.2,
+       "l": 121.38,
+       "c": 122.5,
+       "v": 31119542.0
+      },
+      {
+       "d": "2026-10-22",
+       "o": 122.5,
+       "h": 122.5,
+       "l": 120.55,
+       "c": 122.5,
+       "v": 29716337.0
+      },
+      {
+       "d": "2026-10-23",
+       "o": 122.0,
+       "h": 122.3,
+       "l": 119.06,
+       "c": 120.37,
+       "v": 21067478.0
+      },
+      {
+       "d": "2026-10-26",
+       "o": 119.35,
+       "h": 120.89,
+       "l": 118.2,
+       "c": 120.89,
+       "v": 13598906.0
+      },
+      {
+       "d": "2026-10-27",
+       "o": 121.0,
+       "h": 122.34,
+       "l": 120.2,
+       "c": 121.27,
+       "v": 22099211.0
+      },
+      {
+       "d": "2026-10-28",
+       "o": 120.1,
+       "h": 121.5,
+       "l": 119.42,
+       "c": 120.31,
+       "v": 8382686.0
+      },
+      {
+       "d": "2026-10-29",
+       "o": 119.91,
+       "h": 123.9,
+       "l": 119.62,
+       "c": 123.9,
+       "v": 27694674.0
+      }
+     ],
+     "overlays": {
+      "ema20": [
+       110.1,
+       110.43,
+       110.8,
+       111.18,
+       111.4,
+       111.65,
+       112.35,
+       112.85,
+       113.34,
+       113.72,
+       113.98,
+       114.32,
+       114.67,
+       114.85,
+       114.94,
+       115.04,
+       115.19,
+       115.21,
+       115.23,
+       115.14,
+       115.14,
+       115.32,
+       115.42,
+       115.57,
+       115.57,
+       115.61,
+       115.61,
+       115.73,
+       115.83,
+       115.72,
+       115.82,
+       115.88,
+       116.02,
+       116.2,
+       116.28,
+       116.47,
+       116.53,
+       116.54,
+       116.17,
+       115.74,
+       115.49,
+       114.93,
+       114.68,
+       114.42,
+       114.43,
+       114.52,
+       114.75,
+       114.87,
+       115.03,
+       115.36,
+       115.33,
+       115.42,
+       116.04,
+       116.65,
+       117.21,
+       117.51,
+       117.83,
+       118.16,
+       118.37,
+       118.89
+      ],
+      "ema50": [
+       108.78,
+       108.96,
+       109.17,
+       109.39,
+       109.56,
+       109.73,
+       110.09,
+       110.39,
+       110.69,
+       110.95,
+       111.16,
+       111.41,
+       111.67,
+       111.86,
+       112.02,
+       112.17,
+       112.35,
+       112.47,
+       112.58,
+       112.65,
+       112.75,
+       112.92,
+       113.05,
+       113.2,
+       113.3,
+       113.4,
+       113.49,
+       113.62,
+       113.75,
+       113.78,
+       113.9,
+       114.0,
+       114.13,
+       114.28,
+       114.39,
+       114.54,
+       114.64,
+       114.72,
+       114.64,
+       114.52,
+       114.47,
+       114.27,
+       114.2,
+       114.11,
+       114.13,
+       114.17,
+       114.28,
+       114.35,
+       114.44,
+       114.6,
+       114.61,
+       114.68,
+       114.96,
+       115.26,
+       115.54,
+       115.73,
+       115.93,
+       116.14,
+       116.31,
+       116.6
+      ],
+      "ema200": [
+       111.36,
+       111.38,
+       111.41,
+       111.44,
+       111.46,
+       111.49,
+       111.56,
+       111.62,
+       111.69,
+       111.74,
+       111.79,
+       111.85,
+       111.91,
+       111.95,
+       111.99,
+       112.03,
+       112.08,
+       112.11,
+       112.14,
+       112.16,
+       112.19,
+       112.24,
+       112.28,
+       112.33,
+       112.36,
+       112.4,
+       112.43,
+       112.47,
+       112.52,
+       112.54,
+       112.58,
+       112.62,
+       112.67,
+       112.72,
+       112.76,
+       112.82,
+       112.86,
+       112.9,
+       112.89,
+       112.88,
+       112.88,
+       112.85,
+       112.85,
+       112.84,
+       112.85,
+       112.88,
+       112.92,
+       112.95,
+       112.99,
+       113.04,
+       113.06,
+       113.09,
+       113.18,
+       113.27,
+       113.37,
+       113.44,
+       113.51,
+       113.59,
+       113.65,
+       113.76
+      ]
+     },
+     "levels": [
+      {
+       "kind": "stop",
+       "price": 120.67,
+       "label": "Stop ₹120.67"
+      },
+      {
+       "kind": "target",
+       "price": 127.02,
+       "label": "Target conservative ₹127.02"
+      },
+      {
+       "kind": "target",
+       "price": 130.36,
+       "label": "Target base ₹130.36"
+      },
+      {
+       "kind": "target",
+       "price": 133.59,
+       "label": "Target optimistic ₹133.59"
+      }
+     ],
+     "band": null
+    },
+    {
+     "type": "notice",
+     "id": "limits",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Your risk limits would not allow this plan on your account (The smallest valid size (one lot per leg) exceeds the per-trade budget). The plan card below says why and what you can do."
+    },
+    {
+     "type": "kpis",
+     "id": "risk",
+     "title": "Risk and reward",
+     "note": null,
+     "items": [
+      {
+       "label": "Strategy",
+       "value": "Covered call (shares + short call)",
+       "sub": "options"
+      },
+      {
+       "label": "Net premium",
+       "value": "₹23,760.00",
+       "sub": "every leg at its end-of-day premium (NSE F&O bhavcopy close)"
+      },
+      {
+       "label": "Stop",
+       "value": "₹120.67",
+       "sub": "underlying level"
+      },
+      {
+       "label": "First target",
+       "value": "₹130.36",
+       "sub": "2.0R"
+      },
+      {
+       "label": "Reward:risk",
+       "value": "2.0×",
+       "sub": "to the first target, before charges"
+      }
+     ]
+    },
+    {
+     "type": "trade_plan",
+     "id": "plan",
+     "title": "The desk's plan",
+     "note": null,
+     "plan_id": "tp_16af164648ee9112"
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Desk trade plan (StrategyPlan + TradePlan, end of day)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": [
+     "Account sizing: the risk service would refuse this plan on your account (not_sizable)"
+    ]
+   },
+   "follow_ups": [
+    {
+     "label": "Plan a bearish trade for PNB instead",
+     "query": "Plan a bearish trade for PNB instead"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Which breakouts are confirmed?",
+     "query": "Which breakouts are confirmed?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "expected_move": {
+   "schema": "visual-answer-v1",
+   "intent": "expected_move",
+   "title": "Expected move in Nifty",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-30T12:20:07+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "The Nifty options price a move of about ±278.85 points (±1.22%) to the 3 Nov 2026 expiry; PCR 1.44, max pain 22,900.00.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "chain",
+     "title": "Option chain · 3 Nov 2026 expiry",
+     "note": null,
+     "items": [
+      {
+       "label": "Expected move",
+       "value": "±278.85 pts",
+       "sub": "±1.22% · ATM straddle"
+      },
+      {
+       "label": "ATM IV",
+       "value": "12.99%",
+       "sub": "Black-76 on the ATM strike, end of day"
+      },
+      {
+       "label": "PCR",
+       "value": "1.44",
+       "sub": "put OI ÷ call OI, whole expiry",
+       "tone": "up"
+      },
+      {
+       "label": "Max pain",
+       "value": "22,900.00",
+       "sub": null
+      },
+      {
+       "label": "Expiry",
+       "value": "3 Nov 2026",
+       "sub": "5 days from 29 Oct"
+      },
+      {
+       "label": "Spot",
+       "value": "22,936.75",
+       "sub": "close 29 Oct"
+      }
+     ]
+    },
+    {
+     "type": "candles",
+     "id": "chart",
+     "title": "Nifty 50 with the expected-move band",
+     "note": "Shaded: spot ± the ATM straddle. Dashed: call wall, put wall and max pain.",
+     "symbol": "NIFTY",
+     "bars": [
+      {
+       "d": "2026-08-04",
+       "o": 24703.9,
+       "h": 24703.9,
+       "l": 24427.95,
+       "c": 24614.9,
+       "v": null
+      },
+      {
+       "d": "2026-08-05",
+       "o": 24669.2,
+       "h": 24677.6,
+       "l": 24497.95,
+       "c": 24624.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-06",
+       "o": 24641.0,
+       "h": 24677.05,
+       "l": 24604.15,
+       "c": 24636.0,
+       "v": null
+      },
+      {
+       "d": "2026-08-07",
+       "o": 24538.9,
+       "h": 24630.4,
+       "l": 24522.75,
+       "c": 24570.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-10",
+       "o": 24581.25,
+       "h": 24620.95,
+       "l": 24511.1,
+       "c": 24583.8,
+       "v": null
+      },
+      {
+       "d": "2026-08-11",
+       "o": 24575.1,
+       "h": 24576.85,
+       "l": 24429.25,
+       "c": 24471.7,
+       "v": null
+      },
+      {
+       "d": "2026-08-12",
+       "o": 24472.45,
+       "h": 24473.3,
+       "l": 24265.95,
+       "c": 24435.95,
+       "v": null
+      },
+      {
+       "d": "2026-08-13",
+       "o": 24431.6,
+       "h": 24431.6,
+       "l": 24311.4,
+       "c": 24395.85,
+       "v": null
+      },
+      {
+       "d": "2026-08-14",
+       "o": 24361.9,
+       "h": 24405.2,
+       "l": 24296.8,
+       "c": 24366.0,
+       "v": null
+      },
+      {
+       "d": "2026-08-17",
+       "o": 24343.45,
+       "h": 24360.1,
+       "l": 24226.95,
+       "c": 24287.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-18",
+       "o": 24223.85,
+       "h": 24269.65,
+       "l": 24154.9,
+       "c": 24154.9,
+       "v": null
+      },
+      {
+       "d": "2026-08-19",
+       "o": 24152.05,
+       "h": 24172.85,
+       "l": 24025.65,
+       "c": 24078.3,
+       "v": null
+      },
+      {
+       "d": "2026-08-20",
+       "o": 24225.45,
+       "h": 24265.15,
+       "l": 24184.55,
+       "c": 24231.85,
+       "v": null
+      },
+      {
+       "d": "2026-08-21",
+       "o": 24284.05,
+       "h": 24284.05,
+       "l": 24206.8,
+       "c": 24252.0,
+       "v": null
+      },
+      {
+       "d": "2026-08-24",
+       "o": 24285.05,
+       "h": 24313.0,
+       "l": 24144.3,
+       "c": 24219.05,
+       "v": null
+      },
+      {
+       "d": "2026-08-25",
+       "o": 24175.75,
+       "h": 24334.55,
+       "l": 24115.45,
+       "c": 24334.55,
+       "v": null
+      },
+      {
+       "d": "2026-08-26",
+       "o": 24341.95,
+       "h": 24378.6,
+       "l": 24207.75,
+       "c": 24207.75,
+       "v": null
+      },
+      {
+       "d": "2026-08-27",
+       "o": 24277.6,
+       "h": 24297.45,
+       "l": 24090.85,
+       "c": 24090.85,
+       "v": null
+      },
+      {
+       "d": "2026-08-28",
+       "o": 24122.6,
+       "h": 24188.3,
+       "l": 24076.85,
+       "c": 24175.65,
+       "v": null
+      },
+      {
+       "d": "2026-08-31",
+       "o": 24117.55,
+       "h": 24128.7,
+       "l": 23993.6,
+       "c": 24080.4,
+       "v": null
+      },
+      {
+       "d": "2026-09-01",
+       "o": 24077.55,
+       "h": 24143.15,
+       "l": 23952.55,
+       "c": 24055.8,
+       "v": null
+      },
+      {
+       "d": "2026-09-02",
+       "o": 23858.0,
+       "h": 23914.45,
+       "l": 23786.8,
+       "c": 23914.45,
+       "v": null
+      },
+      {
+       "d": "2026-09-03",
+       "o": 23997.95,
+       "h": 24025.4,
+       "l": 23873.45,
+       "c": 23873.45,
+       "v": null
+      },
+      {
+       "d": "2026-09-04",
+       "o": 23910.9,
+       "h": 24005.75,
+       "l": 23895.85,
+       "c": 23897.7,
+       "v": null
+      },
+      {
+       "d": "2026-09-07",
+       "o": 23883.15,
+       "h": 23890.0,
+       "l": 23737.9,
+       "c": 23779.15,
+       "v": null
+      },
+      {
+       "d": "2026-09-08",
+       "o": 23743.1,
+       "h": 23758.95,
+       "l": 23623.1,
+       "c": 23635.1,
+       "v": null
+      },
+      {
+       "d": "2026-09-09",
+       "o": 23522.05,
+       "h": 23571.55,
+       "l": 23431.5,
+       "c": 23431.5,
+       "v": null
+      },
+      {
+       "d": "2026-09-10",
+       "o": 23446.6,
+       "h": 23494.95,
+       "l": 23380.1,
+       "c": 23477.8,
+       "v": null
+      },
+      {
+       "d": "2026-09-11",
+       "o": 23270.3,
+       "h": 23448.1,
+       "l": 23231.4,
+       "c": 23398.1,
+       "v": null
+      },
+      {
+       "d": "2026-09-15",
+       "o": 23576.15,
+       "h": 23592.85,
+       "l": 23118.6,
+       "c": 23118.6,
+       "v": null
+      },
+      {
+       "d": "2026-09-16",
+       "o": 23201.6,
+       "h": 23284.75,
+       "l": 23116.1,
+       "c": 23217.6,
+       "v": null
+      },
+      {
+       "d": "2026-09-17",
+       "o": 23195.25,
+       "h": 23363.55,
+       "l": 23193.65,
+       "c": 23270.6,
+       "v": null
+      },
+      {
+       "d": "2026-09-18",
+       "o": 23334.7,
+       "h": 23389.15,
+       "l": 23286.6,
+       "c": 23346.4,
+       "v": null
+      },
+      {
+       "d": "2026-09-21",
+       "o": 23330.2,
+       "h": 23466.8,
+       "l": 23314.8,
+       "c": 23414.3,
+       "v": null
+      },
+      {
+       "d": "2026-09-22",
+       "o": 23454.05,
+       "h": 23489.0,
+       "l": 23285.75,
+       "c": 23329.0,
+       "v": null
+      },
+      {
+       "d": "2026-09-23",
+       "o": 23352.15,
+       "h": 23466.9,
+       "l": 23349.55,
+       "c": 23446.8,
+       "v": null
+      },
+      {
+       "d": "2026-09-24",
+       "o": 23221.8,
+       "h": 23281.95,
+       "l": 23046.15,
+       "c": 23063.1,
+       "v": null
+      },
+      {
+       "d": "2026-09-25",
+       "o": 23035.0,
+       "h": 23162.7,
+       "l": 23020.95,
+       "c": 23140.5,
+       "v": null
+      },
+      {
+       "d": "2026-09-28",
+       "o": 23064.9,
+       "h": 23080.25,
+       "l": 22762.2,
+       "c": 22780.25,
+       "v": null
+      },
+      {
+       "d": "2026-09-29",
+       "o": 22732.45,
+       "h": 22753.25,
+       "l": 22569.65,
+       "c": 22716.2,
+       "v": null
+      },
+      {
+       "d": "2026-09-30",
+       "o": 22665.0,
+       "h": 22809.35,
+       "l": 22595.2,
+       "c": 22620.45,
+       "v": null
+      },
+      {
+       "d": "2026-10-01",
+       "o": 22543.7,
+       "h": 22610.6,
+       "l": 22217.3,
+       "c": 22421.95,
+       "v": null
+      },
+      {
+       "d": "2026-10-05",
+       "o": 22532.4,
+       "h": 22621.8,
+       "l": 22397.1,
+       "c": 22555.75,
+       "v": null
+      },
+      {
+       "d": "2026-10-06",
+       "o": 22603.25,
+       "h": 22776.1,
+       "l": 22561.6,
+       "c": 22776.1,
+       "v": null
+      },
+      {
+       "d": "2026-10-07",
+       "o": 22690.45,
+       "h": 22717.65,
+       "l": 22546.3,
+       "c": 22603.05,
+       "v": null
+      },
+      {
+       "d": "2026-10-08",
+       "o": 22599.05,
+       "h": 22599.05,
+       "l": 22179.9,
+       "c": 22231.8,
+       "v": null
+      },
+      {
+       "d": "2026-10-09",
+       "o": 22314.95,
+       "h": 22580.75,
+       "l": 22294.75,
+       "c": 22520.45,
+       "v": null
+      },
+      {
+       "d": "2026-10-12",
+       "o": 22593.2,
+       "h": 22651.1,
+       "l": 22304.45,
+       "c": 22363.35,
+       "v": null
+      },
+      {
+       "d": "2026-10-13",
+       "o": 22364.15,
+       "h": 22721.95,
+       "l": 22288.45,
+       "c": 22721.95,
+       "v": null
+      },
+      {
+       "d": "2026-10-14",
+       "o": 22715.75,
+       "h": 22757.95,
+       "l": 22558.95,
+       "c": 22622.7,
+       "v": null
+      },
+      {
+       "d": "2026-10-15",
+       "o": 22671.3,
+       "h": 23056.4,
+       "l": 22637.4,
+       "c": 22997.35,
+       "v": null
+      },
+      {
+       "d": "2026-10-16",
+       "o": 23065.1,
+       "h": 23149.85,
+       "l": 22913.8,
+       "c": 23146.15,
+       "v": null
+      },
+      {
+       "d": "2026-10-19",
+       "o": 23150.85,
+       "h": 23175.25,
+       "l": 22845.0,
+       "c": 22888.95,
+       "v": null
+      },
+      {
+       "d": "2026-10-21",
+       "o": 23016.0,
+       "h": 23120.9,
+       "l": 22649.9,
+       "c": 22811.35,
+       "v": null
+      },
+      {
+       "d": "2026-10-22",
+       "o": 22687.75,
+       "h": 22785.0,
+       "l": 22554.85,
+       "c": 22687.65,
+       "v": null
+      },
+      {
+       "d": "2026-10-23",
+       "o": 22742.2,
+       "h": 22787.25,
+       "l": 22372.0,
+       "c": 22600.0,
+       "v": null
+      },
+      {
+       "d": "2026-10-26",
+       "o": 22524.4,
+       "h": 22753.2,
+       "l": 22387.35,
+       "c": 22753.2,
+       "v": null
+      },
+      {
+       "d": "2026-10-27",
+       "o": 22708.8,
+       "h": 22829.75,
+       "l": 22636.85,
+       "c": 22749.75,
+       "v": null
+      },
+      {
+       "d": "2026-10-28",
+       "o": 22678.0,
+       "h": 22778.05,
+       "l": 22497.7,
+       "c": 22698.85,
+       "v": null
+      },
+      {
+       "d": "2026-10-29",
+       "o": 22690.65,
+       "h": 22961.95,
+       "l": 22656.75,
+       "c": 22936.75,
+       "v": null
+      }
+     ],
+     "overlays": {
+      "ema20": [
+       24210.2,
+       24249.67,
+       24286.46,
+       24313.53,
+       24339.27,
+       24351.88,
+       24359.89,
+       24363.31,
+       24363.57,
+       24356.34,
+       24337.15,
+       24312.5,
+       24304.82,
+       24299.79,
+       24292.1,
+       24296.14,
+       24287.72,
+       24268.97,
+       24260.09,
+       24242.97,
+       24225.15,
+       24195.56,
+       24164.88,
+       24139.43,
+       24105.12,
+       24060.36,
+       24000.47,
+       23950.69,
+       23898.06,
+       23823.83,
+       23766.09,
+       23718.9,
+       23683.42,
+       23657.79,
+       23626.48,
+       23609.37,
+       23557.34,
+       23517.64,
+       23447.42,
+       23377.78,
+       23305.65,
+       23221.49,
+       23158.08,
+       23121.7,
+       23072.31,
+       22992.26,
+       22947.33,
+       22891.71,
+       22875.54,
+       22851.46,
+       22865.36,
+       22892.1,
+       22891.8,
+       22884.14,
+       22865.42,
+       22840.15,
+       22831.86,
+       22824.04,
+       22812.12,
+       22823.99
+      ],
+      "ema50": [
+       24070.46,
+       24092.19,
+       24113.52,
+       24131.45,
+       24149.19,
+       24161.83,
+       24172.58,
+       24181.34,
+       24188.58,
+       24192.47,
+       24190.99,
+       24186.57,
+       24188.35,
+       24190.85,
+       24191.95,
+       24197.54,
+       24197.94,
+       24193.74,
+       24193.03,
+       24188.62,
+       24183.41,
+       24172.86,
+       24161.12,
+       24150.79,
+       24136.22,
+       24116.56,
+       24089.7,
+       24065.7,
+       24039.52,
+       24003.41,
+       23972.59,
+       23945.06,
+       23921.59,
+       23901.69,
+       23879.23,
+       23862.28,
+       23830.93,
+       23803.86,
+       23763.72,
+       23722.64,
+       23679.42,
+       23630.1,
+       23587.97,
+       23556.13,
+       23518.76,
+       23468.29,
+       23431.12,
+       23389.25,
+       23363.08,
+       23334.04,
+       23320.84,
+       23313.99,
+       23297.32,
+       23278.26,
+       23255.1,
+       23229.41,
+       23210.74,
+       23192.66,
+       23173.29,
+       23164.02
+      ]
+     },
+     "levels": [
+      {
+       "kind": "wall_call",
+       "price": 23500.0,
+       "label": "Call wall 23,500.00"
+      },
+      {
+       "kind": "wall_put",
+       "price": 22000.0,
+       "label": "Put wall 22,000.00"
+      },
+      {
+       "kind": "max_pain",
+       "price": 22900.0,
+       "label": "Max pain 22,900.00"
+      }
+     ],
+     "band": {
+      "low": 22657.9,
+      "high": 23215.6,
+      "label": "Expected move to 3 Nov 2026 (ATM straddle ±278.85)"
+     }
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "NSE F&O bhavcopy · NIFTY option chain",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE index closes (nidp.index_eod)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    },
+    {
+     "label": "Bank Nifty expected move",
+     "query": "Bank Nifty expected move"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  }
+ }
+}

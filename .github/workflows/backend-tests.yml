@@ -92,6 +92,7 @@ jobs:
           tests/test_chartink_strategy.py
           tests/test_chat_instrument_search.py
           tests/test_chat_persona_routing.py
+          tests/test_chat_compliance_delivery.py
           tests/test_chat_session_patch.py
           tests/test_circulars_route.py
           tests/test_concentration_fund_names.py
@@ -106,6 +107,9 @@ jobs:
           tests/test_copilot_persona_prompt_selection.py
           tests/test_copilot_phase_ab.py
           tests/test_copilot_portfolio_summaries.py
+          tests/test_copilot_prompt_badges.py
+          tests/test_copilot_visual.py
+          tests/test_copilot_visual_chat.py
           tests/test_core_exceptions.py
           tests/test_cost_basis_from_snapshots.py
           tests/test_daas_key_resolution.py
@@ -131,6 +135,7 @@ jobs:
           tests/test_desk_strategy_trades.py
           tests/test_desk_trading.py
           tests/test_deterministic_insights.py
+          tests/test_insights_list_contract.py
           tests/test_docling_cas_parser.py
           tests/test_event_ai_ingest.py
           tests/test_event_ai_insight.py
@@ -190,6 +195,7 @@ jobs:
           tests/test_mf_category_enricher.py
           tests/test_mf_holdings_resolver.py
           tests/test_mf_lookthrough_view.py
+          tests/test_mf_scheduler_leader.py
           tests/test_moneycontrol_client.py
           tests/test_move_odds_diagnostics.py
           tests/test_move_odds_filing_analysis.py

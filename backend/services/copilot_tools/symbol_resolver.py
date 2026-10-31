@@ -22,6 +22,7 @@ Returns `Resolution(symbol=None, ...)` when nothing plausibly names an instrumen
 from __future__ import annotations
 
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
@@ -92,6 +93,27 @@ _PASSTHROUGH_STOPWORDS: Set[str] = {
     # Sector / corporate acronyms that read as ALL-CAPS in thematic questions
     # ("each IT company", "PSU banks", "SME listings") but are NOT NSE tickers.
     "IT", "HR", "PSU", "SME", "NBFC", "AGM", "EGM", "MOU", "JV", "PAT", "PBT",
+}
+
+# Trading, F&O and market words a trader types in capitals, never passed through as
+# a symbol. Without them the Trader persona took "F&O", "GIFT", "PCR" or "P&L" for a
+# symbol, built a trade plan for it and pinned the answer to the stock analyst. Not
+# BSE, MCX, IEX or CDSL: those are listed stocks. Kept apart from
+# _PASSTHROUGH_STOPWORDS, which the composer's type-ahead also reads
+# (services/stock_search), so "nifty" or "max" still complete there.
+_NOT_A_SYMBOL: Set[str] = {
+    "F&O", "FNO", "FO", "GIFT", "PCR", "P&L", "PNL", "MTM", "IV", "IVP", "IVR",
+    "OI", "COI", "ATM", "OTM", "ITM", "VIX", "SL", "TSL", "TP", "RR", "CE", "PE",
+    "FUT", "LTP", "VWAP", "RSI", "MACD", "EMA", "SMA", "DMA", "ADX", "ATR", "OHLC",
+    "NSE", "EOD", "IST", "DXY", "CPI", "WPI", "IIP", "PMI", "FED", "FOMC", "MAX",
+    "PAIN", "NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX",
+    "BANKEX", "INDEX", "CAGR", "XIRR", "SWP", "STP", "ELSS", "NPS", "PPF", "EPF",
+    "FD", "HNI", "NRI", "TDS", "LTCG", "STCG", "STT", "MF", "AMC", "TER", "NFO",
+    "LONG", "SHORT", "CALL", "CALLS", "PUT", "PUTS", "ENTRY", "EXIT", "STOP", "LOSS",
+    "RISK", "TRADE", "TRADES", "SETUP", "SWING", "OPTION", "OPTIONS", "FUTURES",
+    # Short English words in an all-caps sentence ("IS IT A BUY").
+    "IS", "IN", "ON", "AT", "OR", "TO", "OF", "SO", "NO", "UP", "VS", "BE", "DO",
+    "IF", "AN", "AS", "BY", "WE", "ME", "MY", "OK", "PM", "AM",
 }
 
 # Generic corporate-suffix / filler words that must NEVER resolve a company on
@@ -194,9 +216,30 @@ def resolve_symbol(text: str) -> Resolution:
         if tok in _PHRASES:
             return Resolution(symbol=_PHRASES[tok], display_name=tok, source="name")
 
-    # 5. pass-through: an uppercase ticker-shaped token not in the curated list
+    # 4b. a curated ticker typed in lower case ("how is tcs doing", "infy"). At
+    #     least 3 characters, so a 2-letter word never becomes a ticker.
+    for tok in toks:
+        if len(tok) >= 3 and tok.upper() in _TICKERS and tok.upper() not in _PASSTHROUGH_STOPWORDS:
+            sym = _TICKER_RENAMES.get(_TICKERS[tok.upper()], _TICKERS[tok.upper()])
+            return Resolution(symbol=sym, display_name=tok, source="ticker")
+
+    # 5. pass-through: an uppercase ticker-shaped token not in the curated list,
+    #    and not missing from the NSE symbol master when that master is already
+    #    loaded in this process (services/symbol_lookup; nothing is read here).
     for tok in upper_tokens:
-        if tok not in _PASSTHROUGH_STOPWORDS and not _PERIOD_TOKEN_RE.match(tok):
-            return Resolution(symbol=_TICKER_RENAMES.get(tok, tok), display_name=tok, source="passthrough")
+        if tok not in _PASSTHROUGH_STOPWORDS and tok not in _NOT_A_SYMBOL and not _PERIOD_TOKEN_RE.match(tok):
+            sym = _TICKER_RENAMES.get(tok, tok)
+            if _master_lacks(sym):
+                continue
+            return Resolution(symbol=sym, display_name=tok, source="passthrough")
 
     return Resolution()
+
+
+def _master_lacks(symbol: str) -> bool:
+    """True only when the NSE symbol master (services/symbol_lookup's cached universe) is already loaded in this
+    process and does not list `symbol`. It never loads it: no I/O here, so an unloaded master is "not known"."""
+    mod = sys.modules.get("services.symbol_lookup")
+    cache = getattr(mod, "_cache", None) if mod is not None else None
+    entries = getattr(cache.get("u"), "entries", None) if isinstance(cache, dict) else None
+    return isinstance(entries, dict) and bool(entries) and symbol not in entries

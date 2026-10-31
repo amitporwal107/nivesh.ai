@@ -105,7 +105,7 @@ DESK_ANSWER_STRUCTURE = (
     "1) Direct answer: one or two sentences. "
     "2) Evidence: the figures the tools returned, each with its source. "
     "3) As of: the date or time of those figures; say 'end of day' or 'delayed' where true, and never call a figure live unless the tool says it is. "
-    "4) Bullish factors and bearish factors. "
+    "4) Upside factors and downside factors. "
     "5) Key uncertainties. "
     "6) What would invalidate this view. "
     "7) Sources: only the sources the tools returned; never invent a citation. "

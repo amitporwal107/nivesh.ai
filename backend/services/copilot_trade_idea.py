@@ -60,6 +60,10 @@ class TradeIdea:
     widget: Optional[Dict[str, Any]]
     context: str
     status: Optional[str] = None
+    # The built StrategyPlan and the risk service's sizing of its preferred TradePlan, kept so the Copilot's visual
+    # answer (services/copilot_visual) reads the same plan instead of building it twice. None when not built / not sized.
+    plan: Optional[Dict[str, Any]] = None
+    sized: Optional[Dict[str, Any]] = None
 
 
 def is_trade_question(message: str, persona: Optional[str], desk_persona: Optional[str]) -> bool:
@@ -100,6 +104,27 @@ def symbol_for(message: str) -> Optional[str]:
     except Exception:  # noqa: BLE001 — no symbol means no plan, never a failed answer
         logger.warning("copilot trade idea: symbol resolution failed", exc_info=True)
         return None
+
+
+MASTER_TIMEOUT_S = 5.0
+
+
+async def in_symbol_master(symbol: str) -> bool:
+    """Whether a plan may be built for `symbol`. A curated ticker of the resolver is a stock; any other symbol (one the
+    resolver passed through) must be in the NSE symbol master (services/symbol_lookup's cached universe, the same one
+    the plan route's suggestions read). Without that, "F&O" or "GIFT" in a Trader question got a plan and pinned the
+    answer to the stock analyst. A master that cannot be read gives no plan; the router then places the question."""
+    from services.copilot_tools.symbol_resolver import _TICKERS
+    sym = (symbol or "").strip().upper()
+    if sym in _TICKERS:
+        return True
+    try:
+        from services import symbol_lookup
+        universe = await asyncio.wait_for(asyncio.shield(symbol_lookup.get_universe()), timeout=MASTER_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001 — no plan rather than a plan for a non-stock
+        logger.warning("copilot trade idea: the symbol master could not be read for %s: %s", sym, exc)
+        return False
+    return sym in getattr(universe, "entries", {})
 
 
 def _plan_rows(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -238,6 +263,9 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
     if problems or not inputs:
         logger.info("copilot trade idea: inputs refused for %s: %s", symbol, problems)
         return None
+    if not await in_symbol_master(symbol):
+        logger.info("copilot trade idea: %s is not in the NSE symbol master; no plan", symbol)
+        return None
 
     async def run() -> Dict[str, Any]:
         snaps = await collect_snapshots(request, user_id, inputs, route.today())
@@ -255,6 +283,7 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
             "target levels; say a plan was not available and suggest opening the Strategy Builder on the trading desk."))
     widget = widget_for(plan, stated)
     extra: List[str] = []
+    sized: Optional[Dict[str, Any]] = None
     if widget is not None:
         by_id = {(c.get("trade_plan") or {}).get("plan_id"): c for c in plan.get("candidates") or [] if isinstance(c, dict)}
         for row in widget["data"]["plans"]:
@@ -262,9 +291,11 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
             extra.extend(trade_plan_lines(cand.get("trade_plan") or {}, row.get("label")))
         preferred = (by_id.get(widget["data"]["preferred_plan_id"]) or {}).get("trade_plan")
         if preferred:
-            extra.extend(sizing_lines(await _size(preferred, user_id)))
+            sized = await _size(preferred, user_id)
+            extra.extend(sizing_lines(sized))
     return TradeIdea(widget=widget, status=plan.get("status"),
-                     context=context_for(plan, direction, stated, shown=widget is not None, extra=extra))
+                     context=context_for(plan, direction, stated, shown=widget is not None, extra=extra),
+                     plan=plan, sized=sized)
 
 
 async def _size(tp: Dict[str, Any], user_id: str) -> Dict[str, Any]:
