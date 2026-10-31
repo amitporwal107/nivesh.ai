@@ -23,6 +23,10 @@ Release 3:
     daily_review       "What did I learn from today's trades?", "How did I do this week?", "my mistakes today" — the
                        paper book's closed trades and risk checks for the day (or the ISO week), `params.period`
 
+Sector view (31 Oct 2026):
+    sector_rotation    "Which sectors are leading and lagging?", "Show sector rotation today", "sector heatmap" — the sector
+                       heatmap first, each sector with its five strongest stocks by the day's move
+
 Not ours (None): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book, not the
 paper-trading desk's), averaging a position, "what should I avoid today" (Q14, not built).
 
@@ -36,7 +40,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
-           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review")
+           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review",
+           "sector_rotation")
 # Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
 SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
@@ -77,8 +82,17 @@ _INDEX_WORD = re.compile(r"\b(nifty|bank\s*nifty|banknifty|nifty\s*bank|index)\b
 
 _SMART_MONEY = re.compile(
     r"\bsmart\s+money\b|\bfiis?\b|\bdiis?\b|\bfpis?\b|\binstitution(al|s)?\b.{0,30}\b(flows?|buying|selling|money|activity)\b|"
-    r"\bwhere\s+is\s+(the\s+)?money\b|\bmoney\s+(flow|flows|flowing|moving)\b|\bsector\s+rotation\b|"
+    r"\bwhere\s+is\s+(the\s+)?money\b|\bmoney\s+(flow|flows|flowing|moving)\b|"
     r"\b(long|short)\s+build[- ]?ups?\b|\bshort\s+covering\b|\blong\s+unwinding\b|\bbuild[- ]?ups?\b", re.I)
+# Sector questions have their own answer since 31 Oct 2026 (owner: "its a sector rotation intent so load the sector rotation
+# heatmap"); `sector rotation` used to be a smart-money phrase and showed the FII/DII bars first.
+_SECTOR_ROTATION = re.compile(
+    r"\bsector\s+rotation\b|\bsectors?\s+(heat\s*map|rotation|performance|strength|leaders?|laggards?|trend|momentum|view|overview)\b|"
+    r"\bheat\s*map\b.{0,20}\bsectors?\b|"
+    r"\b(leading|lagging|strongest|weakest|best|worst|top|hot|cold)\s+(performing\s+)?sectors?\b|\bwhich\s+sectors?\b|"
+    r"\bsectors?\b.{0,40}\b(leading|lagging|outperform\w*|underperform\w*|strong(er|est)?|weak(er|est)?|performing|"
+    r"doing|moving|rotating|in\s+favou?r|out\s+of\s+favou?r)\b|"
+    r"\b(lagging|leading|outperforming|underperforming)\b.{0,30}\bsectors?\b", re.I)
 _UNUSUAL_VOLUME = re.compile(
     r"\bunusual(ly)?\s+(high\s+)?volumes?\b|\bvolume\s+(spikes?|surges?|shockers?|buzzers?)\b|"
     r"\b(high|heavy|abnormal|huge|big)\s+volumes?\b|\brelative\s+volume\b|\brvol\b", re.I)
@@ -230,6 +244,8 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
         return Intent("position_size")
     if _FNO_SETUPS.search(msg):
         return Intent("fno_setups")
+    if _SECTOR_ROTATION.search(msg):
+        return Intent("sector_rotation")
     if _SMART_MONEY.search(msg):
         return Intent("smart_money")
     if _UNUSUAL_VOLUME.search(msg):

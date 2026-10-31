@@ -26,7 +26,7 @@ const PAYLOADS: Record<string, Payload> = Array.isArray(RAW)
   ? Object.fromEntries(RAW.map((p: Payload) => [p.intent, p]))
   : Array.isArray(RAW.payloads) ? Object.fromEntries(RAW.payloads.map((p: Payload) => [p.intent, p])) : RAW.payloads;
 const INTENTS = ["market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review"]
+  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation"]
   .filter((i) => PAYLOADS[i]);
 const CARD = JSON.parse(fs.readFileSync(path.join(FIX, "contract-decision-card.json"), "utf-8"));
 const PLANS: Record<string, unknown> = {
@@ -43,7 +43,7 @@ const SHOTS = process.env.VA_SHOTS ? path.join(__dirname, "..", ".shots", proces
 const MINUS = "−";
 const nf = (n: number, min: number, max: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: min, maximumFractionDigits: max }).format(n);
 const sign = (n: number) => (n > 0 ? "+" : n < 0 ? MINUS : "");
-const fPrice = (n: number | null) => (n == null ? "—" : `₹${nf(n, 2, 2)}`);
+const fPrice = (n: number | null) => (n == null ? "—" : n < 0 ? `${MINUS}₹${nf(-n, 2, 2)}` : `₹${nf(n, 2, 2)}`);   // a loss: "−₹14,406.00", never "₹-14,406.00" (owner, 31 Oct)
 const fPct = (n: number | null) => (n == null ? "—" : `${sign(n)}${nf(Math.abs(n), 2, 2)}%`);
 const fX = (n: number | null) => (n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(n), 1, 2)}×`);
 const fInt = (n: number | null) => (n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(Math.round(n)), 0, 0)}`);

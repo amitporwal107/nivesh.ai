@@ -86,7 +86,7 @@ Each block is `{ "type": …, "id": "…", "title": "…", "note": "…" | null,
 | `list` | `items: [{text, tone?, sub?}]` | a short list (warnings, events, reasons) |
 | `notice` | `tone: "warn"\|"info"`, `text` | a callout for stale or missing data |
 
-Formats: prices in ₹ with two decimals; percentages with a sign and two decimals; ratios as `1.8×`; dates as
+Formats: prices in ₹ with two decimals (a negative one with a true minus before the sign, `−₹14,406.00`); percentages with a sign and two decimals; ratios as `1.8×`; dates as
 `29 Oct 2026`.
 
 ## Intents (Release 1)
@@ -107,6 +107,15 @@ Release 2 added `open_trades`, `trade_validity`, `exit_options`, `fno_setups` an
 | intent | Trader asks (examples) | blocks (smallest useful set) | sources (existing) |
 |---|---|---|---|
 | `daily_review` | What did I learn from today's trades? How did I do this week? My mistakes today? | kpis (closed, wins / losses, win rate, net realised P&L, average R) · ranked plan vs actual (planned entry, fill, stop, target, exit, R, net P&L) · list how the trades ended (plan's rules vs closed by you, gaps through the stop) · list what the risk checks refused · bars `₹` equity curve (cumulative net realised P&L per session) · notice: no live signal hit-rate | the paper book's closed trades (`desk_paper_trades`, read directly, not through the GET route that runs the exit rule) and the risk decisions log (`risk_decisions`) |
+
+Sector view (31 Oct 2026):
+
+| intent | Trader asks (examples) | blocks | sources (existing) |
+|---|---|---|---|
+| `sector_rotation` | Which sectors are leading and lagging? Show sector rotation today. Sector heatmap. | kpis (leading, lagging, sectors up today) · heatmap sectors (1-week return, best first; 1-day and 1-month in `sub`), each cell carrying `members`: its five strongest stocks by the day's move with index weight and an `ask` | desk sector returns · desk sector constituents (NSE index lists with bhavcopy closes) |
+
+A heatmap cell may carry `members: [{label, value, sub?, ask?}]`, shown when the tile is selected. `sector rotation` is no longer a
+`smart_money` phrase: FII/DII flows, buildup and smart money stay there; the sector questions have their own answer.
 
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a

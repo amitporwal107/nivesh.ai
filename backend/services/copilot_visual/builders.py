@@ -13,10 +13,11 @@ from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import fno_board as fb
 from . import readers as rd
 from .intents import Intent
 from .payload import (
-    DECISION_LABELS, IST, MINUS, Sources, assemble, block, candle_bars, crore, day_text, follow, iso_day, level, notice,
+    CAVEAT_TAIL, DECISION_LABELS, IST, MINUS, Sources, assemble, block, candle_bars, crore, day_text, follow, iso_day, level, notice,
     num, pct, price, r2, rupees, short_day, times, tone_of, why,
 )
 
@@ -339,6 +340,79 @@ async def smart_money(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                     "neutral", blocks, src,
                     follow("Today's top 5 opportunities", "Which breakouts are confirmed?", "What is the market view today?",
                            "Which stocks have unusual volume?"), now=ctx.get("now"))
+
+
+# ── sector_rotation ──────────────────────────────────────────────────────────
+
+SECTOR_MEMBERS_SHOWN = 5
+SECTOR_CONCURRENCY = 6
+SRC_SECTOR_MEMBERS = "NSE index lists with bhavcopy closes (stocks of each sector index)"
+
+
+async def sector_rotation(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """"Which sectors are leading and lagging?" / "Show sector rotation today" — the sector heatmap first (1-week return,
+    best first; 1-day and 1-month beside it), each sector carrying its five strongest stocks by the day's move with their
+    index weight. The members are read server-side for every sector so a saved answer is complete; a sector whose list
+    cannot be read still shows its tile. Ranked by the day's move, which is what the constituent read carries (no
+    1-week return per stock is read here); the note says so."""
+    src: Sources = ctx["src"]
+    follow_ups = follow("Where is smart money moving?", "Which stocks have unusual volume?", "What is the market view today?",
+                        "Today's top 5 opportunities")
+    sect, e_s = await _try(rd.sector_returns())
+    if e_s or not isinstance(sect, dict):
+        src.miss(SRC_SECTORS, why(e_s) if e_s else "the sector returns could not be read")
+        return assemble("sector_rotation", "Sector rotation", None, None, "neutral", [], src, follow_ups, now=ctx.get("now"))
+    as_of = iso_day(sect.get("as_of"))
+    src.add(SRC_SECTORS, as_of)
+    rows = [r for r in sect.get("sectors") or [] if isinstance(r, dict) and (r.get("sector") or r.get("index")) and num(r.get("ret_1w_pct")) is not None]
+    rows.sort(key=lambda r: -num(r["ret_1w_pct"]))
+    if not rows:
+        blocks = [notice("No sector has a one-week return yet.", "info", "empty")]
+        return assemble("sector_rotation", "Sector rotation", as_of, None, "neutral", blocks, src, follow_ups, now=ctx.get("now"))
+
+    gate = asyncio.Semaphore(SECTOR_CONCURRENCY)
+
+    async def members(r: Dict[str, Any]) -> Tuple[Any, Optional[BaseException]]:
+        async with gate:
+            return await _try(rd.sector_constituents(str(r.get("index"))))
+    got = await asyncio.gather(*(members(r) for r in rows))
+
+    cells: List[Dict[str, Any]] = []
+    member_days: List[str] = []
+    for r, (body, err) in zip(rows, got):
+        sub = (f"1d {pct(r.get('ret_1d_pct'))}" if num(r.get("ret_1d_pct")) is not None else "") \
+            + (f" · 1m {pct(r.get('ret_1m_pct'))}" if num(r.get("ret_1m_pct")) is not None else "")
+        cell: Dict[str, Any] = {"label": str(r.get("sector") or r.get("index")), "value": r2(r.get("ret_1w_pct")), "group": None,
+                                "sub": sub or None}
+        if err or not isinstance(body, dict):
+            src.missing.append(f"{SRC_SECTOR_MEMBERS} ({r.get('index')}): {why(err) if err else 'no members'}")
+        else:
+            day = iso_day(body.get("date"))
+            if day:
+                member_days.append(day)
+            priced = [m for m in body.get("rows") or [] if isinstance(m, dict) and m.get("symbol") and num(m.get("change_pct")) is not None]
+            priced.sort(key=lambda m: -num(m["change_pct"]))
+            top = [{"label": m["symbol"], "value": r2(m["change_pct"]),
+                    "sub": f"weight {num(m.get('weight_pct')):.2f}%" if num(m.get("weight_pct")) is not None else None,
+                    "ask": f"Trade plan for {m['symbol']}"} for m in priced[:SECTOR_MEMBERS_SHOWN]]
+            if top:
+                cell["members"] = top
+        cells.append(cell)
+    if member_days:
+        src.add(SRC_SECTOR_MEMBERS, min(member_days))
+
+    lead, lag = cells[0], cells[-1]
+    up = sum(1 for r in rows if (num(r.get("ret_1d_pct")) or 0) > 0)
+    kpis = [_kpi("Leading", lead["label"], f"{pct(lead['value'])} over 1 week", "up" if lead["value"] > 0 else "down"),
+            _kpi("Lagging", lag["label"], f"{pct(lag['value'])} over 1 week", "down" if lag["value"] < 0 else "up"),
+            _kpi("Sectors up today", f"{up} of {len(rows)}", "by the sector index's 1-day move")]
+    blocks = [block("kpis", "summary", "Sector leaders and laggards", None, items=kpis),
+              block("heatmap", "rotation", "Sector rotation · 1 week",
+                    f"Sector index returns over 1 week, best first. Select a sector for its top {SECTOR_MEMBERS_SHOWN} stocks by the day's move "
+                    "(with index weight): a rank of today's move, not a recommendation.", unit="%", cells=cells)]
+    head = (f"{lead['label']} leads the week ({pct(lead['value'])}) and {lag['label']} lags ({pct(lag['value'])})."
+            if len(cells) > 1 else f"{lead['label']} is the only sector with a one-week return ({pct(lead['value'])}).")
+    return assemble("sector_rotation", "Sector rotation", as_of, head, "neutral", blocks, src, follow_ups, now=ctx.get("now"))
 
 
 # ── top_opportunities ────────────────────────────────────────────────────────
@@ -813,9 +887,63 @@ async def open_trades(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                            "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
 
 
+FNO_VIEWS = {"up": "Bullish", "down": "Bearish"}
+FNO_COLUMNS = [{"key": "symbol", "label": "Underlying", "align": "left", "format": "text"},
+               {"key": "structure", "label": "Structure", "align": "left", "format": "text"},
+               {"key": "view", "label": "View", "align": "left", "format": "text"},
+               {"key": "lots", "label": "Lots", "align": "left", "format": "text"},
+               {"key": "maxloss", "label": "Max loss", "align": "right", "format": "price"},
+               {"key": "maxprofit", "label": "Max profit", "align": "right", "format": "price"},
+               {"key": "atmove", "label": "At exp. move", "align": "right", "format": "price"},
+               {"key": "rr", "label": "R:R at move", "align": "right", "format": "x"},
+               {"key": "margin", "label": "Margin", "align": "right", "format": "price"},
+               {"key": "fit", "label": "Fit", "align": "right", "format": "text"}]
+FNO_SECTIONS = (("index_options", "fno_index", "Index options"), ("stock_fno", "fno_stock", "Stock F&O"))
+FNO_NOTE = ("Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. "
+            "A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; "
+            "R:R is measured at that move. Margin is Zerodha's calculator for the structure.")
+
+
+def _fno_fields(idea: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: idea.get(k) for k in ("max_profit", "max_loss", "profit_unbounded", "loss_unbounded", "net_at_expected_move", "reward_risk")}
+
+
+def _fno_row(idea: Dict[str, Any], f: Dict[str, Any], margin: Optional[Dict[str, Any]], badge: Optional[str],
+             margin_cell: Optional[str]) -> Dict[str, Any]:
+    sym = idea.get("underlying")
+    view = idea.get("view")
+    cap, tip = fb.profit_cell(idea.get("structure"), f)
+    est = num((margin or {}).get("estimate"))
+    cells = {"symbol": sym, "structure": idea.get("name"), "view": FNO_VIEWS.get(view, "Neutral"),
+             "lots": fb.lots_text(idea.get("legs") or []),
+             "maxloss": None if f.get("loss_unbounded") else r2(f.get("max_loss")), "maxprofit": cap,
+             "atmove": r2(f.get("net_at_expected_move")), "rr": r2(f.get("reward_risk")),
+             "margin": r2(est) if est is not None else margin_cell, "fit": r2((idea.get("fit") or {}).get("score"))}
+    row: Dict[str, Any] = {"symbol": sym, "plan_id": (idea.get("trade_plan") or {}).get("plan_id"),
+                           "ask": f"What's the setup for {sym}?" if sym else None,
+                           "tone": "up" if view == "up" else ("down" if view == "down" else "neutral"), "cells": cells}
+    if badge:
+        row["badge"] = badge
+    if tip:
+        row["tips"] = {"maxprofit": tip}
+    return row
+
+
+def _class_reason(body: Dict[str, Any]) -> str:
+    un = [u for u in body.get("unavailable") or [] if isinstance(u, dict)]
+    if un:
+        return "; ".join(f"{u.get('underlying') or 'the scanner'}: {u.get('reason')}" for u in un[:3])[:300]
+    skipped = (body.get("universe") or {}).get("skipped") or []
+    return (f"{len(skipped)} scanner names are not in the F&O list" if skipped else "no structure priced with a valid payoff today")
+
+
 async def fno_setups(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """Q10 "Which F&O setups are attractive?" — the desk's own F&O board (index and stock options), ranked by fit to
-    today's measured regime, never a performance rank (services/strategy_plan/regime_fit.py says so explicitly)."""
+    """Q10 "Which F&O setups are attractive?" — the desk's own F&O board, ranked by fit to today's measured regime, never a
+    performance rank (services/strategy_plan/regime_fit.py says so). Two sections, one row per underlying with its other
+    structures folded under it (owner, 31 Oct 2026: a flattened first five was all index and showed no stock). Each row
+    carries its lots and Zerodha's margin; in the session the premiums are live (Kite), the ranking still the close's."""
+    from datetime import datetime as _dt
+
     from services.strategy_plan import regime_fit as _rf
     src: Sources = ctx["src"]
     n = 5
@@ -823,50 +951,129 @@ async def fno_setups(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     blocks: List[Dict[str, Any]] = []
     head = None
     as_of = None
-    first_plan = None
+    live_at: Optional[str] = None
+    login_need: List[str] = []
+    mfacts: Dict[str, Any] = {}
     if err or not isinstance(top, dict):
         src.miss(SRC_FNO_TOP, why(err) if err else "the F&O board could not be built")
-    else:
-        regime = top.get("regime") or {}
-        as_of = iso_day(regime.get("date"))
-        src.add(SRC_FNO_TOP, as_of)
-        ideas = _rf._all_ideas(top, ("index_options", "stock_fno"))
-        rows = []
-        for _cls, i in ideas[:n]:
-            if not isinstance(i, dict):
-                continue
-            sym = i.get("underlying")
-            tp = i.get("trade_plan") or {}
-            pid = tp.get("plan_id")
-            first_plan = first_plan or pid
-            rows.append({"symbol": sym, "plan_id": pid, "ask": f"What's the setup for {sym}?" if sym else None,
-                         "tone": "up" if i.get("view") == "up" else ("down" if i.get("view") == "down" else "neutral"),
-                         "cells": {"symbol": sym, "structure": i.get("name"),
-                                   "view": {"up": "Bullish", "down": "Bearish"}.get(i.get("view"), "Neutral"),
-                                   "maxloss": r2(i.get("max_loss")) if not i.get("loss_unbounded") else None,
-                                   "maxprofit": r2(i.get("max_profit")) if not i.get("profit_unbounded") else None,
-                                   "rr": r2(i.get("reward_risk")), "fit": r2((i.get("fit") or {}).get("score"))}})
-        if rows:
-            blocks.append(block("ranked", "fno", f"{len(rows)} F&O setups · fit to today's regime",
-                                "Fit to today's measured regime, not a performance rank. Max loss/profit are gross, "
-                                "before charges; an unbounded side shows as —.",
-                                columns=[{"key": "symbol", "label": "Underlying", "align": "left", "format": "text"},
-                                         {"key": "structure", "label": "Structure", "align": "left", "format": "text"},
-                                         {"key": "view", "label": "View", "align": "left", "format": "text"},
-                                         {"key": "maxloss", "label": "Max loss", "align": "right", "format": "price"},
-                                         {"key": "maxprofit", "label": "Max profit", "align": "right", "format": "price"},
-                                         {"key": "rr", "label": "R:R", "align": "right", "format": "x"},
-                                         {"key": "fit", "label": "Fit", "align": "right", "format": "text"}],
-                                rows=rows))
-            if first_plan:
-                blocks.append(block("trade_plan", "first", f"The first idea's plan · {rows[0]['symbol']}", None, plan_id=first_plan))
-            head = (f"{len(rows)} F&O setup{'s' if len(rows) != 1 else ''} fit today's regime"
-                    + (f" ({regime['label']})" if regime.get("label") else "") + ".")
+        return assemble("fno_setups", "F&O setups that fit today", as_of, head, "neutral", blocks, src, follow(
+            "What is the expected move in Nifty?", "How much should I risk?", "What is the market view today?",
+            "Today's top 5 opportunities"), now=ctx.get("now"))
+    regime = top.get("regime") or {}
+    classes = top.get("classes") or {}
+    # The board's data day: the chain the ideas were priced from (newest), else the day the regime was classified. The real
+    # regime carries `as_of` (strategy_plan.regime_fit.read_regime), not `date`: reading `date` gave every answer a false
+    # "unknown date, stale" notice (found on staging data, 31 Oct 2026; the unit fixtures had the wrong key).
+    chain_days = sorted(d for c in classes.values() for i in (c or {}).get("ideas") or [] if isinstance(i, dict)
+                        for d in [iso_day((i.get("data_as_of") or {}).get("chain"))] if d)
+    as_of = chain_days[-1] if chain_days else iso_day(regime.get("as_of") or regime.get("date"))
+    src.add(SRC_FNO_TOP, as_of)
+    leads: Dict[str, List[Dict[str, Any]]] = {}
+    shown: List[Dict[str, Any]] = []                    # every idea on screen (leads then their alternatives), by position
+    for cls, _bid, _title in FNO_SECTIONS:
+        leads[cls] = [i for i in ((classes.get(cls) or {}).get("ideas") or []) if isinstance(i, dict)][:n]
+        for i in leads[cls]:
+            shown.append(i)
+            shown.extend(a for a in (i.get("alternatives") or [])[:_rf.ALTERNATIVES_MAX] if isinstance(a, dict))
+    now = ctx.get("now") or _dt.now(IST)
+    today_iso = src.w.today.isoformat() if src.w is not None else now.astimezone(IST).date().isoformat()
+
+    # Live premiums, only in the session; every figure of an idea is live or none of it (fno_board.reprice).
+    live: Dict[int, Dict[str, Any]] = {}
+    if shown and rd.in_session(now):
+        flat, at = fb.leg_requests(shown)
+        (lq, e_q), (spots, e_s) = await asyncio.gather(_try(rd.fno_live_quotes(flat)), _try(rd.live_spots(sorted({i["underlying"] for i in shown}))))
+        if e_q or not isinstance(lq, dict) or not lq.get("available"):
+            reason = why(e_q) if e_q else (lq or {}).get("reason") or "the live read returned nothing"
+            src.missing.append(f"{fb.SRC_LIVE}: {reason}")
+            if "Kite login" in reason or "Kite token" in reason or "Kite access token" in reason:
+                login_need.append("Live premiums")
+            blocks.append(notice(f"Live option premiums are not available ({reason[:160]}), so every figure is from the "
+                                 f"{short_day(as_of)} close.", "info", "live-off"))
         else:
-            blocks.append(notice("No F&O setup fits today's regime with a valid payoff.", "info", "empty"))
-    return assemble("fno_setups", "F&O setups that fit today", as_of, head, "neutral", blocks, src,
-                    follow("What is the expected move in Nifty?", "How much should I risk?",
-                           "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
+            quotes = {int(k): v for k, v in (lq.get("quotes") or {}).items()}
+            moves = {u.get("underlying"): u.get("expected_move") for c in classes.values() for u in (c or {}).get("underlyings") or []}
+            spot_of = spots if isinstance(spots, dict) else {}
+            for k, idea in enumerate(shown):
+                got = fb.reprice(idea, k, quotes, at, spot_of.get(idea["underlying"]), num(moves.get(idea["underlying"])), today_iso)
+                if got is not None:
+                    live[k] = got
+            if live:
+                live_at = _dt.fromisoformat(lq["as_of"]).astimezone(IST).strftime("%H:%M") if lq.get("as_of") else None
+                src.add(fb.SRC_LIVE, today_iso)
+
+    # Margin: Zerodha's calculator (platform Kite login, else the user's own Zerodha), one call per structure.
+    margin_of: Dict[int, Dict[str, Any]] = {}
+    margin_cell: Optional[str] = None
+    if shown:
+        calcs, mfacts = await rd.margin_calculators(ctx["request"], ctx["user_id"])
+        if calcs:
+            res = await rd.fno_margins(calcs, [(str(k), i["underlying"], i.get("legs") or []) for k, i in enumerate(shown)])
+            margin_of = {k: res[str(k)] for k in range(len(shown)) if str(k) in res}
+            for label in sorted({m.get("source") for m in margin_of.values() if m.get("estimate") is not None and m.get("source")}):
+                src.add(label, today_iso)
+            for k, m in margin_of.items():
+                if m.get("estimate") is None and m.get("reason") != fb.NO_CALCULATOR:
+                    src.missing.append(f"Margin for {shown[k]['underlying']} {shown[k].get('name')}: {m.get('reason')}")
+        # Every calculator refused its session (an expired Kite login) is the same as having none: ask for the login, once.
+        refused = bool(margin_of) and all(m.get("reason") == fb.NO_CALCULATOR for m in margin_of.values())
+        if not calcs or refused:
+            login_need.insert(0, "Margin")
+            margin_cell = "Needs login"
+            if refused:
+                src.missing.append("Margin: every Zerodha calculator session was refused (the Kite login has expired)")
+
+    # Rows: the lead of each underlying, its alternatives folded under it.
+    pos = {id(i): k for k, i in enumerate(shown)}
+    chain_day = lambda i: iso_day((i.get("data_as_of") or {}).get("chain")) or as_of          # noqa: E731
+
+    def make_row(idea: Dict[str, Any]) -> Dict[str, Any]:
+        k = pos[id(idea)]
+        badge = "Live" if k in live else (f"{short_day(chain_day(idea))} close" if chain_day(idea) else None)
+        return _fno_row(idea, live.get(k) or _fno_fields(idea), margin_of.get(k), badge, margin_cell)
+
+    first_plan = None
+    counts: Dict[str, int] = {}
+    for cls, bid, title in FNO_SECTIONS:
+        rows = []
+        for idea in leads[cls]:
+            row = make_row(idea)
+            alts = [make_row(a) for a in (idea.get("alternatives") or [])[:_rf.ALTERNATIVES_MAX] if isinstance(a, dict)]
+            if alts:
+                row["alternatives"] = alts
+            rows.append(row)
+        counts[cls] = len(rows)
+        if rows:
+            first_plan = first_plan or rows[0].get("plan_id")
+            note = FNO_NOTE + (f" Premiums live at {live_at} IST; the ranking and the regime are from the {short_day(as_of)} close."
+                               if live_at else "")
+            blocks.append(block("ranked", bid, f"{title} · {len(rows)} setup{'s' if len(rows) != 1 else ''}", note,
+                                columns=FNO_COLUMNS, rows=rows))
+        else:
+            blocks.append(notice(f"No {title} setup today: {_class_reason(classes.get(cls) or {})}.", "info", f"{bid}-empty"))
+    if login_need:
+        needs = list(dict.fromkeys(login_need))
+        n_ = notice(fb.login_text(mfacts or {}, "Margin and live premiums" if len(needs) > 1 else needs[0]), "info", "login")
+        n_["actions"] = [{"kind": "kite_login", "label": "Log in to Kite"}, {"kind": "connect_broker", "label": "Connect a broker"}]
+        blocks.append(n_)
+    if first_plan:
+        first_sym = next((r["symbol"] for b in blocks if b.get("type") == "ranked" for r in b["rows"]), None)
+        blocks.append(block("trade_plan", "first", f"The first idea's plan · {first_sym}", None, plan_id=first_plan))
+    total = sum(counts.values())
+    if total:
+        head = (f"{total} F&O setup{'s' if total != 1 else ''} fit today's regime"
+                + (f" ({regime['label']})" if regime.get("label") else "")
+                + f": {counts.get('index_options', 0)} index, {counts.get('stock_fno', 0)} stock.")
+    else:
+        blocks.append(notice("No F&O setup fits today's regime with a valid payoff.", "info", "empty"))
+    p = assemble("fno_setups", "F&O setups that fit today", as_of, head, "neutral", blocks, src,
+                 follow("What is the expected move in Nifty?", "How much should I risk?",
+                        "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
+    if live:
+        p["mode"] = "mixed"
+        p["caveat"] = (f"Ranked on end-of-day data of {day_text(as_of)}; premiums, max loss and profit are live from Kite"
+                       + (f" at {live_at} IST" if live_at else "") + ". " + CAVEAT_TAIL)
+    return p
 
 
 async def position_size(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -1354,7 +1561,8 @@ BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportu
             "breakouts": breakouts, "unusual_volume": unusual_volume, "stock_decision": stock_decision,
             "expected_move": expected_move, "open_trades": open_trades, "fno_setups": fno_setups,
             "trade_validity": trade_validity, "exit_options": exit_options, "position_size": position_size,
-            "daily_review": daily_review}
+            "daily_review": daily_review,
+            "sector_rotation": sector_rotation}
 
 
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",

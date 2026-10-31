@@ -6,6 +6,7 @@ builder records the source as missing and shows no figure from it). The unit tes
     market_snapshot     DaaS /v1/snapshots/market (nidp.market_daily_snapshot) — the Copilot market node's own read
     index_rows          DaaS /v1/indices/{name}/eod (nidp.index_eod), oldest first
     sector_returns      DaaS /v1/desk/sector-returns (NSE sectoral indices) — GET /api/markets/sector-returns
+    sector_constituents DaaS /v1/desk/sector-constituents — one sector index's stocks with their move on the latest close day
     chain               routes.fno.chain — GET /api/fno/{symbol}/chain (summary: expected move, ATM IV, PCR, max pain, walls)
     fii_dii             DaaS /v1/market-pulse/fii-dii (nidp.fii_dii_flows, NSE first) — GET /api/markets/fii-dii
     buildup             routes.fno._buildup_scan — GET /api/fno/scan/buildup (refused when older than the previous session)
@@ -25,6 +26,13 @@ Release 2:
                         day/week P&L, open risk and exposure — the same read the risk service itself checks a trade against
     risk_profile        services.risk_profile.read — GET /api/risk/profile (the account's own limits)
     latest_trade_plan   Mongo trade_plans, the newest stored plan for a symbol (services.strategy_plan.trade_plan.COLLECTION)
+
+F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
+    in_session          09:15-15:30 IST on a weekday (services.kite_live_feed.day_quote.in_session)
+    fno_live_quotes     Kite REST quote() for the named option contracts, only those that traded today
+    live_spots          the underlyings' live Kite prices (day_quote), only while the feed is live
+    margin_calculators  Zerodha's margin calculator: the platform's Kite login, else the user's own Zerodha session
+    fno_margins         one basket-margin call per structure
 
 Release 3:
     closed_trades       Mongo desk_paper_trades, the user's newest closed paper trades, shaped as the desk shapes them
@@ -74,6 +82,14 @@ async def sector_returns() -> Dict[str, Any]:
     body = await _daas("/desk/sector-returns")
     if not isinstance(body, dict) or not isinstance(body.get("sectors"), list):
         raise RuntimeError("the sector-returns route sent no sectors")
+    return body
+
+
+async def sector_constituents(index: str) -> Dict[str, Any]:
+    """One sector index's constituents with their move on the index's latest close day (DaaS /v1/desk/sector-constituents)."""
+    body = await _daas("/desk/sector-constituents", {"index": index})
+    if not isinstance(body, dict) or not body.get("available") or not isinstance(body.get("rows"), list):
+        raise RuntimeError((body or {}).get("reason") if isinstance(body, dict) and body.get("reason") else f"no constituents for {index}")
     return body
 
 
@@ -213,3 +229,41 @@ async def risk_decisions(user_id: str, since_utc: str, limit: int = 1000) -> Lis
         {"user_id": user_id, "at": {"$gte": since_utc}},
         {"_id": 1, "at": 1, "outcome": 1, "symbol": 1, "reasons": 1, "source": 1, "supersedes": 1, "path": 1},
     ).sort("at", -1).to_list(limit)
+
+
+# ── F&O board: live premiums and margin ──────────────────────────────────────
+
+def in_session(now: Any = None) -> bool:
+    from datetime import datetime, timezone
+    from services.kite_live_feed import day_quote
+    return day_quote.in_session(now or datetime.now(timezone.utc))
+
+
+async def fno_live_quotes(legs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from . import fno_board
+    return await fno_board.read_live_legs(legs)
+
+
+async def live_spots(symbols: List[str]) -> Dict[str, float]:
+    """{symbol: live price} for the symbols the feed has a live quote for right now; none when it is not live."""
+    from services.kite_live_feed import day_quote
+    from services.kite_live_feed.gateway import canon
+    dq = await day_quote.day_quotes(symbols)
+    if dq.get("source") != "kite_live":
+        return {}
+    out: Dict[str, float] = {}
+    for s in symbols:
+        px = (dq.get("quotes") or {}).get(canon(s), {}).get("ltp")
+        if isinstance(px, (int, float)) and not isinstance(px, bool) and px > 0:
+            out[s] = float(px)
+    return out
+
+
+async def margin_calculators(request: Any, user_id: Optional[str]):
+    from . import fno_board
+    return await fno_board.margin_calculators(request, user_id)
+
+
+async def fno_margins(calcs: Any, items: Any) -> Dict[str, Dict[str, Any]]:
+    from . import fno_board
+    return await fno_board.margins(calcs, items)

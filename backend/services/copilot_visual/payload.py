@@ -21,6 +21,7 @@ DECISION_LABELS = {"setup_ready": "Setup ready", "wait": "Wait", "avoid": "Avoid
 CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker."
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
+NOTICE_ACTIONS = ("kite_login", "connect_broker")
 
 
 # ── numbers and formats ──────────────────────────────────────────────────────
@@ -268,6 +269,10 @@ def _block_problems(b: Any, i: int) -> List[str]:
         if not isinstance(cells, list) or not cells or not all(
                 isinstance(x, dict) and isinstance(x.get("label"), str) and (x.get("value") is None or _is_num(x.get("value"))) for x in cells):
             out.append(f"{p} heatmap: at least one labelled numeric cell")
+        elif not all(x.get("members") is None or (isinstance(x["members"], list) and all(
+                isinstance(m, dict) and isinstance(m.get("label"), str) and (m.get("value") is None or _is_num(m.get("value")))
+                and _opt_str(m.get("sub")) and _opt_str(m.get("ask")) for m in x["members"])) for x in cells):
+            out.append(f"{p} heatmap: members need a label and a numeric value")
     elif t == "quadrant":
         pts = b.get("points")
         q = b.get("quadrants")
@@ -286,11 +291,18 @@ def _block_problems(b: Any, i: int) -> List[str]:
             if isinstance(c, dict) and c.get("format") is not None and c["format"] not in RANKED_FORMATS:
                 out.append(f"{p} ranked: unknown format {c['format']}")
         rows = b.get("rows")
-        if not isinstance(rows, list) or not all(
-                isinstance(r, dict) and isinstance(r.get("cells"), dict)
-                and all(v is None or isinstance(v, (str, bool)) or _is_num(v) for v in r["cells"].values())
-                and _opt_str(r.get("symbol")) and _opt_str(r.get("plan_id")) and _opt_str(r.get("ask")) for r in rows):
+
+        def _row_ok(r: Any) -> bool:
+            return (isinstance(r, dict) and isinstance(r.get("cells"), dict)
+                    and all(v is None or isinstance(v, (str, bool)) or _is_num(v) for v in r["cells"].values())
+                    and _opt_str(r.get("symbol")) and _opt_str(r.get("plan_id")) and _opt_str(r.get("ask")) and _opt_str(r.get("badge"))
+                    and (r.get("tips") is None or (isinstance(r["tips"], dict) and all(isinstance(v, str) for v in r["tips"].values()))))
+        if not isinstance(rows, list) or not all(_row_ok(r) for r in rows):
             out.append(f"{p} ranked: rows need cells of text/number/bool/null")
+        elif not all(r.get("alternatives") is None or (isinstance(r["alternatives"], list) and all(_row_ok(a) and not a.get("alternatives")
+                                                                                                    for a in r["alternatives"]))
+                     for r in rows):
+            out.append(f"{p} ranked: alternatives must be rows of the same shape, one level deep")
     elif t == "trade_plan":
         if not (isinstance(b.get("plan_id"), str) and b["plan_id"]):
             out.append(f"{p} trade_plan: plan_id")
@@ -301,6 +313,10 @@ def _block_problems(b: Any, i: int) -> List[str]:
     elif t == "notice":
         if b.get("tone") not in ("warn", "info") or not isinstance(b.get("text"), str):
             out.append(f"{p} notice: tone warn|info and text")
+        acts = b.get("actions")
+        if acts is not None and not (isinstance(acts, list) and all(
+                isinstance(a, dict) and a.get("kind") in NOTICE_ACTIONS and isinstance(a.get("label"), str) for a in acts)):
+            out.append(f"{p} notice: each action needs a known kind ({', '.join(NOTICE_ACTIONS)}) and a label")
     else:
         out.append(f"{p}: unknown block type {t}")
     return out
@@ -315,7 +331,7 @@ def validate(p: Any) -> List[str]:
         out.append("schema")
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review"):
+            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")

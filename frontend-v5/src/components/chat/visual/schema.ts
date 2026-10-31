@@ -49,7 +49,11 @@ export const barsBlock = z.object({
 export const heatmapBlock = z.object({
   ...base, type: z.literal("heatmap"),
   unit: str.catch("%"),
-  cells: z.array(z.object({ label: str, value: num.nullable(), group: optStr, sub: optStr })).min(1),
+  cells: z.array(z.object({
+    label: str, value: num.nullable(), group: optStr, sub: optStr,
+    /** The stocks behind a tile (the sector rotation answer: a sector's strongest five), shown when the tile is selected. */
+    members: z.array(z.object({ label: str, value: num.nullable(), sub: optStr, ask: optStr })).optional().catch(undefined),
+  })).min(1),
 });
 
 export const quadrantBlock = z.object({
@@ -62,6 +66,15 @@ export const quadrantBlock = z.object({
 
 export const RANKED_FORMATS = ["price", "pct", "x", "int", "text"] as const;
 const cell = z.union([str, num, z.boolean()]).nullable();
+const baseRow = z.object({
+  symbol: optStr, cells: z.record(cell), tone: optTone, plan_id: optStr, ask: optStr,
+  /** A short tag by the symbol: "Live", or the close the row was priced at. */
+  badge: optStr,
+  /** A tooltip per cell key. */
+  tips: z.record(str).optional().catch(undefined),
+});
+/** A row may carry its other structures, one level deep (the F&O board folds an underlying's alternatives under its lead). */
+const rankedRow = baseRow.extend({ alternatives: z.array(baseRow).optional().catch(undefined) });
 export const rankedBlock = z.object({
   ...base, type: z.literal("ranked"),
   columns: z.array(z.object({
@@ -69,9 +82,7 @@ export const rankedBlock = z.object({
     align: z.enum(["left", "right"]).optional().catch(undefined),
     format: z.enum(RANKED_FORMATS).optional().catch(undefined),
   })).min(1),
-  rows: z.array(z.object({
-    symbol: optStr, cells: z.record(cell), tone: optTone, plan_id: optStr, ask: optStr,
-  })),
+  rows: z.array(rankedRow),
 });
 
 export const tradePlanBlock = z.object({ ...base, type: z.literal("trade_plan"), plan_id: str.min(1) });
@@ -81,7 +92,12 @@ export const listBlock = z.object({
   items: z.array(z.object({ text: str, tone: optTone, sub: optStr })).min(1),
 });
 
-export const noticeBlock = z.object({ ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str });
+export const NOTICE_ACTIONS = ["kite_login", "connect_broker"] as const;
+export const noticeBlock = z.object({
+  ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str,
+  /** What the reader can do about it: log in to Kite (admins), connect a broker. */
+  actions: z.array(z.object({ kind: z.enum(NOTICE_ACTIONS), label: str })).optional().catch(undefined),
+});
 
 const BLOCKS = {
   kpis: kpisBlock, candles: candlesBlock, bars: barsBlock, heatmap: heatmapBlock, quadrant: quadrantBlock,

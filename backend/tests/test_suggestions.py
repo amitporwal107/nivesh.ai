@@ -228,7 +228,7 @@ def test_sg_t1_every_template_opens_its_declared_answer(tmpl, persona):
 
 def test_sg_t1b_every_visual_answer_intent_has_a_template():
     from services.copilot_visual import INTENTS
-    assert len(INTENTS) == 13 and "daily_review" in INTENTS
+    assert len(INTENTS) == 14 and "daily_review" in INTENTS and "sector_rotation" in INTENTS
     assert {t["intent"] for t in catalog.QUERY_TEMPLATES if t["intent"]} == set(INTENTS)
     review = [t["query"] for t in catalog.QUERY_TEMPLATES if t["intent"] == "daily_review"]
     assert review == ["What did I learn from today's trades?", "How did I do this week?"]
