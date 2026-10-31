@@ -22,7 +22,7 @@ const CARD = JSON.parse(fs.readFileSync(path.join(FIX, "contract-decision-card.j
 const APP = "/v5/app";
 const SLOW = { timeout: 15_000 };
 const LIVE_PATH = "**/api/positions/book/live";
-const SHOTS = process.env.OB_SHOTS ? path.join(__dirname, "..", ".shots", "open-book") : null;
+const SHOTS = (process.env.OB_SHOTS || process.env.FNO_SHOTS) ? path.join(__dirname, "..", ".shots", "open-book") : null;
 
 const MINUS = "−";
 const nf = (n: number, min: number, max: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: min, maximumFractionDigits: max }).format(n);
@@ -233,7 +233,11 @@ test.describe("Open trades on the broker book (MOCK payloads from the real build
     await expect(block(va, "positions").getByTestId("va-ranked")).toHaveAttribute("data-layout", "cards");
     await expect(chip(va)).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await va.screenshot({ path: path.join(SHOTS, "live-phone.png") }); }
+    if (SHOTS) for (const id of ["book", "positions", "levels", "accounts", "commentary"]) {
+      fs.mkdirSync(SHOTS, { recursive: true });
+      await block(va, id).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SHOTS, `phone-${id}.png`) });
+    }
   });
 
   test("FO-11 wide: positions and accounts are tables; money prints with a true minus", async ({ page }) => {
@@ -242,7 +246,11 @@ test.describe("Open trades on the broker book (MOCK payloads from the real build
     await va.evaluate((el) => { (el as HTMLElement).style.width = "1100px"; (el as HTMLElement).style.maxWidth = "none"; });
     await expect(block(va, "positions").getByTestId("va-ranked")).toHaveAttribute("data-layout", "table", SLOW);
     expect(await va.innerText()).not.toContain("₹-");
-    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await va.screenshot({ path: path.join(SHOTS, "live-wide.png") }); }
+    if (SHOTS) for (const id of ["positions", "levels", "accounts"]) {
+      fs.mkdirSync(SHOTS, { recursive: true });
+      await block(va, id).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SHOTS, `wide-${id}.png`) });
+    }
   });
 
   test("FO-12 the written answer is nothing but ideas to review: the page offers no order button", async ({ page }) => {
