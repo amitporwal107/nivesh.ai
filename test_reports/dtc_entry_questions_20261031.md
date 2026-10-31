@@ -94,5 +94,8 @@ index tiles are one session behind its other rows; that is a separate defect, no
 ## Inputs required from user
 - A staging session token and the backend deploy re-run, for the signed-in walk.
 
+## After merging origin/dev (the suggestion engine, #426, merged by the owner at 06:31 IST)
+`git merge origin/dev` applied with no conflict (Home.tsx merged automatically). Re-run on the merged result: tsc `TSC_EXIT=0`, build `BUILD_EXIT=0`, eight Copilot specs (the seven above plus `copilot-app-suggestions.spec.ts`): `146 passed`, 2 skipped (screenshot cases); backend `test_copilot_prompts_mode.py`, `test_suggestions.py` and the copilot visual suites: `269 passed`.
+
 ## Verdict: PASS
 Scope: the code on this branch, by unit tests, a real-data capture and mocked-API Playwright; not a deployed system.
