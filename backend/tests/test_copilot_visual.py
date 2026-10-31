@@ -392,6 +392,19 @@ class Src:
         self.v["open_book"] = {"hub": "on", "accounts": [], "groups": []}
         mp.setattr(rd, "open_book", open_book)
 
+        async def broker_trades(request, user_id):                     # the broker trade book (daily review): none connected by default
+            self.calls.append(("broker_trades", ()))
+            if "broker_trades" in self.fail:
+                raise RuntimeError("MOCK broker_trades down")
+            return self.v["broker_trades"]
+
+        async def broker_review_refs(user_id, underlyings):
+            return self.v["broker_refs"]
+        self.v["broker_trades"] = {"hub": "on", "accounts": [], "stored": []}
+        self.v["broker_refs"] = {"levels": {}, "plans": {}}
+        mp.setattr(rd, "broker_trades", broker_trades)
+        mp.setattr(rd, "broker_review_refs", broker_review_refs)
+
         # The F&O board's live and margin readers (owner, 31 Oct 2026). Default: market closed, no Kite login, no broker.
         self.in_session = False
         self.v.update({"fno_live_quotes": {"available": False, "reason": "MOCK: no Kite login today", "quotes": {}, "unresolved": []},

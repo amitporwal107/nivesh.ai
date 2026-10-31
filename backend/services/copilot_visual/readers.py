@@ -41,6 +41,11 @@ Broker book (owner, 31 Oct 2026; services/positions/book.py, services/copilot_vi
     underlying_quotes   the platform Kite feed's price of the underlyings held (Redis, no broker call)
     position_margins    Zerodha's margin calculator for the F&O legs of each group (the platform's Kite login, else the user's own)
 
+Broker trades in the review (owner, 31 Oct 2026; services/positions/trade_book.py):
+    broker_trades       every connected account's state and the days of its trade book kept (a live account's day is read now,
+                        Zerodha and ICICI Direct only; other brokers are "not supported" with the reason): Mongo broker_trade_days
+    broker_review_refs  the user's own stops (position_levels) and the plans they recorded (trade_plans) for the underlyings traded
+
 Release 3:
     closed_trades       Mongo desk_paper_trades, the user's newest closed paper trades, shaped as the desk shapes them
                         (routes.desk_trading._public). A plain read: GET /api/desk/paper-trades also runs the exit rule on
@@ -298,3 +303,20 @@ async def position_margins(request: Any, user_id: Optional[str], requests: Dict[
                                     "strike": l.get("strike"), "quantity": l["lots"]} for l in r["legs"]])
              for k, r in requests.items()]
     return await fno_board.margins(calcs, items), facts
+
+
+# ── Broker trades in the daily review ────────────────────────────────────────
+
+async def broker_trades(request: Any, user_id: str) -> Dict[str, Any]:
+    from deps import db
+    from services.positions import trade_book
+    return await trade_book.review_data(request, db, user_id)
+
+
+async def broker_review_refs(user_id: str, underlyings: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{levels: {underlying: position_levels doc}, plans: {underlying: the newest plan the user holds}} for `underlyings`."""
+    from deps import db
+    from services.positions import book, store
+    want = set(underlyings)
+    levels = {u: d for u, d in (await store.read_levels(db, user_id)).items() if u in want}
+    return {"levels": levels, "plans": await book.plans_for(db, user_id, sorted(want))}
