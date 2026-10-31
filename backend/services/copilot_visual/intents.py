@@ -19,8 +19,12 @@ Release 2:
     exit_options       "Should I book profits or hold X?", "should I trail my stop?" — a named or thread stock
     position_size      "How much should I risk?", "what position size…" — the account's budget; a named stock adds its own
 
-Not ours (None, Release 3): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book,
-not the paper-trading desk's), averaging a position, "what should I avoid today", the day's review.
+Release 3:
+    daily_review       "What did I learn from today's trades?", "How did I do this week?", "my mistakes today" — the
+                       paper book's closed trades and risk checks for the day (or the ISO week), `params.period`
+
+Not ours (None): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book, not the
+paper-trading desk's), averaging a position, "what should I avoid today" (Q14, not built).
 
 A stock is found with the Copilot's own resolver (services/copilot_tools/symbol_resolver.py), but F&O, PCR, P&L, GIFT,
 IV, OI, ATM, VIX and the index names are never a stock here: they are removed before resolving and refused after.
@@ -32,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
-           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size")
+           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review")
 # Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
 SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
@@ -59,12 +63,11 @@ _ANY_CASE = frozenset({"f&o", "fno", "pcr", "p&l", "pnl", "gift", "iv", "oi", "a
 _TOKEN = re.compile(r"[A-Za-z0-9&]+")
 _BANK_NIFTY = re.compile(r"\b(bank\s*nifty|nifty\s*bank)\b", re.I)
 
-# The user's long-term portfolio and the Release-3 questions: never answered here (Release 2 moved its own phrases
-# — open trades, book/hold/trail, F&O setups, position sizing, "still valid" — out of this gate; see the four new
-# patterns below).
+# The user's long-term portfolio and the questions not built yet: never answered here (Release 2 moved its own
+# phrases — open trades, book/hold/trail, F&O setups, position sizing, "still valid" — out of this gate, and Release 3
+# the day's review; see the patterns below).
 _NOT_OURS = re.compile(
-    r"\bmy\s+(portfolio|holdings?|p&l|pnl)\b|\baverag(e|ing)\s+(down|up)\b|\bwhat\s+should\s+i\s+avoid\b|"
-    r"\blearn\s+from\b|\bhow\s+did\s+i\s+do\b|\bmistakes?\s+(today|this\s+week)\b", re.I)
+    r"\bmy\s+(portfolio|holdings?|p&l|pnl)\b|\baverag(e|ing)\s+(down|up)\b|\bwhat\s+should\s+i\s+avoid\b", re.I)
 
 _EXPECTED_MOVE = re.compile(
     r"\bexpected\s+move\b|\bimplied\s+move\b|\bhow\s+(much|far)\s+(can|will|could|may|might)\b.{0,40}\bmove\b|"
@@ -117,6 +120,14 @@ _POSITION_SIZE = re.compile(
     r"\bposition\s+siz\w*|\bhow\s+much\s+(should|can|do)\s+i\s+risk\b|\bhow\s+many\s+(shares?|lots?|units?)\s+(should|can)\s+i\s+"
     r"(buy|trade|take)\b|\bwhat\s+(size|quantity)\s+(should|can)\s+i\s+(take|buy|trade)\b|\brisk\s+budget\b|"
     r"\bdaily\s+loss\s+limit\b.{0,20}\bused\b", re.I)
+
+# ── Release 3 ────────────────────────────────────────────────────────────────
+_DAILY_REVIEW = re.compile(
+    r"\blearn(ed|t)?\s+from\b|\bwhat\s+did\s+i\s+learn\b|\bhow\s+did\s+i\s+do\b|"
+    r"\bmistakes?\b.{0,25}\b(today|this\s+week|trades?|trading)\b|\bmy\s+mistakes\b|"
+    r"\breview\s+(of\s+)?(my\s+)?(trades?|trading|day|week)\b|\b(daily|weekly|day's|week's|post[- ]trade)\s+review\b|"
+    r"\bhow\s+(was|were)\s+my\s+(trades?|trading|day|week)\b", re.I)
+_WEEK = re.compile(r"\b(this|the|past|last)\s+week\b|\bweekly\b|\bweek's\b", re.I)
 
 # A decision about one stock. Trade words count in any persona; "buy now" style words only for a trader.
 _TRADE_WORDS = re.compile(
@@ -177,7 +188,7 @@ def wants_thread_symbol(message: str, persona: Optional[str] = None, surface: Op
     """True when the question is about one stock but names none ("Is this stock a buy now?", "Is my trade still
     valid?", "Should I book profits?"): the chat then reads the thread's last stock (cheap, only then)."""
     msg = message or ""
-    if _NOT_OURS.search(msg):
+    if _NOT_OURS.search(msg) or _DAILY_REVIEW.search(msg):
         return False
     trader = _is_trader(persona, surface)
     about_a_stock = _decision_words(msg, trader) or _TRADE_VALIDITY.search(msg) or _EXIT_OPTIONS.search(msg)
@@ -197,6 +208,9 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
     if not msg or len(msg) > 400 or _NOT_OURS.search(msg):
         return None
     trader = _is_trader(persona, surface)
+    if _DAILY_REVIEW.search(msg):
+        # Before the stock read: "how did I do on the TCS trade today?" is the day's review (TCS is one of its rows).
+        return Intent("daily_review", params={"period": "week" if _WEEK.search(msg) else "day"})
     sym = stock_in(msg)
     if _EXPECTED_MOVE.search(msg) and sym is None:
         return Intent("expected_move", symbol=_index_of(msg))

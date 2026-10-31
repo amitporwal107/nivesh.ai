@@ -25,6 +25,13 @@ Release 2:
                         day/week P&L, open risk and exposure — the same read the risk service itself checks a trade against
     risk_profile        services.risk_profile.read — GET /api/risk/profile (the account's own limits)
     latest_trade_plan   Mongo trade_plans, the newest stored plan for a symbol (services.strategy_plan.trade_plan.COLLECTION)
+
+Release 3:
+    closed_trades       Mongo desk_paper_trades, the user's newest closed paper trades, shaped as the desk shapes them
+                        (routes.desk_trading._public). A plain read: GET /api/desk/paper-trades also runs the exit rule on
+                        open trades (a write), which a review has no reason to do.
+    risk_decisions      Mongo risk_decisions (services.risk_controls.DECISIONS), the user's entry checks since a time:
+                        outcome, reasons, symbol, time (the risk snapshot itself is not read)
 """
 from __future__ import annotations
 
@@ -170,3 +177,26 @@ async def latest_trade_plan(symbol: str) -> Optional[Dict[str, Any]]:
     from services.strategy_plan.trade_plan import COLLECTION
     doc = await db[COLLECTION].find_one({"instrument.symbol": symbol}, sort=[("created_at", -1)])
     return doc
+
+
+# ── Release 3 ────────────────────────────────────────────────────────────────
+
+async def closed_trades(user_id: str, limit: int = 300) -> List[Dict[str, Any]]:
+    """The user's newest `limit` closed paper trades (cash and F&O structures), newest close first, as the desk's own
+    list shows a closed trade."""
+    from deps import db
+    from routes import desk_trading
+    from services import desk_trading as svc
+    docs = await db[svc.TRADES].find({"user_id": user_id, "status": "closed"}).sort("closed_at", -1).to_list(limit)
+    return [desk_trading._public(d) for d in docs]
+
+
+async def risk_decisions(user_id: str, since_utc: str, limit: int = 1000) -> List[Dict[str, Any]]:
+    """The user's risk-check decisions at or after `since_utc` (an ISO UTC time; rows store `at` the same way), newest
+    first, without the snapshot / checks / budget detail."""
+    from deps import db
+    from services import risk_controls as rc
+    return await db[rc.DECISIONS].find(
+        {"user_id": user_id, "at": {"$gte": since_utc}},
+        {"_id": 1, "at": 1, "outcome": 1, "symbol": 1, "reasons": 1, "source": 1, "supersedes": 1, "path": 1},
+    ).sort("at", -1).to_list(limit)

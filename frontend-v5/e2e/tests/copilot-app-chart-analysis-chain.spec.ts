@@ -21,7 +21,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 import {
-  callCells, candidateLegs, cardExpiry, cardFigures, cardTag, cardWhy, chainTemplate, engineOrder, kiteTradeDay, legsText, liveByContract,
+  callCells, candidateLegs, cardExpiry, cardFigures, cardMarginBody, cardShares, cardTag, cardWhy, chainTemplate, engineOrder, kiteTradeDay, legsText, liveByContract,
   liveLegsFor, liveQuoteCounts, noTradeReasons, notQualifying, oiChangePct, pickBlock, putCells, topActionable,
 } from "../../src/pages/CopilotApp/screens/tradingdesk/tabs/trade-desk/analysis/reco-data";
 import type { AnalysisChain, StrikeRow } from "../../src/pages/CopilotApp/screens/tradingdesk/tabs/trade-desk/analysis/chain-data";
@@ -38,6 +38,11 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 // MOCK — not real data: the plan builder's output over the backend test world (see the header).
 const PLAN_ALL = load("strategy-plan-all.json") as StrategyPlan;
 const PLAN_NOTRADE = load("strategy-plan-notrade.json") as StrategyPlan;
+// The same world with combinations, capital 5,000,000 and risk budget 50,000 (test_strategy_ideas.BIG), built 30 Oct 2026 by the
+// engine that prices the covered call's risk at the stop: covered call 4 lots (1,000 shares at 1200, the 1250 call at 38, scanner
+// stop 1160), bull call spread, cash.
+const PLAN_COMBO = load("strategy-plan-combo.json") as StrategyPlan;
+const rs = (n: number) => `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
 const relabel = (p: StrategyPlan): StrategyPlan => {
   const c = clone(p);
   c.underlying.symbol = "TVSMOTOR";
@@ -195,6 +200,47 @@ test.describe("logic: analysis/reco-data.ts (pure)", () => {
     expect(g.lossBasis).toBe(alt.max_loss_basis);
     expect(g.premium).toEqual({ kind: "entry", value: cash.legs[0].entry_price });
     expect(g.size).toBe(`${cash.legs[0].quantity} SHARES`);
+    expect(g.stop).toBe(1160);                                                                          // the scanner's stop
+    expect(f.stop).toBeNull();
+  });
+
+  test("F1 / F2 covered call: LOSS AT STOP from the engine's row, never the shares at zero (owner 30 Oct); MAX LOSS elsewhere", () => {
+    const cc = cand(PLAN_COMBO, "combination:covered_call");
+    const row = PLAN_COMBO.alternatives.find((x) => x.id === cc.id)!;
+    expect(row.max_loss_at).toBe("stop");
+    expect(row.max_loss).toBe(cc.risk_reward!.risk_net);                                               // the loss the R : R divides by
+    const f = cardFigures(PLAN_COMBO, cc);
+    expect(f.lossLabel).toBe("LOSS AT STOP");
+    expect(f.maxLoss).toEqual({ kind: "value", value: row.max_loss });
+    expect(f.stop).toBe(1160);
+    expect(cc.payoff!.expiry!.max_loss).toBe(-290500 * 4);                                             // (1200 − 38) × 1,000 at zero: not shown
+    expect(f.maxLoss).not.toEqual({ kind: "value", value: cc.payoff!.expiry!.max_loss });
+    expect(f.lossBasis).toContain("1,162,000.00 gross if the price falls to zero");
+    const spread = cardFigures(PLAN_COMBO, cand(PLAN_COMBO, "options:bull_call_spread"));
+    expect(spread.lossLabel).toBe("MAX LOSS");
+    expect(spread.stop).toBeNull();
+    // an engine without the field (before 30 Oct): the combination keeps MAX LOSS, as before
+    const old = clone(PLAN_COMBO);
+    old.alternatives.forEach((a) => { delete (a as { max_loss_at?: unknown }).max_loss_at; });
+    expect(cardFigures(old, cc).lossLabel).toBe("MAX LOSS");
+    expect(cardFigures(old, cc).stop).toBeNull();
+  });
+
+  test("F3 margin body: the card's option and future legs as POST /api/fno/margin takes them; shares ask nothing", () => {
+    const cc = cand(PLAN_COMBO, "combination:covered_call");
+    expect(cardMarginBody("TVSMOTOR", cc.legs)).toEqual({ underlying: "TVSMOTOR", legs: [{ side: "sell", option_type: "call", expiry: EXPIRY, strike: 1250, lots: 4 }] });
+    expect(cardShares(cc)).toEqual({ quantity: 1000, price: 1200 });
+    const spread = cand(PLAN_ALL, "options:bull_call_spread");
+    expect(cardMarginBody("TVSMOTOR", spread.legs)).toEqual({ underlying: "TVSMOTOR", legs: [
+      { side: "buy", option_type: "call", expiry: EXPIRY, strike: 1200, lots: 5 },
+      { side: "sell", option_type: "call", expiry: EXPIRY, strike: 1250, lots: 5 },
+    ] });
+    expect(cardShares(spread)).toBeNull();
+    const fut = cand(PLAN_ALL, "futures:long_buildup_continuation");
+    expect(cardMarginBody("TVSMOTOR", fut.legs)).toEqual({ underlying: "TVSMOTOR", legs: [{ side: "buy", option_type: "future", expiry: fut.legs[0].expiry, strike: null, lots: fut.legs[0].quantity }] });
+    const cash = cand(PLAN_ALL, "cash:breakout_continuation");
+    expect(cardMarginBody("TVSMOTOR", cash.legs)).toBeNull();
+    expect(cardShares(cash)).toEqual({ quantity: cash.legs[0].quantity, price: cash.legs[0].entry_price });
   });
 
   test("ADD TO BASKET legs: the candidate's own legs and prices; the chain close only for a leg with no price", () => {
@@ -247,9 +293,13 @@ const OI = {
   missing_slots: [], missing_note: null, kite_reason: "token_expired", note: "MOCK", read_only: true,
 };
 
-interface Seen { plans: Array<Record<string, unknown>>; quoteBodies: Array<{ legs: Array<Record<string, unknown>> }> }
-async function setup(page: Page, o: { phone?: boolean; plan?: (n: number) => { status: number; body: unknown }; at?: Date; quotes?: (legs: Array<Record<string, unknown>>) => unknown } = {}): Promise<Seen> {
-  const seen: Seen = { plans: [], quoteBodies: [] };
+interface MarginReq { underlying: string; legs: Array<Record<string, unknown>> }
+interface Seen { plans: Array<Record<string, unknown>>; quoteBodies: Array<{ legs: Array<Record<string, unknown>> }>; margins: MarginReq[] }
+async function setup(page: Page, o: {
+  phone?: boolean; plan?: (n: number) => { status: number; body: unknown }; at?: Date; quotes?: (legs: Array<Record<string, unknown>>) => unknown;
+  margin?: (body: MarginReq) => { status: number; body: unknown };
+} = {}): Promise<Seen> {
+  const seen: Seen = { plans: [], quoteBodies: [], margins: [] };
   await page.clock.setFixedTime(o.at ?? AFTER_HOURS);
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/**", (r) => json(r, { detail: "MOCK: not mocked in this spec" }, 404));
@@ -270,6 +320,15 @@ async function setup(page: Page, o: { phone?: boolean; plan?: (n: number) => { s
   await page.route("**/api/fno/*/chain/consolidated*", (r) => json(r, CONSOLIDATED));
   await page.route("**/api/fno/*/iv-history*", (r) => json(r, { symbol: "TVSMOTOR", bucket: "near_month", sessions: 0, min_sessions: 252, last_session: null, iv_percentile: null, iv_rank: null, reason: "MOCK: no IV history is recorded.", series: [] }));
   await page.route("**/api/desk/chart-events/*", (r) => json(r, { symbol: "TVSMOTOR", from: "2026-08-01", to: AS_OF, events: [], sources: {}, fii_dii_rule: null }));
+  if (o.margin) {
+    const answer = o.margin;
+    await page.route("**/api/fno/margin", (r) => {
+      const body = r.request().postDataJSON() as MarginReq;
+      seen.margins.push(body);
+      const a = answer(body);
+      return json(r, a.body, a.status);
+    });
+  }
   let n = 0;
   await page.route("**/api/desk/strategy/plan", (r) => {
     seen.plans.push(r.request().postDataJSON());
@@ -430,6 +489,65 @@ test.describe("page: Chart Analysis › option chain and strategy cards (MOCK �
     await toReco(page);
     await page.getByTestId("ca-reco-card").first().getByTestId("ca-reco-add").click(SLOW);
     await expect(page.getByTestId("ca-reco-card").first().getByTestId("ca-reco-refused")).toHaveText("The paper engine takes at most 4 legs.");
+  });
+
+  // MOCK — not real data: Zerodha's calculator answer in the route's shape (services/fno_margin.shape); 1 leg → 1,23,456.50, 2 legs → 36,533.
+  const MARGIN_OK = (b: MarginReq) => ({ status: 200, body: {
+    required_margin: b.legs.length === 1 ? 123456.5 : 36533, initial_margin: null, hedge_benefit: 0, standalone_margin: null,
+    hedge_benefit_basis: "MOCK", charges: { per_order: [], total: {} }, as_of: "2026-10-30", source: "MOCK Zerodha margin calculator", note: "MOCK", sent_to_broker: false,
+  } });
+
+  test("U1 / U2 / U4 MARGIN · ZERODHA per card from the calculator; the covered call's loss is at its stop", async ({ page }) => {
+    const plan = relabel(PLAN_COMBO);
+    const seen = await setup(page, { plan: () => ({ status: 200, body: plan }), margin: MARGIN_OK });
+    await page.goto(URL_TVS);
+    await toReco(page);
+    await expect(page.getByTestId("ca-reco-card")).toHaveCount(3, SLOW);
+    const card = (i: number) => page.getByTestId("ca-reco-card").nth(i);
+    expect(await page.getByTestId("ca-reco-card").evaluateAll((els) => els.map((e) => e.getAttribute("data-id"))))
+      .toEqual(["combination:covered_call", "options:bull_call_spread", "cash:breakout_continuation"]);
+
+    // U2: LOSS AT STOP = the engine's row (the stop scenario after costs), with the stop; not (1200 − 38) × 1,000 at zero
+    const cc = cand(plan, "combination:covered_call");
+    const row = plan.alternatives.find((x) => x.id === cc.id)!;
+    await expect(card(0).getByTestId("ca-reco-max-loss")).toContainText("LOSS AT STOP");
+    await expect(card(0).getByTestId("ca-reco-max-loss")).toContainText(rs(row.max_loss!));
+    await expect(card(0).getByTestId("ca-reco-max-loss")).not.toContainText(rs(1162000));
+    await expect(card(0).getByTestId("ca-reco-max-loss-sub")).toHaveText("stop 1,160.00");
+    await expect(card(0).getByTestId("ca-reco-max-loss")).toHaveAttribute("title", /gross if the price falls to zero/);
+
+    // U1: each F&O card shows Kite's figure; the covered call adds its shares, paid in full
+    await expect(card(0).getByTestId("ca-reco-margin")).toContainText("MARGIN · ZERODHA");
+    await expect(card(0).getByTestId("ca-reco-margin")).toContainText(rs(123456.5), SLOW);
+    await expect(card(0).getByTestId("ca-reco-margin-sub")).toHaveText(
+      `Kite's margin calculator for SELL 1250 CE alone (the shares are not counted against it); plus ${rs(1200000)} for 1,000 shares, paid in full (delivery).`);
+    await expect(card(1).getByTestId("ca-reco-max-loss")).toContainText("MAX LOSS");
+    await expect(card(1).getByTestId("ca-reco-max-loss-sub")).toHaveCount(0);
+    await expect(card(1).getByTestId("ca-reco-margin")).toContainText(rs(36533), SLOW);
+    await expect(card(1).getByTestId("ca-reco-margin-sub")).toHaveText("Kite's margin calculator for BUY 1200 CE · SELL 1250 CE.");
+
+    // U4: shares only: nothing asked, paid in full
+    const sh = cardShares(cand(plan, "cash:breakout_continuation"))!;
+    await expect(card(2).getByTestId("ca-reco-margin")).toContainText("No F&O margin");
+    await expect(card(2).getByTestId("ca-reco-margin-sub")).toHaveText(`Shares only: ${rs(sh.quantity * sh.price)} for ${sh.quantity.toLocaleString("en-IN")} shares, paid in full (delivery).`);
+
+    // the requests are the two F&O cards' legs, nothing for the cash card
+    const asked = [...new Set(seen.margins.map((b) => JSON.stringify(b)))].map((s) => JSON.parse(s));
+    expect(asked).toHaveLength(2);
+    expect(asked).toEqual(expect.arrayContaining([cardMarginBody("TVSMOTOR", cc.legs), cardMarginBody("TVSMOTOR", cand(plan, "options:bull_call_spread").legs)]));
+  });
+
+  test("U3 MARGIN · ZERODHA without today's Kite login says so, no figure", async ({ page }) => {
+    await setup(page, { plan: () => ({ status: 200, body: relabel(PLAN_COMBO) }), margin: () => ({ status: 503, body: { detail: "kite_session_unavailable" } }) });
+    await page.goto(URL_TVS);
+    await toReco(page);
+    await expect(page.getByTestId("ca-reco-card")).toHaveCount(3, SLOW);
+    for (const i of [0, 1]) {
+      const m = page.getByTestId("ca-reco-card").nth(i).getByTestId("ca-reco-margin");
+      await expect(m.getByTestId("ca-reco-margin-sub")).toHaveText("Margin needs today's Kite login.", SLOW);
+      await expect(m).toContainText("—");
+      await expect(m).not.toContainText("₹");
+    }
   });
 
   test("U11 390 px: no sideways page scroll; the chain scrolls inside its box; phone columns", async ({ page }) => {

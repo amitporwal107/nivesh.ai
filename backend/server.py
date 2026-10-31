@@ -469,6 +469,13 @@ async def startup_seed():
         await kite_live_feed.start(db)
     except Exception as e:
         logger.warning("kite live feed did not start: %s", type(e).__name__)
+    # TrueData live feed in SHADOW with its data-quality checks: only when the market-data switch has TrueData on and
+    # its WebSocket login is configured (services/truedata_live). It serves nobody and never touches Kite's feed.
+    try:
+        from services import truedata_live
+        await truedata_live.start(db)
+    except Exception as e:
+        logger.warning("truedata shadow did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
@@ -476,6 +483,11 @@ async def shutdown_db_client():
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)
+    except Exception:
+        pass
+    try:
+        from services import truedata_live
+        await truedata_live.stop(db)
     except Exception:
         pass
     try:

@@ -1,5 +1,5 @@
 /**
- * `bars`: horizontal or vertical bars from zero, in the block's unit (₹ Cr, %, ×, count). A bar's colour is its tone,
+ * `bars`: horizontal or vertical bars from zero, in the block's unit (₹, ₹ Cr, %, ×, count). A bar's colour is its tone,
  * or its sign when the builder gave none (mint up, danger down). A `baseline` (e.g. 1× = the usual volume) is a dashed
  * line, named in the chart. Inline SVG drawn at its real width (one unit = one pixel). Every value is printed as text:
  * beside its bar (horizontal) or in the list under the chart (vertical), and in the chart's aria-label.
@@ -18,7 +18,7 @@ function tick(v: number, unit: string, step: number): string {
   const d = step < 1 ? 1 : 0;
   const s = new Intl.NumberFormat("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d }).format(Math.abs(v));
   const sign = v < 0 ? "−" : "";
-  return unit === "%" ? `${sign}${s}%` : unit === "×" ? `${sign}${s}×` : `${sign}${s}`;
+  return unit === "%" ? `${sign}${s}%` : unit === "×" ? `${sign}${s}×` : unit === "₹" ? `${sign}₹${s}` : `${sign}${s}`;
 }
 
 const fill = (it: BarsBlock["items"][number]) => toneColor(signTone(it.value, it.tone));

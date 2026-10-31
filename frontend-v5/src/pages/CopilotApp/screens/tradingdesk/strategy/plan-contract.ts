@@ -219,6 +219,9 @@ export const AlternativeSchema = z.object({
   status: z.string(),
   max_loss: numOrNull,
   max_loss_basis: strOrNull,
+  /** "stop": `max_loss` is the loss at the stop (cash, futures, and shares or a future with no long put under them, e.g. the
+   *  covered call); "expiry": the expiry payoff's defined worst case. Absent from an engine older than 30 Oct 2026. */
+  max_loss_at: z.enum(["stop", "expiry"]).nullable().catch(null).optional(),
   capital_at_risk: numOrNull,
   breakeven: z.array(z.number()).nullable().catch(null),
   reward_risk_net: numOrNull,
