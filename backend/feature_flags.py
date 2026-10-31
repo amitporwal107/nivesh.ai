@@ -59,6 +59,18 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": [],
         "allowed_modes": ["off", "allowlist", "everyone"],
     },
+    "portfolio_hedge": {
+        "display_name": "Quick Hedge (portfolio protection)",
+        "description": (
+            "Quick Hedge in the Smart Trading Desk (Risk Desk) and in Copilot chat: sizes a Nifty put or put-spread hedge for the "
+            "user's equity-linked holdings from their tolerable loss and the fall they fear, and shows what each choice would cost "
+            "and do under market falls. Estimates only; paper hedges only, no order is ever placed. Off until the compliance "
+            "position on personalised hedge ideas is settled, so it is allow-listed for the owner."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist", "everyone"],
+    },
     "ai_copilot": {
         "display_name": "AI Copilot (Scenario Engine)",
         "description": "Simulate scenarios, rebalance plans, custom builder, saved/pending plans",
