@@ -26,7 +26,7 @@ const PAYLOADS: Record<string, Payload> = Array.isArray(RAW)
   ? Object.fromEntries(RAW.map((p: Payload) => [p.intent, p]))
   : Array.isArray(RAW.payloads) ? Object.fromEntries(RAW.payloads.map((p: Payload) => [p.intent, p])) : RAW.payloads;
 const INTENTS = ["market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation"]
+  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation", "results_calendar", "event_intelligence"]
   .filter((i) => PAYLOADS[i]);
 const CARD = JSON.parse(fs.readFileSync(path.join(FIX, "contract-decision-card.json"), "utf-8"));
 const PLANS: Record<string, unknown> = {
@@ -209,6 +209,19 @@ async function expectBlocks(va: Locator, p: Payload) {
       case "list":
         await expect(f.getByTestId("va-list-text")).toHaveText(b.items.map((it: any) => `${it.tone === "warn" ? "Warning: " : ""}${it.text}`));
         break;
+      case "briefs": {
+        const cards = f.getByTestId("va-brief");
+        await expect(cards).toHaveCount(b.items.length);
+        for (let k = 0; k < b.items.length; k++) {
+          const it = b.items[k];
+          await expect(cards.nth(k).getByTestId("va-brief-title")).toHaveText(it.title);
+          if (it.body) await expect(cards.nth(k).getByTestId("va-brief-body")).toHaveText(it.body);   // the stored summary, verbatim
+          else await expect(cards.nth(k).getByTestId("va-brief-empty")).toHaveText(it.body_note || "Not analysed yet");
+          await expect(cards.nth(k).getByTestId("va-brief-link")).toHaveCount((it.links ?? []).length);
+          for (let j = 0; j < (it.links ?? []).length; j++) await expect(cards.nth(k).getByTestId("va-brief-link").nth(j)).toHaveAttribute("href", it.links[j].url);
+        }
+        break;
+      }
       case "notice":
         await expect(f.getByTestId("va-notice")).toHaveAttribute("data-tone", b.tone);
         await expect(f.getByTestId("va-notice-text")).toHaveText(b.text);
