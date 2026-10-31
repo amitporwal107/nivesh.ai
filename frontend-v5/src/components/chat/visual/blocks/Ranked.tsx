@@ -10,7 +10,9 @@ import { Fragment, useState } from "react";
 import { DecisionCardById } from "@/pages/CopilotApp/screens/tradingdesk/decision/DecisionCard";
 import { useBoxWidth } from "@/pages/CopilotApp/screens/tradingdesk/decision/PlanPayoff";
 import type { RankedBlock } from "../schema";
+import { useOptionalCopilotShell } from "@/pages/CopilotApp/lib/shell-context";
 import { fmtCell, toneColor } from "../format";
+import { FnoSymbolDialog, type FnoDetailContext } from "../FnoSymbolDialog";
 import type { BlockProps } from "./common";
 
 type Row = RankedBlock["rows"][number];
@@ -31,7 +33,7 @@ function Badge({ row }: { row: Row }) {
   return <span data-testid="va-row-badge" data-live={live ? "1" : "0"} style={{ ...BADGE_STYLE, ...(live ? { color: "var(--mint)", borderColor: "var(--mint)" } : {}) }}>{row.badge}</span>;
 }
 
-function Actions({ row, open, setOpen, ask, alts }: { row: Row; open: boolean; setOpen: (o: boolean) => void; ask?: (q: string) => void; alts?: AltCtl }) {
+function Actions({ row, open, setOpen, ask, alts, onDetail }: { row: Row; open: boolean; setOpen: (o: boolean) => void; ask?: (q: string) => void; alts?: AltCtl; onDetail?: () => void }) {
   const name = row.symbol ?? "this row";
   const n = row.alternatives?.length ?? 0;
   return (
@@ -48,6 +50,10 @@ function Actions({ row, open, setOpen, ask, alts }: { row: Row; open: boolean; s
           Ask ›
         </button>
       )}
+      {onDetail && (
+        <button type="button" data-testid="va-row-detail" className="cp-btn" data-variant="ghost" aria-label={`Open the F&O detail of ${name}`}
+          onClick={onDetail} style={{ padding: "3px 9px", fontSize: 12 }}>Details ›</button>
+      )}
       {alts && n > 0 && (
         <button type="button" data-testid="va-row-alts" className="cp-btn" data-variant="ghost" aria-expanded={alts.shown}
           aria-label={`${alts.shown ? "Hide" : "Show"} ${n} other structure${n === 1 ? "" : "s"} for ${name}`} onClick={alts.toggle} style={{ padding: "3px 9px", fontSize: 12 }}>
@@ -63,13 +69,20 @@ export function RankedView({ b, compact, ask }: BlockProps<RankedBlock>) {
   const measured = useBoxWidth(box);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [altsOpen, setAltsOpen] = useState<Record<number, boolean>>({});
+  const shell = useOptionalCopilotShell();
+  const [detail, setDetail] = useState<FnoDetailContext | null>(null);
+  // `detail: "fno"` and a symbol on the row: Details › opens that stock's option chain and futures build-up (inside the app shell).
+  const detailOf = (r: Row): (() => void) | undefined => (b.detail === "fno" && shell && r.symbol
+    ? () => setDetail({ symbol: r.symbol as string, label: typeof r.cells.buildup === "string" ? r.cells.buildup : null,
+        sub: ["price", "oi"].map((k, i) => (typeof r.cells[k] === "number" ? `${i ? "OI" : "price"} ${fmtCell(r.cells[k] as number, "pct")}` : null)).filter(Boolean).join(", ") || null })
+    : undefined);
   // A table needs room for its columns: 560 px up to seven (as before), then 110 px for each one more, so a ten-column board
   // is cards below 890 px instead of overflowing its box.
   const minTable = 560 + Math.max(0, b.columns.length - 7) * 110;
   // A card cell holds a label and a figure side by side: wider cells for a board of many figures, so no figure breaks in two.
   const cardMin = b.columns.length >= 8 ? 176 : 108;
   const narrow = compact || (measured != null && measured < minTable);
-  const hasActions = b.rows.some((r) => r.plan_id || r.ask || r.alternatives?.length || r.alternatives?.some((a) => a.plan_id || a.ask));
+  const hasActions = b.rows.some((r) => r.plan_id || r.ask || r.alternatives?.length || r.alternatives?.some((a) => a.plan_id || a.ask)) || (b.detail === "fno" && !!shell);
   const toggle = (k: string) => (o: boolean) => setOpen((s) => ({ ...s, [k]: o }));
   if (!b.rows.length) return <div ref={setBox} data-testid="va-ranked-empty" style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Nothing to rank today.</div>;
 
@@ -89,7 +102,7 @@ export function RankedView({ b, compact, ask }: BlockProps<RankedBlock>) {
             {head && !alt && <strong style={{ fontSize: 13.5 }}>{head}</strong>}
             <Badge row={r} />
           </span>
-          <Actions row={r} open={!!open[k]} setOpen={toggle(k)} ask={ask} alts={altCtl} />
+          <Actions row={r} open={!!open[k]} setOpen={toggle(k)} ask={ask} alts={altCtl} onDetail={detailOf(r)} />
         </div>
         <dl className="m-0 grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardMin}px, 1fr))`, gap: "2px 14px", fontSize: 12 }}>
           {cols.map((c) => (
@@ -117,7 +130,7 @@ export function RankedView({ b, compact, ask }: BlockProps<RankedBlock>) {
               : fmtCell(r.cells[c.key], c.format)}
           </td>
         ))}
-        {hasActions && <td style={{ padding: "3px 6px", textAlign: "right", whiteSpace: "nowrap" }}><Actions row={r} open={!!open[k]} setOpen={toggle(k)} ask={ask} alts={altCtl} /></td>}
+        {hasActions && <td style={{ padding: "3px 6px", textAlign: "right", whiteSpace: "nowrap" }}><Actions row={r} open={!!open[k]} setOpen={toggle(k)} ask={ask} alts={altCtl} onDetail={detailOf(r)} /></td>}
       </tr>
       {open[k] && r.plan_id && (
         <tr><td colSpan={b.columns.length + 1} style={{ padding: "4px 6px 10px" }}><DecisionCardById planId={r.plan_id} testId="va-row-plan-card" variant="row" budgets /></td></tr>
@@ -128,6 +141,7 @@ export function RankedView({ b, compact, ask }: BlockProps<RankedBlock>) {
   const ctl = (i: number): AltCtl => ({ shown: !!altsOpen[i], toggle: () => setAltsOpen((s) => ({ ...s, [i]: !s[i] })) });
   return (
     <div ref={setBox} data-testid="va-ranked" data-layout={narrow ? "cards" : "table"} className="min-w-0">
+      {detail && <FnoSymbolDialog detail={detail} onClose={() => setDetail(null)} />}
       {narrow ? (
         <ol className="m-0 flex list-none flex-col p-0" style={{ gap: 8 }}>
           {b.rows.map((r, i) => (

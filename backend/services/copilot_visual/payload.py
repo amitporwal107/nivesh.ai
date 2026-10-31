@@ -21,7 +21,7 @@ DECISION_LABELS = {"setup_ready": "Setup ready", "wait": "Wait", "avoid": "Avoid
 CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker."
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
-NOTICE_ACTIONS = ("kite_login", "connect_broker")
+NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile")
 
 
 # ── numbers and formats ──────────────────────────────────────────────────────
@@ -144,6 +144,11 @@ class Sources:
                 f"{' (' + day_text(self.w.floor) + ')' if self.w is not None else ''}: shown with its date, not as today's.",
                 "warn", f"stale-{len(self.notices)}"))
         return ok
+
+    def setting(self, name: str, as_of: Any = None, note: Optional[str] = None) -> None:
+        """Record a source that is the user's own saved setting (a risk profile), not market data. The freshness rule is about
+        prices and flows: a setting made months ago is still the setting, so it is never stale, and no notice is added."""
+        self.rows.append({"name": name, "as_of": iso_day(as_of), "status": "fresh", "note": note})
 
     def miss(self, name: str, reason: str) -> None:
         """Record a source that could not answer: no number from it is shown."""

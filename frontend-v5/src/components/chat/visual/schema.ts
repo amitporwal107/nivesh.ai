@@ -58,6 +58,8 @@ export const heatmapBlock = z.object({
 
 export const quadrantBlock = z.object({
   ...base, type: z.literal("quadrant"),
+  /** "fno": a point or row opens that stock's F&O detail (option chain and futures build-up) inside the app shell. */
+  detail: z.enum(["fno"]).optional().catch(undefined),
   x: z.object({ label: str, unit: str }),
   y: z.object({ label: str, unit: str }),
   quadrants: z.object({ tr: str, tl: str, br: str, bl: str }),
@@ -77,6 +79,8 @@ const baseRow = z.object({
 const rankedRow = baseRow.extend({ alternatives: z.array(baseRow).optional().catch(undefined) });
 export const rankedBlock = z.object({
   ...base, type: z.literal("ranked"),
+  /** "fno": a row with a symbol gets a Details › button that opens that stock's F&O detail inside the app shell. */
+  detail: z.enum(["fno"]).optional().catch(undefined),
   columns: z.array(z.object({
     key: str, label: str,
     align: z.enum(["left", "right"]).optional().catch(undefined),
@@ -92,10 +96,10 @@ export const listBlock = z.object({
   items: z.array(z.object({ text: str, tone: optTone, sub: optStr })).min(1),
 });
 
-export const NOTICE_ACTIONS = ["kite_login", "connect_broker"] as const;
+export const NOTICE_ACTIONS = ["kite_login", "connect_broker", "set_risk_profile"] as const;
 export const noticeBlock = z.object({
   ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str,
-  /** What the reader can do about it: log in to Kite (admins), connect a broker. */
+  /** What the reader can do about it: log in to Kite (admins), connect a broker, set up a risk profile. */
   actions: z.array(z.object({ kind: z.enum(NOTICE_ACTIONS), label: str })).optional().catch(undefined),
 });
 

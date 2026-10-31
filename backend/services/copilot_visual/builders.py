@@ -299,7 +299,7 @@ async def smart_money(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                                 "a reading of two figures, not a record of who traded.",
                                 x={"label": "Price change", "unit": "%"}, y={"label": "OI change", "unit": "%"},
                                 quadrants={"tr": "Long buildup", "tl": "Short buildup", "br": "Short covering", "bl": "Long unwinding"},
-                                points=pts))
+                                points=pts, detail="fno"))
         longs = sorted((r for r in rows if r["label"] == "long_buildup"), key=lambda r: -r["oi_chg_pct"])[:5]
         covers = sorted((r for r in rows if r["label"] == "short_covering"), key=lambda r: -r["price_chg_pct"])[:5]
         ranked = [{"symbol": r["symbol"], "cells": {"symbol": r["symbol"], "buildup": BUILDUP_NAMES[r["label"]],
@@ -312,7 +312,7 @@ async def smart_money(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                                          {"key": "buildup", "label": "Buildup", "align": "left", "format": "text"},
                                          {"key": "price", "label": "Price %", "align": "right", "format": "pct"},
                                          {"key": "oi", "label": "OI %", "align": "right", "format": "pct"}],
-                                rows=ranked))
+                                rows=ranked, detail="fno"))
         idx = [r for r in bu.get("indices") or [] if r.get("label") in BUILDUP_NAMES]
         if idx:
             blocks.append(block("list", "index_futures", "Index futures", None,
@@ -1091,15 +1091,31 @@ async def position_size(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     if e_p or not isinstance(prof, dict):
         src.miss(SRC_RISK_PROFILE, why(e_p) if e_p else "the risk profile could not be read")
     else:
-        src.add(SRC_RISK_PROFILE, None)
+        # The profile is the user's own saved setting, not market data: it is never "stale". With none saved the answer says
+        # so, shows the defaults the risk service applies meanwhile under that name, and asks the user to set one up.
+        stored = bool(prof.get("stored"))
+        set_day = iso_day(prof.get("set_at"))
+        if stored:
+            src.setting(SRC_RISK_PROFILE, set_day, f"saved by you{' on ' + day_text(set_day) if set_day else ''}")
+        else:
+            src.setting(SRC_RISK_PROFILE, None, "no profile saved: platform defaults")
+            n_ = notice("You have not set a risk profile yet. Your paper trades are checked against the platform's default limits "
+                        "below until you set your own.", "info", "no-profile")
+            n_["actions"] = [{"kind": "set_risk_profile", "label": "Set up your risk profile"}]
+            blocks.append(n_)
+            head = "You have no saved risk profile; these are the platform's default limits."
         lim = prof.get("limits") or {}
         kpis = [_kpi("Per trade", f"{num(lim.get('per_trade_risk_pct')) or 0:g}% of equity", prof.get("capital_basis_text")),
                 _kpi("Max open risk", f"{num(lim.get('max_open_risk_pct')) or 0:g}%", "all open positions plus a new one"),
                 _kpi("One position", f"{num(lim.get('max_position_pct')) or 0:g}%", "market exposure, one position"),
                 _kpi("One sector", f"{num(lim.get('max_sector_pct')) or 0:g}%", "market exposure, one sector"),
                 _kpi("Min reward:risk", f"{num(lim.get('min_reward_risk')) or 0:g}×", "planned, after costs")]
-        blocks.append(block("kpis", "limits", "Your risk limits", (prof.get("profile") or "custom") + " profile"
-                            + ("" if prof.get("stored") else " (owner default: no profile saved yet)"), items=kpis))
+        if stored:
+            blocks.append(block("kpis", "limits", "Your risk limits",
+                                f"{prof.get('profile') or 'custom'} profile" + (f", set {day_text(set_day)}" if set_day else ""), items=kpis))
+        else:
+            blocks.append(block("kpis", "limits", "Default risk limits",
+                                "Platform defaults, not saved by you: they apply to your paper trades until you set your own profile.", items=kpis))
     if e_b or not isinstance(book, dict):
         src.miss(SRC_RISK_BOOK, why(e_b) if e_b else "today's usage could not be read")
     else:
