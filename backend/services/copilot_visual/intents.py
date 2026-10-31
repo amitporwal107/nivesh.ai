@@ -13,7 +13,8 @@ the seven Release-1 intents and the chat takes its usual path unchanged.
     expected_move      "What is the expected move in Nifty?" (NIFTY or BANKNIFTY), PCR / max pain / ATM IV of an index
 
 Release 2:
-    open_trades        "What are my open trades doing?", "my open positions" — the paper book, not a broker's
+    open_trades        "What are my open trades doing?", "my open positions", "my broker positions" — the user's broker book
+                       (live when signed in, else the last stored read; the connect prompt when none) and the paper book
     fno_setups         "Which F&O setups are attractive?" — index and stock F&O, ranked by fit to today's regime
     trade_validity     "Is my trade in X still valid?", "has my thesis on X weakened?" — a named or thread stock
     exit_options       "Should I book profits or hold X?", "should I trail my stop?" — a named or thread stock
@@ -118,7 +119,8 @@ _MARKET_VIEW = re.compile(
 _OPEN_TRADES = re.compile(
     r"\bmy\s+open\s+(trades?|positions?)\b|\bopen\s+trades?\b|\bwhat\s+are\s+my\s+(trades?|positions?)\s+doing\b|"
     r"\bhow\s+are\s+my\s+(trades?|positions?)\s+(doing|going)\b|\bmy\s+(trades?|positions?)\s+today\b|"
-    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b", re.I)
+    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b|"
+    r"\b(my\s+)?broker\s+(positions?|trades?|book|portfolio)\b", re.I)
 _FNO_SETUPS = re.compile(
     r"\b(f&o|fno|options?|futures)\s+(setups?|strateg(y|ies)|trades?|ideas?|opportunit\w+)\b|"
     r"\bwhich\s+(f&o|fno|options?)\b.{0,30}\battractive\b|\boptions?\s+trading\s+ideas?\b|"

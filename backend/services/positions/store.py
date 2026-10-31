@@ -61,6 +61,38 @@ async def record_snapshot(db, *, user_id: str, account_id: str, broker: str, rea
     return sid
 
 
+# What a position IS (not what it is worth now): the fields that identify the contract and the size and cost held.
+STRUCTURE_FIELDS = ("symbol", "exchange", "quantity", "avg_price", "product_raw", "instrument_type", "expiry", "strike")
+
+
+def structure_hash(rows: List[Dict[str, Any]]) -> str:
+    """A hash of what the rows hold, ignoring prices and P&L, so a quote tick does not look like a new book."""
+    shape = sorted(([r.get(f) for f in STRUCTURE_FIELDS] for r in rows), key=lambda x: json.dumps(x, default=str))
+    return hashlib.sha256(json.dumps(shape, default=str).encode()).hexdigest()
+
+
+async def latest_snapshot(db, user_id: str, account_id: str) -> Optional[Dict[str, Any]]:
+    """The account's newest stored read ({rows, read_at, last_seen_at, ...}) or None. Tenant-scoped on both ids."""
+    return await db[SNAPSHOTS].find_one({"user_id": user_id, "account_id": account_id}, sort=[("read_at", -1)])
+
+
+async def record_book_snapshot(db, *, user_id: str, account_id: str, broker: str, read_at: str,
+                               rows: List[Dict[str, Any]]) -> str:
+    """Store a polled read: refresh the latest snapshot in place when the account still holds the same positions, else add a
+    document. Returns the snapshot id."""
+    s_hash, h = structure_hash(rows), rows_hash(rows)
+    last = await latest_snapshot(db, user_id, account_id)
+    if last and (last.get("structure_hash") or structure_hash(last.get("rows") or [])) == s_hash:
+        await db[SNAPSHOTS].update_one({"_id": last["_id"]}, {"$set": {"rows": rows, "rows_hash": h, "structure_hash": s_hash,
+                                                                       "last_seen_at": read_at, "row_count": len(rows)}})
+        return last["_id"]
+    sid = f"ps_{uuid.uuid4().hex[:16]}"
+    await db[SNAPSHOTS].insert_one({"_id": sid, "user_id": user_id, "account_id": account_id, "broker": broker,
+                                    "read_at": read_at, "last_seen_at": read_at, "broker_as_of": None, "rows_hash": h,
+                                    "structure_hash": s_hash, "row_count": len(rows), "rows": rows})
+    return sid
+
+
 def level_id(user_id: str, underlying: str) -> str:
     return f"{user_id}|{underlying}"
 

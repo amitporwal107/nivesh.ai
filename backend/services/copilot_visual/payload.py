@@ -374,6 +374,12 @@ def validate(p: Any) -> List[str]:
     if not all(isinstance(f, dict) and isinstance(f.get("label"), str) and isinstance(f.get("query"), str)
                for f in p.get("follow_ups") or []):
         out.append("follow_ups")
+    rf = p.get("refresh")
+    if rf is not None and not (isinstance(rf, dict) and isinstance(rf.get("path"), str) and rf["path"].startswith("/api/")
+                               and _is_num(rf.get("interval_s")) and rf["interval_s"] >= 5
+                               and isinstance(rf.get("block_ids"), list) and rf["block_ids"]
+                               and all(isinstance(i, str) for i in rf["block_ids"])):
+        out.append("refresh: path (/api/…), interval_s (at least 5) and block_ids")
     return out
 
 

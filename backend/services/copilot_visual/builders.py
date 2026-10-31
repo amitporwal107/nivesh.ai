@@ -831,60 +831,11 @@ async def expected_move(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
 # ── Release 2 ──────────────────────────────────────────────────────────────── (owner, 30 Oct: "complete Release 2")
 
 async def open_trades(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """Q13 "What are my open trades doing?" — the paper book (not a broker's), the same read the desk's own Paper
-    trades screen uses, with marks and each trade's own stop and target."""
-    src: Sources = ctx["src"]
-    out, err = await _try(rd.open_trades(ctx["request"]))
-    blocks: List[Dict[str, Any]] = []
-    head = None
-    tone = "neutral"
-    as_of = None
-    if err or not isinstance(out, dict):
-        src.miss(SRC_PAPER, why(err) if err else "the paper book could not be read")
-    else:
-        as_of = iso_day(out.get("as_of"))
-        if as_of:
-            src.add(SRC_PAPER, as_of)
-        else:
-            src.missing.append(f"{SRC_PAPER}: no end-of-day mark date on this answer (an F&O-only book marks on its own schedule)")
-        trades = [t for t in out.get("trades") or [] if isinstance(t, dict)]
-        summ = out.get("summary") or {}
-        unreal = num(summ.get("unrealized_pnl_rs"))
-        kpis = [_kpi("Open", str(summ.get("open") or 0), None),
-                _kpi("Unrealised P&L", price(unreal) if unreal is not None else None,
-                     "net of estimated costs" if unreal is not None else "not every open trade is marked yet", tone_of(unreal))]
-        if summ.get("entry_pending"):
-            kpis.append(_kpi("Not yet triggered", str(summ["entry_pending"]), "waiting for its entry condition"))
-        blocks.append(block("kpis", "summary", "Your open paper trades", None, items=kpis))
-        if trades:
-            rows = []
-            for t in trades[:15]:
-                sym = t.get("symbol")
-                pnl = num(t.get("unrealized_pnl_rs"))
-                rows.append({"symbol": sym, "ask": f"Should I book profits or hold {sym}?" if sym else None,
-                             "tone": tone_of(pnl),
-                             "cells": {"symbol": sym, "qty": t.get("quantity"), "entry": r2(t.get("entry_price")),
-                                       "last": r2(t.get("last_close")), "stop": r2(t.get("stop_price")),
-                                       "target": r2(t.get("target_price")), "pnl": r2(pnl)}})
-            blocks.append(block("ranked", "trades", f"{len(trades)} open paper trade{'s' if len(trades) != 1 else ''}",
-                                "Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
-                                columns=[{"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
-                                         {"key": "qty", "label": "Qty", "align": "right", "format": "int"},
-                                         {"key": "entry", "label": "Entry", "align": "right", "format": "price"},
-                                         {"key": "last", "label": "Last close", "align": "right", "format": "price"},
-                                         {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
-                                         {"key": "target", "label": "Target", "align": "right", "format": "price"},
-                                         {"key": "pnl", "label": "Unrealised P&L", "align": "right", "format": "price"}],
-                                rows=rows))
-            tone = tone_of(unreal)
-            head = (f"{len(trades)} open paper trade{'s' if len(trades) != 1 else ''}"
-                    + (f", unrealised {price(unreal)}" if unreal is not None else "") + ".")
-        else:
-            blocks.append(notice("No open paper trades right now.", "info", "empty"))
-            head = "No open paper trades right now."
-    return assemble("open_trades", "Your open trades", as_of, head, tone, blocks, src,
-                    follow("How much should I risk?", "Which F&O setups are attractive?",
-                           "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
+    """Q13 "What are my open trades doing?" — the user's broker book when a broker is connected (live, or the last stored read
+    when its session has ended), with the desk's paper trades beside it, each labelled; the connect prompt when none is.
+    services/copilot_visual/open_book.py (owner, 31 Oct 2026)."""
+    from . import open_book
+    return await open_book.build_open_trades(intent, ctx)
 
 
 FNO_VIEWS = {"up": "Bullish", "down": "Bearish"}

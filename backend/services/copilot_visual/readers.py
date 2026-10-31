@@ -34,6 +34,13 @@ F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
     margin_calculators  Zerodha's margin calculator: the platform's Kite login, else the user's own Zerodha session
     fno_margins         one basket-margin call per structure
 
+Broker book (owner, 31 Oct 2026; services/positions/book.py, services/copilot_visual/open_book.py):
+    open_book           every connected broker account's state, net positions (or the last stored read), funds, the groups worked
+                        out by the positions service, and the plan the user recorded: Mongo broker_accounts / position_snapshots /
+                        position_levels / trade_plans, the brokers through services/brokers/hub_reads (read-only, cached 15 s)
+    underlying_quotes   the platform Kite feed's price of the underlyings held (Redis, no broker call)
+    position_margins    Zerodha's margin calculator for the F&O legs of each group (the platform's Kite login, else the user's own)
+
 Release 3:
     closed_trades       Mongo desk_paper_trades, the user's newest closed paper trades, shaped as the desk shapes them
                         (routes.desk_trading._public). A plain read: GET /api/desk/paper-trades also runs the exit rule on
@@ -267,3 +274,27 @@ async def margin_calculators(request: Any, user_id: Optional[str]):
 async def fno_margins(calcs: Any, items: Any) -> Dict[str, Dict[str, Any]]:
     from . import fno_board
     return await fno_board.margins(calcs, items)
+
+
+# ── Broker book (open trades on the user's own broker positions) ─────────────
+
+async def open_book(request: Any, user_id: str, use_cache: bool = False) -> Dict[str, Any]:
+    """{hub, accounts, groups}: see services/positions/book.build. `use_cache` serves the live ticks from the last analysis."""
+    from deps import db
+    from services.positions import book
+    return await book.build(request, db, user_id, use_cache=use_cache)
+
+
+async def underlying_quotes(symbols: List[str]) -> Dict[str, Any]:
+    from services.positions import service
+    return await service.underlying_quotes(symbols)
+
+
+async def position_margins(request: Any, user_id: Optional[str], requests: Dict[str, Dict[str, Any]]):
+    """({key: {estimate, reason, source}}, facts for the login notice). `requests` maps a key to a POST /api/fno/margin body."""
+    from . import fno_board
+    calcs, facts = await fno_board.margin_calculators(request, user_id)
+    items = [(k, r["underlying"], [{"kind": "option", "side": l["side"], "option_type": l["option_type"], "expiry": l["expiry"],
+                                    "strike": l.get("strike"), "quantity": l["lots"]} for l in r["legs"]])
+             for k, r in requests.items()]
+    return await fno_board.margins(calcs, items), facts
