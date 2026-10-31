@@ -358,7 +358,7 @@ def commentary(groups: List[Dict[str, Any]], accounts: List[Dict[str, Any]], mar
         accts = [x["account_id"] for x in g.get("accounts") or []]
         if m and m.get("estimate") is not None and len(accts) == 1 and by_acct.get(accts[0], {}).get("funds"):
             avail = num(by_acct[accts[0]]["funds"].get("available_cash_rs"))
-            if avail:
+            if avail and avail > 0:
                 info.append({"text": f"{u}: margin for its F&O legs is {price(m['estimate'])} (Zerodha's calculator), "
                                      f"{m['estimate'] / avail * 100:.1f}% of {by_acct[accts[0]]['broker_display']}'s available {price(avail)}.",
                              "tone": None})
@@ -593,7 +593,7 @@ def _headline(v: Dict[str, Any], paper_head: Optional[str], n_paper: int, paper_
     mapped = [g for g in groups if g["kind"] != "unmapped"]
     legs = [l for g in mapped for l in g["legs"]]
     n_rows = len(legs) + sum(len(g.get("unmapped") or []) for g in groups if g["kind"] == "unmapped")
-    pnls = [num(l.get("pnl_rs")) for l in legs]
+    pnls = [num(l.get("pnl_rs")) for l in legs] + [num(u.get("pnl_rs")) for g in groups if g["kind"] == "unmapped" for u in g.get("unmapped") or []]
     total = _tot(pnls) if pnls and all(p is not None for p in pnls) else None
     parts: List[str] = []
     if n_rows:

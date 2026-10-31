@@ -626,3 +626,21 @@ def test_ob22_a_book_that_cannot_be_read_still_shows_the_paper_trades_without_cl
     monkeypatch.setattr(rd, "open_book", down)
     p = w.build()
     assert blk(p, "trades") and not blk(p, "no-broker") and any("MOCK book down" in m for m in p["data_quality"]["missing"])
+
+
+def test_ob23_the_headline_total_is_the_kpi_total_and_a_negative_balance_is_not_a_percentage(w):
+    w.funds["ba_test1"] = {"available_cash_rs": -92.27, "collateral_rs": 0.0, "used_margin_rs": 93.18}
+    p = w.build()
+    pnl_kpi = kp(p)["Unrealised P&L"]["value"]
+    assert pnl_kpi in p["headline"]["text"] or p["refresh"]                       # live pages keep the figure out of the sentence
+    w.session = False
+    p = w.build()
+    assert kp(p)["Unrealised P&L"]["value"] in p["headline"]["text"]                # closed market: the sentence carries it, equal to the KPI
+    assert kp(p)["Available cash"]["value"] == "−₹92.27"                            # a true minus, not "₹-92.27"
+    assert not any("% of" in i["text"] and "available" in i["text"] for i in blk(p, "commentary")["items"])
+
+
+def test_ob24_unmapped_rows_still_show_what_the_broker_sent(w):
+    p = w.build()
+    sgb = cells(p, "positions")["SGBT54"]["cells"]
+    assert sgb["qty"] == -4 and sgb["avg"] == 14000.0 and sgb["ltp"] == 14100.0
