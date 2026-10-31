@@ -52,6 +52,7 @@ Everything is the staging design with the names changed; the differences that ma
 | `deploy-nidp.sh` | pull, start TimescaleDB + DaaS + Query API, reload nginx, health-check, sync the feed cron |
 | `nidp/restore.sh` | TimescaleDB-aware `pg_restore` of a dump into the prod warehouse |
 | `ci-deploy.sh` | the single command GitHub Actions runs over SSH (main only, serialized by a lock) |
+| `cloudflare-cutover.py` | `plan` / `apply` / `rollback` for the 7 production A records (fixed allow-list, backup file, origin check) |
 | `app/`, `nidp/`, `edge/` | compose files, edge nginx confs, Query API unit, app cron |
 
 ## First-time setup (what was done on 2026-10-31)
@@ -71,7 +72,26 @@ bash deploy/cloudpe-prod/bootstrap.sh --tsdb-tag 2.26.4-pg16 --ci-pubkey ci.pub 
 #             → tar of /opt/nivesh-staging/data/app into /opt/nivesh/data/
 # 4. bash deploy/cloudpe-prod/deploy-nidp.sh <branch> --install-cron
 #    bash deploy/cloudpe-prod/deploy-app.sh  <branch>
+# 5. DNS (from a host that has the Cloudflare token):
+#      python3 -I deploy/cloudpe-prod/cloudflare-cutover.py plan
+#      python3 -I deploy/cloudpe-prod/cloudflare-cutover.py apply --backup ~/cf-prod-dns-backup-<date>.json --yes
+#    Rollback: ... rollback --backup <that file> --yes   (the old addresses are the dead GCP ones, so a rollback
+#    only restores the previous state, not a working site).
 ```
+
+**Origin certificate.** Cloudflare SSL mode is *Full (strict)*, so the VM serves a Cloudflare Origin CA certificate for
+`niveshcopilot.com` + `*.niveshcopilot.com` (created through the API from a CSR generated on the VM; expires 2041-10-27).
+The private key exists only on the VM (`/etc/nginx/ssl/prod.key`, copy in `/root/origin/`). Staging has its own cert for
+`staging.niveshcopilot.com` only. To renew: new CSR on the VM → `POST /certificates` → replace `/etc/nginx/ssl/prod.crt`
+→ `systemctl reload nginx`.
+
+**Things that behaved differently from what the staging scripts suggest** (found during the 2026-10-31 clone):
+- `pg_restore --jobs N` loses the TimescaleDB chunk catalog (`dimension_slice`, `chunk`, `chunk_constraint`: circular
+  foreign keys), leaving every hypertable with 0 chunks and `prices_eod` reading 0 rows although the DB is full size. Fix:
+  re-load those three tables with `pg_restore --data-only --disable-triggers -n _timescaledb_catalog -t dimension_slice -t chunk -t chunk_constraint`
+  inside `timescaledb_pre_restore()` / `timescaledb_post_restore()`. `nidp/restore.sh` does not repair this itself:
+  it compares the catalog with the restored chunk tables at the end and exits 5 with this exact command if they differ.
+- The `vector` extension must live in schema `nidp` (see `nidp/restore.sh`).
 
 ## Routine deploys
 

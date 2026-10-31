@@ -136,5 +136,27 @@ log "ANALYZE..."
 psql_db -qc "ANALYZE;" || warn "ANALYZE failed (statistics will fill in over time)."
 
 log "Hypertables restored: $(psql_db -At -c "SELECT count(*) FROM timescaledb_information.hypertables;")"
+
+# A parallel pg_restore can lose the chunk catalog: dimension_slice / chunk / chunk_constraint have
+# circular foreign keys, so their COPY fails ("violates foreign key constraint"). The chunk tables
+# themselves restore, but every hypertable then reads 0 rows. Seen on the 2026-10-31 prod clone.
+chunks=$(psql_db -At -c "SELECT count(*) FROM _timescaledb_catalog.chunk;")
+physical=$(psql_db -At -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                           WHERE n.nspname='_timescaledb_internal' AND c.relname ~ '^_hyper_.*_chunk\$' AND c.relkind='r';")
+log "Chunk catalog rows: ${chunks}; physical chunk tables: ${physical}"
+if (( chunks != physical )); then
+    cat >&2 <<FIX
+[${TAG}] FATAL: the TimescaleDB chunk catalog (${chunks} rows) does not match the ${physical} restored chunk tables,
+so the hypertables will read as empty. Re-load the catalog tables (no data is lost; they restore to the same state):
+
+  docker exec -i ${PG_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -c "SELECT timescaledb_pre_restore();"
+  docker exec ${PG_CONTAINER} pg_restore -U ${PG_USER} -d ${PG_DB} --data-only --disable-triggers --no-owner \\
+      -n _timescaledb_catalog -t dimension_slice -t chunk -t chunk_constraint ${IN_CONTAINER}
+  docker exec -i ${PG_CONTAINER} psql -U ${PG_USER} -d ${PG_DB} -c "SELECT timescaledb_post_restore();"
+
+then re-run the count comparison with the source.
+FIX
+    exit 5
+fi
 log "Restore finished. Compare row counts with the source before enabling cron."
 log "Next: sudo bash ${HERE}/../deploy-nidp.sh <branch> --install-cron"
