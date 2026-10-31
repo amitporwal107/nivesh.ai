@@ -66,6 +66,14 @@ def crore(v: Any) -> Optional[str]:
     return None if f is None else _signed(f, f"₹{abs(f):,.2f} Cr")
 
 
+def rupees(v: Any) -> Optional[str]:
+    """A signed rupee amount (a profit or loss): '+₹1,234.50', '−₹80.00', '₹0.00'."""
+    f = num(v)
+    if f is None:
+        return None
+    return f"₹{abs(f):,.2f}" if f == 0 else _signed(f, f"₹{abs(f):,.2f}")
+
+
 def times(v: Any) -> Optional[str]:
     f = num(v)
     return None if f is None else f"{f:.1f}×"
@@ -307,7 +315,7 @@ def validate(p: Any) -> List[str]:
         out.append("schema")
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size"):
+            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")
