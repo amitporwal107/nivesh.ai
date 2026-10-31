@@ -683,6 +683,8 @@ _TRADER_QUESTIONS = (
     ("daily_review", "review", "What did I learn from today's trades?", "Performance, rule adherence and plan versus actual", "NotepadText", "indigo"),
     ("smart_money", "market_pulse", "Where is smart money moving?", "FII/DII flows and buildup signals", "TrendingUp", "mint"),
     ("sector_rotation", "market_pulse", "Which sectors are leading and lagging?", "Sector heatmap, each sector's strongest stocks", "Activity", "mint"),
+    ("results_calendar", "market_pulse", "Which companies report results this week?", "Declared results with AI summaries, management commentary and source filings", "NotepadText", "indigo"),
+    ("event_intelligence", "market_pulse", "Any order wins this week?", "Order wins, M&A, ownership, bulk and block deals from the exchange filings", "Activity", "mint"),
     ("breakouts", "opportunities", "Which breakouts are confirmed?", "Entry zone, volume confirmation, invalidation", "Rocket", "indigo"),
     ("unusual_volume", "opportunities", "Which stocks have unusual volume?", "Relative volume, price change, delivery data", "BarChart3", "indigo"),
     ("expected_move", "fno", "What is the expected move in Nifty?", "Options-implied move and relevant levels", "Target", "amber"),

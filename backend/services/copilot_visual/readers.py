@@ -34,6 +34,19 @@ F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
     margin_calculators  Zerodha's margin calculator: the platform's Kite login, else the user's own Zerodha session
     fno_margins         one basket-margin call per structure
 
+Results and market-research events (owner, 31 Oct 2026; events_builders.py):
+    results_rows        the desk's results calendar (DaaS /desk/events-calendar/expectations, services.results_week.loaders) for a date
+                        range, each meeting's status and verdict "vs historical trend" by the desk's own functions
+                        (results_week.build.status_of, scoring.surprise) and the stored filing analysis of the result
+                        (loaders.filing_analysis, build.pick_analysis, scoring.outlook). NOT build_day: that adds ~1,800 reads of
+                        financials, prices and open interest (13 s cold on staging) for a composite score the chat does not show
+    company_results_file one company's stored filing analyses (results_week.stock.all_analyses, item_of) and exchange filings
+                        with their attachment links (DaaS /announcements)
+    filings_feed        routes.filings.filings_feed — GET /api/filings/feed, the feed the desk's Market Intelligence chips read
+    latest_filing_day   the newest filing in that feed (the pipeline's freshness)
+    deals               routes.markets_desk.deals — GET /api/markets/deals (NSE bulk and block deals)
+    sebi_circulars      routes.circulars.circulars — GET /api/markets/circulars
+
 Release 3:
     closed_trades       Mongo desk_paper_trades, the user's newest closed paper trades, shaped as the desk shapes them
                         (routes.desk_trading._public). A plain read: GET /api/desk/paper-trades also runs the exit rule on
@@ -267,3 +280,110 @@ async def margin_calculators(request: Any, user_id: Optional[str]):
 async def fno_margins(calcs: Any, items: Any) -> Dict[str, Dict[str, Any]]:
     from . import fno_board
     return await fno_board.margins(calcs, items)
+
+
+# ── Results and market-research events (owner, 31 Oct 2026) ──────────────────────────────────────────────────
+
+async def results_rows(start: Any, end: Any) -> Dict[str, Any]:
+    """{rows, as_of, partial, gaps, analysis_ok} for the results meetings dated [start, end] (dates), each row the desk's own
+    assembly of the meeting: status (declared · pending = held, figures not loaded · upcoming), verdict, and the filing analysis
+    of the result (outlook). Raises when the calendar cannot be read at all (loaders.SourceUnavailable)."""
+    from datetime import datetime, time, timedelta, timezone
+    from deps import db
+    from services.results_week import build as rwb
+    from services.results_week import loaders
+    from services.results_week import scoring as sc
+
+    async with loaders.pooled():
+        events, meta, _first, gaps = await loaders.expectations(loaders.windows(start, end))
+        seen, evs = set(), []
+        for e in events:
+            key = e.get("id") or f"{e.get('event_date')}|{e.get('symbol')}"
+            if key not in seen:
+                seen.add(key)
+                evs.append(e)
+        evs = [e for e in evs if start.isoformat() <= str(e.get("event_date"))[:10] <= end.isoformat()]
+        filed = [str(e["symbol"]).upper() for e in evs if rwb.status_of(e) != "upcoming"]
+        days = [d for d in (rwb._ev_date(e) for e in evs) if d]
+        now = datetime.now(timezone.utc)
+        analyses, an_gap = ({}, None)
+        if filed and days:
+            analyses, an_gap = await loaders.filing_analysis(
+                db, filed, datetime.combine(min(days) - timedelta(days=rwb.ANALYSIS_BEFORE_DAYS), time(0), loaders.IST),
+                min(now, datetime.combine(max(days) + timedelta(days=rwb.ANALYSIS_AFTER_DAYS), time(0), loaders.IST)))
+    rows = []
+    for e in evs:
+        sym = str(e["symbol"]).upper()
+        status = rwb.status_of(e)
+        d = rwb._ev_date(e)
+        surp = sc.surprise(e.get("metrics") or [])
+        verdict = surp["verdict"] if status == "declared" else {"label": None, "intensity": None,
+                                                                "reason": sc.REASON_PENDING if status == "pending" else sc.REASON_UPCOMING}
+        doc = rwb.pick_analysis(analyses.get(sym) or [], d, now) if (status != "upcoming" and d) else None
+        ol = sc.outlook(doc, read_failed=an_gap is not None and status != "upcoming", declared=status != "upcoming")
+        ol["announcement_id"] = (doc or {}).get("announcement_id")
+        rows.append({"symbol": sym, "name": e.get("name"), "sector": e.get("sector"), "event_date": e.get("event_date"), "status": status,
+                     "fno": bool((e.get("universe") or {}).get("fno")), "period_label": e.get("period_label"), "basis": e.get("basis"),
+                     "verdict": verdict, "outlook": ol, "filing_url": (e.get("filing") or {}).get("url")})
+    as_of = max((str(m.get("as_of"))[:10] for m in meta if m.get("ok") and m.get("as_of")), default=None)
+    return {"rows": rows, "as_of": as_of, "partial": not all(m["ok"] for m in meta), "gaps": list(gaps), "analysis_ok": an_gap is None}
+
+
+async def company_results_file(symbol: str, since: Any) -> Dict[str, Any]:
+    """One company's results material since `since` (a date): {symbol, name, analyses, filings, gaps}. `analyses` are the
+    stored full filing analyses shaped by the desk's results file (results_week.stock.item_of, oldest first); `filings` are the
+    exchange filings (DaaS /announcements) with their attachment URL, each classified by results_week.stock.kind_of from its
+    subject line. A failed half is a gap, not an empty list."""
+    import asyncio
+    import re
+    from datetime import datetime, time, timezone
+    from deps import db
+    from services.results_week import loaders
+    from services.results_week import stock as rws
+
+    start = datetime.combine(since, time(0), loaders.IST)
+    (docs, an_gap), (st, body) = await asyncio.gather(
+        rws.all_analyses(db, symbol, start, datetime.now(timezone.utc)),
+        loaders.daas_get("/announcements", {"symbol": symbol, "filed_from": since.isoformat(), "limit": rws.ANN_LIMIT}))
+    gaps = [an_gap] if an_gap else []
+    ann = (body.get("data") or body.get("rows") or body.get("announcements") or []) if st == 200 and isinstance(body, dict) else []
+    if st != 200:
+        gaps.append(f"exchange filings list could not be read (DaaS HTTP {st})")
+    urls = {str(a.get("announcement_id")): a.get("attachment_url") for a in ann if isinstance(a, dict) and a.get("announcement_id") and a.get("attachment_url")}
+    filings = []
+    for a in ann:
+        if not isinstance(a, dict) or not a.get("announcement_id"):
+            continue
+        subject, desc = str(a.get("subject") or ""), str(a.get("description") or "")
+        # The kind is the exchange's SUBJECT line only (a newspaper advertisement that mentions "financial results" is not the results filing).
+        filings.append({"announcement_id": str(a["announcement_id"]), "filed_at": a.get("filed_at") or a.get("broadcast_at"), "subject": subject,
+                        "description": desc, "url": a.get("attachment_url"), "results_related": bool(re.search(r"result", f"{subject} {desc}", re.I)),
+                        "kind": rws.kind_of({"exchange_category": subject, "event_type": ""})})
+    items = sorted((rws.item_of(d, urls) for d in docs), key=lambda i: i["at"] or "")
+    name = next((a.get("company_name") for a in ann if isinstance(a, dict) and a.get("company_name")), None)
+    return {"symbol": symbol, "name": name, "analyses": items, "filings": filings, "gaps": gaps}
+
+
+async def filings_feed(request: Any, *, days: int, category: Optional[str] = None, family: Optional[str] = None,
+                       symbol: Optional[str] = None, limit: int = 40) -> Dict[str, Any]:
+    """The Market Intelligence feed (GET /api/filings/feed), newest first, one classifier category or one subject family."""
+    from routes import filings
+    return await filings.filings_feed(request, days=days, category=category, impact=None, sentiment=None, q=None, limit=limit, offset=0,
+                                      sort="latest", symbol=symbol, family=family, provenance=False)
+
+
+async def latest_filing_day(request: Any) -> Optional[str]:
+    """The newest filing's date in the feed, whatever its category: how current the pipeline is."""
+    body = await filings_feed(request, days=3, limit=1)
+    rows = body.get("rows") or []
+    return str(rows[0].get("date"))[:10] if rows and rows[0].get("date") else None
+
+
+async def deals(request: Any, *, days: int, symbol: Optional[str], limit: int) -> Dict[str, Any]:
+    from routes import markets_desk
+    return await markets_desk.deals(request, days=days, kind="all", symbol=symbol, limit=limit)
+
+
+async def sebi_circulars(request: Any, *, days: int, limit: int) -> Dict[str, Any]:
+    from routes import circulars
+    return await circulars.circulars(request, days=days, limit=limit)

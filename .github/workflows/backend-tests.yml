@@ -70,6 +70,7 @@ jobs:
           tests/test_broker_connect_native_routes.py
           tests/test_broker_contract_chart.py
           tests/test_copilot_trade_idea.py
+          tests/test_copilot_events.py
           tests/test_broker_fenix_reader.py
           tests/test_broker_funds_read.py
           tests/test_broker_groww.py
