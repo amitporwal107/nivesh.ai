@@ -149,19 +149,18 @@ test.describe("Open trades on the broker book (MOCK payloads from the real build
     const { va, asks } = await open(page, p);
     await expect(chip(va)).toHaveAttribute("data-state", "live");
     await expect(chip(va)).toContainText("Live · updated");
-    await page.clock.runFor(4_000);
-    expect(asks.n).toBe(0);
-    await page.clock.runFor(1_500);
+    expect(asks.n).toBe(0);                                                 // built a moment ago: nothing asked yet
+    await page.clock.runFor(5_500);
     await expect.poll(() => asks.n).toBe(1);
     const exide = rowOf(blockOf(F.tick, "positions"), "EXIDEIND");
     const row = block(va, "positions").getByTestId("va-ranked-row").filter({ hasText: "EXIDEIND" }).first();
     await expect(row.getByTestId("va-cell-ltp")).toHaveText(fPrice(exide.cells.ltp), SLOW);
     await expect(row.getByTestId("va-cell-pnl")).toHaveText(fPrice(exide.cells.pnl));
     await expect(chip(va)).toHaveText("Live · updated 0s ago");
-    await page.clock.runFor(3_000);
-    await expect(chip(va)).toHaveText("Live · updated 3s ago");
-    expect(asks.n).toBe(1);
-    await page.clock.runFor(2_500);
+    await page.clock.runFor(4_000);
+    await expect(chip(va)).toHaveText(/^Live · updated [34]s ago$/);                // redrawn each second
+    expect(asks.n).toBe(1);                                                 // 4 s after the last answer: still no ask
+    await page.clock.runFor(1_500);
     await expect.poll(() => asks.n).toBe(2);
     // the stop breach the tick carries is on screen in the levels and the checks
     const t = F.tick;

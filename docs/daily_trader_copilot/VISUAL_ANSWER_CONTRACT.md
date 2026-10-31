@@ -133,3 +133,32 @@ A saved setting (a risk profile) is a source with status `fresh` whatever its da
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
 day older than the previous session carries the stale notice. `avoid_today` (Q14) is not built.
+
+
+## Open trades on the broker book, and answers that keep themselves current (31 Oct 2026)
+
+`open_trades` shows the user's own broker positions beside the paper trades, labelled, by the user's broker configuration:
+
+| state | what the answer has |
+|---|---|
+| no broker connected | a `notice` (id `no-broker`) with the `connect_broker` action; the paper trades as before |
+| broker hub off for the user | a `notice` (id `no-hub`), no action |
+| session ended | a `notice` (id `ended-<account>`) with a `connect_broker` action ("Sign in to <broker> again"); the account's LAST STORED read (rows badged `As of <date time>`, the notice names the time, a read older than the previous session also carries the stale banner); funds "Not available" |
+| a read failed | a `notice` (id `failed-<account>`), the last stored read if any; the other accounts are unaffected |
+| signed in | blocks `book` (kpis), `positions` (ranked, one row per broker position), `levels` (ranked, one row per underlying), `accounts` (ranked), `commentary` (list), then the paper blocks `summary` and `trades` |
+
+Figures: quantity, average, price and P&L are the broker's own (a share's price and P&L move with Kite's live price while the market is open;
+a future or option keeps the broker's price of its last read, said on hover). A row the broker sent no P&L for (ICICI Direct sends null for
+futures and options) is marked at the last price and says so. Stop and target are the user's own levels, else the plan they recorded when it
+points the same way as the position; the loss at the stop is never the price falling to zero; margin is Zerodha's calculator for the F&O legs
+(shares are paid in full), else "Needs Kite login" with the `kite_login` / `connect_broker` actions; available cash, collateral and used margin
+are each broker's own funds figures, read only while its session is live. `commentary` holds the deterministic checks (distance to the stop,
+loss at the stop, expiry, the plan's direction against the position, margin as a share of the account's cash); the written commentary explains
+them and adds no figure.
+
+Envelope field `refresh` (optional): `{path, interval_s, block_ids}`. The page asks `path` (an `/api/` route, authenticated as the user) every
+`interval_s` seconds (at least 5) while the tab is visible, the answer is on screen and it was built today, and swaps in the blocks the response
+names by `id`. The response is `{generated_at, mode, blocks: [...], refresh: {active, interval_s, why}}`; `active: false` tells the page to stop
+(the market closed, no live session). A failed ask keeps the blocks shown, the page says "Live feed lost" with the time of the last good read, backs
+off, and stops after three failures. `GET /api/positions/book/live` serves the open-trades answer. The server never calls a broker more than once
+per 15 s per account however many pages ask (see services/positions/book.py).

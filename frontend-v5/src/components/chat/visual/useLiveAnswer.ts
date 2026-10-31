@@ -46,7 +46,7 @@ export function useLiveAnswer(refresh: AnswerRefresh | null, generatedAt: string
   const [mode, setMode] = useState<string | null>(null);
   const [why, setWhy] = useState<string | null>(null);
   const [lastOkAt, setLastOkAt] = useState<number | null>(null);
-  const [now, setNow] = useState<number>(() => Date.now());
+  const [, setTick] = useState(0);
   const inView = useRef(true);
 
   useEffect(() => {
@@ -110,9 +110,9 @@ export function useLiveAnswer(refresh: AnswerRefresh | null, generatedAt: string
 
   useEffect(() => {
     if (kind !== "live" && kind !== "paused" && kind !== "lost") return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setTick((n) => n + 1), 1000);       // a re-render each second; the age is read from the clock when drawn
     return () => clearInterval(t);
   }, [kind]);
 
-  return { kind, blocks, mode, why, lastOkAt, secondsAgo: lastOkAt == null ? null : Math.max(0, Math.floor((now - lastOkAt) / 1000)) };
+  return { kind, blocks, mode, why, lastOkAt, secondsAgo: lastOkAt == null ? null : Math.max(0, Math.floor((Date.now() - lastOkAt) / 1000)) };
 }
