@@ -1,7 +1,8 @@
 # Screener and Watchlists in the Copilot: menu items, and "screen, then add to a watchlist" in chat
 
-Date: 31 Oct 2026 · Status: PLAN. Nothing below is built. · Basis: code on `origin/dev` at `25c61610`; data read from the staging Mongo
-and warehouse on 31 Oct 2026 (read-only).
+Date: 31 Oct 2026, facts refreshed 1 Nov 2026 · Status: PLAN. Nothing below is built. · Basis: code on `origin/dev` at `0e73741f` (PRs #430, #431,
+#432 merged); data read from the staging Mongo and warehouse on 31 Oct 2026 (read-only). The Screener, Watchlist, rail and desk-nav files are
+unchanged between `25c61610` and `0e73741f` (VERIFIED: `git diff --stat` over them is empty).
 
 Owner asks (28 and 31 Oct): "Plan ... the Screener/Watchlist menu/view item"; screen, then add to a watchlist, from the Copilot chat.
 
@@ -71,11 +72,13 @@ client's list. Today's only caller is the Watchlist page.
   without telling the user** (verified in the code; `screener/catalog.ts` documents the same risk). It returns the `stock_screener` widget
   (`ChatWidget.tsx`) with its own table. `ScreenerQueryBuilder.tsx` and the composer compile sentences the parser knows.
 - Visual-answer engine (`services/copilot_visual/*`; contract `docs/daily_trader_copilot/VISUAL_ANSWER_CONTRACT.md`): the server builds a
-  validated payload from existing services, the LLM only explains the figures. Blocks: `kpis candles bars heatmap quadrant ranked trade_plan
-  list notice`. A `ranked` row can ask a follow-up (`ask`) or open a plan or a stock dialog. A `notice` can carry `actions`, but only the
-  navigation kinds `kite_login`, `connect_broker`, `set_risk_profile` (these three exist on PR #431's branch `fix/copilot-batch2`, not yet on dev;
-  `Simple.tsx` maps them to `go()` / a login). **There is no write action and no confirmation pattern.** An unknown block type renders a
-  "not supported yet" note (`VisualAnswer.tsx`), so an old frontend degrades safely.
+  validated payload from existing services, the LLM only explains the figures. 16 intents on dev (`INTENTS` in `intents.py`, now including
+  `sector_rotation`, `results_calendar`, `event_intelligence`). Blocks: `kpis candles bars heatmap quadrant ranked trade_plan list notice briefs`.
+  A `ranked` row can ask a follow-up (`ask`) or open a plan or a stock dialog. A `notice` can carry `actions`, but only the navigation kinds
+  `kite_login`, `connect_broker`, `set_risk_profile`, `open_market_intel` (`NOTICE_ACTIONS` in `payload.py`; `Simple.tsx` maps them to `go()` or a
+  login). **There is no write action and no confirmation pattern.** `links.py` is the one precedent for letting a payload carry something the
+  user can click: https-only, allow-listed exchange hosts, repeated in `schema.ts`, so a forged payload cannot point elsewhere; a write action
+  needs the same two-sided check. An unknown block type renders a "not supported yet" note (`VisualAnswer.tsx`), so an old frontend degrades safely.
 - Adding an intent has a fixed checklist (traps in the agent brief, #2): `INTENTS`, `AGENT_FOR`, `BUILDERS`, `payload.validate`, a suggestions
   `QUERY_TEMPLATE` (`test_sg_t1b`), the spec's `INTENTS` list, and a real staging capture of the payload in
   `frontend-v5/e2e/fixtures/contract-visual-answer.json` (`test_c2`).
