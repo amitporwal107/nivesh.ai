@@ -23,6 +23,7 @@ import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
 import { TradePlanChatCard, type TradeIdeaData } from "@/components/chat/TradePlanChatCard";
 import { VisualAnswer } from "@/components/chat/visual/VisualAnswer";
 import { DAILY_TILES } from "../../components/DailyTraderPanel";
+import { DailyQuestionBar } from "../../components/DailyQuestionBar";
 import { CompletionList, applyCompletion, useStockCompletion, type StockSuggestion } from "../../lib/stock-completion";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
@@ -257,6 +258,8 @@ export const CopilotDock = forwardRef<CopilotDockHandle, {
       {turns.map((t) => (
         <DockTurn key={t.key} turn={t} busy={engine.busy} page={page} onRetry={(q) => { engine.clearLocal(); ask(q); }} onAsk={ask} onOpenThread={openThread} />
       ))}
+      {/* The six entry points leave with the empty state; their question sets stay one tap away under the answers. */}
+      {turns.length > 0 && <DailyQuestionBar onAsk={ask} busy={engine.busy} mobile={false} />}
       <div ref={endRef} aria-hidden style={{ scrollMarginBottom: page ? 140 : 0 }} />
     </>
   );

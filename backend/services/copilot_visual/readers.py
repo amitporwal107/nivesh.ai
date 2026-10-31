@@ -103,6 +103,19 @@ async def regime() -> Dict[str, Any]:
     return out["data"]
 
 
+async def market_state() -> Dict[str, Any]:
+    """The market state the risk service sizes and checks new paper trades with ({regime BULL|BEAR|SIDEWAYS, vix, as_of,
+    key}), with its own freshness judgement: the same two calls as GET /api/risk/freshness, so the Market regime card on
+    the desk and this answer cannot disagree."""
+    from datetime import datetime, timezone
+    from services.risk_gate import inputs as risk_inputs
+    from services.risk_gate import service as risk_service
+    market = await risk_inputs.market_state()
+    if market.get("regime") is None:
+        raise RuntimeError(market.get("error") or "the market state is unavailable")
+    return {**market, "freshness": risk_service.market_freshness(market, datetime.now(timezone.utc))}
+
+
 async def watchlist_day() -> Optional[Dict[str, Any]]:
     from services import ai_watchlist_store
     return await ai_watchlist_store.get_day(None)

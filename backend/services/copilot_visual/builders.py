@@ -37,6 +37,7 @@ SRC_SECTORS = "NSE sector indices (desk sector returns)"
 SRC_FII = "NSE FII/DII cash (nidp.fii_dii_flows)"
 SRC_BUILDUP = "NSE F&O bhavcopy · futures build-up"
 SRC_REGIME = "Desk regime (desk-regime-v1)"
+SRC_MARKET_STATE = "Market state the risk service uses (regime, India VIX)"
 SRC_WATCHLIST = "AI scanner watchlist (Top 10, stored nightly)"
 SRC_POSITIONAL = "Positional scanner watchlist (breakout_confirmed)"
 SRC_SCAN = "Stock features + NSE bhavcopy (scan snapshot)"
@@ -120,13 +121,28 @@ def _last_change(rows: List[Dict[str, Any]]) -> Tuple[Optional[float], Optional[
 
 # ── market_view ──────────────────────────────────────────────────────────────
 
+def _size_rule(regime: Optional[str], vix: Optional[float]) -> Tuple[str, str, Optional[str]]:
+    """What the market state does to a NEW paper trade's size limits, by the risk governor's own thresholds:
+    (value, why, tone). It states the rule; it predicts nothing."""
+    from services.ai_trader.risk_governor import DEFAULT_LIMITS as lim
+    if vix is not None and vix >= lim.vix_defer_at:
+        return "Deferred", f"India VIX at {lim.vix_defer_at:g} or above: the governor defers new positions.", "warn"
+    if regime == "BEAR":
+        return "Halved", "New-trade size limits are halved in BEAR.", "warn"
+    if vix is not None and vix >= lim.vix_reduce_at:
+        return "Halved", f"India VIX at {lim.vix_reduce_at:g} or above halves them.", "warn"
+    return "Not cut", "No regime cut on new-trade size limits (only BEAR halves them).", None
+
+
 async def market_view(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     src: Sources = ctx["src"]
-    (snap, e_snap), (nifty, e_n), (bank, e_b), (vix, e_v), (sect, e_s), (ch, e_c), (reg, e_r) = await asyncio.gather(
+    (snap, e_snap), (nifty, e_n), (bank, e_b), (vix, e_v), (sect, e_s), (ch, e_c), (mkt, e_m) = await asyncio.gather(
         _try(rd.market_snapshot()), _try(rd.index_rows("Nifty 50", INDEX_HISTORY)), _try(rd.index_rows("Nifty Bank", 2)),
         _try(rd.index_rows("India VIX", 2)), _try(rd.sector_returns()), _try(rd.chain(ctx["request"], "NIFTY")),
-        _try(rd.regime()))
+        _try(rd.market_state()))
     kpis: List[Dict[str, Any]] = []
+    flows: List[Dict[str, Any]] = []
+    flows_day = None
     blocks: List[Dict[str, Any]] = []
     head: List[str] = []
     as_of = None
@@ -163,18 +179,53 @@ async def market_view(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             head.insert(1 if head else 0, f"{share:.0f}% of stocks advanced")
         fii, dii = num(snap.get("fii_cash_net_cr")), num(snap.get("dii_cash_net_cr"))
         if fii is not None or dii is not None:
-            fday = snap.get("fii_dii_as_of")
-            src.add(SRC_FII, fday)
-            kpis.append(_kpi("FII cash", crore(fii), f"net, {short_day(fday)}" if fday else "net", tone_of(fii)))
-            kpis.append(_kpi("DII cash", crore(dii), f"net, {short_day(fday)}" if fday else "net", tone_of(dii)))
-    if e_r:
-        src.miss(SRC_REGIME, why(e_r))
-    elif reg.get("label"):
-        src.add(SRC_REGIME, reg.get("date"))
-        ver = (reg.get("rule") or {}).get("version") if isinstance(reg.get("rule"), dict) else None
-        kpis.append(_kpi("Regime", str(reg["label"]), f"{ver or 'desk regime'} · {short_day(reg.get('date'))}"))
+            flows_day = snap.get("fii_dii_as_of")
+            src.add(SRC_FII, flows_day)
+            flows = [{"label": who, "value": r2(v), "tone": tone_of(v), "sub": None} for who, v in (("FII", fii), ("DII", dii)) if v is not None]
     if kpis:
         blocks.append(block("kpis", "day", "The day", None, items=kpis))
+    # The market regime, as the desk's Market regime card reads it: the state the risk service sizes new paper trades with.
+    if e_m:
+        src.miss(SRC_MARKET_STATE, why(e_m))
+    else:
+        j = mkt.get("freshness") or {}
+        src.add(SRC_MARKET_STATE, mkt.get("as_of"))
+        regime_word, mvix = str(mkt["regime"]), num(mkt.get("vix"))
+        rule_value, rule_why, rule_tone = _size_rule(regime_word, mvix)
+        age = j.get("age_sessions")
+        blocks.append(block("kpis", "regime", "Market regime", "Descriptive: the state the desk's risk rules read, not a forecast.", items=[
+            _kpi("Regime", regime_word, f"as of {short_day(mkt.get('as_of'))}" + (f" · India VIX {mvix:.2f}" if mvix is not None else ""),
+                 "down" if regime_word == "BEAR" else "up" if regime_word == "BULL" else "neutral"),
+            _kpi("New-trade size limits", rule_value, rule_why, rule_tone),
+            _kpi("Market state", f"{age} of {j.get('budget')} sessions old" if age is not None and j.get("budget") is not None else "age unknown",
+                 "the state the risk service sizes and checks new paper trades with", None if j.get("ok") else "warn")]))
+        head.append(f"the market regime reads {regime_word}")
+    if flows:
+        blocks.append(block("bars", "flows", "Net cash flows, last session",
+                            f"Net buy − sell, ₹ crore, {day_text(iso_day(flows_day))} (NSE provisional)." if iso_day(flows_day) else "Net buy − sell, ₹ crore (NSE provisional).",
+                            unit="₹ Cr", orientation="h", items=flows, baseline=0))
+    moves_block = heat_block = None
+    if e_s:
+        src.miss(SRC_SECTORS, why(e_s))
+    else:
+        src.add(SRC_SECTORS, sect.get("as_of"))
+        cells = [{"label": str(r.get("sector") or r.get("index")), "value": r2(r.get("ret_1d_pct")), "group": None,
+                  "sub": f"1w {pct(r.get('ret_1w_pct'))}" if num(r.get("ret_1w_pct")) is not None else None}
+                 for r in sect["sectors"] if isinstance(r, dict) and (r.get("sector") or r.get("index"))]
+        cells.sort(key=lambda c: -(c["value"] if c["value"] is not None else -1e9))
+        if cells:
+            heat_block = block("heatmap", "sectors", "Sectors on the day", None, unit="%", cells=cells)
+            ranked = [c for c in cells if c["value"] is not None]
+            up = ranked[:min(3, (len(ranked) + 1) // 2)]
+            rest = ranked[len(up):]
+            down = rest[-min(3, len(rest)):][::-1] if rest else []
+            if up or down:
+                moves_block = block("bars", "sector_moves", "Leading and lagging sectors · 1 day",
+                                    "The three strongest and the three weakest of the NSE sector indices on the day.", unit="%", orientation="h",
+                                    items=[{"label": c["label"], "value": c["value"], "tone": tone_of(c["value"]), "sub": None} for c in up + down],
+                                    baseline=0)
+    if moves_block:
+        blocks.append(moves_block)
     levels, band = [], None
     if e_c:
         src.miss(_chain_src("NIFTY"), why(e_c))
@@ -188,16 +239,8 @@ async def market_view(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                           if levels or band else None, levels=levels, band=band)
         if ch_block:
             blocks.append(ch_block)
-    if e_s:
-        src.miss(SRC_SECTORS, why(e_s))
-    else:
-        src.add(SRC_SECTORS, sect.get("as_of"))
-        cells = [{"label": str(r.get("sector") or r.get("index")), "value": r2(r.get("ret_1d_pct")), "group": None,
-                  "sub": f"1w {pct(r.get('ret_1w_pct'))}" if num(r.get("ret_1w_pct")) is not None else None}
-                 for r in sect["sectors"] if isinstance(r, dict) and (r.get("sector") or r.get("index"))]
-        cells.sort(key=lambda c: -(c["value"] if c["value"] is not None else -1e9))
-        if cells:
-            blocks.append(block("heatmap", "sectors", "Sectors on the day", None, unit="%", cells=cells))
+    if heat_block:
+        blocks.append(heat_block)
     headline = ("; ".join(head) + ".") if head else None
     return assemble("market_view", "Market view · Nifty and Bank Nifty", as_of, headline, tone, blocks, src,
                     follow("Where is smart money moving?", "What is the expected move in Nifty?",

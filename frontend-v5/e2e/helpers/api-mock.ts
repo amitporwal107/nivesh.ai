@@ -35,7 +35,7 @@ const POPULATED_ROUTES: Record<string, string> = {
   "**/api/goals": "goals.json",
   "**/api/dashboards/tax": "dashboards-tax.json",
   "**/api/plans/active": "plans-active.json",
-  "**/api/copilot/suggested-prompts": "suggested-prompts.json",
+  "**/api/copilot/suggested-prompts*": "suggested-prompts.json",   // the app sends ?mode=
   "**/api/portfolio/fund-performance*": "fund-performance.json",
   "**/api/portfolio/recommendations/v5*": "recommendations-v5.json",
   "**/api/dashboards/risk": "dashboards-risk.json",

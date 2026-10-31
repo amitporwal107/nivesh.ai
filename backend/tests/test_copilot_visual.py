@@ -219,6 +219,9 @@ BUILDUP = {"as_of": "2026-10-29", "universe": 3, "counts": {"long_buildup": 1, "
                     {"symbol": "DDD", "label": None, "price_chg_pct": None, "oi_chg_pct": 1.0}],
            "indices": [{"symbol": "NIFTY", "label": "long_buildup", "price_chg_pct": 1.0, "oi_chg_pct": 2.0}]}
 REGIME = {"key": "bullish", "label": "Bullish", "date": "2026-10-29", "rule": {"version": "desk-regime-v1"}}
+# readers.market_state: the state the risk service sizes new paper trades with, and its freshness (MOCK values).
+MARKET_STATE = {"vix": 15.3, "regime": "BEAR", "as_of": "2026-10-29", "key": "bearish", "source": "MOCK market state", "error": None,
+                "freshness": {"ok": True, "age_sessions": 0, "budget": 2, "reason": None}}
 
 # ── Release 2 fixture data ────────────────────────────────────────────────────
 def ptrade(symbol, qty=10, entry=100.0, last=108.0, stop=92.0, target=120.0, pnl=80.0, status="open"):
@@ -332,7 +335,7 @@ class Src:
     def __init__(self, mp):
         self.fail = set()
         self.v = {"market_snapshot": SNAP, "nifty": index_rows(260), "bank": index_rows(2, 50000), "vix": index_rows(2, 15),
-                  "sector_returns": SECTORS, "chain": CHAIN, "fii_dii": FLOWS, "buildup": BUILDUP, "regime": REGIME,
+                  "sector_returns": SECTORS, "chain": CHAIN, "fii_dii": FLOWS, "buildup": BUILDUP, "regime": REGIME, "market_state": MARKET_STATE,
                   "watchlist_day": WATCH_DAY, "positional_watchlist": WATCHLIST,
                   "scan_snapshot": {"as_of": "2026-10-29", "rows": [scan_row("UV1", 4.0, 3.2), scan_row("UV2", 2.5, 2.1, 90, 92),
                                                                     scan_row("LOW", 1.0, 1.1)]},
@@ -370,7 +373,7 @@ class Src:
 
         async def window():
             return WINDOW
-        for name in ("market_snapshot", "sector_returns", "chain", "fii_dii", "buildup", "regime", "watchlist_day",
+        for name in ("market_snapshot", "sector_returns", "chain", "fii_dii", "buildup", "regime", "market_state", "watchlist_day",
                      "positional_watchlist", "scan_snapshot", "open_trades", "fno_top", "risk_profile", "risk_book",
                      "latest_trade_plan", "closed_trades", "risk_decisions"):
             mp.setattr(rd, name, make(name))
@@ -399,10 +402,22 @@ def blocks(p, t):
 def test_b1_market_view_from_fresh_sources(src):
     p = build("market_view")
     assert p["as_of"] == "2026-10-29" and p["mode"] == "eod" and p["decision"] is None
-    labels = [i["label"] for i in blocks(p, "kpis")[0]["items"]]
-    assert labels == ["Nifty 50", "Bank Nifty", "India VIX", "Breadth", "FII cash", "DII cash", "Regime"]
-    fii = next(i for i in blocks(p, "kpis")[0]["items"] if i["label"] == "FII cash")
-    assert fii["value"] == "−₹943.60 Cr" and fii["tone"] == "down"
+    # The order is the desk's Market regime card: the day's tiles, the regime, the flows, the sector moves, then the charts.
+    assert [(b["type"], b["id"]) for b in p["blocks"]] == [("kpis", "day"), ("kpis", "regime"), ("bars", "flows"),
+                                                              ("bars", "sector_moves"), ("candles", "nifty"), ("heatmap", "sectors")]
+    day = blocks(p, "kpis")[0]["items"]
+    assert [i["label"] for i in day] == ["Nifty 50", "Bank Nifty", "India VIX", "Breadth"]
+    regime = {i["label"]: i for i in blocks(p, "kpis")[1]["items"]}
+    assert regime["Regime"]["value"] == "BEAR" and regime["Regime"]["tone"] == "down"
+    assert regime["Regime"]["sub"] == "as of 29 Oct · India VIX 15.30"
+    assert regime["New-trade size limits"]["value"] == "Halved" and regime["New-trade size limits"]["sub"] == "New-trade size limits are halved in BEAR."
+    assert regime["Market state"]["value"] == "0 of 2 sessions old" and "tone" not in regime["Market state"]
+    flows = next(b for b in blocks(p, "bars") if b["id"] == "flows")
+    assert [(i["label"], i["value"], i["tone"]) for i in flows["items"]] == [("FII", -943.6, "down"), ("DII", 1924.41, "up")]
+    assert flows["unit"] == "₹ Cr" and flows["orientation"] == "h"
+    moves = next(b for b in blocks(p, "bars") if b["id"] == "sector_moves")
+    assert [(i["label"], i["tone"]) for i in moves["items"]] == [("IT", "up"), ("Bank", "down")]       # SECTORS has two: one each
+    assert "the market regime reads BEAR" in p["headline"]["text"]
     c = blocks(p, "candles")[0]
     assert c["symbol"] == "NIFTY" and len(c["bars"]) == 60 and len(c["overlays"]["ema20"]) == 60
     assert {lv["kind"] for lv in c["levels"]} == {"wall_call", "wall_put", "max_pain"}
@@ -411,6 +426,27 @@ def test_b1_market_view_from_fresh_sources(src):
     assert "62% of stocks advanced" in p["headline"]["text"]        # 2000 / 3200
     assert p["data_quality"]["stale"] is False and p["data_quality"]["missing"] == [] and not blocks(p, "notice")
     assert p["caveat"].startswith("Built from end-of-day data of 29 Oct 2026.")
+
+
+def test_b1b_the_regime_row_follows_the_risk_governors_rule(src):
+    def tiles(**over):
+        src.v["market_state"] = {**MARKET_STATE, **over}
+        return {i["label"]: i for i in blocks(build("market_view"), "kpis")[1]["items"]}
+    bull = tiles(regime="BULL", vix=14.0)
+    assert bull["Regime"]["tone"] == "up" and bull["New-trade size limits"]["value"] == "Not cut"
+    assert "tone" not in bull["New-trade size limits"]
+    assert tiles(regime="SIDEWAYS", vix=26.0)["New-trade size limits"]["sub"] == "India VIX at 25 or above halves them."
+    assert tiles(regime="BULL", vix=36.0)["New-trade size limits"]["value"] == "Deferred"
+    stale = tiles(freshness={"ok": False, "age_sessions": 4, "budget": 2, "reason": "old"})
+    assert stale["Market state"]["value"] == "4 of 2 sessions old" and stale["Market state"]["tone"] == "warn"
+
+
+def test_b1c_a_missing_market_state_is_said_not_guessed(src):
+    src.fail.add("market_state")
+    p = build("market_view")
+    assert not any(b["id"] == "regime" for b in p["blocks"])
+    assert any("Market state the risk service uses" in m for m in p["data_quality"]["missing"])
+    assert "regime" not in p["headline"]["text"]
 
 
 def test_b2_market_view_missing_chain_and_stale_sectors(src):
@@ -975,7 +1011,7 @@ def test_f1_facts_carry_the_figures_and_the_stock_comes_first(src):
     from services.llm_safety import wrap_external_data
     p = build("market_view")
     f = facts(p)
-    assert f.startswith("VISUAL_ANSWER (market_view)") and "FII cash −₹943.60 Cr" in f and "Nifty 50 · 60 sessions" in f
+    assert f.startswith("VISUAL_ANSWER (market_view)") and "FII -943.60" in f and "Market regime: Regime BEAR" in f and "Nifty 50 · 60 sessions" in f
     idea = SimpleNamespace(plan=splan("plan"), widget=None, sized=None)
     s = build("stock_decision", "TVSMOTOR", message="Is this stock a buy now?", trade_idea=idea)
     told = "Is this stock a buy now?\n\n" + wrap_external_data(facts(s, subject="TVSMOTOR"), source="visual_answer")
