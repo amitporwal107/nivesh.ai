@@ -17,6 +17,14 @@ builder records the source as missing and shows no figure from it). The unit tes
     stock_bars          routes.research_chart._live_bars — DaaS /v1/prices/adjusted/{symbol} (prices_eod_adjusted)
     ema                 routes.research_chart._ema_masked — the feature engine's EMA (technical_indicator_engine)
     window              services.market_freshness.window — today and the previous NSE session
+
+Release 2:
+    open_trades         routes.desk_trading.list_paper_trades — GET /api/desk/paper-trades (open, with marks and P&L)
+    fno_top             services.strategy_plan.regime_fit.build_top — POST /api/desk/strategy/top (F&O classes)
+    risk_book           services.risk_book.read (Mongo desk_paper_trades, risk_profiles, paper_accounts): the account's
+                        day/week P&L, open risk and exposure — the same read the risk service itself checks a trade against
+    risk_profile        services.risk_profile.read — GET /api/risk/profile (the account's own limits)
+    latest_trade_plan   Mongo trade_plans, the newest stored plan for a symbol (services.strategy_plan.trade_plan.COLLECTION)
 """
 from __future__ import annotations
 
@@ -123,3 +131,42 @@ def ema(closes: List[float], n: int) -> List[Optional[float]]:
 async def trade_idea(request: Any, user_id: str, symbol: str, message: str) -> Any:
     from services import copilot_trade_idea
     return await copilot_trade_idea.build(request, user_id, symbol, message)
+
+
+# ── Release 2 ────────────────────────────────────────────────────────────────
+
+async def open_trades(request: Any) -> Dict[str, Any]:
+    from routes import desk_trading
+    return await desk_trading.list_paper_trades(request, status_filter="open")
+
+
+async def fno_top(request: Any, user_id: str, limit: int = 5) -> Dict[str, Any]:
+    """build_top alone does not store the TradePlans it builds — only the /top ROUTE does, right after calling it
+    (routes/strategy_plan.py strategy_top). Store them the same way here, or the fno_setups card's plan_id would be
+    a plan that GET /api/desk/trade-plans/{id} has never heard of."""
+    from routes import strategy_plan as sp
+    from services.strategy_plan import regime_fit
+    out = await regime_fit.build_top(request, user_id, limit=limit, classes=["index_options", "stock_fno"], distinct=True)
+    await sp.store_trade_plans(sp.trade_plans_of_top(out), user_id)
+    return out
+
+
+async def risk_book(user_id: str) -> Dict[str, Any]:
+    from deps import db
+    from services import risk_book as rb
+    return await rb.read(db, user_id)
+
+
+async def risk_profile(user_id: str) -> Dict[str, Any]:
+    from deps import db
+    from services import risk_profile as rp
+    return await rp.read(db, user_id)
+
+
+async def latest_trade_plan(symbol: str) -> Optional[Dict[str, Any]]:
+    """The newest STORED TradePlan for `symbol` (any segment), Mongo `trade_plans`, or None. The plan's own record of
+    what was decided when it was built — the "original thesis" a validity check compares today's read against."""
+    from deps import db
+    from services.strategy_plan.trade_plan import COLLECTION
+    doc = await db[COLLECTION].find_one({"instrument.symbol": symbol}, sort=[("created_at", -1)])
+    return doc

@@ -70,15 +70,30 @@ behind routes the desk uses. The work is mostly connecting it to one answer engi
 ### R2 — Positions, the Broker Hub, and the next 4 visual answers
 Sized from the 30-Oct Hub audit (`audits/D_portfolio_hub.md`). The single biggest item is the Open Positions workspace.
 
-- **4 more visual answers**, reusing R1's contract and block registry:
-  - Q8 "Is my trade still valid?" — re-check an open TradePlan's conditions against today's signals (none of this
-    exists today; the plan's own "invalidated" state is never set).
-  - Q9 "Should I book profits or hold?" — the exit engine has an ATR trail and an EMA exit, both opt-in with no UI
-    toggle, and no breakeven rule; build the answer and turn these on.
-  - Q10 "Which F&O setups are attractive?" — `POST /api/desk/strategy/top` already ranks 7 defined-risk families
-    with Greeks and breakevens; this is mostly wiring, plus a payoff-curve block.
-  - Q12 "How much should I risk?" — `risk_gate/plan_sizing.size_for` already exists; wiring plus a
-    size-vs-stop-distance block.
+- **5 more visual answers (DONE, branch `feat/dtc-r2-answers`, PR pending)**, reusing R1's contract and block
+  registry — zero frontend code changes needed, since the block registry is keyed by block type, never by intent:
+  - Q13 "What are my open trades doing?" (`open_trades`) — the paper book's own open trades, already exit-rule
+    checked (`routes.desk_trading.list_paper_trades`).
+  - Q10 "Which F&O setups are attractive?" (`fno_setups`) — `services.strategy_plan.regime_fit.build_top`, the same
+    board `/api/desk/strategy/top` ranks; found and fixed a real bug in the process (its TradePlans were never
+    stored, so the card's plan_id pointed nowhere — the route stores them after building, the reader didn't).
+  - Q8 "Is my trade still valid?" (`trade_validity`) — today's fresh plan read against the newest plan stored
+    earlier for the stock (Mongo `trade_plans`), with what changed (direction, stop) made explicit.
+  - Q9 "Should I book profits or hold?" (`exit_options`) — the open trade's own levels and today's price, distance
+    to stop and target; states plainly it does not tell the user to exit or hold.
+  - Q12 "How much should I risk?" (`position_size`) — the account's own risk limits and today's usage
+    (`services.risk_profile`, `services.risk_book`), plus a named stock's own size from the same sizing
+    `stock_decision` shows.
+  - Verified: 162 backend unit/chat tests, full CI allowlist (7426 passed, same 17 pre-existing failures as
+    `origin/dev`, zero new), 29 frontend Playwright cases against a real 12-intent staging capture (all 12 R1+R2
+    intents, not just R1's 7 — the spec's intent list was found not to cover the 5 new ones and was extended), 89
+    passed on the broader desk/trade-idea/decision-card regression set, tsc clean. A compliance-wording bug was
+    found this way (3 of the 5 builders generated a follow-up or row "ask" reading "Is X a buy now?" — the exact
+    phrase the engine's own facts-block instruction forbids) and fixed (now "What's the setup for X?"), with a
+    fresh real re-capture confirming the fix. Reports: `test_reports/dtc_r2_visual_backend_20261030.md`,
+    `test_reports/dtc_r2_visual_frontend_20261030.md`.
+  - Not yet built: Q14 "What to avoid today" (no unified list; see "Fix first" above) stays open, not part of this
+    sub-item.
 - **Open Positions workspace (L).** Today positions are read live from the broker and never stored (`db.holdings`
   has holdings; there is no positions/orders/trades model at all). Build:
   - a positions store with the broker's own as-of time (not Nivesh's read time);

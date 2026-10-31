@@ -377,12 +377,15 @@ def test_ti13_a_loaded_master_also_guards_the_resolver(monkeypatch):
 
 
 def test_ti13_a_trader_question_about_fno_is_not_pinned_to_the_stock_analyst(stream, monkeypatch):
+    # "Which F&O setups are attractive?" is now Release 2's own fno_setups intent (services/copilot_visual), legitimately
+    # pinned to market_analyst — that is no longer this regression: use an F&O word this message mentions but no intent
+    # answers (test_ti13_trading_words_are_not_symbols' own fixture), so the guard stays on the symbol pass-through bug.
     calls = []
 
     async def build(request, user_id, symbol, message):
         calls.append(symbol)
         return None
     monkeypatch.setattr(chat._trade_idea, "build", build)               # symbol_for is the real one
-    stream(message="Which F&O setups are attractive?", persona="trader")
+    stream(message="What is my MTM?", persona="trader")
     assert calls == []
     assert ENGINE_INPUTS[-1]["pinned_agent"] is None                    # the router decides

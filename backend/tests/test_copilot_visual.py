@@ -1,7 +1,8 @@
 """The Copilot's visual answer (services/copilot_visual; contract docs/daily_trader_copilot/VISUAL_ANSWER_CONTRACT.md).
 
-Covers R-1 … R-10, B-1 … B-13, C-1, F-1 of test_reports/dtc_visual_backend_20261030.md (CH-* are in
-tests/test_copilot_visual_chat.py; C-2 checks the REAL staging capture).
+Covers R-1 … R-17, B-1 … B-26, C-1, F-1 of test_reports/dtc_visual_backend_20261030.md (CH-* are in
+tests/test_copilot_visual_chat.py; C-2 checks the REAL staging capture). R-11 … R-17 and B-14 … B-26 are the five
+Release-2 intents (owner, 30 Oct: "complete Release 2 and Release 3").
 
 What is replaced (MOCK — not real data; every symbol, level and figure below is invented): the readers in
 services/copilot_visual/readers.py (each existing route / DaaS read) and the freshness window. The resolver, the
@@ -64,14 +65,13 @@ def test_r3_top_n_is_read_and_capped():
 
 
 @pytest.mark.parametrize("message, persona", [
-    ("What are my open trades doing?", "trader"),
-    ("Which F&O setups are attractive?", "trader"),
-    ("Should I book profits or hold TCS?", "trader"),
     ("Show the FIXCO chart", "trader"),
     ("Tell me about TVSMOTOR", "trader"),
-    ("How much should I risk?", "trader"),
-    ("What should I avoid today?", "trader"),
-    ("What did I learn from today's trades?", "trader"),
+    ("What should I avoid today?", "trader"),             # Release 3
+    ("What did I learn from today's trades?", "trader"),  # Release 3
+    ("How is my portfolio doing?", "trader"),             # the CAS-portfolio_analyst's book, not the paper desk's
+    ("What is my overall P&L?", "trader"),
+    ("Should I average down on INFY?", "trader"),         # Release 3
     ("Is RELIANCE a buy now?", "investor"),              # buy-now words are a trader's question only
     ("What is the expected move in RELIANCE?", "trader"),  # Release 1: indices only
     ("Top gainers today", None),
@@ -80,6 +80,43 @@ def test_r3_top_n_is_read_and_capped():
 ])
 def test_r9_questions_that_are_not_ours_take_the_usual_path(message, persona):
     assert resolve_intent(message, persona, None) is None
+
+
+# ── Release 2: the five new intents ──────────────────────────────────────────
+@pytest.mark.parametrize("message, persona, expected", [
+    ("What are my open trades doing?", "trader", ("open_trades", None)),
+    ("my open positions", None, ("open_trades", None)),
+    ("How are my trades going today?", "trader", ("open_trades", None)),
+    ("Which F&O setups are attractive?", "trader", ("fno_setups", None)),
+    ("options trading ideas", None, ("fno_setups", None)),
+    ("Is my trade in TCS still valid?", "trader", ("trade_validity", "TCS")),
+    ("Has my thesis on INFY weakened?", None, ("trade_validity", "INFY")),
+    ("Should I book profits or hold TCS?", "trader", ("exit_options", "TCS")),
+    ("Should I trail my stop on RELIANCE?", None, ("exit_options", "RELIANCE")),
+    ("How much should I risk?", "trader", ("position_size", None)),
+    ("What position size should I take?", None, ("position_size", None)),
+    ("How much should I risk in INFY?", "trader", ("position_size", "INFY")),
+])
+def test_r11_r15_the_five_release_2_intents(message, persona, expected):
+    got = resolve_intent(message, persona, None)
+    assert got is not None, message
+    assert (got.name, got.symbol) == expected
+
+
+def test_r16_named_r2_patterns_win_over_the_plain_stock_decision_read():
+    """"still valid" and "book profits" also contain words TRADE_WORDS/BUY_WORDS would otherwise catch; the more
+    specific Release-2 pattern must win, not a generic stock_decision."""
+    assert resolve_intent("Is TCS still valid as a setup?", "trader").name == "trade_validity"
+    assert resolve_intent("Should I hold or exit INFY?", "trader").name == "exit_options"
+
+
+def test_r17_thread_symbol_also_resolves_validity_and_exit():
+    got = resolve_intent("Is this trade still valid?", "trader", None, last_symbol="TVSMOTOR")
+    assert (got.name, got.symbol, got.symbol_from_thread) == ("trade_validity", "TVSMOTOR", True)
+    got = resolve_intent("Should I book profits or hold?", "trader", None, last_symbol="INFY")
+    assert (got.name, got.symbol, got.symbol_from_thread) == ("exit_options", "INFY", True)
+    assert wants_thread_symbol("Is my trade still valid?", "trader")
+    assert wants_thread_symbol("Should I book profits?", "trader")
 
 
 @pytest.mark.parametrize("message", ["What is the PCR of F&O?", "P&L of GIFT", "ATM IV and OI", "VIX entry", "NIFTY target",
@@ -156,14 +193,50 @@ BUILDUP = {"as_of": "2026-10-29", "universe": 3, "counts": {"long_buildup": 1, "
            "indices": [{"symbol": "NIFTY", "label": "long_buildup", "price_chg_pct": 1.0, "oi_chg_pct": 2.0}]}
 REGIME = {"key": "bullish", "label": "Bullish", "date": "2026-10-29", "rule": {"version": "desk-regime-v1"}}
 
+# ── Release 2 fixture data ────────────────────────────────────────────────────
+def ptrade(symbol, qty=10, entry=100.0, last=108.0, stop=92.0, target=120.0, pnl=80.0, status="open"):
+    return {"id": f"pt_{symbol}", "symbol": symbol, "quantity": qty, "entry_price": entry, "last_close": last,
+           "stop_price": stop, "target_price": target, "unrealized_pnl_rs": pnl, "status": status}
+
+
+OPEN_TRADES = {"as_of": "2026-10-29", "trades": [ptrade("AAA", pnl=80.0), ptrade("BBB", qty=5, entry=200.0, last=190.0,
+              stop=180.0, target=230.0, pnl=-50.0)], "summary": {"open": 2, "unrealized_pnl_rs": 30.0, "entry_pending": 0}}
+
+
+RISK_PROFILE = {"profile": "owner-default", "stored": False, "capital_basis_text": "paper equity",
+                "limits": {"per_trade_risk_pct": 0.5, "max_open_risk_pct": 3, "max_position_pct": 10,
+                           "max_sector_pct": 25, "daily_loss_pct": 2, "weekly_loss_pct": 4,
+                           "max_drawdown_pct": 10, "min_reward_risk": 1.5}}
+
+RISK_BOOK = {"as_of": "2026-10-29T10:00:00+00:00", "equity": {"equity_rs": 995000.0, "unknown_reasons": []},
+            "day": {"pnl_rs": -5000.0, "start_equity_rs": 1000000.0}, "week": {"pnl_rs": -5000.0, "start_equity_rs": 1000000.0},
+            "open": {"risk_rs": 20000.0, "positions": 2}}
+
+
+def stored_plan(pid="tp_old_1", direction="bullish", stop=1780.0, entry=1800.0, created="2026-10-20T10:00:00+00:00"):
+    return {"plan_id": pid, "created_at": created, "strategy": {"direction": direction},
+           "entry": {"price": entry}, "stop": {"price": stop}, "data_as_of": {"price": "2026-10-20"}}
+
 
 def tplan(pid="tp_mock_1"):
-    return {"plan_id": pid, "entry": {"price": 1840.0, "order_type": "stop_trigger", "valid_for_sessions": 3, "logic": "MOCK: a close above 1,840"},
+    return {"plan_id": pid, "strategy": {"direction": "bullish"},
+            "entry": {"price": 1840.0, "order_type": "stop_trigger", "valid_for_sessions": 3, "logic": "MOCK: a close above 1,840"},
             "stop": {"price": 1790.0, "method": "structural", "invalidation": "MOCK: a close below the base"},
             "targets": [{"name": "t1", "price": 1940.0, "r_multiple": 2.0, "primary": True}],
             "evidence": {"items": [{"key": "trend", "label": "Trend", "status": "ok", "direction": "supports", "text": "MOCK above the 50-day"},
                                    {"key": "vol", "label": "Volume", "status": "ok", "direction": "conflicts", "text": "MOCK volume light"}]},
             "warnings": [{"key": "event", "label": "Event", "status": "flagged", "text": "MOCK results in 4 sessions"}]}
+
+
+def fno_idea(sym, view="up", name="Bull call spread", max_loss=-5000.0, max_profit=9000.0, rr=1.8,
+            loss_unbounded=False, profit_unbounded=False, fit=0.7, plan_id=None):
+    return {"underlying": sym, "view": view, "name": name, "max_loss": max_loss, "max_profit": max_profit,
+           "reward_risk": rr, "loss_unbounded": loss_unbounded, "profit_unbounded": profit_unbounded,
+           "fit": {"score": fit}, "trade_plan": tplan(plan_id or f"tp_{sym.lower()}")}
+
+
+FNO_TOP = {"regime": REGIME, "classes": {"index_options": {"ideas": [fno_idea("NIFTY", plan_id="tp_nifty")]},
+           "stock_fno": {"ideas": [fno_idea("RELIANCE", view="down", plan_id="tp_reliance")]}}}
 
 
 def splan(status, with_tp=True):
@@ -199,7 +272,9 @@ class Src:
                   "watchlist_day": WATCH_DAY, "positional_watchlist": WATCHLIST,
                   "scan_snapshot": {"as_of": "2026-10-29", "rows": [scan_row("UV1", 4.0, 3.2), scan_row("UV2", 2.5, 2.1, 90, 92),
                                                                     scan_row("LOW", 1.0, 1.1)]},
-                  "delivery": {"as_of_date": "2026-10-28", "deliverable_pct": 45.5}, "bars": bars(300)}
+                  "delivery": {"as_of_date": "2026-10-28", "deliverable_pct": 45.5}, "bars": bars(300),
+                  "open_trades": OPEN_TRADES, "fno_top": FNO_TOP, "risk_profile": RISK_PROFILE, "risk_book": RISK_BOOK,
+                  "latest_trade_plan": stored_plan()}
         self.calls = []
 
         def make(name, key=None):
@@ -217,10 +292,23 @@ class Src:
                 raise RuntimeError(f"MOCK {name} down")
             return self.v[key]
 
+        async def ti(request, user_id, symbol, message):
+            self.calls.append(("trade_idea", (symbol,)))
+            if "trade_idea" in self.fail:
+                raise RuntimeError("MOCK trade_idea down")
+            return SimpleNamespace(plan=splan("plan"), widget=None,
+                                   sized={"status": "sized", "quantity": 12, "unit": "shares",
+                                          "estimated_risk_rs": {"total": 640.5}, "risk_pct_of_equity": 0.64})
+        self.trade_idea = ti                 # tests that call rd.trade_idea opt in: mp.setattr(rd, "trade_idea", src.trade_idea).
+        # NOT auto-applied here: test_copilot_visual_chat.py's `world` fixture leaves rd.trade_idea as the real wrapper
+        # (readers.trade_idea → services.copilot_trade_idea.build) so ITS OWN patch of copilot_trade_idea.build is
+        # reached; stubbing rd.trade_idea here would shadow that and break the stock_decision chat tests.
+
         async def window():
             return WINDOW
         for name in ("market_snapshot", "sector_returns", "chain", "fii_dii", "buildup", "regime", "watchlist_day",
-                     "positional_watchlist", "scan_snapshot"):
+                     "positional_watchlist", "scan_snapshot", "open_trades", "fno_top", "risk_profile", "risk_book",
+                     "latest_trade_plan"):
             mp.setattr(rd, name, make(name))
         mp.setattr(rd, "delivery_latest", make("delivery_latest", "delivery"))
         mp.setattr(rd, "stock_bars", make("stock_bars", "bars"))
@@ -447,6 +535,186 @@ def test_b13_stale_chain_is_refused_not_shown(src, monkeypatch):
     p = build("expected_move", "BANKNIFTY")
     assert not blocks(p, "kpis") and p["headline"] is None and blocks(p, "candles")[0]["band"] is None
     assert p["title"] == "Expected move in Bank Nifty" and "HTTP 404" in p["data_quality"]["missing"][0]
+
+
+# ── B-14 / B-15: open_trades ─────────────────────────────────────────────────
+def test_b14_open_trades(src):
+    p = build("open_trades")
+    assert p["as_of"] == "2026-10-29"
+    kp = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
+    assert kp["Open"] == "2" and kp["Unrealised P&L"] == "₹30.00"
+    r = blocks(p, "ranked")[0]
+    assert [row["symbol"] for row in r["rows"]] == ["AAA", "BBB"]
+    assert r["rows"][0]["cells"] == {"symbol": "AAA", "qty": 10, "entry": 100.0, "last": 108.0, "stop": 92.0,
+                                     "target": 120.0, "pnl": 80.0}
+    assert r["rows"][0]["ask"] == "Should I book profits or hold AAA?"
+    assert p["headline"]["text"] == "2 open paper trades, unrealised ₹30.00."
+
+
+def test_b15_no_open_trades_says_so(src):
+    src.v["open_trades"] = {"as_of": "2026-10-29", "trades": [], "summary": {"open": 0, "unrealized_pnl_rs": None, "entry_pending": 0}}
+    p = build("open_trades")
+    assert not blocks(p, "ranked") and "No open paper trades right now." in blocks(p, "notice")[0]["text"]
+    assert p["headline"]["text"] == "No open paper trades right now."
+
+
+def test_b15b_the_book_could_not_be_read(src):
+    src.fail.add("open_trades")
+    p = build("open_trades")
+    assert not blocks(p, "kpis") and not blocks(p, "ranked")
+    assert "MOCK open_trades down" in p["data_quality"]["missing"][0]
+
+
+# ── B-16 / B-17: fno_setups ──────────────────────────────────────────────────
+def test_b16_fno_setups(src):
+    p = build("fno_setups")
+    r = blocks(p, "ranked")[0]
+    assert [row["symbol"] for row in r["rows"]] == ["NIFTY", "RELIANCE"]
+    assert r["rows"][0]["cells"] == {"symbol": "NIFTY", "structure": "Bull call spread", "view": "Bullish",
+                                     "maxloss": -5000.0, "maxprofit": 9000.0, "rr": 1.8, "fit": 0.7}
+    assert r["rows"][1]["cells"]["view"] == "Bearish"
+    assert blocks(p, "trade_plan")[0]["plan_id"] == "tp_nifty"
+    assert p["headline"]["text"] == "2 F&O setups fit today's regime (Bullish)."
+
+
+def test_b17_unbounded_sides_and_an_empty_board(src):
+    src.v["fno_top"] = {"regime": REGIME, "classes": {"index_options": {"ideas": [
+        fno_idea("NIFTY", loss_unbounded=True, profit_unbounded=False, plan_id="tp_nifty")]}, "stock_fno": {"ideas": []}}}
+    p = build("fno_setups")
+    assert blocks(p, "ranked")[0]["rows"][0]["cells"]["maxloss"] is None
+    src.v["fno_top"] = {"regime": REGIME, "classes": {"index_options": {"ideas": []}, "stock_fno": {"ideas": []}}}
+    p = build("fno_setups")
+    assert not blocks(p, "ranked") and "a valid payoff" in blocks(p, "notice")[0]["text"]
+
+
+# ── B-18 / B-19: position_size ───────────────────────────────────────────────
+def test_b18_position_size_account_budget(src):
+    p = build("position_size")
+    kp = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
+    assert kp == {"Per trade": "0.5% of equity", "Max open risk": "3%", "One position": "10%", "One sector": "25%",
+                 "Min reward:risk": "1.5×"}
+    kp2 = {i["label"]: i["value"] for i in blocks(p, "kpis")[1]["items"]}
+    assert kp2["Paper equity"] == "₹995,000.00" and kp2["Used of today's loss limit"] == "0.50%"
+    assert blocks(p, "kpis")[1]["items"][1].get("tone") != "warn"            # 0.5% of a 2% limit: nowhere near it
+    assert p["title"] == "How much to risk"
+
+
+def test_b19_position_size_with_a_named_stock(src, monkeypatch):
+    monkeypatch.setattr(rd, "trade_idea", src.trade_idea)
+    p = build("position_size", "TVSMOTOR")
+    sized = next(b for b in blocks(p, "kpis") if b["id"] == "sized")
+    kp = {i["label"]: i["value"] for i in sized["items"]}
+    assert kp == {"Size": "12 shares", "Max loss": "₹640.50"}
+    assert p["title"] == "How much to risk in TVSMOTOR"
+    assert "TVSMOTOR sizes to 12 shares" in p["headline"]["text"]
+
+
+def test_b19b_a_stock_that_does_not_size(src, monkeypatch):
+    async def ti(request, user_id, symbol, message):
+        return SimpleNamespace(plan=splan("plan"), widget=None,
+                               sized={"status": "not_sizable", "blocking": [{"message": "MOCK: too large for your budget"}]})
+    monkeypatch.setattr(rd, "trade_idea", ti)
+    p = build("position_size", "TVSMOTOR")
+    assert any("does not size" in n["text"] and "too large for your budget" in n["text"] for n in blocks(p, "notice"))
+
+
+def test_b19c_equity_unknown_is_shown_not_guessed(src):
+    src.v["risk_book"] = {**RISK_BOOK, "equity": {"equity_rs": None, "unknown_reasons": ["MOCK: a position could not be marked"]}}
+    p = build("position_size")
+    assert len(blocks(p, "kpis")) == 1                                       # only the limits block; no usage figures
+    assert any("equity is unknown" in m and "could not be marked" in m for m in p["data_quality"]["missing"])
+
+
+# ── B-20 … B-23: trade_validity ──────────────────────────────────────────────
+def test_b20_setup_still_holds(src, monkeypatch):
+    monkeypatch.setattr(rd, "trade_idea", src.trade_idea)
+    # Same direction, stop and plan_id as today's fresh plan (tplan(), the trade_idea stub's default): nothing changed.
+    src.v["latest_trade_plan"] = stored_plan(pid="tp_mock_1", direction="bullish", stop=1790.0)
+    p = build("trade_validity", "TVSMOTOR", message="Is TVSMOTOR still valid?")
+    assert p["decision"]["status"] == "setup_ready"
+    assert "still holds under today's rules" in p["headline"]["text"]
+    texts = [i["text"] for i in blocks(p, "list")[0]["items"]] if blocks(p, "list") else []
+    assert not any(t.startswith("Direction changed") or t.startswith("Stop moved") for t in texts)
+    assert any("still the one in force today" in t for t in texts)
+
+
+def test_b21_direction_and_stop_changed_since_it_was_recorded(src, monkeypatch):
+    monkeypatch.setattr(rd, "trade_idea", src.trade_idea)
+    src.v["latest_trade_plan"] = stored_plan(pid="tp_old_1", direction="bearish", stop=1700.0)
+    p = build("trade_validity", "TVSMOTOR", message="Is TVSMOTOR still valid?")
+    texts = [i["text"] for i in blocks(p, "list")[0]["items"]]
+    assert any("Direction changed: recorded bearish, today" in t for t in texts)
+    assert any("Stop moved: recorded ₹1,700.00" in t for t in texts)
+    c = blocks(p, "candles")[0]
+    assert any(lv["label"].startswith("Recorded entry") for lv in c["levels"])
+
+
+def test_b22_no_earlier_plan_on_record(src, monkeypatch):
+    monkeypatch.setattr(rd, "trade_idea", src.trade_idea)
+    src.v["latest_trade_plan"] = None
+    p = build("trade_validity", "TVSMOTOR", message="Is TVSMOTOR still valid?")
+    assert "no earlier plan is on record" in p["headline"]["text"]
+    assert any("no plan is on record" in m for m in p["data_quality"]["missing"])
+
+
+def test_b23_no_setup_today_though_one_was_recorded(src, monkeypatch):
+    async def ti(request, user_id, symbol, message):
+        return SimpleNamespace(plan=splan("no_trade"), widget=None, sized=None)
+    monkeypatch.setattr(rd, "trade_idea", ti)
+    p = build("trade_validity", "TVSMOTOR", message="Is TVSMOTOR still valid?")
+    assert p["decision"]["status"] == "avoid"
+    assert "no longer there" in p["headline"]["text"]
+    texts = [i["text"] for i in blocks(p, "list")[0]["items"]]
+    assert any("find no setup today" in t for t in texts)
+
+
+# ── B-24 … B-26: exit_options ────────────────────────────────────────────────
+def test_b24_an_open_trade_shows_its_own_levels_and_pnl(src):
+    p = build("exit_options", "AAA", message="Should I book profits or hold AAA?")
+    kp = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
+    assert kp["Entry"] == "₹100.00" and kp["Unrealised P&L"] == "₹80.00"
+    assert "Distance to stop" in kp and "Distance to target" in kp
+    assert "unrealised ₹80.00" in p["headline"]["text"]
+    assert any("does not tell you to exit or hold" in n["text"] for n in blocks(p, "notice"))
+    c = blocks(p, "candles")[0]
+    assert {lv["kind"] for lv in c["levels"]} == {"stop", "target"}
+
+
+def test_b25_no_open_trade_in_that_symbol(src):
+    p = build("exit_options", "ZZZ", message="Should I book profits or hold ZZZ?")
+    assert any("No open paper trade in ZZZ" in n["text"] for n in blocks(p, "notice"))
+    assert blocks(p, "kpis") == []
+
+
+def test_b26_the_book_could_not_be_read(src):
+    src.fail.add("open_trades")
+    p = build("exit_options", "AAA", message="Should I book profits or hold AAA?")
+    assert "MOCK open_trades down" in p["data_quality"]["missing"][0]
+
+
+# ── B-27: readers.fno_top stores the plans it builds ─────────────────────────
+def test_b27_fno_top_stores_its_trade_plans_like_the_route_does(monkeypatch):
+    """regime_fit.build_top alone does not store anything — only POST /top's route handler does, right after calling
+    it. readers.fno_top must do the same, or the fno_setups card's plan_id is never openable (GET
+    /api/desk/trade-plans/{id} 404s). Found on the staging capture of 30 Oct: 0 of 5 plan ids were stored."""
+    from routes import strategy_plan as sp
+
+    top = {"classes": {"index_options": {"ideas": [{"trade_plan": {"plan_id": "tp_a"}}]},
+                       "stock_fno": {"ideas": [{"trade_plan": {"plan_id": "tp_b"}}]}}}
+
+    async def fake_build_top(request, user_id, *, limit, classes, expiry=None, distinct=False):
+        assert classes == ["index_options", "stock_fno"] and distinct is True
+        return top
+    stored = []
+
+    async def fake_store(plans, owner):
+        stored.append((owner, [p.get("plan_id") for p in plans if p]))
+    from services.strategy_plan import regime_fit
+    monkeypatch.setattr(regime_fit, "build_top", fake_build_top)
+    monkeypatch.setattr(sp, "store_trade_plans", fake_store)
+    out = asyncio.run(rd.fno_top("REQ", "u1", limit=5))
+    assert out is top
+    assert stored == [("u1", ["tp_a", "tp_b"])]
 
 
 # ── C-1: the contract check catches what the frontend would drop ─────────────

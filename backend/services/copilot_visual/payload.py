@@ -306,7 +306,8 @@ def validate(p: Any) -> List[str]:
     if p.get("schema") != SCHEMA:
         out.append("schema")
     if p.get("intent") not in (
-            "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move"):
+            "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
+            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")
