@@ -226,6 +226,16 @@ def test_sg_t1_every_template_opens_its_declared_answer(tmpl, persona):
         assert got.symbol == "TVSMOTOR"
 
 
+def test_sg_t1b_every_visual_answer_intent_has_a_template():
+    from services.copilot_visual import INTENTS
+    assert len(INTENTS) == 13 and "daily_review" in INTENTS
+    assert {t["intent"] for t in catalog.QUERY_TEMPLATES if t["intent"]} == set(INTENTS)
+    review = [t["query"] for t in catalog.QUERY_TEMPLATES if t["intent"] == "daily_review"]
+    assert review == ["What did I learn from today's trades?", "How did I do this week?"]
+    assert resolve_intent("How did I do this week?", "trader", None).params == {"period": "week"}
+    assert resolve_intent("What did I learn from today's trades?", "trader", None).params == {"period": "day"}
+
+
 def test_sg_t2_every_rule_is_wired():
     tmpl_ids = {t["_id"] for t in catalog.QUERY_TEMPLATES}
     known_inputs = set(inputs.LABELS)
@@ -480,7 +490,7 @@ def test_sg_e16_every_card_text_is_clean_and_dated(world):
         for c in tab:
             for k in ("title", "why", "footer", "query", "class_label"):
                 assert c[k] and not BANNED.search(c[k]), (c["rule_id"], k, c[k])
-            if c["rule_id"] != "position_size_starter":
+            if c["rule_id"] not in ("position_size_starter", "daily_review_starter"):     # questions without a figure
                 assert c["as_of"], c["rule_id"]
                 assert all(u["status"] == "fresh" and u["as_of"] for u in c["inputs"]), c["rule_id"]
 
