@@ -44,6 +44,8 @@ QUERY_TEMPLATES: List[Dict[str, Any]] = [
      "intent": "market_view", "tab": "market", "audience": ["investor", "trader"]},
     {"_id": "t_smart_money", "label": "Where smart money is moving", "query": "Where is smart money moving?",
      "intent": "smart_money", "tab": "market", "audience": ["investor", "trader"]},
+    {"_id": "t_sector_rotation", "label": "Sector leaders and laggards", "query": "Which sectors are leading and lagging?",
+     "intent": "sector_rotation", "tab": "market", "audience": ["investor", "trader"]},
     {"_id": "t_expected_move_nifty", "label": "Nifty's expected move", "query": "What is the expected move in Nifty?",
      "intent": "expected_move", "tab": "market", "audience": ["trader"]},
     {"_id": "t_breakouts", "label": "Confirmed breakouts", "query": "Which breakouts are confirmed?",

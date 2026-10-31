@@ -108,6 +108,15 @@ Release 2 added `open_trades`, `trade_validity`, `exit_options`, `fno_setups` an
 |---|---|---|---|
 | `daily_review` | What did I learn from today's trades? How did I do this week? My mistakes today? | kpis (closed, wins / losses, win rate, net realised P&L, average R) · ranked plan vs actual (planned entry, fill, stop, target, exit, R, net P&L) · list how the trades ended (plan's rules vs closed by you, gaps through the stop) · list what the risk checks refused · bars `₹` equity curve (cumulative net realised P&L per session) · notice: no live signal hit-rate | the paper book's closed trades (`desk_paper_trades`, read directly, not through the GET route that runs the exit rule) and the risk decisions log (`risk_decisions`) |
 
+Sector view (31 Oct 2026):
+
+| intent | Trader asks (examples) | blocks | sources (existing) |
+|---|---|---|---|
+| `sector_rotation` | Which sectors are leading and lagging? Show sector rotation today. Sector heatmap. | kpis (leading, lagging, sectors up today) · heatmap sectors (1-week return, best first; 1-day and 1-month in `sub`), each cell carrying `members`: its five strongest stocks by the day's move with index weight and an `ask` | desk sector returns · desk sector constituents (NSE index lists with bhavcopy closes) |
+
+A heatmap cell may carry `members: [{label, value, sub?, ask?}]`, shown when the tile is selected. `sector rotation` is no longer a
+`smart_money` phrase: FII/DII flows, buildup and smart money stay there; the sector questions have their own answer.
+
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
 day older than the previous session carries the stale notice. `avoid_today` (Q14) is not built.

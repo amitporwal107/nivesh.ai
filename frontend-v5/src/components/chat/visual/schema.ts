@@ -49,7 +49,11 @@ export const barsBlock = z.object({
 export const heatmapBlock = z.object({
   ...base, type: z.literal("heatmap"),
   unit: str.catch("%"),
-  cells: z.array(z.object({ label: str, value: num.nullable(), group: optStr, sub: optStr })).min(1),
+  cells: z.array(z.object({
+    label: str, value: num.nullable(), group: optStr, sub: optStr,
+    /** The stocks behind a tile (the sector rotation answer: a sector's strongest five), shown when the tile is selected. */
+    members: z.array(z.object({ label: str, value: num.nullable(), sub: optStr, ask: optStr })).optional().catch(undefined),
+  })).min(1),
 });
 
 export const quadrantBlock = z.object({

@@ -6,6 +6,7 @@ builder records the source as missing and shows no figure from it). The unit tes
     market_snapshot     DaaS /v1/snapshots/market (nidp.market_daily_snapshot) — the Copilot market node's own read
     index_rows          DaaS /v1/indices/{name}/eod (nidp.index_eod), oldest first
     sector_returns      DaaS /v1/desk/sector-returns (NSE sectoral indices) — GET /api/markets/sector-returns
+    sector_constituents DaaS /v1/desk/sector-constituents — one sector index's stocks with their move on the latest close day
     chain               routes.fno.chain — GET /api/fno/{symbol}/chain (summary: expected move, ATM IV, PCR, max pain, walls)
     fii_dii             DaaS /v1/market-pulse/fii-dii (nidp.fii_dii_flows, NSE first) — GET /api/markets/fii-dii
     buildup             routes.fno._buildup_scan — GET /api/fno/scan/buildup (refused when older than the previous session)
@@ -81,6 +82,14 @@ async def sector_returns() -> Dict[str, Any]:
     body = await _daas("/desk/sector-returns")
     if not isinstance(body, dict) or not isinstance(body.get("sectors"), list):
         raise RuntimeError("the sector-returns route sent no sectors")
+    return body
+
+
+async def sector_constituents(index: str) -> Dict[str, Any]:
+    """One sector index's constituents with their move on the index's latest close day (DaaS /v1/desk/sector-constituents)."""
+    body = await _daas("/desk/sector-constituents", {"index": index})
+    if not isinstance(body, dict) or not body.get("available") or not isinstance(body.get("rows"), list):
+        raise RuntimeError((body or {}).get("reason") if isinstance(body, dict) and body.get("reason") else f"no constituents for {index}")
     return body
 
 

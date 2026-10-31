@@ -53,7 +53,7 @@ AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "
              "top_opportunities": "market_analyst", "breakouts": "market_analyst", "unusual_volume": "market_analyst",
              "stock_decision": "stock_analyst", "open_trades": "market_analyst", "fno_setups": "market_analyst",
              "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
-             "daily_review": "market_analyst"}
+             "daily_review": "market_analyst", "sector_rotation": "market_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 

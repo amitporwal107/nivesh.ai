@@ -269,6 +269,10 @@ def _block_problems(b: Any, i: int) -> List[str]:
         if not isinstance(cells, list) or not cells or not all(
                 isinstance(x, dict) and isinstance(x.get("label"), str) and (x.get("value") is None or _is_num(x.get("value"))) for x in cells):
             out.append(f"{p} heatmap: at least one labelled numeric cell")
+        elif not all(x.get("members") is None or (isinstance(x["members"], list) and all(
+                isinstance(m, dict) and isinstance(m.get("label"), str) and (m.get("value") is None or _is_num(m.get("value")))
+                and _opt_str(m.get("sub")) and _opt_str(m.get("ask")) for m in x["members"])) for x in cells):
+            out.append(f"{p} heatmap: members need a label and a numeric value")
     elif t == "quadrant":
         pts = b.get("points")
         q = b.get("quadrants")
@@ -327,7 +331,7 @@ def validate(p: Any) -> List[str]:
         out.append("schema")
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review"):
+            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")

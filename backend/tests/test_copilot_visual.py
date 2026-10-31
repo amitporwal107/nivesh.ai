@@ -388,6 +388,14 @@ class Src:
         self.in_session = False
         self.v.update({"fno_live_quotes": {"available": False, "reason": "MOCK: no Kite login today", "quotes": {}, "unresolved": []},
                        "live_spots": {}, "margin_calculators": ([], dict(NO_LOGIN)), "margin_estimates": None})
+        self.v["sector_members"] = {}                    # {index name: DaaS /desk/sector-constituents body}; an index not here raises
+
+        async def sector_constituents(index):
+            self.calls.append(("sector_constituents", (index,)))
+            if index not in self.v["sector_members"]:
+                raise RuntimeError(f"MOCK constituents of {index} down")
+            return self.v["sector_members"][index]
+        mp.setattr(rd, "sector_constituents", sector_constituents)
         mp.setattr(rd, "in_session", lambda now=None: self.in_session)
         for name in ("fno_live_quotes", "live_spots", "margin_calculators"):
             mp.setattr(rd, name, make(name))
@@ -1385,3 +1393,120 @@ def test_fb20_calculators_that_all_refuse_their_session_ask_for_a_login_once(src
     assert len([n for n in blocks(p, "notice") if n.get("actions")]) == 1
     assert not [m for m in p["data_quality"]["missing"] if m.startswith("Margin for")]
     assert any("session was refused" in m for m in p["data_quality"]["missing"])
+
+
+# ═════ Sector rotation (owner, 31 Oct 2026): "its a sector rotation intent so load the sector rotation heatmap" ═════
+# SR-1 … SR-9 of test_reports/copilot_sector_rotation_20261031.md. MOCK — not real data.
+@pytest.mark.parametrize("message, expected", [
+    ("Which sectors are leading and lagging?", "sector_rotation"),
+    ("Show sector rotation today", "sector_rotation"),
+    ("Sector heatmap", "sector_rotation"),
+    ("Which sector is strongest this week?", "sector_rotation"),
+    ("best performing sectors", "sector_rotation"),
+    ("are banks lagging other sectors?", "sector_rotation"),
+    ("Where is smart money moving?", "smart_money"),
+    ("FII DII flows this week", "smart_money"),
+    ("Which F&O stocks show long build-up today?", "smart_money"),
+    ("What is the market view today?", "market_view"),
+])
+def test_sr1_the_resolver_sends_sector_questions_to_the_sector_answer(message, expected):
+    got = resolve_intent(message, "trader", None)
+    assert got is not None and got.name == expected, message
+
+
+def test_sr2_the_new_intent_is_wired_in_everywhere():
+    from services import copilot_visual as cv
+    assert "sector_rotation" in cv.INTENTS and "sector_rotation" in cv.BUILDERS and cv.AGENT_FOR["sector_rotation"] == "market_analyst"
+
+
+def crow(sym, chg, w=5.0):
+    return {"symbol": sym, "company_name": sym.title(), "industry": "X", "weight_pct": w, "close": 100.0,
+            "prev_close": None if chg is None else round(100.0 / (1 + chg / 100), 2), "change_pct": chg,
+            "move": None if chg is None else ("advance" if chg > 0 else "decline" if chg < 0 else "unchanged")}
+
+
+def cons(rows, day="2026-10-29"):
+    return {"index": "x", "sector": "x", "available": True, "reason": None, "list_date": "2026-09-30", "date": day,
+            "count": len(rows), "breadth": {}, "rows": rows}
+
+
+def three_sectors():
+    return {"as_of": "2026-10-29", "sectors": [
+        {"sector": "IT", "index": "Nifty IT", "date": "2026-10-29", "ret_1d_pct": 1.2, "ret_1w_pct": 2.5, "ret_1m_pct": -1.0},
+        {"sector": "Pharma", "index": "Nifty Pharma", "date": "2026-10-29", "ret_1d_pct": 0.3, "ret_1w_pct": 7.1, "ret_1m_pct": 0.7},
+        {"sector": "Cement", "index": "Nifty Cement", "date": "2026-10-29", "ret_1d_pct": -1.3, "ret_1w_pct": -1.8, "ret_1m_pct": -3.3},
+        {"sector": "Realty", "index": "Nifty Realty", "date": "2026-10-29", "ret_1d_pct": 0.1, "ret_1w_pct": None, "ret_1m_pct": None}]}
+
+
+def members_for(n=7):
+    return [crow(f"S{i}", 3.0 - i * 0.7, w=10.0 - i) for i in range(n)] + [crow("NOPRICE", None, 1.0)]
+
+
+def test_sr3_the_heatmap_first_leaders_first_and_each_sector_carries_its_five_strongest(src):
+    src.v["sector_returns"] = three_sectors()
+    src.v["sector_members"] = {"Nifty IT": cons(members_for()), "Nifty Pharma": cons(members_for(3)), "Nifty Cement": cons(members_for())}
+    p = build("sector_rotation")
+    assert p["title"] == "Sector rotation" and p["as_of"] == "2026-10-29" and p["mode"] == "eod"
+    assert [(b["type"], b["id"]) for b in p["blocks"]] == [("kpis", "summary"), ("heatmap", "rotation")]
+    cells = blocks(p, "heatmap")[0]["cells"]
+    assert [c["label"] for c in cells] == ["Pharma", "IT", "Cement"]                 # 1-week return, best first; Realty has none: left out
+    assert [c["value"] for c in cells] == [7.1, 2.5, -1.8]
+    assert cells[1]["sub"] == "1d +1.20% · 1m −1.00%"
+    it = cells[1]["members"]
+    assert [m["label"] for m in it] == ["S0", "S1", "S2", "S3", "S4"]                # five, strongest on the day first; NOPRICE excluded
+    assert [m["value"] for m in it] == [3.0, 2.3, 1.6, 0.9, 0.2] and it[0]["sub"] == "weight 10.00%"
+    assert it[0]["ask"] == "Trade plan for S0"
+    assert len(cells[0]["members"]) == 3                                              # fewer than five priced: what exists, no padding
+    kp = {i["label"]: i for i in blocks(p, "kpis")[0]["items"]}
+    assert kp["Leading"]["value"] == "Pharma" and kp["Leading"]["sub"] == "+7.10% over 1 week"
+    assert kp["Lagging"]["value"] == "Cement" and kp["Sectors up today"]["value"] == "2 of 3"
+    assert p["headline"]["text"] == "Pharma leads the week (+7.10%) and Cement lags (−1.80%)."
+    assert "top 5 stocks" in blocks(p, "heatmap")[0]["note"] and "day's move" in blocks(p, "heatmap")[0]["note"]
+
+
+def test_sr4_a_sector_whose_members_cannot_be_read_still_shows_its_tile(src):
+    src.v["sector_returns"] = three_sectors()
+    src.v["sector_members"] = {"Nifty IT": cons(members_for())}                       # Pharma and Cement raise
+    p = build("sector_rotation")
+    cells = {c["label"]: c for c in blocks(p, "heatmap")[0]["cells"]}
+    assert "members" not in cells["Pharma"] and len(cells["IT"]["members"]) == 5
+    assert any("Nifty Pharma" in m for m in p["data_quality"]["missing"])
+
+
+def test_sr5_no_sector_data_is_said_and_nothing_is_drawn(src):
+    src.fail.add("sector_returns")
+    p = build("sector_rotation")
+    assert not blocks(p, "heatmap") and "MOCK sector_returns down" in p["data_quality"]["missing"][0]
+
+
+def test_sr6_members_older_than_the_previous_session_are_flagged_stale(src):
+    src.v["sector_returns"] = three_sectors()
+    src.v["sector_members"] = {"Nifty IT": cons(members_for(), day="2026-10-20")}
+    p = build("sector_rotation")
+    assert p["data_quality"]["stale"] is True and any("2026-10-20" in n["text"] or "20 Oct" in n["text"] for n in blocks(p, "notice"))
+
+
+def test_sr7_the_contract_check_covers_members(src):
+    src.v["sector_returns"] = three_sectors()
+    src.v["sector_members"] = {"Nifty IT": cons(members_for())}
+    p = build("sector_rotation")
+    assert validate(p) == []
+    bad = json.loads(json.dumps(p))
+    blocks(bad, "heatmap")[0]["cells"][0]["members"] = [{"label": "X", "value": "not a number"}]
+    assert any("members" in x for x in validate(bad))
+
+
+def test_sr8_the_reader_asks_daas_for_one_index(monkeypatch):
+    seen = {}
+
+    async def fake(path, params=None):
+        seen["call"] = (path, params)
+        return {"available": True, "rows": [crow("A", 1.0)], "date": "2026-10-29"}
+    monkeypatch.setattr(rd, "_daas", fake)
+    got = asyncio.run(rd.sector_constituents("Nifty Bank"))
+    assert seen["call"] == ("/desk/sector-constituents", {"index": "Nifty Bank"}) and got["rows"][0]["symbol"] == "A"
+    async def unavailable(path, params=None):
+        return {"available": False, "reason": "no constituent list for Nifty Bank", "rows": []}
+    monkeypatch.setattr(rd, "_daas", unavailable)
+    with pytest.raises(RuntimeError, match="no constituent list"):
+        asyncio.run(rd.sector_constituents("Nifty Bank"))

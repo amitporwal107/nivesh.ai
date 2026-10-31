@@ -342,6 +342,79 @@ async def smart_money(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                            "Which stocks have unusual volume?"), now=ctx.get("now"))
 
 
+# ── sector_rotation ──────────────────────────────────────────────────────────
+
+SECTOR_MEMBERS_SHOWN = 5
+SECTOR_CONCURRENCY = 6
+SRC_SECTOR_MEMBERS = "NSE index lists with bhavcopy closes (stocks of each sector index)"
+
+
+async def sector_rotation(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """"Which sectors are leading and lagging?" / "Show sector rotation today" — the sector heatmap first (1-week return,
+    best first; 1-day and 1-month beside it), each sector carrying its five strongest stocks by the day's move with their
+    index weight. The members are read server-side for every sector so a saved answer is complete; a sector whose list
+    cannot be read still shows its tile. Ranked by the day's move, which is what the constituent read carries (no
+    1-week return per stock is read here); the note says so."""
+    src: Sources = ctx["src"]
+    follow_ups = follow("Where is smart money moving?", "Which stocks have unusual volume?", "What is the market view today?",
+                        "Today's top 5 opportunities")
+    sect, e_s = await _try(rd.sector_returns())
+    if e_s or not isinstance(sect, dict):
+        src.miss(SRC_SECTORS, why(e_s) if e_s else "the sector returns could not be read")
+        return assemble("sector_rotation", "Sector rotation", None, None, "neutral", [], src, follow_ups, now=ctx.get("now"))
+    as_of = iso_day(sect.get("as_of"))
+    src.add(SRC_SECTORS, as_of)
+    rows = [r for r in sect.get("sectors") or [] if isinstance(r, dict) and (r.get("sector") or r.get("index")) and num(r.get("ret_1w_pct")) is not None]
+    rows.sort(key=lambda r: -num(r["ret_1w_pct"]))
+    if not rows:
+        blocks = [notice("No sector has a one-week return yet.", "info", "empty")]
+        return assemble("sector_rotation", "Sector rotation", as_of, None, "neutral", blocks, src, follow_ups, now=ctx.get("now"))
+
+    gate = asyncio.Semaphore(SECTOR_CONCURRENCY)
+
+    async def members(r: Dict[str, Any]) -> Tuple[Any, Optional[BaseException]]:
+        async with gate:
+            return await _try(rd.sector_constituents(str(r.get("index"))))
+    got = await asyncio.gather(*(members(r) for r in rows))
+
+    cells: List[Dict[str, Any]] = []
+    member_days: List[str] = []
+    for r, (body, err) in zip(rows, got):
+        sub = (f"1d {pct(r.get('ret_1d_pct'))}" if num(r.get("ret_1d_pct")) is not None else "") \
+            + (f" · 1m {pct(r.get('ret_1m_pct'))}" if num(r.get("ret_1m_pct")) is not None else "")
+        cell: Dict[str, Any] = {"label": str(r.get("sector") or r.get("index")), "value": r2(r.get("ret_1w_pct")), "group": None,
+                                "sub": sub or None}
+        if err or not isinstance(body, dict):
+            src.missing.append(f"{SRC_SECTOR_MEMBERS} ({r.get('index')}): {why(err) if err else 'no members'}")
+        else:
+            day = iso_day(body.get("date"))
+            if day:
+                member_days.append(day)
+            priced = [m for m in body.get("rows") or [] if isinstance(m, dict) and m.get("symbol") and num(m.get("change_pct")) is not None]
+            priced.sort(key=lambda m: -num(m["change_pct"]))
+            top = [{"label": m["symbol"], "value": r2(m["change_pct"]),
+                    "sub": f"weight {num(m.get('weight_pct')):.2f}%" if num(m.get("weight_pct")) is not None else None,
+                    "ask": f"Trade plan for {m['symbol']}"} for m in priced[:SECTOR_MEMBERS_SHOWN]]
+            if top:
+                cell["members"] = top
+        cells.append(cell)
+    if member_days:
+        src.add(SRC_SECTOR_MEMBERS, min(member_days))
+
+    lead, lag = cells[0], cells[-1]
+    up = sum(1 for r in rows if (num(r.get("ret_1d_pct")) or 0) > 0)
+    kpis = [_kpi("Leading", lead["label"], f"{pct(lead['value'])} over 1 week", "up" if lead["value"] > 0 else "down"),
+            _kpi("Lagging", lag["label"], f"{pct(lag['value'])} over 1 week", "down" if lag["value"] < 0 else "up"),
+            _kpi("Sectors up today", f"{up} of {len(rows)}", "by the sector index's 1-day move")]
+    blocks = [block("kpis", "summary", "Sector leaders and laggards", None, items=kpis),
+              block("heatmap", "rotation", "Sector rotation · 1 week",
+                    f"Sector index returns over 1 week, best first. Select a sector for its top {SECTOR_MEMBERS_SHOWN} stocks by the day's move "
+                    "(with index weight): a rank of today's move, not a recommendation.", unit="%", cells=cells)]
+    head = (f"{lead['label']} leads the week ({pct(lead['value'])}) and {lag['label']} lags ({pct(lag['value'])})."
+            if len(cells) > 1 else f"{lead['label']} is the only sector with a one-week return ({pct(lead['value'])}).")
+    return assemble("sector_rotation", "Sector rotation", as_of, head, "neutral", blocks, src, follow_ups, now=ctx.get("now"))
+
+
 # ── top_opportunities ────────────────────────────────────────────────────────
 
 _BUCKETS = {"breakout_confirmed": "Breakout", "pre_breakout": "Pre-breakout", "true_accumulation": "Accumulation",
@@ -1488,7 +1561,8 @@ BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportu
             "breakouts": breakouts, "unusual_volume": unusual_volume, "stock_decision": stock_decision,
             "expected_move": expected_move, "open_trades": open_trades, "fno_setups": fno_setups,
             "trade_validity": trade_validity, "exit_options": exit_options, "position_size": position_size,
-            "daily_review": daily_review}
+            "daily_review": daily_review,
+            "sector_rotation": sector_rotation}
 
 
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",
