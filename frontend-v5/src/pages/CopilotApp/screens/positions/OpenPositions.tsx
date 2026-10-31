@@ -280,7 +280,7 @@ function GroupDetail({ g }: { g: PositionGroup }) {
   const label = g.legs.length === 1 ? g.legs[0].label ?? g.underlying : `${g.underlying} position`;
   return (
     <Section
-      title={<span className="flex flex-wrap items-center" style={{ gap: 8 }}><StockName symbol={g.underlying} size={22} />
+      title={<span data-testid="positions-detail-title" data-source={g.source} className="flex flex-wrap items-center" style={{ gap: 8 }}><StockName symbol={g.underlying} size={22} />
         <Pill tone={g.source === "broker" ? "indigo" : "amber"}>{g.source === "broker" ? "Broker" : "Paper"}</Pill>
         {g.kind === "fno" && <Pill>F&O</Pill>}</span>}
       note={priceLine(g)}

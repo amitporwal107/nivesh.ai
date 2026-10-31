@@ -165,6 +165,8 @@ const Book = z.object({
   method: z.object({ near_stop_pct: z.number(), expiry_soon_days: z.number(), gross: z.string() }).passthrough(),
 });
 export type PositionsBook = z.infer<typeof Book>;
+/** The schema itself, so a test can check a captured response against it. */
+export const PositionsBookSchema = Book;
 
 const Scenario = z.object({
   key: z.string(),
