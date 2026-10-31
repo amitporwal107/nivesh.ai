@@ -141,7 +141,7 @@ def market_inputs(**over) -> Dict[str, Input]:
         "fii_dii": Input("fii_dii", as_of=TODAY, facts={"fii_net": "+₹3,598.54 Cr", "dii_net": "−₹817.51 Cr"}),
         "chain_NIFTY": Input("chain_NIFTY", as_of=TODAY, facts={"expiry": "3 Nov 2026"}),
         "chain_BANKNIFTY": Input("chain_BANKNIFTY", as_of=TODAY, facts={"expiry": "25 Nov 2026"}),
-        "positional_watchlist": Input("positional_watchlist", as_of=TODAY, facts={"count": 0}),
+        "positional_watchlist": Input("positional_watchlist", as_of=TODAY, facts={"count": 3}),
         "scan_snapshot": Input("scan_snapshot", as_of=TODAY, facts={"count": 74}),
         "ai_watchlist": Input("ai_watchlist", as_of=TODAY, value=copy.deepcopy(AI_DAY)),
     }
@@ -638,3 +638,10 @@ def test_sg_r5_why_contract(client):
 def test_sg_r6_signed_out_is_401(client):
     assert client.get("/api/suggestions").status_code == 401
     assert client.post("/api/suggestions/refresh", json={}).status_code == 401
+
+
+def test_sg_e18_a_starter_whose_answer_is_none_is_not_suggested(world):
+    assert card(world.run(), "breakouts_daily")["why"] == "3 stocks met the confirmed-breakout rule on 30 Oct 2026."
+    world.market["positional_watchlist"] = Input("positional_watchlist", as_of=TODAY, facts={"count": 0})
+    out = world.run()
+    assert not has_rule(out, "breakouts_daily") and out["notices"]["market"] == []

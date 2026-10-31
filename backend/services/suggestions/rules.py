@@ -37,7 +37,12 @@ def _rupees(v: float) -> str:
 
 
 def source_current(rule: Dict[str, Any], inp: Dict[str, Input]) -> List[Candidate]:
+    """One starter while the source is current. `min_count`: no card when the source's own count is below it (a
+    question whose answer today is "none met the rule" is not suggested)."""
     i = inp[rule["inputs"][0]]
+    need = rule["params"].get("min_count")
+    if need is not None and int(i.facts.get("count") or 0) < int(need):
+        return []
     facts = {"date": day_text(i.as_of), **i.facts}
     return [{"facts": facts, "key": iso_day(i.as_of)}]
 
