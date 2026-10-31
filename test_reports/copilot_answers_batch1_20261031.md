@@ -129,7 +129,6 @@ The leaders match the owner's screenshot (Pharma +7.09%, Healthcare +6.91%, Powe
 - **TrueData** is a shadow feed in dev ("serves nobody"), so Kite is the only live source wired. The reader seam is `readers.py` (`fno_live_quotes`, `live_spots`).
 - **The wide-table layout** (a box of 890 px or more) cannot be reached in the mocked thread column (about 800 px at any window width); it is exercised by forcing the box to 1300 px (FE-10), not seen in a real wide window.
 - **Not deployed.** A merge to dev rebuilds the frontend; the backend needs a process restart (staging-deploy-timing-trap). Disk is 6.9 GB free against the 6 GB a deploy needs.
-- The staging overlay `/tmp/ov_fnoboard` is still inside the backend container (an `rm` of the overlay may be refused by the safety check).
 
 ## Decisions for the owner
 1. **LLM capacity** (found while investigating the runtime error): the staging chat's LLM runs through `/opt/claude-gateway` under the VM's own Claude login, so dev sessions and agents exhaust the same 5-hour limit ("trouble connecting"). A dedicated API key or a separate login for the gateway is needed.
@@ -140,7 +139,7 @@ The leaders match the owner's screenshot (Pharma +7.09%, Healthcare +6.91%, Powe
 Open trades from the broker book with a 5-second refresh, the F&O buildup popup, broker trades in the daily review, "Plan a bearish trade for X" and the graceful LLM-down message, risk-profile capture; and the two plans (Risk Management, Screener/Watchlist).
 
 ## Cleanup
-Containers `docker run --rm`; no leftover test containers. Scratch under the session scratchpad.
+Containers `docker run --rm`; no leftover test containers. The staging overlay `/tmp/ov_fnoboard` was removed from `nivesh-staging-app-backend` (checked: the directory is gone). Scratch under the session scratchpad.
 
 ## Verdict: PASS
 Scope: the backend (306 in the copilot suites; the allowlist has the same 13 failures as origin/dev), the screens against MOCK payloads built by the real builder and against the
