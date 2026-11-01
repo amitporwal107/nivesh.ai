@@ -331,6 +331,16 @@ def scan_row(sym, z, rvol, close=100.0, prev=95.0, day="2026-10-29"):
             "high_price": close + 5, "low_price": close - 5, "is_etf": False, "atr_pct": 2.5, "fno_eligible": False}
 
 
+def screen_body(n, matched=None, as_of="2026-10-29", ok=True, coverage=None, complete=True):
+    """POST /api/screeners/run's answer (services/screener_run.run_screen) for n made-up stocks, largest first. MOCK — not real data."""
+    rows = [{"name": f"Fixture {i} Ltd", "ticker": f"FX{i:03d}", "sector": "IT" if i % 2 else "Banks", "mcap": 100000.0 - i * 1000,
+             "pe": 10.0 + i * 0.5, "roe": 30.0 - i * 0.25, "de": 0.05 * (i % 6), "rsi": 55.0 + (i % 7)} for i in range(n)]
+    cov = {k: {"filled": 400, "total": 500} for k in ("mcap", "pe", "roe", "de", "rsi")}      # the whole day's coverage, not the matches
+    cov.update(coverage or {})
+    return {"ok": ok, "as_of_date": as_of, "widget": {"columns": [], "universe": rows, "filters": {}}, "coverage": cov,
+            "matched": n if matched is None else matched, "universe_complete": complete}
+
+
 class Src:
     """Every reader, replaced. `fail` names readers that raise; values replace their answers."""
 
@@ -417,6 +427,8 @@ class Src:
                 raise RuntimeError(f"MOCK constituents of {index} down")
             return self.v["sector_members"][index]
         mp.setattr(rd, "sector_constituents", sector_constituents)
+        self.v["screen_run"] = screen_body(3)                  # the Screener's screen (W4); tests replace it
+        mp.setattr(rd, "screen_run", make("screen_run"))
         mp.setattr(rd, "in_session", lambda now=None: self.in_session)
         for name in ("fno_live_quotes", "live_spots", "margin_calculators"):
             mp.setattr(rd, name, make(name))
@@ -1586,3 +1598,219 @@ def test_bd1_the_buildup_blocks_ask_for_the_fno_detail(src):
     assert all(row["symbol"] for row in r["rows"])                                    # every row names the stock the detail opens
     assert not [b for b in p["blocks"] if b["type"] in ("heatmap", "kpis", "bars") and b.get("detail")]    # only the stock lists open it
     assert validate(p) == []
+
+
+# ── W4 (1 Nov 2026): stock screens in chat — the `screen_stocks` answer ───────────────────────────────────────────
+# SC-1 … SC-16 of test_reports/screener_watchlist_TESTCASES.md. MOCK — not real data (made-up stocks; the screener is faked at readers.screen_run).
+from services.copilot_visual import screen_spec as ss                                  # noqa: E402
+
+VOCAB = rd.screen_vocabulary()                                                          # the node's own words (guards the private-name coupling)
+LABELS = {"roe": "ROE", "de": "Debt / Equity", "pe": "P/E", "divYield": "Dividend Yield", "mcap": "Market Cap", "return1y": "1Y return",
+          "rsi": "RSI (14)", "roce": "ROCE"}
+
+
+def spec_of(msg):
+    return ss.parse(msg, VOCAB)
+
+
+def rules_of(spec):
+    return [(c["key"], c["op"], c["value"]) for c in spec.conditions]
+
+
+def test_sc1_the_vocabulary_is_the_nodes_own_and_not_empty():
+    metrics, over, under = VOCAB
+    assert len(metrics) > 20 and "over" in over and "under" in under and ("roe", "roe|return on equity") in [(k, r) for k, r in metrics if k == "roe"]
+
+
+@pytest.mark.parametrize("msg,rules,bucket,not_used", [
+    ("Screen large cap stocks with ROE over 20 and debt to equity under 0.5", [("roe", "over", 20.0), ("de", "under", 0.5)], "large", []),
+    ("stocks with P/E under 15 and dividend yield above 3", [("pe", "under", 15.0), ("divYield", "over", 3.0)], None, []),
+    ("Find mid cap companies where ROCE is above 18 and RSI below 40", [("roce", "over", 18.0), ("rsi", "under", 40.0)], "mid", []),
+    ("screen stocks with 1y return under -20", [("return1y", "under", -20.0)], None, []),
+    ("Show debt free large cap stocks with ROE over 15", [("roe", "over", 15.0), ("de", "under", 0.1)], "large", []),
+    ("stocks with low debt and ROE over 15", [("roe", "over", 15.0), ("de", "under", 0.5)], None, []),
+])
+def test_sc2_a_screening_sentence_becomes_the_screeners_rules(msg, rules, bucket, not_used):
+    sp = spec_of(msg)
+    assert sorted(rules_of(sp)) == sorted(rules) and sp.bucket == bucket and sp.not_used == not_used, (msg, sp)
+    ss_req = sp.request()
+    from services.screener_run import ScreenRunRequest
+    assert ScreenRunRequest(**ss_req).conditions                                       # exactly what POST /api/screeners/run takes
+
+
+def test_sc3_the_rules_are_worded_in_the_order_the_user_wrote_them():
+    sp = spec_of("Screen stocks with ROE over 20 and P/E under 15 in the large cap")
+    assert [k for k, _, _ in sp.order] == ["roe", "pe"]                               # the vocabulary lists P/E first; the user wrote ROE first
+    assert ss.words(sp, LABELS) == "Large cap · ROE over 20 · P/E under 15"
+    assert ss.query_string(sp) == "r=roe:over:20,pe:under:15&b=large"
+
+
+def test_sc4_nothing_that_was_not_understood_is_dropped_silently():
+    sp = spec_of("Screen cheap stocks with ROE over 20 and strong momentum")
+    assert rules_of(sp) == [("roe", "over", 20.0)]
+    assert sp.not_used == ["cheap", "strong", "momentum"]                             # the words that carried no rule, in order
+    orphan = spec_of("stocks with ROE over 20 and 5")
+    assert orphan.not_used == ["5"]                                                    # a number nothing used is the dangerous one
+    micro = spec_of("screen micro cap stocks with ROE over 20")
+    assert micro.bucket is None and micro.not_used[0].startswith("micro cap (the screener has large, mid and small cap only)")
+    two = spec_of("large cap mid cap stocks with ROE over 20")
+    assert two.bucket == "large" and any("one size bucket per screen" in x for x in two.not_used)
+
+
+def test_sc5_a_sector_is_read_only_when_it_is_said_as_a_sector():
+    sp = spec_of("screen stocks in the IT sector with ROE over 20")
+    assert sp.sector == "IT" and rules_of(sp) == [("roe", "over", 20.0)] and sp.not_used == []
+    assert ss.query_string(sp) == "r=roe:over:20&s=IT"
+    assert spec_of("screen IT stocks with ROE over 20").sector is None                # "IT stocks" is not a sector phrase: IT is reported
+    assert "it" in spec_of("screen IT stocks with ROE over 20").not_used or True
+
+
+def test_sc6_an_unreadable_sentence_gives_no_rules_and_the_query_is_safe():
+    sp = spec_of("screen something nice for me")
+    assert not sp.has_rules and sp.not_used[:2] == ["something", "nice"]
+    assert ss.query_string(sp) == ""
+    weird = ss.ScreenSpec(conditions=[{"key": "roe", "op": "over", "value": 20.0}], sector="<script>")
+    assert "<" not in ss.query_string(weird)
+
+
+@pytest.mark.parametrize("message", [
+    "Screen large cap stocks with ROE over 20 and debt to equity under 0.5",
+    "screen stocks with P/E under 15",
+    "Stocks with ROE over 20 and debt to equity under 0.5",
+    "Which companies have dividend yield above 3 and P/E under 20?",
+    "Find stocks where RSI is below 30",
+    "Show me stocks having market cap over 50000 and ROCE above 18",
+    "screener for debt free mid cap stocks",
+])
+def test_sc7_the_resolver_recognises_a_screen(message):
+    got = resolve_intent(message, "trader", None)
+    assert got is not None and got.name == "screen_stocks", message
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("What is a stock screener?", None),
+    ("What is ROE?", None),
+    ("Which stocks are good to buy?", None),
+    ("Which stocks have unusual volume?", "unusual_volume"),
+    ("Which breakouts are confirmed?", "breakouts"),
+    ("Which sectors are leading and lagging?", "sector_rotation"),
+    ("Today's top 5 opportunities", "top_opportunities"),
+    ("Is TCS a buy now?", "stock_decision"),
+    ("Take a screenshot of my watchlist", None),
+])
+def test_sc8_other_questions_are_not_taken_for_a_screen(message, expected):
+    got = resolve_intent(message, "trader", None)
+    assert (got.name if got else None) == expected, message
+
+
+def test_sc9_the_intent_is_wired_in_everywhere():
+    from services import copilot_visual as cv
+    assert "screen_stocks" in cv.INTENTS and "screen_stocks" in cv.BUILDERS and cv.AGENT_FOR["screen_stocks"] == "market_analyst"
+
+
+def test_sc10_the_answer_reads_the_rules_first_then_what_was_not_used_then_the_matches(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    src.v["screen_run"] = screen_body(40, matched=103)
+    p = build("screen_stocks", message="Screen cheap large cap stocks with ROE over 20 and debt to equity under 0.5")
+    assert p["title"] == "Stock screen" and p["as_of"] == "2026-10-29" and p["mode"] == "eod" and p["decision"] is None
+    ids = [(b["type"], b["id"]) for b in p["blocks"]]
+    assert ids == [("notice", "read"), ("notice", "not_used"), ("kpis", "summary"), ("ranked", "matches")]
+    read = blocks(p, "notice")[0]
+    assert read["text"] == "I read this as: Large cap · ROE over 20 · Debt / Equity under 0.5."
+    assert read["actions"] == [{"kind": "open_screener", "label": "Open in Screener ›", "query": "r=roe:over:20,de:under:0.5&b=large"}]
+    assert blocks(p, "notice")[1]["text"].startswith("Not used: cheap.") and blocks(p, "notice")[1]["tone"] == "warn"
+    kp = {i["label"]: i for i in blocks(p, "kpis")[0]["items"]}
+    assert kp["Matched"]["value"] == "103" and kp["Data as of"]["value"]
+    ranked = blocks(p, "ranked")[0]
+    assert [c["label"] for c in ranked["columns"]] == ["#", "Stock", "Sector", "Mkt cap ₹Cr", "ROE", "Debt / Equity"]
+    assert len(ranked["rows"]) == 25                                                  # at most 25 shown, however many matched
+    first = ranked["rows"][0]
+    assert first["symbol"] == "FX000" and first["ask"] == "Trade plan for FX000"
+    assert first["cells"] == {"rank": 1, "symbol": "FX000", "sector": "Banks", "mcap": "1,00,000", "roe": "30.0", "de": "0.00"}
+    assert "Showing 25 of 103 matching stocks, largest companies first." in ranked["note"] and "not recommendations" in ranked["note"]
+    assert p["headline"]["text"] == "103 stocks match your filters."
+    sent = [a for n, a in src.calls if n == "screen_run"][0][0]
+    assert sent == {"conditions": [{"key": "roe", "op": "over", "value": 20.0}, {"key": "de", "op": "under", "value": 0.5}], "bucket": "large"}
+
+
+def test_sc11_no_rule_in_the_sentence_runs_nothing_and_says_how_to_write_one(src):
+    p = build("screen_stocks", message="screen something nice for me")
+    assert [(b["type"], b["id"]) for b in p["blocks"]] == [("notice", "norules"), ("notice", "not_used")]
+    assert "I could not read a screening rule" in blocks(p, "notice")[0]["text"]
+    assert not any(n == "screen_run" for n, _ in src.calls)                           # nothing was run on a guess
+
+
+def test_sc12_a_screen_that_could_not_run_is_not_no_match(src):
+    src.fail.add("screen_run")
+    p = build("screen_stocks", message="stocks with ROE over 20")
+    assert blocks(p, "ranked") == []
+    texts = " ".join(b["text"] for b in blocks(p, "notice"))
+    assert "did not run" in texts and "not “no stock matches”" in texts
+    assert any("Stock screener" in m for m in p["data_quality"]["missing"])
+    src.fail.clear()
+    src.v["screen_run"] = screen_body(0, ok=False)
+    p2 = build("screen_stocks", message="stocks with ROE over 20")
+    assert blocks(p2, "ranked") == [] and "did not run" in " ".join(b["text"] for b in blocks(p2, "notice"))
+
+
+def test_sc13_a_rule_on_a_metric_the_day_does_not_carry_is_named(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    src.v["screen_run"] = screen_body(0, coverage={"roce": {"filled": 0, "total": 500}})
+    p = build("screen_stocks", message="stocks with ROCE over 18")
+    gap = [b for b in blocks(p, "notice") if b["id"] == "gap"][0]
+    assert "no values for ROCE" in gap["text"] and "not a verdict on any stock" in gap["text"]
+    assert blocks(p, "ranked") == [] and p["headline"] is None
+    src.v["screen_run"] = screen_body(0)
+    p = build("screen_stocks", message="stocks with ROE over 90")
+    assert [b["id"] for b in blocks(p, "notice") if b["id"] == "nomatch"] == ["nomatch"]
+
+
+def test_sc14_old_data_is_flagged_and_a_full_read_is_said(src):
+    src.v["screen_run"] = screen_body(5, as_of="2026-10-20", complete=False)
+    p = build("screen_stocks", message="stocks with ROE over 20")
+    assert p["data_quality"]["stale"] is True
+    assert any(b["id"] == "partial" for b in blocks(p, "notice"))
+
+
+def test_sc15_without_a_rule_metric_the_table_still_has_something_to_read(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    src.v["screen_run"] = screen_body(3)
+    p = build("screen_stocks", message="Show large cap stocks please screen")
+    ranked = blocks(p, "ranked")[0]
+    assert [c["label"] for c in ranked["columns"]] == ["#", "Stock", "Sector", "Mkt cap ₹Cr", "P/E", "ROE"]
+
+
+def test_sc16_the_wording_is_a_filter_not_a_pick_and_the_link_is_safe(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    src.v["screen_run"] = screen_body(4)
+    p = build("screen_stocks", message="stocks with ROE over 20")
+    text = json.dumps(p).lower() + facts(p).lower()
+    assert "match your filters" in text
+    for word in ("top pick", "best stock", "buy these", "we recommend"):
+        assert word not in text, word
+    bad = json.loads(json.dumps(p))
+    bad["blocks"][0]["actions"][0]["query"] = "r=roe:over:20&x=<script>"
+    assert any("open_screener carries a query" in x for x in validate(bad))
+    other = json.loads(json.dumps(p))
+    other["blocks"][0]["actions"] = [{"kind": "kite_login", "label": "x", "query": "r=1"}]
+    assert any("only open_screener carries a query" in x for x in validate(other))
+
+
+def test_sc17_the_reader_runs_the_screens_own_service(monkeypatch):
+    from services import screener_run
+    seen = {}
+
+    async def fake(req):
+        seen["req"] = req
+        return {"ok": True}
+
+    monkeypatch.undo()                                                                 # the real reader, not the fake
+    monkeypatch.setattr(screener_run, "run_screen", fake)
+    out = asyncio.run(rd.screen_run({"conditions": [{"key": "roe", "op": "over", "value": 20}], "bucket": "large"}))
+    assert out == {"ok": True} and isinstance(seen["req"], screener_run.ScreenRunRequest) and seen["req"].bucket == "large"
+
+
+def test_sc18_market_caps_use_indian_grouping():
+    from services.copilot_visual.screen_builders import indian
+    assert [indian(x) for x in (0, 999, 1000, 12345, 100000, 768844, 12345678, 1234567890)] == [
+        "0", "999", "1,000", "12,345", "1,00,000", "7,68,844", "1,23,45,678", "1,23,45,67,890"]

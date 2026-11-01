@@ -142,11 +142,14 @@ export const briefsBlock = z.object({
   })).min(1),
 });
 
-export const NOTICE_ACTIONS = ["kite_login", "connect_broker", "set_risk_profile", "open_market_intel"] as const;
+export const NOTICE_ACTIONS = ["kite_login", "connect_broker", "set_risk_profile", "open_market_intel", "open_screener"] as const;
+/** `open_screener`'s rules as the Screener page reads them from its address ("r=roe:over:20,de:under:0.5&b=large&s=IT"). Mirrors payload.SCREENER_QUERY:
+ *  a value that does not match is dropped (the action then opens the Screener empty), so a forged payload cannot put anything else in the address. */
+export const SCREENER_QUERY = /^[A-Za-z0-9:,._=&~-]{0,400}$/;
 export const noticeBlock = z.object({
   ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str,
-  /** What the reader can do about it: log in to Kite (admins), connect a broker, set up a risk profile, open Market Intelligence. */
-  actions: z.array(z.object({ kind: z.enum(NOTICE_ACTIONS), label: str })).optional().catch(undefined),
+  /** What the reader can do about it: log in to Kite (admins), connect a broker, set up a risk profile, open Market Intelligence, open the Screener with the rules that were run. */
+  actions: z.array(z.object({ kind: z.enum(NOTICE_ACTIONS), label: str, query: z.string().regex(SCREENER_QUERY).optional().catch(undefined) })).optional().catch(undefined),
 });
 
 const BLOCKS = {

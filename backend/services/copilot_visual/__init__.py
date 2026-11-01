@@ -23,6 +23,9 @@ Which node explains each answer (the pin):
                                               of the filings, never advice); the Filings analyst answered "I have no results calendar".
     daily_review                              market_analyst — the account's own record of closed trades and risk
                                               checks; it explains the figures it is handed and gives no advice.
+    screen_stocks                             market_analyst — it explains the matches it is handed ("stocks that match your
+                                              filters", never picks); the recommendation node would run its own, different
+                                              screen beside it.
 
 stock_decision builds the desk's plan ONCE (services/copilot_trade_idea.build, which stores its TradePlans as the
 trade-idea pre-step always has). The dashboard carries the plan as a `trade_plan` block, so the separate trade_plan card
@@ -57,7 +60,7 @@ AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "
              "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
              "daily_review": "market_analyst", "sector_rotation": "market_analyst",
              "results_calendar": "market_analyst", "event_intelligence": "market_analyst",
-             "portfolio_hedge": "portfolio_analyst"}
+             "portfolio_hedge": "portfolio_analyst", "screen_stocks": "market_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 

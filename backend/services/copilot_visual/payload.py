@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime, timedelta, timezone
+import re
 from typing import Any, Dict, Iterable, List, Optional
 
 from . import links as _links
@@ -24,7 +25,9 @@ CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
 COMMENTARY_TONES = ("up", "down", "warn", "neutral")          # 🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational
-NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile", "open_market_intel")
+NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile", "open_market_intel", "open_screener")
+# `open_screener` carries the rules as the Screener page reads them from its address ("r=roe:over:20&b=large"): only these characters.
+SCREENER_QUERY = re.compile(r"^[A-Za-z0-9:,._=&~-]{0,400}$")
 
 
 # ── numbers and formats ──────────────────────────────────────────────────────
@@ -352,6 +355,9 @@ def _block_problems(b: Any, i: int) -> List[str]:
         if acts is not None and not (isinstance(acts, list) and all(
                 isinstance(a, dict) and a.get("kind") in NOTICE_ACTIONS and isinstance(a.get("label"), str) for a in acts)):
             out.append(f"{p} notice: each action needs a known kind ({', '.join(NOTICE_ACTIONS)}) and a label")
+        elif any(a.get("query") is not None and not (a.get("kind") == "open_screener" and isinstance(a["query"], str)
+                                                     and SCREENER_QUERY.match(a["query"])) for a in acts or []):
+            out.append(f"{p} notice: only open_screener carries a query, of letters, digits and : , . _ = & ~ - only")
     else:
         out.append(f"{p}: unknown block type {t}")
     return out
@@ -367,7 +373,7 @@ def validate(p: Any) -> List[str]:
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
             "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation",
-            "results_calendar", "event_intelligence", "portfolio_hedge"):
+            "results_calendar", "event_intelligence", "portfolio_hedge", "screen_stocks"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")

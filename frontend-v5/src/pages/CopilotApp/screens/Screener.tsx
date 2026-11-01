@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { StockHit } from "@/hooks/use-instrument-search";
 import { SCREEN_TEMPLATES, type BuilderCondition, type ScreenTemplate } from "@/components/chat/screenerPrimitives";
 import { SafeWidget } from "@/components/shared/SafeWidget";
@@ -43,6 +44,30 @@ function newRule(key = "roe", value = ""): BuilderCondition {
 
 function asBucket(b: string | undefined): Bucket {
   return b === "large" || b === "mid" || b === "small" ? b : "";
+}
+
+/**
+ * The rules the Copilot's "Open in Screener" puts in the address: `r=roe:over:20,de:under:0.5&b=large&s=IT`
+ * (services/copilot_visual/screen_spec.query_string writes it). `known` are the rules this page can load; `complete` is false when
+ * any rule was not one of them or not well-formed, so the page does not run a screen that differs from the one the Copilot described.
+ */
+export function rulesFromAddress(params: URLSearchParams): { rules: { key: string; op: "over" | "under"; value: string }[]; bucket: Bucket; sector: string; complete: boolean } | null {
+  const r = params.get("r");
+  const b = params.get("b");
+  const s = params.get("s");
+  if (!r && !b && !s) return null;
+  const rules: { key: string; op: "over" | "under"; value: string }[] = [];
+  let complete = true;
+  for (const part of (r ?? "").split(",").filter(Boolean).slice(0, 50)) {
+    const [key, op, value] = part.split(":");
+    if (key && PAGE_BY_KEY[key] && !PAGE_BY_KEY[key].bucket && (op === "over" || op === "under") && value !== undefined && Number.isFinite(Number(value))) {
+      rules.push({ key, op, value });
+    } else {
+      complete = false;
+    }
+  }
+  const sector = (s ?? "").replace(/_/g, " ").slice(0, 30);
+  return { rules, bucket: asBucket(b ?? ""), sector, complete };
 }
 
 /** The rules that have a number, in the shape /api/screeners/run takes. Null when there is nothing to run. */
@@ -326,6 +351,31 @@ export default function ScreenerScreen() {
   const updateScreen = useUpdateScreener();
   const deleteScreen = useDeleteScreener();
   const run = useScreenRun(ran?.request ?? null, ran?.seq ?? 0);
+
+  // "Open in Screener" from a Copilot answer: the rules arrive in the address. Fill them in and run them once, then take them out of the
+  // address so a refresh or the back button does not run them again. If any rule could not be loaded the screen is NOT run.
+  const [params, setParams] = useSearchParams();
+  const preloaded = useRef(false);
+  useEffect(() => {
+    if (preloaded.current) return;
+    const got = rulesFromAddress(params);
+    if (!got) return;
+    preloaded.current = true;
+    setRules(got.rules.length ? got.rules.map((c) => ({ ...newRule(c.key, c.value), op: c.op })) : [newRule()]);
+    setBucket(got.bucket);
+    setPreset(null);
+    const base = toRunRequest(got.rules, got.bucket);
+    if (got.complete && base) {
+      const request = got.sector ? { ...base, sector: got.sector } : base;
+      runScreen("", request, `${requestInWords(request)}${got.sector ? ` · sector contains “${got.sector}”` : ""}`);
+    }
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const k of ["r", "b", "s"]) next.delete(k);
+      return next;
+    }, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, []);
 
   const query = screenInWords(rules, bucket || undefined);
   const canRun = query.length > 0;
