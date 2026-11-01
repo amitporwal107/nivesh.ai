@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ def build_portfolio(holdings: Sequence[Dict[str, Any]], stock_prims: Dict[str, D
     beta = sum(x["beta"] * x["value_rs"] for x in covered) / cov_value if cov_value > 0 and coverage >= BETA_MIN_COVERAGE else None
     reasons: List[Dict[str, str]] = []
     if hv <= 0:
-        reasons.append({"code": "missing_portfolio", "message": "There are no equity-linked holdings to hedge."})
+        reasons.append({"code": "missing_portfolio", "message": "There are no equity-linked holdings to hedge. Connect a broker or upload a CAS statement so the hedge can see your holdings."})
     elif beta is None:
         reasons.append({"code": "beta_coverage_low", "message":
                         f"Beta is known for only {coverage:.0%} of your equity-linked value (at least {BETA_MIN_COVERAGE:.0%} is needed), so no hedge is sized."})
@@ -199,11 +199,72 @@ def fit_to_nifty(series: Dict[str, Sequence[Tuple[str, float]]], weights: Dict[s
 
 
 # ── readers (I/O) ───────────────────────────────────────────────────────────────────────────────────────────────
+SOURCE_LABELS = {"cas": "CAS statement", "cas_upload": "CAS statement", "broker_native": "Connected broker", "broker": "Connected broker",
+                 "manual": "Added by hand", "excel": "File import", "csv": "File import"}
+BROKER_LABELS = {"zerodha": "Zerodha", "icicidirect": "ICICI Direct", "motilal": "Motilal Oswal", "angelone": "Angel One", "groww": "Groww",
+                 "upstox": "Upstox", "fyers": "Fyers", "dhan": "Dhan", "fenix": "Fenix"}
+CAS_OLD_DAYS = 35                      # a monthly statement older than this has probably missed a month of trades
+_DATE_FORMATS = ("%d-%b-%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d %b %Y")
+
+
+def _parse_day(v: Any) -> Optional[date]:
+    s = str(v or "").strip()[:20]
+    for f in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, f).date()
+        except ValueError:
+            continue
+    return None
+
+
+def summarise_sources(holdings: Sequence[Dict[str, Any]], profile: Optional[Dict[str, Any]], accounts: Sequence[Dict[str, Any]],
+                      today: Optional[date] = None) -> Dict[str, Any]:
+    """Pure: where the holdings came from and how current each source is. Counts and dates only, never a holding's name or value.
+    `profile` carries only the CAS statement date and period; `accounts` only the broker key and its session status."""
+    today = today or date.today()
+    by: Dict[str, Dict[str, Any]] = {}
+    for h in holdings:
+        key = str(h.get("source") or "unknown")
+        row = by.setdefault(key, {"source": key, "label": SOURCE_LABELS.get(key, "Other source"), "rows": 0, "last_updated": None})
+        row["rows"] += 1
+        stamp = str(h.get("uploaded_at") or h.get("created_at") or "")[:10]
+        if stamp and (row["last_updated"] is None or stamp > row["last_updated"]):
+            row["last_updated"] = stamp
+    raw = str((profile or {}).get("cas_statement_date") or "").strip() or None
+    parsed = _parse_day(raw)
+    cas = None
+    if raw or (profile or {}).get("cas_statement_period"):
+        age = (today - parsed).days if parsed else None
+        cas = {"statement_date": raw, "statement_date_iso": parsed.isoformat() if parsed else None,
+               "period": (profile or {}).get("cas_statement_period"), "age_days": age,
+               "older_than_a_month": age is not None and age > CAS_OLD_DAYS}
+    brokers = []
+    for a in accounts:
+        k = str(a.get("broker") or "").strip().lower()
+        st = str(a.get("status") or "").strip().lower()
+        brokers.append({"broker": k, "label": BROKER_LABELS.get(k) or (k.title() if k else "Your broker"),
+                        "state": "active" if st == "active" else "ended" if st == "expired" else "other"})
+    needs = (not by) or any(b["state"] == "ended" for b in brokers) or bool(cas and cas["older_than_a_month"])
+    return {"holdings": sorted(by.values(), key=lambda r: -r["rows"]), "cas": cas, "brokers": brokers, "needs_attention": needs}
+
+
+async def load_sources(db, user_id: str, holdings: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The sources summary, or None when it cannot be read (the hedge itself does not depend on it). The profile read asks for the
+    two statement fields ONLY: the same document holds the CAS PDF password, which is never read here."""
+    try:
+        prof = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0, "cas_statement_date": 1, "cas_statement_period": 1})
+        accts = await db.broker_accounts.find({"user_id": user_id}, {"_id": 0, "broker": 1, "status": 1}).to_list(20)
+        return summarise_sources(holdings, prof, accts)
+    except Exception as e:  # noqa: BLE001 — a missing summary never stops the hedge
+        logger.warning("quick_hedge: holdings sources unreadable (%s)", type(e).__name__)
+        return None
+
+
 async def load_portfolio(db, user_id: str) -> Dict[str, Any]:
     from services.copilot_tools import daas_client as daas
     holdings = await db.holdings.find({"user_id": user_id}, {"_id": 0, "name": 1, "ticker": 1, "isin": 1, "nse_symbol": 1,
                                                               "symbol": 1, "asset_type": 1, "quantity": 1, "current_price": 1,
-                                                              "uploaded_at": 1, "created_at": 1}).to_list(2000)
+                                                              "uploaded_at": 1, "created_at": 1, "source": 1}).to_list(2000)
     if not holdings:
         from services.pi_bridge import pi_holdings_for_user
         holdings = await pi_holdings_for_user(user_id)
@@ -212,7 +273,9 @@ async def load_portfolio(db, user_id: str) -> Dict[str, Any]:
     stock_prims, mf_prims = await asyncio.gather(
         daas.get_v3_stock_primitives_bulk(syms) if syms else _empty(),
         daas.get_v3_mf_primitives_bulk(isins) if isins else _empty())
-    return build_portfolio(holdings, stock_prims or {}, mf_prims or {})
+    out = build_portfolio(holdings, stock_prims or {}, mf_prims or {})
+    out["sources"] = await load_sources(db, user_id, holdings)
+    return out
 
 
 async def _empty() -> Dict[str, Any]:

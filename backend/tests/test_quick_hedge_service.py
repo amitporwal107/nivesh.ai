@@ -103,3 +103,18 @@ def test_small_portfolio_gets_the_too_small_message_with_its_data_block():
     res = _run(Fake(pf=pf))
     assert res["status"] == "not_hedgeable" and res["reasons"][0]["code"] == "smaller_than_one_lot"
     assert res["data"]["portfolio"]["hedgeable_value_rs"] == 1_000_000.0
+
+
+def test_the_sources_summary_is_passed_through_to_the_answer():
+    info = {"holdings": [{"source": "cas", "label": "CAS statement", "rows": 3, "last_updated": "2026-11-01"}], "cas": None, "brokers": [], "needs_attention": True}
+    res = _run(Fake(pf=_pf(sources=info)))
+    assert res["data"]["portfolio"]["sources"] == info
+
+
+def test_no_holdings_says_how_to_bring_them_in():
+    pf = _pf(hedgeable_value_rs=0.0, portfolio_value_rs=0.0, beta=None, holdings=[],
+             reasons=[{"code": "missing_portfolio", "message": "There are no equity-linked holdings to hedge. Connect a broker or upload a CAS statement so the hedge can see your holdings."}])
+    res = _run(Fake(pf=pf))
+    assert res["status"] == "incomplete" and res["reasons"][0]["code"] == "missing_portfolio" and "Connect a broker" in res["reasons"][0]["message"]
+    from services.quick_hedge import inputs
+    assert "Connect a broker or upload a CAS" in inputs.build_portfolio([], {}, {})["reasons"][0]["message"]

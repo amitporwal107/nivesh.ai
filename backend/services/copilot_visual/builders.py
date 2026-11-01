@@ -1574,6 +1574,39 @@ def _hedge_row(mode: Dict[str, Any], lot: int, fall_pct: float) -> Dict[str, Any
             "tone": None}
 
 
+def _hedge_sources_notice(info: Any) -> Optional[Dict[str, Any]]:
+    """One notice saying where the holdings come from (services/quick_hedge/inputs.summarise_sources) and, when a source looks stale,
+    the action that opens Broker connections (which also takes a CAS upload). Counts and dates only; never a holding."""
+    if not isinstance(info, dict) or not info.get("holdings"):
+        return None
+    cas = info.get("cas") or {}
+    parts: List[str] = []
+    for h in info["holdings"]:
+        if h.get("source") in ("cas", "cas_upload"):
+            when = day_text(cas.get("statement_date_iso")) or cas.get("statement_date")
+            parts.append(f"your CAS statement{f' dated {when}' if when else ''} ({h['rows']} lines)")
+        else:
+            upd = day_text(iso_day(h.get("last_updated")))
+            parts.append(f"{str(h.get('label') or 'another source').lower()} ({h['rows']} lines{f', last updated {upd}' if upd else ''})")
+    text = "Your holdings here come from " + " and ".join(parts) + "."
+    actions: List[Dict[str, str]] = []
+    ended = [b for b in info.get("brokers") or [] if b.get("state") == "ended"]
+    for b in ended[:2]:
+        actions.append({"kind": "connect_broker", "label": f"Sign in to {b['label']} again"})
+    if ended:
+        text += f" Your {' and '.join(b['label'] for b in ended)} session{'s have' if len(ended) > 1 else ' has'} ended, so broker holdings may be out of date."
+    if cas.get("older_than_a_month"):
+        text += f" The statement is {cas['age_days']} days old, so recent trades may be missing."
+        actions.append({"kind": "connect_broker", "label": "Connect a broker or update your CAS"})
+    if not (info.get("brokers") or []):
+        text += " No broker is connected: connecting one keeps these holdings current."
+        actions.append({"kind": "connect_broker", "label": "Connect a broker"})
+    n = notice(text, "warn" if info.get("needs_attention") else "info", "holdings-source")
+    if actions:
+        n["actions"] = actions[:3]
+    return n
+
+
 async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     """"Protect my portfolio": the Quick Hedge answer (services/quick_hedge). Every figure comes from that service; the
     wording only describes it. What the question did not state (the fall feared, the loss tolerated, the period) is filled
@@ -1656,6 +1689,19 @@ async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
                                                  "hedge": rupees(r["hedge_pnl_rs"]), "with": rupees(r["with_hedge_rs"])}} for r in mode["scenario_rows"]]))
             head = (f"{label}: {_hedge_structure(mode, lot).lower()} for about {price(mode['cost']['total_rs'])} "
                     f"({mode['cost']['pct_of_portfolio']:.2f}% of your portfolio). Protection starts after a {price(mode['deductible_rs'])} loss.")
+            fear = next((r for r in mode["scenario_rows"] if r.get("is_expected_fall")), None)
+            if fear and num(fear.get("without_hedge_rs")) is not None:
+                loss = abs(num(fear["without_hedge_rs"]) or 0.0)
+                total = num(port.get("portfolio_value_rs")) or 0.0
+                share = f" ({loss / total * 100:.1f}% of your whole portfolio)" if total > 0 else ""
+                blocks.insert(0, block("kpis", "impact", f"If Nifty falls {fall:g}%",
+                                       f"An estimate: your equity-linked holdings are assumed to move with Nifty by their beta ({(num(port.get('beta')) or 0):.2f}). "
+                                       "Hybrid, gold, overseas and debt holdings are not in these figures.",
+                                       items=[_kpi("Without a hedge", rupees(fear["without_hedge_rs"]), f"your equity-linked holdings{share}", "warn"),
+                                              _kpi(f"With the {label} hedge", rupees(fear["with_hedge_rs"]), "after the premium and estimated charges"),
+                                              _kpi("The hedge changes it by", rupees(fear["hedge_pnl_rs"]), f"it costs about {price(mode['cost']['total_rs'])} up front")]))
+                head = (f"If Nifty falls {fall:g}%, your equity-linked holdings would lose about {price(loss)}{share}. "
+                        f"With the {label} hedge it would be about {price(abs(num(fear['with_hedge_rs']) or 0.0))}. ") + head
             for n in mode.get("notes") or []:
                 blocks.append(notice(n["message"], "warn", f"note-{n['code']}"))
             if not mode.get("place_allowed"):
@@ -1671,7 +1717,10 @@ async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
         head = reasons[0]["message"] if reasons else "No hedge is shown."
         tone = "warn" if status == "incomplete" else "neutral"
         for r in reasons:
-            blocks.append(notice(r["message"], "warn" if status == "incomplete" else "info", f"reason-{r['code']}"))
+            n_ = notice(r["message"], "warn" if status == "incomplete" else "info", f"reason-{r['code']}")
+            if r.get("code") == "missing_portfolio":
+                n_["actions"] = [{"kind": "connect_broker", "label": "Connect a broker or upload a CAS"}]
+            blocks.append(n_)
     if status == "ok" and left_out > 0:
         blocks.append(notice(f"{price(left_out)} of your holdings are not covered by a Nifty hedge (hybrid, gold, overseas, debt or unclassified).", "info", "excluded"))
     if assumed:
@@ -1679,6 +1728,9 @@ async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
     for r in reasons:
         if status == "ok" and r.get("message"):
             blocks.append(notice(r["message"], "warn", f"reason-{r['code']}"))
+    src_notice = _hedge_sources_notice(port.get("sources"))
+    if src_notice:
+        blocks.append(src_notice)
     blocks.append(notice("Paper only: nothing is sent to a broker. To place a paper hedge, open Risk Desk, then Portfolio hedge. "
                          "A hedge reduces the size of a possible loss; it does not eliminate it, and the premium is a cost whether or not it pays.", "info", "paper-only"))
     return assemble("portfolio_hedge", "Protect your portfolio", mk.get("as_of"), head, tone, blocks, src, follow_ups, now=ctx.get("now"))
