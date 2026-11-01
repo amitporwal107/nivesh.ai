@@ -1,0 +1,618 @@
+{
+ "about": "MOCK — not real data. The three event answers built by the real builders (services/copilot_visual/events_builders.py) over the unit tests' invented inputs (tests/test_copilot_events.py): the results calendar of a week, the orders feed, and one stock's results file.",
+ "payloads": {
+  "calendar": {
+   "schema": "visual-answer-v1",
+   "intent": "results_calendar",
+   "title": "Results calendar · 26–31 Oct 2026",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T20:00:00+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "15 companies report in 26–31 Oct 2026: 12 declared (3 with an AI summary), 1 awaiting figures, 2 still to report.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "counts",
+     "title": "Results in this window",
+     "note": null,
+     "items": [
+      {
+       "label": "Companies",
+       "value": "15",
+       "sub": "26–31 Oct 2026"
+      },
+      {
+       "label": "Declared",
+       "value": "12",
+       "sub": "3 with an AI summary, 9 not analysed yet"
+      },
+      {
+       "label": "Figures awaited",
+       "value": "1",
+       "sub": "meeting held, results not loaded yet"
+      },
+      {
+       "label": "Still to report",
+       "value": "2"
+      },
+      {
+       "label": "F&O names",
+       "value": "4"
+      },
+      {
+       "label": "Above · in line · below",
+       "value": "1 · 1 · 1",
+       "sub": "9 not rated · against each company's own past quarters, not analyst consensus"
+      }
+     ]
+    },
+    {
+     "type": "briefs",
+     "id": "declared",
+     "title": "Declared results · AI summary, management commentary, source filings",
+     "note": "Showing 8 of 12 declared results: the ones with an AI summary first, F&O names first within them. The badge compares a result with the company's own past quarters (no analyst consensus is held), so nothing here is a beat or a miss. Summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "items": [
+      {
+       "title": "Reli Limited",
+       "symbol": "RELI",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Above historical trend",
+       "tone": "up",
+       "body": "RELI stored summary.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Investor presentation · 28 Oct: Investor deck: refining margins firmed.",
+         "tone": "neutral"
+        },
+        {
+         "text": "GRM up",
+         "tone": "up"
+        },
+        {
+         "text": "Capex heavy",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Guidance on O2C?",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/RELI_outcome.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/RELI_pres.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for RELI?"
+      },
+      {
+       "title": "Alpha Limited",
+       "symbol": "ALPHA",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "badge": "Well below historical trend",
+       "tone": "down",
+       "body": "ALPHA stored summary.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for ALPHA?"
+      },
+      {
+       "title": "Beta Limited",
+       "symbol": "BETA",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "badge": "Filing read: neutral mixed",
+       "tone": "neutral",
+       "body": "BETA stored summary.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: neutral mixed. Not a recommendation.",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for BETA?"
+      },
+      {
+       "title": "Fnoa Limited",
+       "symbol": "FNOA",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "In line with historical trend",
+       "tone": "neutral",
+       "body": null,
+       "body_note": "Not analysed yet",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for FNOA?"
+      },
+      {
+       "title": "Fnob Limited",
+       "symbol": "FNOB",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": null,
+       "body_note": "Not analysed yet",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for FNOB?"
+      },
+      {
+       "title": "Plain3 Limited",
+       "symbol": "PLAIN3",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": null,
+       "body_note": "Not analysed yet",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for PLAIN3?"
+      },
+      {
+       "title": "Plain2 Limited",
+       "symbol": "PLAIN2",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": null,
+       "body_note": "Not analysed yet",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for PLAIN2?"
+      },
+      {
+       "title": "Plain6 Limited",
+       "symbol": "PLAIN6",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": null,
+       "body_note": "Not analysed yet",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for PLAIN6?"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "due",
+     "title": "Still to report",
+     "note": "F&O names first, then by date. Select Ask for a company's latest results.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Symbol",
+       "format": "text"
+      },
+      {
+       "key": "name",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "date",
+       "label": "Date",
+       "format": "text"
+      },
+      {
+       "key": "status",
+       "label": "Status",
+       "format": "text"
+      },
+      {
+       "key": "fno",
+       "label": "F&O",
+       "format": "text"
+      },
+      {
+       "key": "sector",
+       "label": "Sector",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "DUE1",
+       "ask": "How were DUE1 results?",
+       "cells": {
+        "symbol": "DUE1",
+        "name": "Due1 Limited",
+        "date": "31 Oct",
+        "status": "Due",
+        "fno": "F&O",
+        "sector": "Financial Services"
+       }
+      },
+      {
+       "symbol": "HELD1",
+       "ask": "How were HELD1 results?",
+       "cells": {
+        "symbol": "HELD1",
+        "name": "Held1 Limited",
+        "date": "30 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Capital Goods"
+       }
+      },
+      {
+       "symbol": "DUE2",
+       "ask": "How were DUE2 results?",
+       "cells": {
+        "symbol": "DUE2",
+        "name": "Due2 Limited",
+        "date": "31 Oct",
+        "status": "Due",
+        "fno": "—",
+        "sector": "Capital Goods"
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Showing 8 of 12 declared results and all 3 still to report. The full calendar, with every company's score and the market's reaction, is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Results calendar (NSE board-meeting dates, DaaS events calendar)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Companies' exchange filings (DaaS announcements)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": "8 of 8 companies read"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which F&O stocks report results tomorrow?",
+     "query": "Which F&O stocks report results tomorrow?"
+    },
+    {
+     "label": "Which companies report results next week?",
+     "query": "Which companies report results next week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+  },
+  "orders": {
+   "schema": "visual-answer-v1",
+   "intent": "event_intelligence",
+   "title": "Order wins · last 7 days",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T20:00:00+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Order filings in the last 7 days: 74. 6 of the 7 shown have an AI summary.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "briefs",
+     "id": "events",
+     "title": "Order wins",
+     "note": null,
+     "items": [
+      {
+       "title": "Gaya Limited",
+       "symbol": "GAYA",
+       "sub": "29 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Gayatri won a Rs 342 crore contract.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/GAYA_1.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for GAYA?"
+      },
+      {
+       "title": "Nourl Limited",
+       "symbol": "NOURL",
+       "sub": "29 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "No attachment here.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [],
+       "ask": "Any recent announcements for NOURL?"
+      },
+      {
+       "title": "X0 Limited",
+       "symbol": "X0",
+       "sub": "29 Oct 2026 · NSE · Updates",
+       "badge": "Positive · medium impact",
+       "tone": "up",
+       "body": "X0 summary.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/X0_10.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for X0?"
+      },
+      {
+       "title": "X1 Limited",
+       "symbol": "X1",
+       "sub": "29 Oct 2026 · NSE · Updates",
+       "badge": "Positive · medium impact",
+       "tone": "up",
+       "body": "X1 summary.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/X1_11.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for X1?"
+      },
+      {
+       "title": "Atla Limited",
+       "symbol": "ATLA",
+       "sub": "28 Oct 2026 · NSE · Updates",
+       "badge": "Negative · medium impact",
+       "tone": "down",
+       "body": "MSRDC re-invited bids. · Assessed as routine (importance 50/100)",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ATLA_3.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ATLA?"
+      },
+      {
+       "title": "Zed Limited",
+       "symbol": "ZED",
+       "sub": "30 Oct 2026 · NSE · Updates",
+       "badge": "Neutral · low impact",
+       "tone": "neutral",
+       "body": "Zed won an order.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ZED_4.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ZED?"
+      },
+      {
+       "title": "Waar Limited",
+       "symbol": "WAAR",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": null,
+       "tone": null,
+       "body": null,
+       "body_note": "Not analysed yet",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/WAAR_2.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for WAAR?"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Showing 7 of 74 order filings from the last 7 days: the ones with an AI summary first, then by impact, then newest. 6 shown have an AI summary; the rest are not analysed yet. Tone and impact are an AI classifier's reading of each filing, not a view on the stock. Every filing is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Exchange filings feed (NSE, AI-read by Nivesh)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which companies report results this week?",
+     "query": "Which companies report results this week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    },
+    {
+     "label": "Which stocks saw bulk deals today?",
+     "query": "Which stocks saw bulk deals today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+  },
+  "tcs": {
+   "schema": "visual-answer-v1",
+   "intent": "event_intelligence",
+   "title": "Tata Consultancy Services Limited · results",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T20:00:00+05:30",
+   "mode": "eod",
+   "headline": null,
+   "decision": null,
+   "blocks": [
+    {
+     "type": "briefs",
+     "id": "events",
+     "title": "Tata Consultancy Services Limited · latest results",
+     "note": "The badge compares the result with the company's own past quarters where the desk has rated it (no analyst consensus is held, so nothing here is a beat or a miss); otherwise it is an AI classifier's reading of the filing. Summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "items": [
+      {
+       "title": "Tata Consultancy Services Limited",
+       "symbol": "TCS",
+       "sub": "Result filed 9 Oct 2026 · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "In line with historical trend",
+       "tone": "neutral",
+       "body": "TCS stored result summary.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [
+        {
+         "text": "Investor presentation · 9 Oct: TCS deck says deal wins were strong.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Deal wins",
+         "tone": "up"
+        },
+        {
+         "text": "Updates · 10 Oct: TCS filed its call transcript.",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/TCS_outcome.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/TCS_deck.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call transcript (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/TCS_transcript.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any order wins for TCS?"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "The company's full results file, with the price reaction and open interest, is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Exchange filings feed (NSE, AI-read by Nivesh)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Companies' exchange filings (DaaS announcements)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which companies report results this week?",
+     "query": "Which companies report results this week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    },
+    {
+     "label": "Which stocks saw bulk deals today?",
+     "query": "Which stocks saw bulk deals today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+  }
+ }
+}

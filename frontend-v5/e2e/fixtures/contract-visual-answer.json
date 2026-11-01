@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up).",
+ "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up). Added 31 Oct 2026 (16 of 16 intents): results_calendar (the week of 26-31 Oct, built over the desk's results calendar and the stored filing analyses) and event_intelligence (the Orders chip of the Market Intelligence filings feed), captured the same way, read-only, from nivesh-staging-app-backend.",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
@@ -7211,6 +7211,1001 @@
     }
    ],
    "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "results_calendar": {
+   "schema": "visual-answer-v1",
+   "intent": "results_calendar",
+   "title": "Results calendar · 26–31 Oct 2026",
+   "as_of": "2026-10-31",
+   "generated_at": "2026-10-31T22:01:49+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "524 companies report in 26–31 Oct 2026: 494 declared (113 with an AI summary), 24 awaiting figures, 6 still to report.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "counts",
+     "title": "Results in this window",
+     "note": null,
+     "items": [
+      {
+       "label": "Companies",
+       "value": "524",
+       "sub": "26–31 Oct 2026"
+      },
+      {
+       "label": "Declared",
+       "value": "494",
+       "sub": "113 with an AI summary, 381 not analysed yet"
+      },
+      {
+       "label": "Figures awaited",
+       "value": "24",
+       "sub": "meeting held, results not loaded yet"
+      },
+      {
+       "label": "Still to report",
+       "value": "6"
+      },
+      {
+       "label": "F&O names",
+       "value": "74"
+      },
+      {
+       "label": "Above · in line · below",
+       "value": "9 · 137 · 16",
+       "sub": "332 not rated · against each company's own past quarters, not analyst consensus"
+      }
+     ]
+    },
+    {
+     "type": "briefs",
+     "id": "declared",
+     "title": "Declared results · AI summary, management commentary, source filings",
+     "note": "Showing 8 of 494 declared results: the ones with an AI summary first, F&O names first within them. The badge compares a result with the company's own past quarters (no analyst consensus is held), so nothing here is a beat or a miss. Summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "items": [
+      {
+       "title": "Vedanta Limited",
+       "symbol": "VEDL",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "In line with historical trend",
+       "tone": "neutral",
+       "body": "Vedanta reported record Q2 FY27 revenue of ₹25,812 crore, EBITDA of ₹9,938 crore (up 106% YoY) and PAT of ₹6,202 crore (up 151% YoY). Net debt fell by ₹4,624 crore to ₹3,675 crore (ND/EBITDA 0.1x), and a first interim dividend of ₹5 per share was declared.",
+       "body_note": "AI summary of the results filing, analysed 28 Oct 2026, filing read: strongly positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 28 Oct: Vedanta reported record Q2 FY27 revenue of ₹25,812 crore, EBITDA of ₹9,938 crore (up 106% YoY) and PAT of ₹6,202 crore (up 151% YoY). Net debt fell by ₹4,624 crore to ₹3,675 crore (ND/EBITDA 0.1x), and a first interim dividend of ₹5 per share was declared.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Record quarterly EBITDA and PAT, with EBITDA margin (ex-copper) at 60%, up 1055 bps YoY",
+         "tone": "up"
+        },
+        {
+         "text": "Net debt cut to ₹3,675 crore, ND/EBITDA 0.1x; cash ₹26,622 crore; AA+/Stable reaffirmed",
+         "tone": "up"
+        },
+        {
+         "text": "Growth was supported by higher commodity prices and favourable forex, which may not persist",
+         "tone": "down"
+        },
+        {
+         "text": "Copper International sales down 74% YoY, hit by Strait of Hormuz closure",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Total dividend payout amount and record date for the ₹5 interim dividend",
+         "tone": "neutral"
+        },
+        {
+         "text": "Investor presentation · 28 Oct: Vedanta reported record Q2 FY27 revenue of ₹25,812 crore, EBITDA of ₹9,938 crore (up 106% YoY) and PAT of ₹6,202 crore (up 151% YoY). Net debt fell by ₹4,624 crore to ₹3,675 crore (ND/EBITDA 0.1x), and a first interim dividend of ₹5 per share was declared.",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/VEDL_28102026140745_VEDLSEIntimationOutcomeOfBM28October2026FinancialResultssigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/VEDL_28102026141425_2VEDLSEIntimationOutcomeOfBMPressReleaseAndIRPPTfinalsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/VEDL_28102026141343_2VEDLSEIntimationOutcomeOfBMPressReleaseAndIRPPTfinalsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/VEDL_29102026173812_VEDLSEIntimationTranscriptofConferenceCallfinal.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for VEDL?"
+      },
+      {
+       "title": "Laurus Labs Limited",
+       "symbol": "LAURUSLABS",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Filing read: strongly positive",
+       "tone": "up",
+       "body": "Laurus Labs' Q2 FY27 consolidated revenue rose to Rs 2,206.37 crore from Rs 1,653.47 crore a year earlier, and net profit after tax and associates rose to Rs 436.19 crore from Rs 194.49 crore. The board declared an interim dividend of Re 1.00 per share (record date November 6, 2026) and appointed a Joint Company Secretary.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: strongly positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 29 Oct: Laurus Labs reported Q2 FY27 revenue of ₹2,206 cr (+33%), EBITDA of ₹762 cr (+78%) and net profit of ₹441 cr (+126%); H1 revenue was ₹4,233 cr with EBITDA margin 33.2%. It also signed agreements to buy 60% of Galenvs Science and 52% of SI &C Resins, and declared an interim dividend of ₹1.00 per share.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Q2 revenue up 33% and EBITDA up 78%, with margin expanding 8.5 points to 34.5%",
+         "tone": "up"
+        },
+        {
+         "text": "CDMO small molecules revenue up 86% in Q2 on commercial supplies and new assets; new Vizag peptide plant operational",
+         "tone": "up"
+        },
+        {
+         "text": "Bio (large molecules) revenue fell 38% in Q2 on campaign phasing",
+         "tone": "down"
+        },
+        {
+         "text": "API revenue nearly flat (+1%) and ARV revenue flat in Q2",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Consideration and funding for the Galenvs and SI &C Resins acquisitions are not stated",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026145355_Outcome29102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026153754_1PressRelease29102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026151833_InvPresentation29102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/LAURUSLABS_29102026210325_InvestorsCallAudio29102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for LAURUSLABS?"
+      },
+      {
+       "title": "Dixon Technologies (India) Limited",
+       "symbol": "DIXON",
+       "sub": "Declared 30 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Filing read: moderately positive",
+       "tone": "up",
+       "body": "Dixon's consolidated Q2 revenue (including other income) was Rs 21,863 crore, up 42% year on year, with PAT of Rs 411 crore, up 45%. The Board also appointed Mr. Prithvi Vachani, son of the Executive Chairman, as Executive Director for 5 years, subject to shareholder approval.",
+       "body_note": "AI summary of the results filing, analysed 30 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Investor presentation · 30 Oct: Dixon's consolidated Q2 revenue (including other income) was Rs 21,863 crore, up 42% year on year, with PAT of Rs 411 crore, up 45%. The Board also appointed Mr. Prithvi Vachani, son of the Executive Chairman, as Executive Director for 5 years, subject to shareholder approval.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Consolidated Q2 revenue up 42% and PAT up 45% year on year",
+         "tone": "up"
+        },
+        {
+         "text": "EBITDA up 37% and PBT up 42% in the quarter",
+         "tone": "up"
+        },
+        {
+         "text": "Half-year profit growth is much slower (PAT up 10%, EBITDA up 8%), so growth is concentrated in Q2",
+         "tone": "down"
+        },
+        {
+         "text": "Standalone Q2 PAT fell to Rs 123.44 crore from Rs 498.10 crore in the prior quarter, as other income dropped to Rs 86.09 crore from Rs 540.28 crore",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Reasons for the large other income in the prior quarter and the Q2 drop",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DIXON_30102026160547_Outcome30102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DIXON_30102026161836_OutcomewithPPT30102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DIXON_30102026203021_ConferenceCallRecordingIntimation30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for DIXON?"
+      },
+      {
+       "title": "GAIL (India) Limited",
+       "symbol": "GAIL",
+       "sub": "Declared 30 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Filing read: moderately positive",
+       "tone": "up",
+       "body": "GAIL reported Q2 FY27 standalone revenue of ₹45,924 crore and PAT of ₹4,650 crore, up from ₹4,292 crore in Q1. For H1 FY27, standalone PAT was ₹8,943 crore versus ₹4,104 crore a year earlier.",
+       "body_note": "AI summary of the results filing, analysed 30 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 30 Oct: GAIL reported Q2 FY27 standalone revenue of ₹45,924 crore and PAT of ₹4,650 crore, up from ₹4,292 crore in Q1. For H1 FY27, standalone PAT was ₹8,943 crore versus ₹4,104 crore a year earlier.",
+         "tone": "neutral"
+        },
+        {
+         "text": "H1 standalone PAT of ₹8,943 crore is more than double ₹4,104 crore in H1 FY26; PBT rose to ₹11,611 crore from ₹5,357 crore",
+         "tone": "up"
+        },
+        {
+         "text": "Q2 PAT rose to ₹4,650 crore from ₹4,292 crore in Q1, and revenue rose to ₹45,924 crore from ₹38,981 crore",
+         "tone": "up"
+        },
+        {
+         "text": "Q2 PBT was only slightly higher than Q1 (₹5,838 crore vs ₹5,773 crore), so sequential profit growth is modest",
+         "tone": "down"
+        },
+        {
+         "text": "The filing mentions geopolitical headwinds",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Year-on-year Q2 figures are not given, only the sequential comparison with Q1",
+         "tone": "neutral"
+        },
+        {
+         "text": "Business update · 30 Oct: GAIL's board gave in-principle approval to list its wholly owned subsidiary GAIL Gas Limited through an IPO, diluting GAIL's stake by up to 25%. A final board approval on the extent of dilution, modality and terms will follow once GAIL Gas submits its proposal based on the BRLM's recommendations.",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DEVIKA_30102026143000_UFR.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DEVIKA_30102026153938_PPT.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/GAIL_30102026175400_audio.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for GAIL?"
+      },
+      {
+       "title": "Ambuja Cements Limited",
+       "symbol": "AMBUJACEM",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Filing read: moderately negative",
+       "tone": "down",
+       "body": "Ambuja's consolidated Q2 FY27 revenue was Rs 9,197 Cr, about flat YoY, with operating EBITDA of Rs 1,271 Cr (13.8% margin) against Rs 1,762 Cr (19.2%) a year earlier. Profit after tax fell to Rs 236 Cr from Rs 2,336 Cr, which included a Rs 1,697 Cr tax provision reversal.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 29 Oct: Ambuja's consolidated Q2 FY27 revenue was Rs 9,197 Cr, about flat YoY, with operating EBITDA of Rs 1,271 Cr (13.8% margin) against Rs 1,762 Cr (19.2%) a year earlier. Profit after tax fell to Rs 236 Cr from Rs 2,336 Cr, which included a Rs 1,697 Cr tax provision reversal.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Trade volumes up 8.6% YoY, trade share up to 74%, premium products 37% of trade sales",
+         "tone": "up"
+        },
+        {
+         "text": "Debt-free balance sheet, net worth Rs 72,238 Cr, AAA/A1+ ratings",
+         "tone": "up"
+        },
+        {
+         "text": "Operating EBITDA down about 28% YoY; EBITDA per tonne Rs 770 versus Rs 1,061",
+         "tone": "down"
+        },
+        {
+         "text": "Total cost Rs 4,410 per tonne amid higher fuel and logistics costs",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Merger exchange ratio and the size of the EPS accretion are not stated.",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/AMBUJACEM_29102026142342_ACL_Results_29102926.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/AMBUJACEM_29102026143804_ACL_InvestorPresentation.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/AMBUJACEM_29102026193759_ACL_Audio_recording.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for AMBUJACEM?"
+      },
+      {
+       "title": "InterGlobe Aviation Limited",
+       "symbol": "INDIGO",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Filing read: moderately negative",
+       "tone": "down",
+       "body": "IndiGo reported Q2 FY27 revenue from operations up 25.9% to INR 233,638 million, but a net loss of INR 18,791 million (versus a loss of INR 25,821 million a year ago) as fuel cost rose 67.2% to INR 99,668 million. Excluding forex, the net loss was INR 7,237 million against a profit of INR 1,039 million a year earlier.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 29 Oct: IndiGo reported Q2 FY27 revenue from operations up 25.9% to INR 233,638 million, but a net loss of INR 18,791 million (versus a loss of INR 25,821 million a year ago) as fuel cost rose 67.2% to INR 99,668 million. Excluding forex, the net loss was INR 7,237 million against a profit of INR 1,039 million a year earlier.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Revenue from operations up 25.9% and yield up 34.3% on capacity and yield management",
+         "tone": "up"
+        },
+        {
+         "text": "Net loss narrowed from INR 25,821 mn to INR 18,791 mn; EBITDAR rose to INR 24,599 mn",
+         "tone": "up"
+        },
+        {
+         "text": "Fuel cost up 67.2% and fuel CASK up 68.9%; rupee depreciation weighed on results",
+         "tone": "down"
+        },
+        {
+         "text": "Loss excluding forex of INR 7,237 mn versus a profit a year earlier; EBITDAR ex-forex margin fell to 15.5% from 20.5%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Whether fuel prices and the rupee will ease in coming quarters",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026155229_Outcome_of_BM_29102026_Final.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026161010_Press_Release_29102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026160610_Investor_Presentation_29102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/Indigo1_29102026212609_Audio_Recording_29102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for INDIGO?"
+      },
+      {
+       "title": "Adani Enterprises Limited",
+       "symbol": "ADANIENT",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Filing read: moderately positive",
+       "tone": "up",
+       "body": "Adani Enterprises reported H1 FY27 consolidated revenue up 62% to Rs. 71,569 cr and EBITDA up 56% to Rs. 11,958 cr; Q2 EBITDA rose 62% to Rs. 6,316 cr. PAT attributable to owners fell 92% to Rs. 332 cr in H1 (a Rs. 2,644 cr exceptional item in FY27 versus a Rs. 3,583 cr item in FY26).",
+       "body_note": "AI summary of the results filing, analysed 28 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 28 Oct: Adani Enterprises reported H1 FY27 consolidated revenue up 62% to Rs. 71,569 cr and EBITDA up 56% to Rs. 11,958 cr; Q2 EBITDA rose 62% to Rs. 6,316 cr. PAT attributable to owners fell 92% to Rs. 332 cr in H1 after a Rs. 2,644 cr one-time OFAC settlement and a prior-year exceptional gain.",
+         "tone": "neutral"
+        },
+        {
+         "text": "H1 EBITDA up 56% and Q2 EBITDA up 62%, with continuing PBT up 146% in Q2",
+         "tone": "up"
+        },
+        {
+         "text": "Copper ramp-up: H1 EBITDA Rs. 2,033 cr and sales volume 5.2x",
+         "tone": "up"
+        },
+        {
+         "text": "H1 PAT to owners down 92% to Rs. 332 cr; Q2 PAT down 55%",
+         "tone": "down"
+        },
+        {
+         "text": "ANIL ecosystem H1 EBITDA down 13% and PBT down 21%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: What changed in this revised release versus the earlier one",
+         "tone": "neutral"
+        },
+        {
+         "text": "Press release · 28 Oct: Adani Enterprises reported H1 FY27 consolidated revenue up 62% to Rs. 71,569 cr and EBITDA up 56% to Rs. 11,958 cr; Q2 EBITDA rose 62% to Rs. 6,316 cr. PAT attributable to owners fell 92% to Rs. 332 cr in H1 (a Rs. 2,644 cr exceptional item in FY27 versus a Rs. 3,583 cr item in FY26).",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/nishant_joshi_adani_com_28102026133333_AELBoardoutcome30092026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/nishant_joshi_adani_com_28102026143849_AELsubmissionofPresentation.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/nishant_joshi_adani_com_28102026192346_SubmissionofAudioRecordingofInvCall28102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ADANIENT?"
+      },
+      {
+       "title": "Adani Ports and Special Economic Zone Limited",
+       "symbol": "ADANIPORTS",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "In line with historical trend",
+       "tone": "neutral",
+       "body": "Q2 FY27 consolidated revenue rose 24% to ₹11,340 Cr, EBITDA 23% to ₹6,807 Cr and PAT 18% to ₹3,682 Cr. FY27 guidance was raised to revenue ₹44,000-46,000 Cr and EBITDA ₹26,000-27,000 Cr, with capex raised to ₹15,000-17,000 Cr.",
+       "body_note": "AI summary of the results filing, analysed 28 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 28 Oct: Q2 FY27 consolidated revenue rose 24% to ₹11,340 Cr, EBITDA 23% to ₹6,807 Cr and PAT 18% to ₹3,682 Cr. FY27 guidance was raised to revenue ₹44,000-46,000 Cr and EBITDA ₹26,000-27,000 Cr, with capex raised to ₹15,000-17,000 Cr.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Broad-based growth: revenue +24% and EBITDA +23% YoY, with all segments growing",
+         "tone": "up"
+        },
+        {
+         "text": "FY27 revenue and EBITDA guidance each raised by ₹1,000 Cr",
+         "tone": "up"
+        },
+        {
+         "text": "Capex guidance raised by ₹3,000 Cr to ₹15,000-17,000 Cr, increasing investment burden",
+         "tone": "down"
+        },
+        {
+         "text": "PAT growth (18%) lags revenue and EBITDA growth; H1 PAT up 14%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Reasons for the PAT growth lag, such as depreciation, interest or tax detail",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/rkbhagia_28102026124014_OutcomeofBoardMeeting.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/rkbhagia_28102026124435_IntimationofPRandIP.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/rkbhagia_28102026212211_SEINTIMATION.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ADANIPORTS?"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "due",
+     "title": "Still to report",
+     "note": "F&O names first, then by date. Select Ask for a company's latest results.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Symbol",
+       "format": "text"
+      },
+      {
+       "key": "name",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "date",
+       "label": "Date",
+       "format": "text"
+      },
+      {
+       "key": "status",
+       "label": "Status",
+       "format": "text"
+      },
+      {
+       "key": "fno",
+       "label": "F&O",
+       "format": "text"
+      },
+      {
+       "key": "sector",
+       "label": "Sector",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "TATASTEEL",
+       "ask": "How were TATASTEEL results?",
+       "cells": {
+        "symbol": "TATASTEEL",
+        "name": "Tata Steel Limited",
+        "date": "27 Oct",
+        "status": "Figures awaited",
+        "fno": "F&O",
+        "sector": "Metals & Mining"
+       }
+      },
+      {
+       "symbol": "ACEVECTOR",
+       "ask": "How were ACEVECTOR results?",
+       "cells": {
+        "symbol": "ACEVECTOR",
+        "name": "AceVector Limited",
+        "date": "26 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "DALBHARAT",
+       "ask": "How were DALBHARAT results?",
+       "cells": {
+        "symbol": "DALBHARAT",
+        "name": "Dalmia Bharat Limited",
+        "date": "26 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Construction Materials"
+       }
+      },
+      {
+       "symbol": "VNL",
+       "ask": "How were VNL results?",
+       "cells": {
+        "symbol": "VNL",
+        "name": "Vishal Nirmiti Limited",
+        "date": "28 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "MTARTECH",
+       "ask": "How were MTARTECH results?",
+       "cells": {
+        "symbol": "MTARTECH",
+        "name": "Mtar Technologies Limited",
+        "date": "29 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Capital Goods"
+       }
+      },
+      {
+       "symbol": "TITAGARH",
+       "ask": "How were TITAGARH results?",
+       "cells": {
+        "symbol": "TITAGARH",
+        "name": "TITAGARH RAIL SYSTEMS LIMITED",
+        "date": "29 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Capital Goods"
+       }
+      },
+      {
+       "symbol": "BKMINDST",
+       "ask": "How were BKMINDST results?",
+       "cells": {
+        "symbol": "BKMINDST",
+        "name": "Bkm Industries Limited",
+        "date": "30 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "AURIONPRO",
+       "ask": "How were AURIONPRO results?",
+       "cells": {
+        "symbol": "AURIONPRO",
+        "name": "Aurionpro Solutions Limited",
+        "date": "31 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Information Technology"
+       }
+      },
+      {
+       "symbol": "BIRLACORPN",
+       "ask": "How were BIRLACORPN results?",
+       "cells": {
+        "symbol": "BIRLACORPN",
+        "name": "Birla Corporation Limited",
+        "date": "31 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Construction Materials"
+       }
+      },
+      {
+       "symbol": "ESSENTIA",
+       "ask": "How were ESSENTIA results?",
+       "cells": {
+        "symbol": "ESSENTIA",
+        "name": "Integra Essentia Limited",
+        "date": "31 Oct",
+        "status": "Due",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "GANGOTRI",
+       "ask": "How were GANGOTRI results?",
+       "cells": {
+        "symbol": "GANGOTRI",
+        "name": "Gangotri Textiles Limited",
+        "date": "31 Oct",
+        "status": "Due",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "IITL",
+       "ask": "How were IITL results?",
+       "cells": {
+        "symbol": "IITL",
+        "name": "Industrial Investment Trust Limited",
+        "date": "31 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "LATENTVIEW",
+       "ask": "How were LATENTVIEW results?",
+       "cells": {
+        "symbol": "LATENTVIEW",
+        "name": "Latent View Analytics Limited",
+        "date": "31 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "Information Technology"
+       }
+      },
+      {
+       "symbol": "LGBBROSLTD",
+       "ask": "How were LGBBROSLTD results?",
+       "cells": {
+        "symbol": "LGBBROSLTD",
+        "name": "LG Balakrishnan & Bros Limited",
+        "date": "31 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      },
+      {
+       "symbol": "MASKINVEST",
+       "ask": "How were MASKINVEST results?",
+       "cells": {
+        "symbol": "MASKINVEST",
+        "name": "Mask Investments Limited",
+        "date": "31 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Showing 8 of 494 declared results and 15 of 30 still to report. The full calendar, with every company's score and the market's reaction, is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Results calendar (NSE board-meeting dates, DaaS events calendar)",
+      "as_of": "2026-10-31",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Companies' exchange filings (DaaS announcements)",
+      "as_of": "2026-10-31",
+      "status": "fresh",
+      "note": "8 of 8 companies read"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which F&O stocks report results tomorrow?",
+     "query": "Which F&O stocks report results tomorrow?"
+    },
+    {
+     "label": "Which companies report results next week?",
+     "query": "Which companies report results next week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 31 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+  },
+  "event_intelligence": {
+   "schema": "visual-answer-v1",
+   "intent": "event_intelligence",
+   "title": "Order wins · last 7 days",
+   "as_of": "2026-10-31",
+   "generated_at": "2026-10-31T22:01:50+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Order filings in the last 7 days: 74. All 8 shown have an AI summary.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "briefs",
+     "id": "events",
+     "title": "Order wins",
+     "note": null,
+     "items": [
+      {
+       "title": "Gayatri Projects Limited",
+       "symbol": "GAYAPROJ",
+       "sub": "30 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Gayatri Projects has been awarded a contract by B-RIDE, under a joint venture, for design and construction of civil works from Bennigenahalli to Jakkur on Corridor-4 of the Bengaluru Suburban Transport Project. Total contract value is Rs.342 crore, inclusive of all taxes excluding GST.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/GAYAPROJ_30102026165940_Intmn_of_bagging_contract_30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for GAYAPROJ?"
+      },
+      {
+       "title": "Knowledge Marine & Engineering Works Limited",
+       "symbol": "KMEW",
+       "sub": "30 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "KMEW received a work order from New Mangalore Port Authority for maintenance dredging over FY2026-27 to FY2028-29, valued at ₹303.17 crore including GST. The company calls it its largest-ever dredging order, with about ₹101.07 crore a year and work starting 15 November 2026.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/KMEW_30102026120614_Intimation_Work_Order_NMPA-r.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for KMEW?"
+      },
+      {
+       "title": "Oswal Pumps Limited",
+       "symbol": "OSWALPUMPS",
+       "sub": "30 Oct 2026 · NSE · Press Release",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Oswal Pumps received an additional order from MSEDCL for 10,000 off-grid DC solar water pumping systems under PM Kusum B, worth about Rs. 235.92 crore including GST. Installation is to be completed within 60 days of the Notice to Proceed/Work Order, with 5 years of warranty, maintenance and remote monitoring.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/OSWALPUMPS_30102026120459_SELetterPMKusumOPL30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for OSWALPUMPS?"
+      },
+      {
+       "title": "Acme Solar Holdings Limited",
+       "symbol": "ACMESOLAR",
+       "sub": "30 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "ACME Solar, through subsidiary ACME Marigold Urja, signed a PPA with NTPC for a 400 MW ISTS-connected FDRE project at a tariff of INR 4.37 per unit. The PPA-locked under-construction portfolio now stands at 4,710 MW out of 5,380 MW of under-construction contracted capacity.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ACMECS_30102026084319_Intimation30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ACMESOLAR?"
+      },
+      {
+       "title": "Afcons Infrastructure Limited",
+       "symbol": "AFCONS",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Afcons secured two EPC contracts in Uttar Pradesh worth about ₹3,469 crore combined: the ₹2,086 crore Jewar Link Expressway from UPEIDA and a ₹1,383 crore underground section of Lucknow Metro Phase-1B (notice of award) from UPMRC. FY27 fresh order inflow now stands at ₹19,438 crore.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/AFCONS_29102026184329_Afcons_Intimation_of_UPEDA_awarddated29102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for AFCONS?"
+      },
+      {
+       "title": "Texmaco Rail & Engineering Limited",
+       "symbol": "TEXRAIL",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Ministry of Railways exercised the option clause to raise the BOXNS wagon order from 3,400 to 4,420 wagons, an additional 1,020 wagons valued at Rs. 412.32 crores, on the same price and terms. The total amended contract value is ₹1786.74 crores including taxes, with delivery for the extra quantity up to 11.06.2027.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/TEXRAIL_29102026133824_ORDERMINISTRYOFRAILWAYS29102026SIGNED.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for TEXRAIL?"
+      },
+      {
+       "title": "NBCC (India) Limited",
+       "symbol": "NBCC",
+       "sub": "29 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "NBCC concluded an e-auction selling about 8.80 lac sq. ft of residential apartments at Avenue Towers, Africa Avenue Marg, Sarojini Nagar, New Delhi, for a total sale value of approx. Rs. 5191 crores. NBCC will receive a marketing fee of 1% of the sale value.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/NBCC_29102026130207_STXafricaavenue.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for NBCC?"
+      },
+      {
+       "title": "Dilip Buildcon Limited",
+       "symbol": "DBL",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Dilip Buildcon received a Letter of Award from NHAI for a 4-lane elevated corridor on NH-65 in Solapur (9.66 km) on Hybrid Annuity Mode, worth Rs 688.23 crore excluding GST. Construction period is 24 months, followed by a 15-year operation period from COD.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DBL_29102026105210_IntimationPune_sd.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for DBL?"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Showing 8 of 74 order filings from the last 7 days: the ones with an AI summary first, then by impact, then newest. 8 shown have an AI summary; the rest are not analysed yet. Tone and impact are an AI classifier's reading of each filing, not a view on the stock. Every filing is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Exchange filings feed (NSE, AI-read by Nivesh)",
+      "as_of": "2026-10-31",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which companies report results this week?",
+     "query": "Which companies report results this week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    },
+    {
+     "label": "Which stocks saw bulk deals today?",
+     "query": "Which stocks saw bulk deals today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 31 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
   }
  }
 }

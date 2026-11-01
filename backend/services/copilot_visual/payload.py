@@ -12,6 +12,8 @@ import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+from . import links as _links
+
 SCHEMA = "visual-answer-v1"
 IST = timezone(timedelta(hours=5, minutes=30))
 MINUS = "−"
@@ -21,7 +23,7 @@ DECISION_LABELS = {"setup_ready": "Setup ready", "wait": "Wait", "avoid": "Avoid
 CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker."
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
-NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile")
+NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile", "open_market_intel")
 
 
 # ── numbers and formats ──────────────────────────────────────────────────────
@@ -315,6 +317,23 @@ def _block_problems(b: Any, i: int) -> List[str]:
         items = b.get("items")
         if not isinstance(items, list) or not items or not all(isinstance(x, dict) and isinstance(x.get("text"), str) for x in items):
             out.append(f"{p} list: at least one item with text")
+    elif t == "briefs":
+        items = b.get("items")
+        if not isinstance(items, list) or not items:
+            out.append(f"{p} briefs: at least one item")
+        for k, it in enumerate(items if isinstance(items, list) else []):
+            if not (isinstance(it, dict) and isinstance(it.get("title"), str) and it["title"] and _opt_str(it.get("symbol")) and _opt_str(it.get("sub"))
+                    and _opt_str(it.get("badge")) and _opt_str(it.get("body")) and _opt_str(it.get("body_note")) and _opt_str(it.get("ask"))):
+                out.append(f"{p} briefs: item {k} needs a title and text fields")
+                continue
+            if it.get("tone") is not None and it["tone"] not in TONES:
+                out.append(f"{p} briefs: item {k} tone must be one of {', '.join(TONES)}")
+            if not all(isinstance(x, dict) and isinstance(x.get("text"), str) and (x.get("tone") is None or x["tone"] in TONES) and _opt_str(x.get("tag"))
+                       for x in it.get("points") or []):
+                out.append(f"{p} briefs: item {k} points need text")
+            for lk in it.get("links") or []:
+                if not (isinstance(lk, dict) and isinstance(lk.get("label"), str) and lk.get("kind") in _links.LINK_KINDS and _links.safe_url(lk.get("url")) is not None):
+                    out.append(f"{p} briefs: item {k} link needs a label, a kind ({', '.join(_links.LINK_KINDS)}) and an https exchange URL")
     elif t == "notice":
         if b.get("tone") not in ("warn", "info") or not isinstance(b.get("text"), str):
             out.append(f"{p} notice: tone warn|info and text")
@@ -336,7 +355,8 @@ def validate(p: Any) -> List[str]:
         out.append("schema")
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation"):
+            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation",
+            "results_calendar", "event_intelligence"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")
@@ -442,6 +462,13 @@ def facts(p: Dict[str, Any], subject: Optional[str] = None) -> str:
             lines.append(f"{title}: {len(bars)} daily candles of {b.get('symbol')}, last {last.get('d')} close {_cell(last.get('c'))}"
                          + (f"; levels: {lv}" if lv else "")
                          + (f"; band {band['low']:,.2f}–{band['high']:,.2f} ({band.get('label')})" if band else ""))
+        elif t == "briefs":
+            its = b.get("items") or []
+            lines.append(f"{title}: {len(its)} cards (stored AI summaries of the filings, shown with their source links):")
+            for it in its[:10]:
+                bits = [it.get("title"), it.get("sub"), it.get("badge"), (it.get("body") or it.get("body_note") or "")[:220]]
+                n_l, n_p = len(it.get("links") or []), len(it.get("points") or [])
+                lines.append("  " + " | ".join(str(x) for x in bits if x) + f" [{n_l} source link(s), {n_p} commentary point(s)]")
         elif t == "trade_plan":
             lines.append(f"The desk's TradePlan card {b.get('plan_id')} is shown.")
         elif t == "list":

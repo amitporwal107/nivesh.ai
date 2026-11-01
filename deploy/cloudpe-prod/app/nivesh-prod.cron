@@ -1,0 +1,28 @@
+# /etc/cron.d/nivesh-prod — scheduled jobs for the CloudPe PRODUCTION app container.
+#
+# The same five jobs staging runs (/etc/cron.d/nivesh-staging-*), pointed at nivesh-backend.
+# Installed by deploy-app.sh. CRON_TZ is ignored by Debian/Ubuntu cron — the schedules mean
+# IST only because bootstrap.sh sets the system timezone to Asia/Kolkata.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+# Performance caches, nightly.
+30 0 * * *    root  /usr/bin/docker exec nivesh-backend python -m scripts.clear_performance_caches >> /opt/nivesh/logs/cache-clear.log 2>&1
+
+# AI positional engine: after the 19:30 bars land, retried at 21:45 (--skip-if-done makes a second run a no-op).
+45 19 * * 1-5 root  /usr/bin/docker exec nivesh-backend python -m scripts.run_positional_engine --require-bars --skip-if-done >> /opt/nivesh/logs/positional-engine.log 2>&1
+45 21 * * 1-5 root  /usr/bin/docker exec nivesh-backend python -m scripts.run_positional_engine --require-bars --skip-if-done >> /opt/nivesh/logs/positional-engine.log 2>&1
+
+# Research watchlist price refresh.
+15 20 * * 1-5 root  /usr/bin/docker exec nivesh-backend python -m scripts.refresh_research_watchlist_prices >> /opt/nivesh/logs/research-watchlist-refresh.log 2>&1
+
+# Desk alerts.
+45 20 * * 1-5 root  /usr/bin/flock -n -E 4 /run/lock/nivesh-desk-alerts.lock /usr/bin/docker exec nivesh-backend python -m scripts.check_desk_alerts --require-bars --skip-if-done >> /opt/nivesh/logs/desk-alerts.log 2>&1; rc=$?; [ "$rc" -ne 0 ] && echo "$(date -Is) [desk-alerts] exit $rc" >> /opt/nivesh/logs/desk-alerts.log
+45 22 * * 1-5 root  /usr/bin/flock -n -E 4 /run/lock/nivesh-desk-alerts.lock /usr/bin/docker exec nivesh-backend python -m scripts.check_desk_alerts --require-bars --skip-if-done >> /opt/nivesh/logs/desk-alerts.log 2>&1; rc=$?; [ "$rc" -ne 0 ] && echo "$(date -Is) [desk-alerts] exit $rc" >> /opt/nivesh/logs/desk-alerts.log
+
+# AI watchlist (daily Top 10 ideas): three attempts after the F&O bhavcopy lands.
+45 22 * * 1-5 root  /usr/bin/flock -n /run/lock/nivesh-ai-watchlist.lock /usr/bin/docker exec nivesh-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh/logs/ai-watchlist.log 2>&1
+30 23 * * 1-5 root  /usr/bin/flock -n /run/lock/nivesh-ai-watchlist.lock /usr/bin/docker exec nivesh-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh/logs/ai-watchlist.log 2>&1
+55 23 * * 1-5 root  /usr/bin/flock -n /run/lock/nivesh-ai-watchlist.lock /usr/bin/docker exec nivesh-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh/logs/ai-watchlist.log 2>&1
