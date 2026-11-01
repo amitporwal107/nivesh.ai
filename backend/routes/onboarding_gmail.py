@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 from deps import db, get_current_user
 from helpers.parsing import save_holdings
 from helpers.upload_validation import validate_upload
+from services import cas_secrets
 from services import cas_api_client
 from services import pii_security
 from services.gmail_service import (
@@ -128,18 +129,21 @@ class PanInput(BaseModel):
 async def save_pan(payload: PanInput, request: Request) -> Dict[str, Any]:
     """Stash the user's PAN on their profile. The CAS PDFs CAMS/KFin
     deliver via Gmail are PAN-locked; the auto-import step needs this to
-    unlock each statement. Stored in `user_profiles.cas_password` (same
-    field the auto-import scheduler reads)."""
+    unlock each statement. Stored encrypted (`pan_encrypted`, see
+    services.cas_secrets) on the profile and mirrored on the Gmail token row
+    the auto-import scheduler reads; any plaintext copy is removed."""
     pan = (payload.pan or "").strip().upper()
     if not PAN_REGEX.match(pan):
         raise HTTPException(400, "PAN format must be ABCDE1234F")
 
     user = await get_current_user(request)
     now = _now_iso()
+    secret = cas_secrets.pan_fields(pan)
     await db.user_profiles.update_one(
         {"user_id": user["user_id"]},
         {
-            "$set": {"pan": pan, "cas_password": pan, "updated_at": now},
+            "$set": {**secret, "updated_at": now},
+            "$unset": cas_secrets.UNSET_PAN,
             "$setOnInsert": {"user_id": user["user_id"], "created_at": now},
         },
         upsert=True,
@@ -148,7 +152,7 @@ async def save_pan(payload: PanInput, request: Request) -> Dict[str, Any]:
     # (services.gmail_auto_import) finds the password on its standard path.
     await db.gmail_tokens.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"cas_password": pan, "pan_saved_at": now}},
+        {"$set": {**secret, "pan_saved_at": now}, "$unset": cas_secrets.UNSET_PAN},
         upsert=False,
     )
     return {"ok": True}
@@ -169,16 +173,19 @@ async def save_cas_password(payload: CasPasswordInput, request: Request) -> Dict
     with a password the user chose when requesting it. When the PAN fails to
     unlock the statement, the UI lets the user enter that password here; it is
     stored verbatim (case-sensitive) and takes precedence over the PAN at
-    unlock time (see ``_resolve_cas_password``)."""
+    unlock time (see ``_resolve_cas_password``). Stored encrypted
+    (`cas_pdf_password_encrypted`, see services.cas_secrets)."""
     pw = (payload.password or "").strip()
     if not pw:
         raise HTTPException(400, "Statement password cannot be empty.")
     user = await get_current_user(request)
     now = _now_iso()
+    secret = cas_secrets.pdf_password_fields(pw)
     await db.user_profiles.update_one(
         {"user_id": user["user_id"]},
         {
-            "$set": {"cas_pdf_password": pw, "updated_at": now},
+            "$set": {**secret, "updated_at": now},
+            "$unset": cas_secrets.UNSET_PDF_PASSWORD,
             "$setOnInsert": {"user_id": user["user_id"], "created_at": now},
         },
         upsert=True,
@@ -186,7 +193,7 @@ async def save_cas_password(payload: CasPasswordInput, request: Request) -> Dict
     # Mirror onto gmail_tokens so the daily auto-import scheduler finds it too.
     await db.gmail_tokens.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"cas_pdf_password": pw, "cas_password_saved_at": now}},
+        {"$set": {**secret, "cas_password_saved_at": now}, "$unset": cas_secrets.UNSET_PDF_PASSWORD},
         upsert=False,
     )
     return {"ok": True}
@@ -195,19 +202,13 @@ async def save_cas_password(payload: CasPasswordInput, request: Request) -> Dict
 def _resolve_cas_password(profile: Dict[str, Any], token_doc: Optional[Dict[str, Any]] = None) -> str:
     """Resolve the password used to unlock a user's CAS PDFs.
 
-    A user-entered statement password (``cas_pdf_password`` — for CAMS/KFin
-    mailback statements locked with a non-PAN password) is used verbatim and
-    takes precedence. Otherwise fall back to the PAN, upper-cased (NSDL/CDSL
-    eCAS are locked with the upper-case PAN). Note: ``cas_password`` is a PAN
-    mirror written by ``save_pan``, so it stays on the PAN branch, never the
-    custom one."""
-    token_doc = token_doc or {}
-    custom = (profile.get("cas_pdf_password") or token_doc.get("cas_pdf_password") or "").strip()
-    if custom:
-        return custom
-    return (
-        profile.get("pan") or profile.get("cas_password") or token_doc.get("cas_password") or ""
-    ).upper()
+    A user-entered statement password (for CAMS/KFin mailback statements
+    locked with a non-PAN password) is used verbatim and takes precedence.
+    Otherwise fall back to the PAN, upper-cased (NSDL/CDSL eCAS are locked
+    with the upper-case PAN). The profile is consulted before the Gmail token
+    row. Both secrets are decrypted by services.cas_secrets, which also reads
+    the plaintext fields of rows the backfill has not reached yet."""
+    return cas_secrets.unlock_password(profile, token_doc or {})
 
 
 @router.post("/gmail/auto-import")
@@ -844,23 +845,20 @@ async def upload_cas_pdf(
     if supplied:
         now = _now_iso()
         if PAN_REGEX.match(supplied.upper()):
-            pan_val = supplied.upper()
-            profile["pan"] = pan_val
-            profile["cas_password"] = pan_val
-            await db.user_profiles.update_one(
-                {"user_id": user_id},
-                {"$set": {"pan": pan_val, "cas_password": pan_val, "updated_at": now},
-                 "$setOnInsert": {"user_id": user_id, "created_at": now}},
-                upsert=True,
-            )
+            secret = cas_secrets.pan_fields(supplied)
+            unset = cas_secrets.UNSET_PAN
         else:
-            profile["cas_pdf_password"] = supplied
-            await db.user_profiles.update_one(
-                {"user_id": user_id},
-                {"$set": {"cas_pdf_password": supplied, "updated_at": now},
-                 "$setOnInsert": {"user_id": user_id, "created_at": now}},
-                upsert=True,
-            )
+            secret = cas_secrets.pdf_password_fields(supplied)
+            unset = cas_secrets.UNSET_PDF_PASSWORD
+        for name in unset:
+            profile.pop(name, None)
+        profile.update(secret)
+        await db.user_profiles.update_one(
+            {"user_id": user_id},
+            {"$set": {**secret, "updated_at": now}, "$unset": unset,
+             "$setOnInsert": {"user_id": user_id, "created_at": now}},
+            upsert=True,
+        )
 
     pan = _resolve_cas_password(profile)
     if not pan:
@@ -1042,7 +1040,7 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
     holdings_count = await db.holdings.count_documents({"user_id": user["user_id"]})
     return {
         "onboarding_completed": bool(profile.get("onboarding_completed")),
-        "pan_on_file": bool(profile.get("pan") or profile.get("cas_password")),
+        "pan_on_file": cas_secrets.has_pan(profile),
         "gmail_connected": bool(token_doc),
         "broker_accounts": broker_accounts,             # connected broker accounts, any state
         "broker_accounts_live": broker_accounts_live,   # of those, readable right now

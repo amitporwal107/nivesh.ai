@@ -712,7 +712,7 @@ function OtpPanel() {
       </div>
       <Button variant="accent" className="w-full mt-5">Verify & fetch holdings →</Button>
       <div className="font-mono text-[10px] text-ink-3 text-center mt-3 tracking-[.06em]">
-        CDSL · NSDL · SEBI-COMPLIANT · NEVER STORE OTP
+        CDSL · NSDL · READ-ONLY · NEVER STORE OTP
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import logging
 import urllib.parse
 import uuid
 
+from services import cas_secrets
 from services import pii_security
 
 from deps import db, get_current_user, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GMAIL_REDIRECT_URI, COOKIE_SECURE, COOKIE_SAMESITE
@@ -198,7 +199,7 @@ async def gmail_status(request: Request):
         # Auto-import: only effective once the user has successfully done a
         # manual import (because we save the unlocking PAN at that moment).
         "auto_import_enabled": bool(token_doc.get("auto_import_enabled")),
-        "auto_import_ready": bool(token_doc.get("cas_password")),
+        "auto_import_ready": cas_secrets.has_pan(token_doc),
         "last_auto_import_at": token_doc.get("last_auto_import_at"),
     }
 

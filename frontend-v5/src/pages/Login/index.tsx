@@ -213,7 +213,7 @@ export default function LoginPage() {
 
           <div className="lede">
             <p className="eyebrow reveal d2">
-              <span className="star">★</span> Verified · SEBI-aligned · ARN-128459
+              <span className="star">★</span> Read-only · ARN-128459
             </p>
             <h1 className="reveal d2">
               Your portfolio,<br />

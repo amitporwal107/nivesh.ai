@@ -53,13 +53,16 @@ async def auto_import_for_user(db, user_id: str) -> Dict[str, Any]:
     if token_doc.get("auto_import_enabled") is False:
         return {"status": "skipped", "reason": "disabled"}
 
-    # Unlock the CAS PDF. A user-entered statement password (cas_pdf_password —
-    # CAMS/KFin statements locked with a non-PAN password) wins and is used
-    # verbatim; otherwise fall back to the PAN. Check gmail_tokens first (the
-    # onboarding paths mirror both fields there), then the profile.
+    # Unlock the CAS PDF. A user-entered statement password (CAMS/KFin
+    # statements locked with a non-PAN password) wins and is used verbatim;
+    # otherwise fall back to the PAN. Check gmail_tokens first (the onboarding
+    # paths mirror both secrets there), then the profile. Both are stored
+    # encrypted; services.cas_secrets decrypts them (and still reads the
+    # plaintext fields of rows the backfill has not reached).
+    from services import cas_secrets  # lazy, like the db import
+
     profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    custom = (token_doc.get("cas_pdf_password") or profile.get("cas_pdf_password") or "").strip()
-    pwd = custom or (token_doc.get("cas_password") or profile.get("cas_password") or profile.get("pan") or "")
+    pwd = cas_secrets.unlock_password(token_doc, profile)
     if not pwd:
         return {"status": "skipped", "reason": "no_saved_password"}
 
@@ -174,14 +177,20 @@ async def auto_import_all_users() -> Dict[str, Any]:
     saved CAS password. Designed to be called from APScheduler."""
     from deps import db  # lazy
 
+    from services import cas_secrets  # lazy
+
     cursor = db.gmail_tokens.find(
         {
-            "cas_password": {"$exists": True, "$ne": ""},
-            # Either auto_import_enabled is True or the field doesn't
-            # exist yet (legacy rows from before this feature)
-            "$or": [
-                {"auto_import_enabled": True},
-                {"auto_import_enabled": {"$exists": False}},
+            "$and": [
+                # A saved PAN, encrypted (or plaintext on a row the backfill
+                # has not reached yet).
+                cas_secrets.TOKEN_HAS_PAN_FILTER,
+                # Either auto_import_enabled is True or the field doesn't
+                # exist yet (legacy rows from before this feature)
+                {"$or": [
+                    {"auto_import_enabled": True},
+                    {"auto_import_enabled": {"$exists": False}},
+                ]},
             ],
         },
         {"_id": 0, "user_id": 1},

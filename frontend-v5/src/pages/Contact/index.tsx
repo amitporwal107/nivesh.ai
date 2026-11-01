@@ -79,7 +79,7 @@ export default function ContactPage() {
           </button>
         </div>
         <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 24, letterSpacing: ".04em", textAlign: "center" as const }}>
-          Made in India · SEBI-aligned · ARN-128459
+          Made in India · ARN-128459
         </div>
       </div>
     </MarketingShell>
