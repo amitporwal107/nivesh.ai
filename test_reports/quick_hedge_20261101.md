@@ -58,6 +58,27 @@ PW_EXIT=0
 ```
 First run: 56 passed, 2 failed — both mistakes in my spec (expected "75.0%" where the screen shows "75%"; read the switcher before it rendered). Spec fixed, re-run above. The three existing Risk Desk specs (47 cases) pass unchanged.
 
+## After merging dev 35a7931d (2026-11-01) — REAL output
+
+Seven merge conflicts, all two features adding to the same list or the same end of file; both sides kept (details in the merge commit). Then:
+
+CI allowlist reproduced locally (container nivesh/backend:staging, `pytest -q -rfE --continue-on-collection-errors` over the 292 files of .github/workflows/backend-tests.yml, which now lists the five quick_hedge files), merged branch vs plain dev 35a7931d:
+```
+MERGED   84 failed, 7764 passed, 34 skipped, 15 warnings, 4 errors in 217.68s
+BASELINE 84 failed, 7635 passed, 34 skipped, 15 warnings, 4 errors in 211.84s
+failing/erroring names: 88 on each side, IDENTICAL sets, 0 only-on-merged, 0 of them quick_hedge
+```
+(The 88 are this container's known baseline: no network for NSE fetches, files the CI runner has. The +129 passes are the 127 new Quick Hedge tests and 2 more parametrized suggestion-template cases.)
+
+Frontend on the merged tree, whole suite (container mcr.microsoft.com/playwright:v1.47.0-jammy, production build, every /api mocked):
+```
+TSC_EXIT=0
+BUILD_EXIT=0
+  32 failed
+  1285 passed (13.1m)
+```
+The 32 failures are IDENTICAL BY NAME to the 32 that fail on plain dev (all in copilot-app-desk-strategy-graphs.spec.ts, pre-existing, not touched by this branch); none elsewhere; the 11 hedge cases (HG-1…HG-11) all pass inside this run.
+
 ## NOT verified (UNVERIFIED)
 - The HTTP route on staging: POST /api/portfolio/quick-hedge with a session and the flag on. Needs the branch deployed (backend process restart) and a staging session token. Only the service and the chat builder ran against real data (in-process), and the route's gate/validation ran in unit tests.
 - Playwright against the DEPLOYED staging app with the flag on (the UI spec is mocked, as the repo's UI specs are); the screen in a real browser; the LLM's wording of the chat explanation (it shares the staging 5-hour limit / Groq key).
