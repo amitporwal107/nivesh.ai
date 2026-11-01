@@ -15,8 +15,10 @@ import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts"
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
 import { StrategyScreens } from "./markets/StrategyScreens";
 import { FUND_KEYS, PAGE_BY_KEY, PAGE_GROUPS, chatSentence, screenInWords } from "./screener/catalog";
-import { ResultsTable } from "./screener/ResultsTable";
+import { AddToList } from "./screener/AddToList";
+import { ResultsTable, type RowSelect } from "./screener/ResultsTable";
 import { StockPanel } from "./screener/StockPanel";
+import { BULK_MAX } from "./workspace/personal-lists";
 import { OpenWatchlist, SaveAsWatchlist } from "./workspace/SaveAsWatchlist";
 
 type Bucket = ScreenBucket;
@@ -105,6 +107,9 @@ function ScreenResults({ ran, fetching, error, data, onRetry, onAsk, onOpenStock
   // Kite's live price and day change join the table as two extra columns while the feed is LIVE; nothing else in the rows changes.
   const liveRows = data?.ok ? data.widget.universe : [];
   const live = useLiveOverlays(liveRows.map((r) => String(r.ticker ?? r.symbol ?? "")), data?.ok ? data.as_of_date : null);
+  // The stocks ticked for "Add to a list". A new run starts with none ticked; at most one list's worth (100) can be.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => { setTicked(new Set()); }, [ran?.seq]);
   // The source not answering (ok:false) is a failure, not an empty result.
   const failed = !fetching && (!!error || (!!data && !data.ok));
   const answered = !fetching && !failed && data?.ok ? data : undefined;
@@ -204,15 +209,40 @@ function ScreenResults({ ran, fetching, error, data, onRetry, onAsk, onOpenStock
       ...(answered.universe_complete ? [] : [{ key: "partial", text: `Only the first ${fmtNum(dayTotal)} stocks of the day were screened`, gap: true }]),
     ];
 
+    // The run's own order (largest market cap first) is what "the first 100" means, however the table is sorted.
+    const runOrder = answered.widget.universe.map((r) => String(r.ticker ?? r.symbol ?? ""));
+    const firstBatch = runOrder.slice(0, BULK_MAX);
+    const select: RowSelect = {
+      selected: ticked,
+      max: BULK_MAX,
+      allSelected: firstBatch.length > 0 && firstBatch.every((sym) => ticked.has(sym)),
+      onToggle: (sym) => setTicked((prev) => {
+        const next = new Set(prev);
+        if (next.has(sym)) next.delete(sym);
+        else if (next.size < BULK_MAX) next.add(sym);
+        return next;
+      }),
+      onToggleAll: () => setTicked((prev) => (firstBatch.every((sym) => prev.has(sym)) ? new Set() : new Set(firstBatch))),
+    };
+
     body = (
       <>
         <span data-testid="screener-results-count" aria-live="polite" style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1.2 }}>{countText}</span>
         {why ?? (
           <div data-testid="screener-results-widget" className="min-w-0">
             <SafeWidget name="Screener results">
-              <ResultsTable key={ran?.seq ?? 0} rows={answered.widget.universe} live={live} onOpen={onOpenStock} />
+              <ResultsTable key={ran?.seq ?? 0} rows={answered.widget.universe} live={live} onOpen={onOpenStock} select={select} />
             </SafeWidget>
           </div>
+        )}
+        {!why && (
+          <AddToList
+            selected={runOrder.filter((sym) => ticked.has(sym))}
+            matches={matched}
+            query={ran?.query ?? ""}
+            asOf={answered.as_of_date ?? null}
+            onDone={() => setTicked(new Set())}
+          />
         )}
         <p data-testid="screener-results-coverage" className="m-0" style={{ fontSize: 12, lineHeight: 1.6, color: "var(--cp-ink-3)" }}>
           {notes.map((n, i) => (
@@ -257,6 +287,8 @@ function KeepAsWatchlist({ ran, request }: { ran: RanScreen; request: ScreenRunR
   return (
     <SaveAsWatchlist
       idPrefix="screener-watchlist"
+      prompt="Keep this screen: the rules are saved and re-run each day, so it lists whatever passes it then. To keep today’s stocks instead, use Add to a list above."
+      buttonLabel="Keep this screen (re-runs daily)"
       pending={create.isPending}
       error={create.error}
       savedName={create.data?.name ?? null}
