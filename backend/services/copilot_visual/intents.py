@@ -13,7 +13,8 @@ the seven Release-1 intents and the chat takes its usual path unchanged.
     expected_move      "What is the expected move in Nifty?" (NIFTY or BANKNIFTY), PCR / max pain / ATM IV of an index
 
 Release 2:
-    open_trades        "What are my open trades doing?", "my open positions" — the paper book, not a broker's
+    open_trades        "What are my open trades doing?", "my open positions", "my broker positions" — the user's broker book
+                       (live when signed in, else the last stored read; the connect prompt when none) and the paper book
     fno_setups         "Which F&O setups are attractive?" — index and stock F&O, ranked by fit to today's regime
     trade_validity     "Is my trade in X still valid?", "has my thesis on X weakened?" — a named or thread stock
     exit_options       "Should I book profits or hold X?", "should I trail my stop?" — a named or thread stock
@@ -49,7 +50,7 @@ from typing import Any, Dict, Iterable, Optional
 
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
            "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review",
-           "sector_rotation", "results_calendar", "event_intelligence")
+           "sector_rotation", "results_calendar", "event_intelligence", "portfolio_hedge")
 # Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
 SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
@@ -127,7 +128,8 @@ _MARKET_VIEW = re.compile(
 _OPEN_TRADES = re.compile(
     r"\bmy\s+open\s+(trades?|positions?)\b|\bopen\s+trades?\b|\bwhat\s+are\s+my\s+(trades?|positions?)\s+doing\b|"
     r"\bhow\s+are\s+my\s+(trades?|positions?)\s+(doing|going)\b|\bmy\s+(trades?|positions?)\s+today\b|"
-    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b", re.I)
+    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b|"
+    r"\b(my\s+)?broker\s+(positions?|trades?|book|portfolio)\b", re.I)
 _FNO_SETUPS = re.compile(
     r"\b(f&o|fno|options?|futures)\s+(setups?|strateg(y|ies)|trades?|ideas?|opportunit\w+)\b|"
     r"\bwhich\s+(f&o|fno|options?)\b.{0,30}\battractive\b|\boptions?\s+trading\s+ideas?\b|"
@@ -143,6 +145,62 @@ _POSITION_SIZE = re.compile(
     r"\bposition\s+siz\w*|\bhow\s+much\s+(should|can|do)\s+i\s+risk\b|\bhow\s+many\s+(shares?|lots?|units?)\s+(should|can)\s+i\s+"
     r"(buy|trade|take)\b|\bwhat\s+(size|quantity)\s+(should|can)\s+i\s+(take|buy|trade)\b|\brisk\s+budget\b|"
     r"\bdaily\s+loss\s+limit\b.{0,20}\bused\b", re.I)
+
+# ── Quick Hedge: protecting the user's portfolio against a Nifty fall (services/quick_hedge) ──────────────────
+# Checked BEFORE the _NOT_OURS gate: "protect my portfolio" names the portfolio but asks for a hedge, which this engine
+# answers; every other question about "my portfolio" is still not ours. A named stock is never a portfolio hedge.
+_PORTFOLIO_HEDGE = re.compile(
+    r"\b(hedg\w*|protect\w*|insur\w*|safeguard|shield)\b.{0,40}\b(portfolio|holdings?|investments?|stocks|shares|equit\w+|money|savings|me|us)\b|"
+    r"\b(portfolio|holdings?)\b.{0,30}\b(hedg\w*|protection|protect)\b|\bdownside\s+protection\b|\bquick\s+hedge\b|"
+    r"\b(put\s+protection|protective\s+put)\b|\b(my|this|the)\s+hedge\b|\bhedge\s+(ideas?|options?|strateg\w+)\b|"
+    r"\b(type|kind)s?\s+of\s+hedge\b|\b(cheapest|best)\s+(protection|hedge)\b|\bhow\s+much\s+protection\b|\bprotection\s+(options?|ideas?)\b|"
+    r"\b(don'?t|do\s+not)\s+want\s+to\s+lose\s+more\s+than\b|"
+    r"\bwhat\s+(happens|would\s+happen|if)\b.{0,30}\b(nifty|market|sensex)\b.{0,20}\b(fall|falls|drop|drops|crash\w*|declin\w+|correct\w+)\b", re.I)
+_HEDGE_NOT = re.compile(r"\bhedge\s+funds?\b|\bstop[- ]?loss\b|\bexit\b", re.I)
+_HEDGE_FALL = re.compile(
+    r"(\d{1,2}(?:\.\d+)?)\s*%\s*(?:fall|drop|crash|correction|decline|dip|down)|"
+    r"(?:fall|falls|drop|drops|crash|correction|decline|dip)\w*\s*(?:of|by|to|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%|"
+    r"against\s+an?\s+(\d{1,2}(?:\.\d+)?)\s*%", re.I)
+_HEDGE_LOSE_PCT = re.compile(
+    r"(?:lose|loss|losing|tolerate|accept|afford)\w*\s*(?:more\s+than|over|above|beyond|up\s+to|at\s+most|of|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I)
+_HEDGE_LOSE_RS = re.compile(
+    r"(?:lose|loss|losing|tolerate|accept|afford|risk)\w*\s*(?:more\s+than|over|above|beyond|up\s+to|at\s+most|of|about|around)?\s*"
+    r"(?:₹|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d+)?)\s*(lakhs?|lacs?|crores?|cr|k|thousand|l)?\b(?!\s*%)", re.I)
+_HEDGE_UNIT = {"lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "l": 1e5, "crore": 1e7, "crores": 1e7, "cr": 1e7, "k": 1e3, "thousand": 1e3}
+_HEDGE_TENOR = (("1w", re.compile(r"\b(1|one|a)\s+week\b|\bweekly\b", re.I)), ("2w", re.compile(r"\b(2|two)\s+weeks?\b|\bfortnight\b", re.I)),
+                ("3m", re.compile(r"\b(3|three)\s+months?\b|\bquarter\b", re.I)), ("1m", re.compile(r"\b(1|one|a)\s+month\b|\b30\s+days\b|\bmonthly\b", re.I)))
+_HEDGE_MODE = (("maximum", re.compile(r"\b(max(imum)?|most)\s+protection\b", re.I)), ("lowest_cost", re.compile(r"\blowest\s+cost\b|\bcheap(er|est)?\b|\blow[- ]cost\b|\bput\s+spread\b", re.I)),
+                ("balanced", re.compile(r"\bbalanced\b", re.I)))
+
+
+def hedge_params(message: str) -> Dict[str, Any]:
+    """What a hedge question states: the fall feared, the loss tolerated (rupees or percent), the period and the choice asked about.
+    Only what is written; the builder says which defaults it used for the rest."""
+    out: Dict[str, Any] = {}
+    m = _HEDGE_FALL.search(message)
+    if m:
+        v = float(next(g for g in m.groups() if g))
+        if 0 < v <= 50:
+            out["expected_fall_pct"] = v
+    m = _HEDGE_LOSE_PCT.search(message)
+    if m and 0 < float(m.group(1)) <= 100:
+        out["tolerance_pct"] = float(m.group(1))
+    else:
+        m = _HEDGE_LOSE_RS.search(message)
+        if m:
+            v = float(m.group(1).replace(",", "")) * _HEDGE_UNIT.get((m.group(2) or "").lower(), 1.0)
+            if v > 0:
+                out["tolerance_rs"] = v
+    for tenor, rx in _HEDGE_TENOR:
+        if rx.search(message):
+            out["tenor"] = tenor
+            break
+    for mode, rx in _HEDGE_MODE:
+        if rx.search(message):
+            out["mode"] = mode
+            break
+    return out
+
 
 # ── Release 3 ────────────────────────────────────────────────────────────────
 _DAILY_REVIEW = re.compile(
@@ -388,6 +446,8 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
                    last_symbol: Optional[str] = None) -> Optional[Intent]:
     """The Release-1 intent of a Copilot question, or None (the chat's usual path)."""
     msg = (message or "").strip()
+    if msg and len(msg) <= 400 and _PORTFOLIO_HEDGE.search(msg) and not _HEDGE_NOT.search(msg) and stock_in(msg) is None:
+        return Intent("portfolio_hedge", params=hedge_params(msg))
     if not msg or len(msg) > 400 or _NOT_OURS.search(msg):
         return None
     trader = _is_trader(persona, surface)

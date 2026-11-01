@@ -131,6 +131,12 @@ export const briefsBlock = z.object({
     /** The stored AI summary, verbatim; null when none exists (then `body_note` says why). */
     body: optStr, body_note: optStr,
     points: z.array(z.object({ text: str, tone: optTone })).catch([]).default([]),
+    /** The stored AI read in five lines (What happened / Why it matters / Market impact / What to watch / AI take) with its signal chip:
+     *  🟢 up · 🔴 down · 🟡 warn (mixed) · ⚪ neutral (informational), an impact level and a confidence. */
+    commentary: z.object({
+      signal: z.object({ label: str, tone: z.enum(["up", "down", "warn", "neutral"]).catch("neutral"), impact: optStr, confidence: num.nullable().optional().catch(undefined) }),
+      lines: z.array(z.object({ label: str, text: str })).min(1),
+    }).optional().catch(undefined),
     links: briefLinks.default([]),
     ask: optStr,
   })).min(1),
@@ -212,8 +218,12 @@ export const visualAnswer = z.object({
   }).nullable().catch(null).default(null),
   follow_ups: z.array(z.object({ label: str, query: str })).catch([]).default([]),
   caveat: optStr.catch(null),
+  /** An answer that keeps itself current (open trades on the broker book): the page asks `path` every `interval_s` seconds
+   *  while the market is open and the answer is on screen, and swaps in the blocks it names (`block_ids`) by id. */
+  refresh: z.object({ path: str.startsWith("/api/"), interval_s: num.min(5), block_ids: z.array(str).min(1) }).nullable().catch(null).default(null),
 });
 export type VisualAnswerPayload = z.infer<typeof visualAnswer>;
+export type AnswerRefresh = NonNullable<VisualAnswerPayload["refresh"]>;
 
 export type ParsedAnswer = { ok: true; answer: VisualAnswerPayload; blocks: ParsedBlock[] } | { ok: false; problem: string };
 

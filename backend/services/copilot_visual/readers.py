@@ -27,6 +27,11 @@ Release 2:
     risk_profile        services.risk_profile.read — GET /api/risk/profile (the account's own limits)
     latest_trade_plan   Mongo trade_plans, the newest stored plan for a symbol (services.strategy_plan.trade_plan.COLLECTION)
 
+Portfolio hedge (Quick Hedge):
+    hedge_enabled       the `portfolio_hedge` feature flag for this person (fail-closed, same rule as routes' require_feature)
+    quick_hedge         services.quick_hedge.service.run — POST /api/portfolio/quick-hedge (reads only; the language model
+                        never sees an input or makes a number)
+
 F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
     in_session          09:15-15:30 IST on a weekday (services.kite_live_feed.day_quote.in_session)
     fno_live_quotes     Kite REST quote() for the named option contracts, only those that traded today
@@ -34,6 +39,17 @@ F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
     margin_calculators  Zerodha's margin calculator: the platform's Kite login, else the user's own Zerodha session
     fno_margins         one basket-margin call per structure
 
+Broker book (owner, 31 Oct 2026; services/positions/book.py, services/copilot_visual/open_book.py):
+    open_book           every connected broker account's state, net positions (or the last stored read), funds, the groups worked
+                        out by the positions service, and the plan the user recorded: Mongo broker_accounts / position_snapshots /
+                        position_levels / trade_plans, the brokers through services/brokers/hub_reads (read-only, cached 15 s)
+    underlying_quotes   the platform Kite feed's price of the underlyings held (Redis, no broker call)
+    position_margins    Zerodha's margin calculator for the F&O legs of each group (the platform's Kite login, else the user's own)
+
+Broker trades in the review (owner, 31 Oct 2026; services/positions/trade_book.py):
+    broker_trades       every connected account's state and the days of its trade book kept (a live account's day is read now,
+                        Zerodha and ICICI Direct only; other brokers are "not supported" with the reason): Mongo broker_trade_days
+    broker_review_refs  the user's own stops (position_levels) and the plans they recorded (trade_plans) for the underlyings traded
 Results and market-research events (owner, 31 Oct 2026; events_builders.py):
     results_rows        the desk's results calendar (DaaS /desk/events-calendar/expectations, services.results_week.loaders) for a date
                         range, each meeting's status and verdict "vs historical trend" by the desk's own functions
@@ -244,6 +260,29 @@ async def risk_decisions(user_id: str, since_utc: str, limit: int = 1000) -> Lis
     ).sort("at", -1).to_list(limit)
 
 
+async def hedge_enabled(user: Dict[str, Any]) -> bool:
+    """The portfolio_hedge flag for this person. Any failure to read the flag state is a no."""
+    import feature_flags as ff
+    import feature_gate
+    from deps import db
+    try:
+        await feature_gate.refresh_if_stale(db)
+        email = (user or {}).get("email")
+        owner = (user or {}).get("_session_user_id")
+        if owner and owner != (user or {}).get("user_id"):          # an advisor acting for a client: the logged-in person's flag
+            doc = await db.users.find_one({"user_id": owner}, {"_id": 0, "email": 1})
+            email = (doc or {}).get("email")
+        return bool(ff.is_enabled("portfolio_hedge", email))
+    except Exception:  # noqa: BLE001 — fail closed
+        return False
+
+
+async def quick_hedge(user_id: str, **kw: Any) -> Dict[str, Any]:
+    from deps import db
+    from services.quick_hedge import service
+    return await service.run(db, user_id, **kw)
+
+
 # ── F&O board: live premiums and margin ──────────────────────────────────────
 
 def in_session(now: Any = None) -> bool:
@@ -280,6 +319,47 @@ async def margin_calculators(request: Any, user_id: Optional[str]):
 async def fno_margins(calcs: Any, items: Any) -> Dict[str, Dict[str, Any]]:
     from . import fno_board
     return await fno_board.margins(calcs, items)
+
+
+# ── Broker book (open trades on the user's own broker positions) ─────────────
+
+async def open_book(request: Any, user_id: str, use_cache: bool = False) -> Dict[str, Any]:
+    """{hub, accounts, groups}: see services/positions/book.build. `use_cache` serves the live ticks from the last analysis."""
+    from deps import db
+    from services.positions import book
+    return await book.build(request, db, user_id, use_cache=use_cache)
+
+
+async def underlying_quotes(symbols: List[str]) -> Dict[str, Any]:
+    from services.positions import service
+    return await service.underlying_quotes(symbols)
+
+
+async def position_margins(request: Any, user_id: Optional[str], requests: Dict[str, Dict[str, Any]]):
+    """({key: {estimate, reason, source}}, facts for the login notice). `requests` maps a key to a POST /api/fno/margin body."""
+    from . import fno_board
+    calcs, facts = await fno_board.margin_calculators(request, user_id)
+    items = [(k, r["underlying"], [{"kind": "option", "side": l["side"], "option_type": l["option_type"], "expiry": l["expiry"],
+                                    "strike": l.get("strike"), "quantity": l["lots"]} for l in r["legs"]])
+             for k, r in requests.items()]
+    return await fno_board.margins(calcs, items), facts
+
+
+# ── Broker trades in the daily review ────────────────────────────────────────
+
+async def broker_trades(request: Any, user_id: str) -> Dict[str, Any]:
+    from deps import db
+    from services.positions import trade_book
+    return await trade_book.review_data(request, db, user_id)
+
+
+async def broker_review_refs(user_id: str, underlyings: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{levels: {underlying: position_levels doc}, plans: {underlying: the newest plan the user holds}} for `underlyings`."""
+    from deps import db
+    from services.positions import book, store
+    want = set(underlyings)
+    levels = {u: d for u, d in (await store.read_levels(db, user_id)).items() if u in want}
+    return {"levels": levels, "plans": await book.plans_for(db, user_id, sorted(want))}
 
 
 # ── Results and market-research events (owner, 31 Oct 2026) ──────────────────────────────────────────────────

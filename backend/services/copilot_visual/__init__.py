@@ -56,7 +56,8 @@ AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "
              "stock_decision": "stock_analyst", "open_trades": "market_analyst", "fno_setups": "market_analyst",
              "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
              "daily_review": "market_analyst", "sector_rotation": "market_analyst",
-             "results_calendar": "market_analyst", "event_intelligence": "market_analyst"}
+             "results_calendar": "market_analyst", "event_intelligence": "market_analyst",
+             "portfolio_hedge": "portfolio_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 
@@ -102,6 +103,8 @@ async def prepare(request: Any, user: Dict[str, Any], message: str, persona: Opt
         return None
     if intent is None:
         return None
+    if intent.name == "portfolio_hedge" and not await readers.hedge_enabled(user):
+        return None                                   # flag off for this person: the question takes the usual chat path
     agent = AGENT_FOR[intent.name]
     idea = None
     try:

@@ -17,11 +17,12 @@
  *
  * `compact` is the trading-desk dock's inline layout: tighter spacing, charts in their narrow form.
  */
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { BlockFrame, BlockGuard, BlockNote, quiet } from "./blocks/common";
 import { BlockView } from "./blocks/registry";
 import { fmtDay, fmtStamp, toneColor } from "./format";
-import { parseVisualAnswer, type Decision, type VisualAnswerPayload } from "./schema";
+import { parseBlock, parseVisualAnswer, type Decision, type ParsedBlock, type VisualAnswerPayload } from "./schema";
+import { useLiveAnswer } from "./useLiveAnswer";
 
 type Action = { intent?: string; label?: string; query?: string };
 
@@ -45,6 +46,9 @@ const eyebrow: CSSProperties = { fontWeight: 400, fontSize: 9.5, margin: 0 };
 
 export function VisualAnswer({ data, onAction, compact = false }: { data: unknown; onAction?: (a: Action) => void; compact?: boolean }) {
   const parsed = useMemo(() => parseVisualAnswer(data), [data]);
+  const [box, setBox] = useState<HTMLElement | null>(null);
+  const liveRefresh = parsed.ok ? parsed.answer.refresh : null;
+  const live = useLiveAnswer(liveRefresh, parsed.ok ? parsed.answer.generated_at ?? null : null, box);
   if (!parsed.ok) {
     return (
       <div data-testid="va-invalid" role="note" style={{ ...quiet, padding: "8px 12px", borderRadius: 10, border: "1px dashed var(--line-2)" }}>
@@ -58,9 +62,16 @@ export function VisualAnswer({ data, onAction, compact = false }: { data: unknow
   const staleSources = sources.filter((s) => s.status === "stale");
   const stale = !!a.data_quality?.stale || staleSources.length > 0;
   const gap = compact ? 14 : 18;
+  // The blocks the server re-sent (a live answer), by id; one that does not parse leaves the block already shown.
+  const shown: ParsedBlock[] = parsed.blocks.map((p, i) => {
+    const raw = p.kind === "ok" && p.block.id ? live.blocks[p.block.id] : undefined;
+    if (raw === undefined) return p;
+    const o = parseBlock(raw, i);
+    return o.kind === "ok" ? { ...o, key: p.key } : p;
+  });
 
   return (
-    <article data-testid="va" data-intent={a.intent} data-mode={a.mode ?? ""} data-stale={stale ? "true" : "false"} data-compact={compact ? "true" : "false"}
+    <article ref={setBox} data-testid="va" data-intent={a.intent} data-mode={live.mode ?? a.mode ?? ""} data-live={live.kind} data-stale={stale ? "true" : "false"} data-compact={compact ? "true" : "false"}
       aria-label={a.title} className="flex min-w-0 flex-col"
       style={{ gap, padding: compact ? 12 : 16, borderRadius: 14, border: "1px solid var(--line-2)", background: "var(--bg-1)" }}>
       <header className="flex min-w-0 flex-col" style={{ gap: 6 }}>
@@ -68,8 +79,9 @@ export function VisualAnswer({ data, onAction, compact = false }: { data: unknow
         <h3 data-testid="va-title" className="m-0" style={{ fontFamily: "var(--display)", fontWeight: 400, fontSize: compact ? 18 : 22, lineHeight: 1.2, letterSpacing: "-0.02em", color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{a.title}</h3>
         <span data-testid="va-asof" className="flex flex-wrap items-center" style={{ gap: "4px 8px", fontSize: 12, color: "var(--cp-ink-3)" }}>
           <span>Data of <span className="cp-num" data-testid="va-asof-day">{a.as_of ? fmtDay(a.as_of) : "an unknown day"}</span></span>
-          {a.mode && <span data-testid="va-mode" className="cp-pill" data-tone={a.mode === "live" ? "mint" : a.mode === "mixed" ? "amber" : undefined}>{MODE[a.mode]}</span>}
+          {(live.mode ?? a.mode) && <span data-testid="va-mode" className="cp-pill" data-tone={(live.mode ?? a.mode) === "live" ? "mint" : (live.mode ?? a.mode) === "mixed" ? "amber" : undefined}>{MODE[(live.mode ?? a.mode) as string]}</span>}
           {a.generated_at && <span>· built {fmtStamp(a.generated_at)}</span>}
+          {a.refresh && <LiveChip live={live} />}
         </span>
       </header>
 
@@ -94,7 +106,7 @@ export function VisualAnswer({ data, onAction, compact = false }: { data: unknow
 
       {a.decision && <DecisionPanel d={a.decision} />}
 
-      {parsed.blocks.map((p) => {
+      {shown.map((p) => {
         if (p.kind === "unsupported") {
           return <BlockNote key={p.key} testId="va-block-unsupported">{p.title ? `${p.title}: ` : ""}this part of the answer (“{p.type}”) is not supported yet.</BlockNote>;
         }
@@ -126,6 +138,20 @@ export function VisualAnswer({ data, onAction, compact = false }: { data: unknow
       {a.caveat && <p data-testid="va-caveat" className="m-0" style={{ ...quiet, fontSize: 11.5 }}>{a.caveat}</p>}
     </article>
   );
+}
+
+/** "Live · updated 3s ago" while the page is asking; otherwise what the page shows and since when (never "live" for a stopped answer). */
+function LiveChip({ live }: { live: ReturnType<typeof useLiveAnswer> }) {
+  const at = live.lastOkAt != null ? new Date(live.lastOkAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) : null;
+  const ago = live.secondsAgo ?? 0;
+  const text =
+    live.kind === "live" ? `Live · updated ${ago}s ago`
+    : live.kind === "paused" ? `Paused while you are away · updated ${ago}s ago`
+    : live.kind === "closed" ? `Updates stopped${live.why ? `: ${live.why}` : ""} · as of ${at ?? "—"} IST`
+    : live.kind === "lost" ? `Live feed lost · showing the read of ${at ?? "—"} IST`
+    : "As of the time it was built";
+  const tone = live.kind === "live" ? "mint" : live.kind === "lost" ? "amber" : undefined;
+  return <span data-testid="va-live" data-state={live.kind} className="cp-pill" data-tone={tone} role="status">{text}</span>;
 }
 
 function DecisionPanel({ d }: { d: Decision }) {

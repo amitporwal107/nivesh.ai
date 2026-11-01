@@ -1,0 +1,349 @@
+{
+ "policy_version": "quick-hedge-v1",
+ "status": "ok",
+ "reasons": [],
+ "expiry": "2026-12-01",
+ "modes": [
+  {
+   "mode": "maximum",
+   "available": true,
+   "place_allowed": true,
+   "reason": null,
+   "structure": "long_put",
+   "legs": [
+    {
+     "side": "buy",
+     "type": "put",
+     "strike": 22450.0,
+     "qty": 65,
+     "premium": 172.28
+    }
+   ],
+   "scenario_rows": [
+    {
+     "move_pct": 10,
+     "nifty_level": 25300.000000000004,
+     "without_hedge_rs": 200000.0,
+     "hedge_pnl_rs": -11256.050000000001,
+     "with_hedge_rs": 188743.95,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": 5,
+     "nifty_level": 24150.0,
+     "without_hedge_rs": 100000.0,
+     "hedge_pnl_rs": -11256.050000000001,
+     "with_hedge_rs": 88743.95,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": 0,
+     "nifty_level": 23000.0,
+     "without_hedge_rs": 0.0,
+     "hedge_pnl_rs": -11256.050000000001,
+     "with_hedge_rs": -11256.050000000001,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -5,
+     "nifty_level": 21850.0,
+     "without_hedge_rs": -100000.0,
+     "hedge_pnl_rs": 27649.55,
+     "with_hedge_rs": -72350.45,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -10,
+     "nifty_level": 20700.0,
+     "without_hedge_rs": -200000.0,
+     "hedge_pnl_rs": 102218.61,
+     "with_hedge_rs": -97781.39,
+     "is_expected_fall": true
+    },
+    {
+     "move_pct": -15,
+     "nifty_level": 19550.0,
+     "without_hedge_rs": -300000.0,
+     "hedge_pnl_rs": 176787.69999999998,
+     "with_hedge_rs": -123212.30000000002,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -20,
+     "nifty_level": 18400.0,
+     "without_hedge_rs": -400000.0,
+     "hedge_pnl_rs": 251356.77,
+     "with_hedge_rs": -148643.23,
+     "is_expected_fall": false
+    }
+   ],
+   "deductible_rs": 47826.086956521736,
+   "deductible_pct": 2.391304347826087,
+   "protection_starts_at": 22450.0,
+   "protection_at_expected_fall_rs": 113750.0,
+   "max_protection_rs": null,
+   "break_even_level": 22277.72,
+   "cost": {
+    "premium_rs": 11198.2,
+    "charges_rs": 34.25,
+    "total_rs": 11232.45,
+    "pct_of_portfolio": 0.4492980000000001,
+    "charges_included": true
+   },
+   "worst_scenario_shown_rs": -148643.23
+  },
+  {
+   "mode": "balanced",
+   "available": true,
+   "place_allowed": true,
+   "reason": null,
+   "structure": "long_put",
+   "legs": [
+    {
+     "side": "buy",
+     "type": "put",
+     "strike": 21850.0,
+     "qty": 65,
+     "premium": 120.0
+    }
+   ],
+   "scenario_rows": [
+    {
+     "move_pct": 10,
+     "nifty_level": 25300.000000000004,
+     "without_hedge_rs": 200000.0,
+     "hedge_pnl_rs": -7854.610000000001,
+     "with_hedge_rs": 192145.39,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": 5,
+     "nifty_level": 24150.0,
+     "without_hedge_rs": 100000.0,
+     "hedge_pnl_rs": -7854.610000000001,
+     "with_hedge_rs": 92145.39,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": 0,
+     "nifty_level": 23000.0,
+     "without_hedge_rs": 0.0,
+     "hedge_pnl_rs": -7854.610000000001,
+     "with_hedge_rs": -7854.610000000001,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -5,
+     "nifty_level": 21850.0,
+     "without_hedge_rs": -100000.0,
+     "hedge_pnl_rs": -7854.610000000001,
+     "with_hedge_rs": -107854.61,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -10,
+     "nifty_level": 20700.0,
+     "without_hedge_rs": -200000.0,
+     "hedge_pnl_rs": 66714.46,
+     "with_hedge_rs": -133285.53999999998,
+     "is_expected_fall": true
+    },
+    {
+     "move_pct": -15,
+     "nifty_level": 19550.0,
+     "without_hedge_rs": -300000.0,
+     "hedge_pnl_rs": 141283.53,
+     "with_hedge_rs": -158716.47,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -20,
+     "nifty_level": 18400.0,
+     "without_hedge_rs": -400000.0,
+     "hedge_pnl_rs": 215852.59999999998,
+     "with_hedge_rs": -184147.40000000002,
+     "is_expected_fall": false
+    }
+   ],
+   "deductible_rs": 100000.0,
+   "deductible_pct": 5.0,
+   "protection_starts_at": 21850.0,
+   "protection_at_expected_fall_rs": 74750.0,
+   "max_protection_rs": null,
+   "break_even_level": 21730.0,
+   "cost": {
+    "premium_rs": 7800.0,
+    "charges_rs": 31.01,
+    "total_rs": 7831.01,
+    "pct_of_portfolio": 0.31324040000000003,
+    "charges_included": true
+   },
+   "worst_scenario_shown_rs": -184147.40000000002
+  },
+  {
+   "mode": "lowest_cost",
+   "available": true,
+   "place_allowed": true,
+   "reason": null,
+   "structure": "put_spread",
+   "legs": [
+    {
+     "side": "buy",
+     "type": "put",
+     "strike": 21850.0,
+     "qty": 65,
+     "premium": 120.0
+    },
+    {
+     "side": "sell",
+     "type": "put",
+     "strike": 20700.0,
+     "qty": 65,
+     "premium": 60.0
+    }
+   ],
+   "scenario_rows": [
+    {
+     "move_pct": 10,
+     "nifty_level": 25300.000000000004,
+     "without_hedge_rs": 200000.0,
+     "hedge_pnl_rs": -4011.25,
+     "with_hedge_rs": 195988.75,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": 5,
+     "nifty_level": 24150.0,
+     "without_hedge_rs": 100000.0,
+     "hedge_pnl_rs": -4011.25,
+     "with_hedge_rs": 95988.75,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": 0,
+     "nifty_level": 23000.0,
+     "without_hedge_rs": 0.0,
+     "hedge_pnl_rs": -4011.25,
+     "with_hedge_rs": -4011.25,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -5,
+     "nifty_level": 21850.0,
+     "without_hedge_rs": -100000.0,
+     "hedge_pnl_rs": -4011.25,
+     "with_hedge_rs": -104011.25,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -10,
+     "nifty_level": 20700.0,
+     "without_hedge_rs": -200000.0,
+     "hedge_pnl_rs": 70557.81999999999,
+     "with_hedge_rs": -129442.18000000001,
+     "is_expected_fall": true
+    },
+    {
+     "move_pct": -15,
+     "nifty_level": 19550.0,
+     "without_hedge_rs": -300000.0,
+     "hedge_pnl_rs": 70305.84999999999,
+     "with_hedge_rs": -229694.15000000002,
+     "is_expected_fall": false
+    },
+    {
+     "move_pct": -20,
+     "nifty_level": 18400.0,
+     "without_hedge_rs": -400000.0,
+     "hedge_pnl_rs": 70053.86,
+     "with_hedge_rs": -329946.14,
+     "is_expected_fall": false
+    }
+   ],
+   "deductible_rs": 100000.0,
+   "deductible_pct": 5.0,
+   "protection_starts_at": 21850.0,
+   "protection_at_expected_fall_rs": 74750.0,
+   "max_protection_rs": 74750.0,
+   "break_even_level": 21790.0,
+   "cost": {
+    "premium_rs": 3900.0,
+    "charges_rs": 64.05,
+    "total_rs": 3964.05,
+    "pct_of_portfolio": 0.158562,
+    "charges_included": true
+   },
+   "worst_scenario_shown_rs": -329946.14
+  }
+ ],
+ "exposure": {
+  "portfolio_value_rs": 2500000.0,
+  "hedgeable_value_rs": 2000000.0,
+  "beta": 1.0,
+  "beta_adjusted_exposure_rs": 2000000.0,
+  "lot_notional_rs": 1495000.0,
+  "required_lots": 1.3377926421404682,
+  "executed_lots": 1,
+  "protected_pct": 74.75,
+  "residual_pct": 25.25,
+  "spot": 23000.0,
+  "lot": 65
+ },
+ "confidence": {
+  "level": "high",
+  "r2": 0.83,
+  "correlation": 0.91,
+  "message": "Nifty explains most of this portfolio's moves."
+ },
+ "disclosures": [
+  "Estimated scenario, not guaranteed future performance.",
+  "A hedge reduces the size of a possible loss but does not eliminate it; the premium is a cost whether or not it pays.",
+  "The portfolio is assumed to move with Nifty by its beta. If it does not track Nifty closely, the hedge will protect less (or more) than shown.",
+  "Option premiums are the last exchange closing prices, not live quotes. Figures are before income tax.",
+  "Nifty options are European-style and cash-settled at expiry; the hedge protects only if Nifty is below the strike at expiry."
+ ],
+ "inputs": {
+  "tolerance_rs": 100000.0,
+  "expected_fall_pct": 10.0
+ },
+ "tenor": "1m",
+ "data": {
+  "portfolio": {
+   "portfolio_value_rs": 2500000.0,
+   "hedgeable_value_rs": 2000000.0,
+   "excluded_rs": {
+    "hybrid": 300000.0,
+    "debt": 0.0,
+    "gold": 200000.0,
+    "other": 0.0,
+    "unclassified": 0.0
+   },
+   "beta": 1.0,
+   "beta_coverage": 1.0,
+   "holdings_counted": 2,
+   "as_of": "2026-10-30"
+  },
+  "market": {
+   "as_of": "2026-10-30",
+   "expiry": "2026-12-01",
+   "days_to_expiry": 32,
+   "expiries": [
+    "2026-11-03",
+    "2026-12-01"
+   ],
+   "puts_traded": 81,
+   "source": "NSE F&O bhavcopy via the data platform (end of day)"
+  },
+  "fit": {
+   "r2": 0.83,
+   "correlation": 0.91,
+   "regression_beta": 1.02,
+   "observations": 252,
+   "coverage": 0.95,
+   "series_used": 2,
+   "window_start": "2025-10-31",
+   "window_end": "2026-10-30",
+   "reason": null
+  }
+ }
+}

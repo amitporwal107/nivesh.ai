@@ -132,19 +132,118 @@ def _range_text(a: date, b: date) -> str:
 
 
 def _verdict_badge(row: Dict[str, Any]) -> Tuple[str, str]:
-    """The desk's headline verdict against the company's own past quarters, else the filing analysis's band, else not rated."""
+    """The result rated against EXPECTATION: the desk's verdict against the company's own baseline built from its past quarters
+    (no analyst consensus is held, so nothing is called a beat or a miss against the street). Not rated otherwise; the filing's
+    sentiment is a different thing and is never passed off as this rating (it is in the commentary)."""
     v = row.get("verdict") or {}
     label, intensity = v.get("label"), v.get("intensity")
     if label == "above":
-        return ("Outstanding vs historical trend" if intensity == "outstanding" else "Above historical trend"), "up"
+        return ("Well above expectation" if intensity == "outstanding" else "Above expectation"), "up"
     if label == "in_line":
-        return "In line with historical trend", "neutral"
+        return "Meets expectation", "neutral"
     if label == "below":
-        return ("Well below historical trend" if intensity == "well_below" else "Below historical trend"), "down"
-    band = (row.get("outlook") or {}).get("net_band")
-    if band:
-        return f"Filing read: {_plain(band)}", _band_tone(band)
+        return ("Well below expectation" if intensity == "well_below" else "Below expectation"), "down"
     return "Not rated", "neutral"
+
+
+def _unrated_reason(row: Dict[str, Any]) -> Optional[str]:
+    """Why the desk could not rate a result, in plain words ("baseline too uncertain", "no reliable baseline")."""
+    r = ((row.get("verdict") or {}).get("reason") or "").strip()
+    if not r:
+        return None
+    return re.sub(r"^not rated:\s*", "", r, flags=re.I) or None
+
+
+# ── the five-line AI commentary of one event (owner, 1 Nov 2026) ─────────────────────────────────────────────────────────────
+# What happened / Why it matters / Market impact / What to watch / AI take, with a signal, an impact level and a confidence.
+# Every line is the STORED AI read (the filing analysis: summary, positives, negatives, open questions, band, materiality,
+# confidence, or the feed classifier's one-line, sentiment and impact). Nothing is generated here; a line the stored read does not
+# support says so.
+COMMENTARY_LABELS = ("What happened", "Why it matters", "Market impact", "What to watch", "AI take")
+NOT_STATED = "Not stated in the stored AI read."
+BAND_SIGNAL = {
+    "extremely_positive": ("Extremely positive", "up", "Bullish"), "strongly_positive": ("Strongly positive", "up", "Bullish"),
+    "moderately_positive": ("Moderately positive", "up", "Bullish"), "slightly_positive": ("Slightly positive", "up", "Bullish"),
+    "neutral_mixed": ("Mixed or neutral", "warn", "Mixed"),
+    "slightly_negative": ("Slightly negative", "down", "Bearish"), "moderately_negative": ("Moderately negative", "down", "Bearish"),
+    "strongly_negative": ("Strongly negative", "down", "Bearish"), "extremely_negative": ("Extremely negative", "down", "Bearish"),
+}
+FEED_SIGNAL = {"positive": ("Positive", "up", "Bullish"), "negative": ("Negative", "down", "Bearish"), "mixed": ("Mixed", "warn", "Mixed"),
+               "neutral": ("Neutral", "neutral", "Neutral")}
+INFORMATIONAL = ("Informational", "neutral", "Neutral")
+IMPACT_HIGH_AT, IMPACT_MEDIUM_AT = 70.0, 45.0           # the stored materiality score (0-100)
+
+
+def _impact_level(materiality: Any) -> Optional[str]:
+    m = num(materiality)
+    if m is None:
+        return None
+    return "High" if m >= IMPACT_HIGH_AT else "Medium" if m >= IMPACT_MEDIUM_AT else "Low"
+
+
+def _first_sentence(text: Any, cap: int = 200) -> Optional[str]:
+    t = " ".join(str(text or "").split())
+    if not t:
+        return None
+    first = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9₹])", t, maxsplit=1)[0]
+    if len(first) > cap:
+        first = first[:cap].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+    return first
+
+
+def _sentences(items: Any, n: int = 2) -> Optional[str]:
+    parts = [str(x).strip().rstrip(" .") for x in (items or []) if x and str(x).strip()][:n]
+    return (". ".join(parts) + ".") if parts else None
+
+
+def _commentary(text: Any, signal: Tuple[str, str, str], basis: str, materiality: Any = None, confidence: Any = None, pos: Any = (), neg: Any = (),
+                unk: Any = (), rating: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The five lines and the signal chip of one event, or None when the stored read has no text at all."""
+    happened = _first_sentence(text)
+    if not happened:
+        return None
+    label, tone, view = signal
+    if tone == "up":
+        why = _sentences(pos)
+    elif tone == "down":
+        why = _sentences(neg)
+    else:
+        a, b = _sentences(pos, 1), _sentences(neg, 1)
+        why = " ".join(x for x in ((f"For: {a}" if a else None), (f"Against: {b}" if b else None)) if x) or None
+    impact = _impact_level(materiality)
+    conf = num(confidence)
+    conf = int(round(conf)) if conf is not None else None
+    market = f"{view} — {basis}" + (f"; rated {rating.lower()} against its own baseline" if rating and rating != "Not rated" else "") + "."
+    watch = "; ".join(str(x).strip().rstrip(" .") for x in (unk or []) if x and str(x).strip())
+    watch = "; ".join(watch.split("; ")[:2]) if watch else None
+    take = " · ".join(x for x in (label, f"{impact} impact" if impact else None, f"confidence {conf}%" if conf is not None else None) if x)
+    lines = [happened, why or NOT_STATED, market, watch or NOT_STATED, f"{take} — an analysis of the filing, not a recommendation."]
+    return {"signal": {"label": label, "tone": tone, "impact": impact, "confidence": conf},
+            "lines": [{"label": l, "text": t} for l, t in zip(COMMENTARY_LABELS, lines)]}
+
+
+def _result_commentary(row: Dict[str, Any], file: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The commentary of an analysed result: the desk row's stored read plus, when the company's file carries the analysis of that same
+    filing, the positives, negatives and open questions the AI found in it."""
+    ol = row.get("outlook") or {}
+    if not (ol.get("analysed") and ol.get("summary")):
+        return None
+    aid = ol.get("announcement_id")
+    item = next((a for a in (file or {}).get("analyses") or [] if isinstance(a, dict) and aid and a.get("announcement_id") == aid), {})
+    signal = BAND_SIGNAL.get(ol.get("net_band") or "", INFORMATIONAL)
+    rating, _ = _verdict_badge(row)
+    return _commentary(ol["summary"], signal, f"a {signal[0].lower()} read of the results filing" if signal is not INFORMATIONAL else "no sentiment is stored for this filing",
+                       ol.get("materiality_score"), ol.get("confidence_score"), item.get("positives"), item.get("negatives"), item.get("open_questions"), rating)
+
+
+def _feed_commentary(r: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The commentary of a feed filing: its one-line AI read, the classifier's sentiment and impact. The classifier stores no factors or
+    open questions, so those two lines say so."""
+    sent = (r.get("sentiment") or "").lower()
+    signal = FEED_SIGNAL.get(sent, INFORMATIONAL)
+    impact = (r.get("impact") or "").lower()
+    mat = {"high": 80.0, "medium": 50.0, "low": 10.0}.get(impact)
+    return _commentary(r.get("one"), signal, f"a {signal[0].lower()} reading by the filing classifier" if signal is not INFORMATIONAL else "no sentiment is stored for this filing", mat)
 
 
 def _links_for(file: Optional[Dict[str, Any]], meeting: Optional[str], extra_url: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -213,7 +312,9 @@ def _calendar_card(row: Dict[str, Any], file: Optional[Dict[str, Any]], analyses
     ol = row.get("outlook") or {}
     day = iso_day(row.get("event_date"))
     badge, tone = _verdict_badge(row)
-    sub = " · ".join(x for x in (f"Declared {short_day(day)}", row.get("period_label"), "F&O" if row.get("fno") else None) if x)
+    why_unrated = _unrated_reason(row) if badge == "Not rated" else None
+    sub = " · ".join(x for x in (f"Declared {short_day(day)}", row.get("period_label"), "F&O" if row.get("fno") else None,
+                                 f"Not rated: {why_unrated}" if why_unrated else None) if x)
     if ol.get("analysed") and ol.get("summary"):
         band = f", filing read: {_plain(ol.get('net_band'))}" if ol.get("net_band") else ""
         stamp = _ist_day(ol.get("analyzed_at"))
@@ -221,9 +322,13 @@ def _calendar_card(row: Dict[str, Any], file: Optional[Dict[str, Any]], analyses
         note = f"AI summary of the results filing{', analysed ' + day_text(stamp) if stamp else ''}{band}. Not a recommendation."
     else:
         body, note = None, (NOT_ANALYSED if analyses_ok else "AI summary could not be read just now (the stored analyses were unavailable).")
-    return {"title": row.get("name") or row["symbol"], "symbol": row["symbol"], "sub": sub, "badge": badge, "tone": tone, "body": body,
+    card = {"title": row.get("name") or row["symbol"], "symbol": row["symbol"], "sub": sub, "badge": badge, "tone": tone, "body": body,
             "body_note": note, "points": _points_for(file, (date.fromisoformat(day) - timedelta(days=1)).isoformat() if day else None),
             "links": _links_for(file, day, row.get("filing_url")), "ask": f"Any recent announcements for {row['symbol']}?"}
+    comm = _result_commentary(row, file)
+    if comm:
+        card["commentary"] = comm
+    return card
 
 
 def _card_order(r: Dict[str, Any]) -> tuple:
@@ -303,15 +408,16 @@ async def results_calendar(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any
     kpis.append({"label": "F&O names", "value": str(n_fno)})
     if decl:
         rated = sum(trend.values())
-        kpis.append({"label": "Above · in line · below", "value": f"{trend['above']} · {trend['in_line']} · {trend['below']}",
-                     "sub": f"{len(decl) - rated} not rated · against each company's own past quarters, not analyst consensus"})
+        kpis.append({"label": "Above · meets · below", "value": f"{trend['above']} · {trend['in_line']} · {trend['below']}",
+                     "sub": f"{len(decl) - rated} not rated · expectation = each company's own baseline from its past quarters, not analyst consensus"})
     blocks: List[Dict[str, Any]] = [block("kpis", "counts", "Results in this window", None, items=kpis)]
     if cards:
         blocks.append(block(
             "briefs", "declared", "Declared results · AI summary, management commentary, source filings",
-            f"Showing {len(cards)} of {len(decl)} declared results: the ones with an AI summary first, F&O names first within them. The badge compares a result "
-            "with the company's own past quarters (no analyst consensus is held), so nothing here is a beat or a miss. Summaries are Nivesh's stored AI analyses "
-            "of the filings, not recommendations.", items=cards))
+            f"Showing {len(cards)} of {len(decl)} declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result "
+            "Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so "
+            "nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and "
+            "confidence are the analysis's, not recommendations.", items=cards))
     waiting = sorted(held + due, key=lambda r: (0 if r.get("fno") else 1, str(r.get("event_date")), r["symbol"]))
     if waiting:
         shown = waiting[:LIST_CAP]
@@ -384,9 +490,13 @@ def _feed_card(r: Dict[str, Any]) -> Dict[str, Any]:
     sub = " · ".join(x for x in (day_text(_ist_day(r.get("date"))), r.get("exchange") or "Exchange", r.get("docLabel")) if x)
     link = lk.link("Source filing", r.get("url"))
     one = r.get("one")
-    return {"title": r.get("name") or sym or "Filing", "symbol": sym, "sub": sub, "badge": badge, "tone": tone, "body": one,
+    card = {"title": r.get("name") or sym or "Filing", "symbol": sym, "sub": sub, "badge": badge, "tone": tone, "body": one,
             "body_note": AI_NOTE if one else NOT_ANALYSED, "points": [], "links": [link] if link else [],
             "ask": f"Any recent announcements for {sym}?" if sym else None}
+    comm = _feed_commentary(r) if one else None
+    if comm:
+        card["commentary"] = comm
+    return card
 
 
 def _feed_order(r: Dict[str, Any]) -> tuple:
@@ -513,9 +623,7 @@ async def _company_file_answer(intent: Intent, ctx: Dict[str, Any], fu) -> Dict[
     others = tuple(r for r in earn if r is not main)
     one = (main or {}).get("one")
     if cal_row:
-        badge, tone = _verdict_badge(cal_row)
-        if badge == "Not rated" and main:
-            badge, tone = _feed_badge(main)
+        badge, tone = _verdict_badge(cal_row)               # Below / Meets / Above expectation, or "Not rated" (the classifier's read is in the commentary)
     else:
         badge, tone = _feed_badge(main) if main else (None, None)
     sub = " · ".join(x for x in ((f"Result filed {day_text(result_day)}" if result_day else None), (cal_row or {}).get("period_label"),
@@ -530,9 +638,13 @@ async def _company_file_answer(intent: Intent, ctx: Dict[str, Any], fu) -> Dict[
             "body_note": AI_NOTE if one else NOT_ANALYSED,
             "points": _points_for(file, (date.fromisoformat(result_day) - timedelta(days=1)).isoformat() if result_day else None, others),
             "links": links_[:5], "ask": f"Any order wins for {sym}?"}
-    blocks = [block("briefs", "events", f"{name} · latest results", "The badge compares the result with the company's own past quarters where the desk has rated it "
-                    "(no analyst consensus is held, so nothing here is a beat or a miss); otherwise it is an AI classifier's reading of the filing. "
-                    "Summaries are Nivesh's stored AI analyses of the filings, not recommendations.", items=[card]),
+    comm = (_result_commentary(cal_row, file) if cal_row else None) or (_feed_commentary(main) if main and one else None)
+    if comm:
+        card["commentary"] = comm
+    blocks = [block("briefs", "events", f"{name} · latest results", "The badge rates the result Below, Meets or Above expectation where the desk has rated it "
+                    "(expectation = the company's own baseline from its past quarters; no analyst consensus is held, so nothing here is a beat or a miss against the street); "
+                    "without a desk rating it is an AI classifier's reading of the filing. The five-line commentary and the summaries are Nivesh's stored AI "
+                    "analyses of the filings, not recommendations.", items=[card]),
               _open_intel("The company's full results file, with the price reaction and open interest, is in Market Intelligence.")]
     return _finish(assemble("event_intelligence", title, as_of, None, "neutral", blocks, src, fu, now=ctx.get("now")), as_of)
 

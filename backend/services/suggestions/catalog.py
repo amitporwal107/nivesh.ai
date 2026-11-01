@@ -90,6 +90,8 @@ QUERY_TEMPLATES: List[Dict[str, Any]] = [
      "intent": "position_size", "tab": "my_trades", "audience": ["trader"]},
     {"_id": "t_trade_validity", "label": "Is a trade still valid", "query": "Is my trade in {symbol} still valid?",
      "intent": "trade_validity", "tab": "my_trades", "audience": ["trader"], "params": ["symbol"]},
+    {"_id": "t_portfolio_hedge", "label": "Protect my portfolio", "query": "Protect my portfolio against a 15% fall",
+     "intent": "portfolio_hedge", "tab": "my_trades", "audience": ["investor", "trader"]},
     {"_id": "t_daily_review", "label": "What I learned today", "query": "What did I learn from today's trades?",
      "intent": "daily_review", "tab": "my_trades", "audience": ["trader"]},
     {"_id": "t_weekly_review", "label": "How I did this week", "query": "How did I do this week?",

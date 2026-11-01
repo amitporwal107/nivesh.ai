@@ -44,9 +44,9 @@
        "value": "4"
       },
       {
-       "label": "Above · in line · below",
+       "label": "Above · meets · below",
        "value": "1 · 1 · 1",
-       "sub": "9 not rated · against each company's own past quarters, not analyst consensus"
+       "sub": "9 not rated · expectation = each company's own baseline from its past quarters, not analyst consensus"
       }
      ]
     },
@@ -54,13 +54,13 @@
      "type": "briefs",
      "id": "declared",
      "title": "Declared results · AI summary, management commentary, source filings",
-     "note": "Showing 8 of 12 declared results: the ones with an AI summary first, F&O names first within them. The badge compares a result with the company's own past quarters (no analyst consensus is held), so nothing here is a beat or a miss. Summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "note": "Showing 8 of 12 declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and confidence are the analysis's, not recommendations.",
      "items": [
       {
        "title": "Reli Limited",
        "symbol": "RELI",
        "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "Above historical trend",
+       "badge": "Above expectation",
        "tone": "up",
        "body": "RELI stored summary.",
        "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately positive. Not a recommendation.",
@@ -94,37 +94,127 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for RELI?"
+       "ask": "Any recent announcements for RELI?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 70
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "RELI stored summary."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing; rated above expectation against its own baseline."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 70% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Alpha Limited",
        "symbol": "ALPHA",
        "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026)",
-       "badge": "Well below historical trend",
+       "badge": "Well below expectation",
        "tone": "down",
        "body": "ALPHA stored summary.",
        "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
        "points": [],
        "links": [],
-       "ask": "Any recent announcements for ALPHA?"
+       "ask": "Any recent announcements for ALPHA?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately negative",
+         "tone": "down",
+         "impact": "High",
+         "confidence": 70
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "ALPHA stored summary."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bearish — a moderately negative read of the results filing; rated well below expectation against its own baseline."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately negative · High impact · confidence 70% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Beta Limited",
        "symbol": "BETA",
-       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026)",
-       "badge": "Filing read: neutral mixed",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · Not rated: baseline too uncertain",
+       "badge": "Not rated",
        "tone": "neutral",
        "body": "BETA stored summary.",
        "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: neutral mixed. Not a recommendation.",
        "points": [],
        "links": [],
-       "ask": "Any recent announcements for BETA?"
+       "ask": "Any recent announcements for BETA?",
+       "commentary": {
+        "signal": {
+         "label": "Mixed or neutral",
+         "tone": "warn",
+         "impact": "Low",
+         "confidence": 70
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "BETA stored summary."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Mixed — a mixed or neutral read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Mixed or neutral · Low impact · confidence 70% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Fnoa Limited",
        "symbol": "FNOA",
        "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "In line with historical trend",
+       "badge": "Meets expectation",
        "tone": "neutral",
        "body": null,
        "body_note": "Not analysed yet",
@@ -135,7 +225,7 @@
       {
        "title": "Fnob Limited",
        "symbol": "FNOB",
-       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
        "badge": "Not rated",
        "tone": "neutral",
        "body": null,
@@ -147,7 +237,7 @@
       {
        "title": "Plain3 Limited",
        "symbol": "PLAIN3",
-       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "sub": "Declared 29 Oct · Q2 FY27 (Jul–Sep 2026) · Not rated: baseline too uncertain",
        "badge": "Not rated",
        "tone": "neutral",
        "body": null,
@@ -159,7 +249,7 @@
       {
        "title": "Plain2 Limited",
        "symbol": "PLAIN2",
-       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · Not rated: baseline too uncertain",
        "badge": "Not rated",
        "tone": "neutral",
        "body": null,
@@ -171,7 +261,7 @@
       {
        "title": "Plain6 Limited",
        "symbol": "PLAIN6",
-       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026)",
+       "sub": "Declared 28 Oct · Q2 FY27 (Jul–Sep 2026) · Not rated: baseline too uncertain",
        "badge": "Not rated",
        "tone": "neutral",
        "body": null,
@@ -347,7 +437,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for GAYA?"
+       "ask": "Any recent announcements for GAYA?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Gayatri won a Rs 342 crore contract."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Nourl Limited",
@@ -359,7 +479,37 @@
        "body_note": "AI summary of the filing. Not a recommendation.",
        "points": [],
        "links": [],
-       "ask": "Any recent announcements for NOURL?"
+       "ask": "Any recent announcements for NOURL?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "No attachment here."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "X0 Limited",
@@ -377,7 +527,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for X0?"
+       "ask": "Any recent announcements for X0?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "X0 summary."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · Medium impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "X1 Limited",
@@ -395,7 +575,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for X1?"
+       "ask": "Any recent announcements for X1?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "X1 summary."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · Medium impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Atla Limited",
@@ -413,7 +623,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for ATLA?"
+       "ask": "Any recent announcements for ATLA?",
+       "commentary": {
+        "signal": {
+         "label": "Negative",
+         "tone": "down",
+         "impact": "Medium",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "MSRDC re-invited bids. · Assessed as routine (importance 50/100)"
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bearish — a negative reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Negative · Medium impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Zed Limited",
@@ -431,7 +671,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any recent announcements for ZED?"
+       "ask": "Any recent announcements for ZED?",
+       "commentary": {
+        "signal": {
+         "label": "Neutral",
+         "tone": "neutral",
+         "impact": "Low",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Zed won an order."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Neutral — a neutral reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Neutral · Low impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       },
       {
        "title": "Waar Limited",
@@ -515,13 +785,13 @@
      "type": "briefs",
      "id": "events",
      "title": "Tata Consultancy Services Limited · latest results",
-     "note": "The badge compares the result with the company's own past quarters where the desk has rated it (no analyst consensus is held, so nothing here is a beat or a miss); otherwise it is an AI classifier's reading of the filing. Summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "note": "The badge rates the result Below, Meets or Above expectation where the desk has rated it (expectation = the company's own baseline from its past quarters; no analyst consensus is held, so nothing here is a beat or a miss against the street); without a desk rating it is an AI classifier's reading of the filing. The five-line commentary and the summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
      "items": [
       {
        "title": "Tata Consultancy Services Limited",
        "symbol": "TCS",
        "sub": "Result filed 9 Oct 2026 · Q2 FY27 (Jul–Sep 2026) · F&O",
-       "badge": "In line with historical trend",
+       "badge": "Meets expectation",
        "tone": "neutral",
        "body": "TCS stored result summary.",
        "body_note": "AI summary of the filing. Not a recommendation.",
@@ -556,7 +826,37 @@
          "kind": "pdf"
         }
        ],
-       "ask": "Any order wins for TCS?"
+       "ask": "Any order wins for TCS?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "TCS stored result summary."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · Medium impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
       }
      ]
     },

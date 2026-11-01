@@ -117,8 +117,10 @@ Database changes are not rolled back by this; restore from a snapshot if a migra
 
 ## Not covered / known gaps
 
-- **Backups:** `deploy/cloudpe/backup/` is wired to the staging containers only. Until `prod-app` / `prod-nidp`
-  targets exist there, production has **no scheduled DB snapshot** and a single copy of its data.
+- **Backups:** weekly local snapshots of the NIDP warehouse (Sunday 03:30 IST → `/opt/nidp/dumps`) and the app Postgres
+  (Sunday 02:30 IST → `/opt/nivesh/dumps`), from `deploy/cloudpe/backup/` (`install.sh --target prod-nidp|prod-app`).
+  Latest-only, unencrypted, **on the same disk as the databases** — and **MongoDB (users, sessions, secrets, flags) is not
+  dumped**. So there is still no protection against losing the VM, and the app snapshot alone cannot restore a working app.
 - Grafana/Loki, the code-server IDE (`ide.niveshcopilot.com`) and the Android APK build stay unmoved (as on staging).
 - `backend/nidp/services/daas_api/tpd_preview_loader.py` and `services/kite_bars/collect.py` hardcode the staging
   container/DB names (`nidp-postgres-staging`, `nidp_staging`); they are manual tools and will not work against prod.
