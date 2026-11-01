@@ -8841,6 +8841,483 @@
     }
    ],
    "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "screen_stocks": {
+   "schema": "visual-answer-v1",
+   "intent": "screen_stocks",
+   "title": "Stock screen",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-11-02T00:07:07+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "63 stocks match your filters.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "read",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "I read this as: Large cap · ROE over 20.",
+     "actions": [
+      {
+       "kind": "open_screener",
+       "label": "Open in Screener ›",
+       "query": "r=roe:over:20&b=large"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "not_used",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Not used: cheap, strong, momentum. Nothing in your sentence matched a screening rule for these, so they did not narrow the screen. A rule is a metric, over or under, and a number."
+    },
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The screen",
+     "note": null,
+     "items": [
+      {
+       "label": "Matched",
+       "value": "63",
+       "sub": "of 2,475 stocks screened"
+      },
+      {
+       "label": "Data as of",
+       "value": "30 Oct",
+       "sub": "end of day"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "matches",
+     "title": "Stocks that match your filters · 30 Oct",
+     "note": "Showing 25 of 63 matching stocks, largest companies first. These are stocks that match the rules above, not recommendations. A stock with no value for a metric shows — and cannot pass a rule on it. The Screener page has every match and more columns.",
+     "columns": [
+      {
+       "key": "rank",
+       "label": "#",
+       "align": "right",
+       "format": "int"
+      },
+      {
+       "key": "symbol",
+       "label": "Stock",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "sector",
+       "label": "Sector",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "mcap",
+       "label": "Mkt cap ₹Cr",
+       "align": "right",
+       "format": "text"
+      },
+      {
+       "key": "roe",
+       "label": "ROE",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "TCS",
+       "ask": "Trade plan for TCS",
+       "cells": {
+        "rank": 1,
+        "symbol": "TCS",
+        "sector": "IT",
+        "mcap": "7,68,844",
+        "roe": "45.9"
+       }
+      },
+      {
+       "symbol": "LICI",
+       "ask": "Trade plan for LICI",
+       "cells": {
+        "rank": 2,
+        "symbol": "LICI",
+        "sector": "Finance",
+        "mcap": "4,95,247",
+        "roe": "32.5"
+       }
+      },
+      {
+       "symbol": "HINDUNILVR",
+       "ask": "Trade plan for HINDUNILVR",
+       "cells": {
+        "rank": 3,
+        "symbol": "HINDUNILVR",
+        "sector": "FMCG",
+        "mcap": "4,27,790",
+        "roe": "30.9"
+       }
+      },
+      {
+       "symbol": "INFY",
+       "ask": "Trade plan for INFY",
+       "cells": {
+        "rank": 4,
+        "symbol": "INFY",
+        "sector": "IT",
+        "mcap": "4,13,944",
+        "roe": "31.7"
+       }
+      },
+      {
+       "symbol": "TITAN",
+       "ask": "Trade plan for TITAN",
+       "cells": {
+        "rank": 5,
+        "symbol": "TITAN",
+        "sector": "Consumer Durables",
+        "mcap": "3,90,626",
+        "roe": "32.3"
+       }
+      },
+      {
+       "symbol": "HCLTECH",
+       "ask": "Trade plan for HCLTECH",
+       "cells": {
+        "rank": 6,
+        "symbol": "HCLTECH",
+        "sector": "IT",
+        "mcap": "3,31,881",
+        "roe": "22.1"
+       }
+      },
+      {
+       "symbol": "ITC",
+       "ask": "Trade plan for ITC",
+       "cells": {
+        "rank": 7,
+        "symbol": "ITC",
+        "sector": "FMCG",
+        "mcap": "3,23,162",
+        "roe": "28.5"
+       }
+      },
+      {
+       "symbol": "HAL",
+       "ask": "Trade plan for HAL",
+       "cells": {
+        "rank": 8,
+        "symbol": "HAL",
+        "sector": "Capital Goods",
+        "mcap": "3,18,337",
+        "roe": "22.2"
+       }
+      },
+      {
+       "symbol": "JSWSTEEL",
+       "ask": "Trade plan for JSWSTEEL",
+       "cells": {
+        "rank": 9,
+        "symbol": "JSWSTEEL",
+        "sector": "Metals",
+        "mcap": "2,86,852",
+        "roe": "22.3"
+       }
+      },
+      {
+       "symbol": "BAJAJ-AUTO",
+       "ask": "Trade plan for BAJAJ-AUTO",
+       "cells": {
+        "rank": 10,
+        "symbol": "BAJAJ-AUTO",
+        "sector": "Automobile",
+        "mcap": "2,80,448",
+        "roe": "27.7"
+       }
+      },
+      {
+       "symbol": "BEL",
+       "ask": "Trade plan for BEL",
+       "cells": {
+        "rank": 11,
+        "symbol": "BEL",
+        "sector": "Capital Goods",
+        "mcap": "2,73,313",
+        "roe": "25.3"
+       }
+      },
+      {
+       "symbol": "NESTLEIND",
+       "ask": "Trade plan for NESTLEIND",
+       "cells": {
+        "rank": 12,
+        "symbol": "NESTLEIND",
+        "sector": "FMCG",
+        "mcap": "2,55,444",
+        "roe": "67.8"
+       }
+      },
+      {
+       "symbol": "COALINDIA",
+       "ask": "Trade plan for COALINDIA",
+       "cells": {
+        "rank": 13,
+        "symbol": "COALINDIA",
+        "sector": "Oil Gas",
+        "mcap": "2,49,467",
+        "roe": "26.1"
+       }
+      },
+      {
+       "symbol": "HINDZINC",
+       "ask": "Trade plan for HINDZINC",
+       "cells": {
+        "rank": 14,
+        "symbol": "HINDZINC",
+        "sector": "Metals",
+        "mcap": "2,31,083",
+        "roe": "61.1"
+       }
+      },
+      {
+       "symbol": "ASIANPAINT",
+       "ask": "Trade plan for ASIANPAINT",
+       "cells": {
+        "rank": 15,
+        "symbol": "ASIANPAINT",
+        "sector": "Consumer Durables",
+        "mcap": "2,23,589",
+        "roe": "20.2"
+       }
+      },
+      {
+       "symbol": "EICHERMOT",
+       "ask": "Trade plan for EICHERMOT",
+       "cells": {
+        "rank": 16,
+        "symbol": "EICHERMOT",
+        "sector": "Automobile",
+        "mcap": "1,95,429",
+        "roe": "22.0"
+       }
+      },
+      {
+       "symbol": "TVSMOTOR",
+       "ask": "Trade plan for TVSMOTOR",
+       "cells": {
+        "rank": 17,
+        "symbol": "TVSMOTOR",
+        "sector": "Automobile",
+        "mcap": "1,87,199",
+        "roe": "31.6"
+       }
+      },
+      {
+       "symbol": "SOLARINDS",
+       "ask": "Trade plan for SOLARINDS",
+       "cells": {
+        "rank": 18,
+        "symbol": "SOLARINDS",
+        "sector": "Chemicals",
+        "mcap": "1,84,003",
+        "roe": "26.7"
+       }
+      },
+      {
+       "symbol": "TORNTPHARM",
+       "ask": "Trade plan for TORNTPHARM",
+       "cells": {
+        "rank": 19,
+        "symbol": "TORNTPHARM",
+        "sector": "Healthcare",
+        "mcap": "1,78,088",
+        "roe": "25.8"
+       }
+      },
+      {
+       "symbol": "HYUNDAI",
+       "ask": "Trade plan for HYUNDAI",
+       "cells": {
+        "rank": 20,
+        "symbol": "HYUNDAI",
+        "sector": "Automobile",
+        "mcap": "1,57,722",
+        "roe": "27.1"
+       }
+      },
+      {
+       "symbol": "TRENT",
+       "ask": "Trade plan for TRENT",
+       "cells": {
+        "rank": 21,
+        "symbol": "TRENT",
+        "sector": "Consumer Services",
+        "mcap": "1,55,331",
+        "roe": "24.6"
+       }
+      },
+      {
+       "symbol": "PIDILITIND",
+       "ask": "Trade plan for PIDILITIND",
+       "cells": {
+        "rank": 22,
+        "symbol": "PIDILITIND",
+        "sector": "Chemicals",
+        "mcap": "1,50,510",
+        "roe": "22.6"
+       }
+      },
+      {
+       "symbol": "TMCV",
+       "ask": "Trade plan for TMCV",
+       "cells": {
+        "rank": 23,
+        "symbol": "TMCV",
+        "sector": "Capital Goods",
+        "mcap": "1,48,969",
+        "roe": "23.8"
+       }
+      },
+      {
+       "symbol": "ICICIAMC",
+       "ask": "Trade plan for ICICIAMC",
+       "cells": {
+        "rank": 24,
+        "symbol": "ICICIAMC",
+        "sector": "Finance",
+        "mcap": "1,46,765",
+        "roe": "79.1"
+       }
+      },
+      {
+       "symbol": "ABB",
+       "ask": "Trade plan for ABB",
+       "cells": {
+        "rank": 25,
+        "symbol": "ABB",
+        "sector": "Capital Goods",
+        "mcap": "1,45,274",
+        "roe": "21.3"
+       }
+      }
+     ]
+    },
+    {
+     "type": "watchlist_add",
+     "id": "add",
+     "title": "Add these to one of your lists",
+     "note": "Nothing is added until you press the button. It puts today's matches in a list of your own as they are now (a fixed snapshot): your own note of stocks to follow, not advice. Adding stocks also tells the Copilot which stocks you follow.",
+     "symbols": [
+      "TCS",
+      "LICI",
+      "HINDUNILVR",
+      "INFY",
+      "TITAN",
+      "HCLTECH",
+      "ITC",
+      "HAL",
+      "JSWSTEEL",
+      "BAJAJ-AUTO",
+      "BEL",
+      "NESTLEIND",
+      "COALINDIA",
+      "HINDZINC",
+      "ASIANPAINT",
+      "EICHERMOT",
+      "TVSMOTOR",
+      "SOLARINDS",
+      "TORNTPHARM",
+      "HYUNDAI",
+      "TRENT",
+      "PIDILITIND",
+      "TMCV",
+      "ICICIAMC",
+      "ABB",
+      "BSE",
+      "CUMMINSIND",
+      "POLYCAB",
+      "BPCL",
+      "GROWW",
+      "LTM",
+      "LGEINDIA",
+      "BRITANNIA",
+      "APOLLOHOSP",
+      "ENRIN",
+      "GVT&D",
+      "SBIFUNDS",
+      "MUTHOOTFIN",
+      "TMPV",
+      "VEDL",
+      "LLOYDSME",
+      "MARICO",
+      "HEROMOTOCO",
+      "HDFCAMC",
+      "UNITDSPR",
+      "PERSISTENT",
+      "OFSS",
+      "LUPIN",
+      "MCX",
+      "ASHOKLEY",
+      "MAZDOCK",
+      "DIXON",
+      "BHARTIHEXA",
+      "HINDPETRO",
+      "NAM-INDIA",
+      "WAAREEENER",
+      "MAHABANK",
+      "NMDC",
+      "APLAPOLLO",
+      "KALYANKJIL",
+      "NATIONALUM",
+      "ABBOTINDIA",
+      "SUZLON"
+     ],
+     "matched": 63,
+     "screen": "Large cap · ROE over 20",
+     "as_of": "2026-10-30"
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Stock screener · the day's stock features (nidp.stock_features_daily)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which stocks have unusual volume?",
+     "query": "Which stocks have unusual volume?"
+    },
+    {
+     "label": "Which breakouts are confirmed?",
+     "query": "Which breakouts are confirmed?"
+    },
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   }
  }
 }

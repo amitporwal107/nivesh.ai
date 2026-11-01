@@ -10,6 +10,8 @@
  * and sorts after every stock that has one.
  *
  * A row opens the stock in a panel (StockPanel), which is Research's own stock view.
+ *
+ * With `select`, each row also carries a checkbox (not opening the panel) and the header one chooses the first `select.max`.
  */
 import { useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { StockHit } from "@/hooks/use-instrument-search";
@@ -109,7 +111,21 @@ const th: CSSProperties = {
   color: "var(--cp-ink-3)", fontWeight: 400, whiteSpace: "nowrap", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-1)",
 };
 
-export function ResultsTable({ rows, live, onOpen }: { rows: Row[]; live: Live; onOpen: (s: StockHit) => void }) {
+/** Row selection, for "Add to a list" (screener/AddToList.tsx). The table only draws the boxes; the page owns the choice. */
+export interface RowSelect {
+  selected: ReadonlySet<string>;
+  onToggle: (symbol: string) => void;
+  /** The header box: every selectable row, or none. */
+  onToggleAll: () => void;
+  /** All of the rows that can be chosen are chosen. */
+  allSelected: boolean;
+  /** How many rows can be chosen at most (a list holds 100). */
+  max: number;
+}
+
+const box: CSSProperties = { width: 18, height: 18, margin: 0, accentColor: "var(--mint)", cursor: "pointer", flex: "none" };
+
+export function ResultsTable({ rows, live, onOpen, select }: { rows: Row[]; live: Live; onOpen: (s: StockHit) => void; select?: RowSelect }) {
   const [lens, setLens] = useState<Lens>("overview");
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
 
@@ -171,7 +187,21 @@ export function ResultsTable({ rows, live, onOpen }: { rows: Row[]; live: Live; 
         <table data-testid="screener-table" data-lens={lens} style={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 220 + cols.length * 84 }}>
           <thead>
             <tr>
-              <th scope="col" style={{ ...th, textAlign: "left", position: "sticky", left: 0, zIndex: 1 }}>Stock</th>
+              <th scope="col" style={{ ...th, textAlign: "left", position: "sticky", left: 0, zIndex: 1 }}>
+                {select ? (
+                  <label className="flex items-center" style={{ gap: 10, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      data-testid="screener-select-all"
+                      checked={select.allSelected}
+                      onChange={select.onToggleAll}
+                      aria-label={rows.length > select.max ? `Select the first ${select.max} stocks` : "Select all stocks"}
+                      style={box}
+                    />
+                    Stock
+                  </label>
+                ) : "Stock"}
+              </th>
               {cols.map((c) => {
                 const on = sort?.key === c.key;
                 return (
@@ -203,8 +233,21 @@ export function ResultsTable({ rows, live, onOpen }: { rows: Row[]; live: Live; 
                 onKeyDown={(e) => onKey(e, r)}
                 className="cp-row-link"
               >
-                <td style={{ padding: "9px 12px", position: "sticky", left: 0, background: "var(--bg-1)", borderBottom: "1px solid var(--cp-line)", minWidth: 190 }}>
+                <td style={{ padding: "9px 12px", position: "sticky", left: 0, background: "var(--bg-1)", borderBottom: "1px solid var(--cp-line)", minWidth: select ? 222 : 190 }}>
                   <span className="flex items-center" style={{ gap: 10, minWidth: 0 }}>
+                    {select && (
+                      <input
+                        type="checkbox"
+                        data-testid="screener-select"
+                        data-symbol={symbolOf(r)}
+                        checked={select.selected.has(symbolOf(r))}
+                        onChange={() => select.onToggle(symbolOf(r))}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        aria-label={`Select ${symbolOf(r)}`}
+                        style={box}
+                      />
+                    )}
                     <StockIcon symbol={symbolOf(r)} name={String(r.name ?? "")} size={26} />
                     <span className="flex min-w-0 flex-col" style={{ gap: 1 }}>
                       <span style={{ fontSize: 13.5, fontWeight: 500, color: "var(--cp-ink)", whiteSpace: "nowrap" }}>{symbolOf(r)}</span>
