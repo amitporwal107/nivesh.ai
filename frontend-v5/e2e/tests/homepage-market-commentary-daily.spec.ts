@@ -113,6 +113,8 @@ test.describe("Market commentary page (desktop)", () => {
     await expect(link).toHaveAttribute("href", "/v5/market-commentary");
     const card = page.getByTestId("home-closing-bell-card");
     await card.scrollIntoViewIfNeeded();
+    // toBeVisible() accepts opacity 0; the reveal-on-scroll must actually fade the card in (29 Oct live bug).
+    await expect.poll(() => card.evaluate((el) => getComputedStyle(el).opacity), { timeout: 5000 }).toBe("1");
     await expect(card).toContainText("Tuesday, 27 October 2026");
     await expect(card).toContainText("Market information, not investment advice");
     await card.click();
@@ -204,6 +206,7 @@ test.describe("Market commentary on a phone", () => {
     await expect(page.getByTestId("home-market-commentary-link")).toBeHidden();
     const card = page.getByTestId("home-closing-bell-card");
     await card.scrollIntoViewIfNeeded();
+    await expect.poll(() => card.evaluate((el) => getComputedStyle(el).opacity), { timeout: 5000 }).toBe("1");
     await card.click();
     await expect(page).toHaveURL(/\/v5\/market-commentary\/2026-10-27$/);
     const v = page.getByTestId("mc-video");
