@@ -54,7 +54,7 @@ import httpx
 from . import registry
 from ._helpers import detect_etf, require
 from .base import (
-    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, Position,
+    AccessToken, BrokerTrade, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, Position,
 )
 
 SLUG = "icicidirect"
@@ -358,6 +358,56 @@ async def fetch_funds(token: AccessToken) -> Funds:
     return Funds(available_cash=allocated - blocked, used_margin=blocked)
 
 
+# ── Trade book ───────────────────────────────────────────────────────────
+# Breeze's `GET /trades` (the SDK's get_trade_list): a JSON body with `exchange_code` (always), and from_date / to_date /
+# product_type / action / stock_code when given. One call per exchange. The brokers send the current day only for a day range of
+# one day. NOT SEEN LIVE: the field names below are the ones ICICI's trade-list documentation lists; the first real read must be
+# compared with the broker's own screen (test_reports/OVERRIDE_copilot_broker_book.md).
+_TRADE_EXCHANGES = ("NSE", "NFO")
+
+
+def _trade_time(row: Dict[str, Any]) -> Optional[str]:
+    raw = str(row.get("trade_date") or row.get("order_datetime") or "").strip()
+    for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=_IST).isoformat()
+        except ValueError:
+            continue
+    return raw or None
+
+
+def _breeze_trade(row: Dict[str, Any], exchange: str) -> Optional[BrokerTrade]:
+    action = str(row.get("action") or "").strip().lower()
+    code = str(row.get("stock_code") or "").strip().upper()
+    qty = _number(row.get("quantity"))
+    px = _number(row.get("average_price") if row.get("average_price") not in (None, "") else row.get("trade_price"))
+    if action not in ("buy", "sell") or not code or not qty or qty <= 0 or not px or px <= 0:
+        return None
+    product = str(row.get("product_type") or "").strip()
+    right = str(row.get("right") or "").strip().lower()
+    itype = {"call": "CE", "put": "PE"}.get(right) if "option" in product.lower() else ("FUT" if "future" in product.lower() else None)
+    return BrokerTrade(
+        symbol=code, exchange=str(row.get("exchange_code") or exchange).strip().upper(), side=action, quantity=qty, price=px,
+        traded_at=_trade_time(row), trade_id=str(row.get("exchange_trade_id") or row.get("trade_id") or "") or None,
+        order_id=str(row.get("order_id") or row.get("exchange_order_id") or "") or None, product_raw=product or None,
+        instrument_type=itype, expiry=_iso_date(row.get("expiry_date")),
+        strike=_number(row.get("strike_price")) if itype in ("CE", "PE") else None)
+
+
+async def fetch_trades(token: AccessToken) -> List[BrokerTrade]:
+    """Today's fills in NSE cash and NFO. Read-only (a GET)."""
+    day = datetime.now(_IST).date().isoformat()
+    out: List[BrokerTrade] = []
+    for exchange in _TRADE_EXCHANGES:
+        rows = await _signed_get("trades", {"exchange_code": exchange, "from_date": f"{day}T00:00:00.000Z",
+                                            "to_date": f"{day}T23:59:59.000Z"}, token, f"{exchange} trades") or []
+        for r in rows if isinstance(rows, list) else []:
+            t = _breeze_trade(r, exchange) if isinstance(r, dict) else None
+            if t is not None:
+                out.append(t)
+    return out
+
+
 # ── Contract chart ───────────────────────────────────────────────────────
 # The hub's view → Breeze's own interval name and how many days one read
 # covers. There is no daily view. Seen live on 2026-10-14 for an NFO stock
@@ -515,6 +565,7 @@ class _Module:
     fetch_positions = staticmethod(fetch_positions)
     fetch_hub_positions = staticmethod(fetch_hub_positions)
     fetch_funds = staticmethod(fetch_funds)
+    fetch_trades = staticmethod(fetch_trades)
     fetch_contract_chart = staticmethod(fetch_contract_chart)
     fetch_contract_quote = staticmethod(fetch_contract_quote)
 

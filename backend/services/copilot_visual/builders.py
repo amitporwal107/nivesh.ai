@@ -831,60 +831,11 @@ async def expected_move(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
 # ── Release 2 ──────────────────────────────────────────────────────────────── (owner, 30 Oct: "complete Release 2")
 
 async def open_trades(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """Q13 "What are my open trades doing?" — the paper book (not a broker's), the same read the desk's own Paper
-    trades screen uses, with marks and each trade's own stop and target."""
-    src: Sources = ctx["src"]
-    out, err = await _try(rd.open_trades(ctx["request"]))
-    blocks: List[Dict[str, Any]] = []
-    head = None
-    tone = "neutral"
-    as_of = None
-    if err or not isinstance(out, dict):
-        src.miss(SRC_PAPER, why(err) if err else "the paper book could not be read")
-    else:
-        as_of = iso_day(out.get("as_of"))
-        if as_of:
-            src.add(SRC_PAPER, as_of)
-        else:
-            src.missing.append(f"{SRC_PAPER}: no end-of-day mark date on this answer (an F&O-only book marks on its own schedule)")
-        trades = [t for t in out.get("trades") or [] if isinstance(t, dict)]
-        summ = out.get("summary") or {}
-        unreal = num(summ.get("unrealized_pnl_rs"))
-        kpis = [_kpi("Open", str(summ.get("open") or 0), None),
-                _kpi("Unrealised P&L", price(unreal) if unreal is not None else None,
-                     "net of estimated costs" if unreal is not None else "not every open trade is marked yet", tone_of(unreal))]
-        if summ.get("entry_pending"):
-            kpis.append(_kpi("Not yet triggered", str(summ["entry_pending"]), "waiting for its entry condition"))
-        blocks.append(block("kpis", "summary", "Your open paper trades", None, items=kpis))
-        if trades:
-            rows = []
-            for t in trades[:15]:
-                sym = t.get("symbol")
-                pnl = num(t.get("unrealized_pnl_rs"))
-                rows.append({"symbol": sym, "ask": f"Should I book profits or hold {sym}?" if sym else None,
-                             "tone": tone_of(pnl),
-                             "cells": {"symbol": sym, "qty": t.get("quantity"), "entry": r2(t.get("entry_price")),
-                                       "last": r2(t.get("last_close")), "stop": r2(t.get("stop_price")),
-                                       "target": r2(t.get("target_price")), "pnl": r2(pnl)}})
-            blocks.append(block("ranked", "trades", f"{len(trades)} open paper trade{'s' if len(trades) != 1 else ''}",
-                                "Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
-                                columns=[{"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
-                                         {"key": "qty", "label": "Qty", "align": "right", "format": "int"},
-                                         {"key": "entry", "label": "Entry", "align": "right", "format": "price"},
-                                         {"key": "last", "label": "Last close", "align": "right", "format": "price"},
-                                         {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
-                                         {"key": "target", "label": "Target", "align": "right", "format": "price"},
-                                         {"key": "pnl", "label": "Unrealised P&L", "align": "right", "format": "price"}],
-                                rows=rows))
-            tone = tone_of(unreal)
-            head = (f"{len(trades)} open paper trade{'s' if len(trades) != 1 else ''}"
-                    + (f", unrealised {price(unreal)}" if unreal is not None else "") + ".")
-        else:
-            blocks.append(notice("No open paper trades right now.", "info", "empty"))
-            head = "No open paper trades right now."
-    return assemble("open_trades", "Your open trades", as_of, head, tone, blocks, src,
-                    follow("How much should I risk?", "Which F&O setups are attractive?",
-                           "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
+    """Q13 "What are my open trades doing?" — the user's broker book when a broker is connected (live, or the last stored read
+    when its session has ended), with the desk's paper trades beside it, each labelled; the connect prompt when none is.
+    services/copilot_visual/open_book.py (owner, 31 Oct 2026)."""
+    from . import open_book
+    return await open_book.build_open_trades(intent, ctx)
 
 
 FNO_VIEWS = {"up": "Bullish", "down": "Bearish"}
@@ -1395,13 +1346,16 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     mode = "week" if (intent.params or {}).get("period") == "week" else "day"
     today = src.w.today if src.w is not None else datetime.now(IST).date()
     since = datetime.combine(today - timedelta(days=REVIEW_LOOKBACK_DAYS), time(0), IST).astimezone(timezone.utc).isoformat()
-    (closed, e_c), (decs, e_d) = await asyncio.gather(_try(rd.closed_trades(uid, REVIEW_TRADES)),
-                                                      _try(rd.risk_decisions(uid, since)))
+    (closed, e_c), (decs, e_d), (bdata, e_b) = await asyncio.gather(_try(rd.closed_trades(uid, REVIEW_TRADES)),
+                                                                    _try(rd.risk_decisions(uid, since)),
+                                                                    _try(rd.broker_trades(ctx["request"], uid)))
+    from . import broker_review                     # the user's BROKER trades beside the paper record (owner, 31 Oct 2026)
+    bm = broker_review.matched(bdata if not e_b else None)
     closed = [t for t in closed or [] if isinstance(t, dict)] if not e_c else []
     decs = [d for d in decs or [] if isinstance(d, dict)] if not e_d else []
     superseded = {d.get("supersedes") for d in decs if d.get("supersedes")}
     decs = [d for d in decs if d.get("_id") not in superseded]          # a refused reservation's row replaces the first
-    active = [_close_day(t) for t in closed] + [_ist_day(d.get("at")) for d in decs]
+    active = [_close_day(t) for t in closed] + [_ist_day(d.get("at")) for d in decs] + broker_review.active_days(bm)
     start, end, fell_back = _review_period(mode, today, [a for a in active if a])
     s_iso, e_iso = start.isoformat(), end.isoformat()
 
@@ -1526,6 +1480,17 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             blocks.append(block("list", "risk_checks", "What the risk checks said", None, items=items))
         else:
             blocks.append(notice(f"No entry request was checked by the risk rules {_on(mode, period)}.", "info", "no-checks"))
+    bsent = None
+    if e_b:
+        src.miss(broker_review.SRC_TRADES, why(e_b))
+    elif isinstance(bdata, dict) and (bdata.get("accounts") or bdata.get("stored")):
+        traded = sorted({t["underlying"] for t in bm["trips"] if t.get("underlying") and s_iso <= t["exit_day"] <= e_iso})
+        refs, e_r = await _try(rd.broker_review_refs(uid, traded)) if traded else ({"levels": {}, "plans": {}}, None)
+        if e_r:
+            src.miss("Your stops and recorded plans (for the broker review)", why(e_r))
+            refs = {"levels": {}, "plans": {}}
+        bblocks, bsent = broker_review.section(bdata, bm, start, end, refs["levels"], refs["plans"], src, period, mode)
+        blocks += bblocks
     curve_src = [(_close_day(t), num(t.get("net_pnl_rs"))) for t in closed
                  if t.get("exit_reason") not in NOT_ENTERED and _close_day(t) and _close_day(t) <= e_iso]
     by_day: Dict[str, float] = {}
@@ -1566,6 +1531,8 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         else:
             body = f"No paper trade closed{when}" + (f"; {checks}." if checks else ".")
         head = lead + body
+    if bsent:
+        head = f"{head} {bsent}" if head else bsent
     other = "What did I learn from today's trades?" if mode == "week" else "How did I do this week?"
     return assemble("daily_review", f"Your trading review · {period}", as_of, head,
                     tone_of(total) if entered else "neutral", blocks, src,

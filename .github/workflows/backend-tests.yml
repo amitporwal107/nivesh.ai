@@ -112,6 +112,8 @@ jobs:
           tests/test_copilot_prompts_mode.py
           tests/test_copilot_visual.py
           tests/test_copilot_visual_chat.py
+          tests/test_open_book.py
+          tests/test_broker_trades.py
           tests/test_core_exceptions.py
           tests/test_cost_basis_from_snapshots.py
           tests/test_daas_key_resolution.py

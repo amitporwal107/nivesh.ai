@@ -384,6 +384,27 @@ class Src:
         mp.setattr(rd, "index_rows", idx)
         mp.setattr(rd, "window", window)
 
+        async def open_book(request, user_id, use_cache=False):         # the broker book (open trades): none connected by default
+            self.calls.append(("open_book", ()))
+            if "open_book" in self.fail:
+                raise RuntimeError("MOCK open_book down")
+            return self.v["open_book"]
+        self.v["open_book"] = {"hub": "on", "accounts": [], "groups": []}
+        mp.setattr(rd, "open_book", open_book)
+
+        async def broker_trades(request, user_id):                     # the broker trade book (daily review): none connected by default
+            self.calls.append(("broker_trades", ()))
+            if "broker_trades" in self.fail:
+                raise RuntimeError("MOCK broker_trades down")
+            return self.v["broker_trades"]
+
+        async def broker_review_refs(user_id, underlyings):
+            return self.v["broker_refs"]
+        self.v["broker_trades"] = {"hub": "on", "accounts": [], "stored": []}
+        self.v["broker_refs"] = {"levels": {}, "plans": {}}
+        mp.setattr(rd, "broker_trades", broker_trades)
+        mp.setattr(rd, "broker_review_refs", broker_review_refs)
+
         # The F&O board's live and margin readers (owner, 31 Oct 2026). Default: market closed, no Kite login, no broker.
         self.in_session = False
         self.v.update({"fno_live_quotes": {"available": False, "reason": "MOCK: no Kite login today", "quotes": {}, "unresolved": []},
@@ -680,7 +701,7 @@ def test_b14_open_trades(src):
 def test_b15_no_open_trades_says_so(src):
     src.v["open_trades"] = {"as_of": "2026-10-29", "trades": [], "summary": {"open": 0, "unrealized_pnl_rs": None, "entry_pending": 0}}
     p = build("open_trades")
-    assert not blocks(p, "ranked") and "No open paper trades right now." in blocks(p, "notice")[0]["text"]
+    assert not blocks(p, "ranked") and any("No open paper trades right now." in n["text"] for n in blocks(p, "notice"))
     assert p["headline"]["text"] == "No open paper trades right now."
 
 

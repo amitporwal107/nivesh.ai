@@ -266,7 +266,8 @@ async def broker_groups(request: Any, db, user_id: str, rows: List[Dict[str, Any
         else:
             unmapped.append({"broker_code": r.get("symbol"), "broker_display": r["_broker_display"],
                              "account_id": r["_account_id"], "quantity": _num(r.get("quantity")),
-                             "pnl_rs": _num(r.get("pnl")), "problem": c.problem})
+                             "pnl_rs": _num(r.get("pnl")), "problem": c.problem,
+                             "avg_price": _num(r.get("avg_price")), "last_price": _num(r.get("last_price"))})
     out: List[Dict[str, Any]] = []
     for u, items in sorted(by_u.items()):
         derivative = any(c.is_derivative for c, _ in items)
@@ -309,7 +310,7 @@ async def broker_groups(request: Any, db, user_id: str, rows: List[Dict[str, Any
                 problems.append(c.problem or f"{r.get('symbol')}: not mapped")
                 unmapped.append({"broker_code": r.get("symbol"), "broker_display": r["_broker_display"],
                                  "account_id": r["_account_id"], "quantity": qty, "pnl_rs": _num(r.get("pnl")),
-                                 "problem": c.problem})
+                                 "problem": c.problem, "avg_price": _num(r.get("avg_price")), "last_price": _num(r.get("last_price"))})
                 continue
             else:
                 problems += _price_leg(leg, c, pricing, scale)
