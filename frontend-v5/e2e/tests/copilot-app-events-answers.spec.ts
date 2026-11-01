@@ -221,7 +221,7 @@ test.describe("results and event answers (MOCK payloads from the real builders)"
     await expect(va.getByTestId("va-title")).toHaveText(p.title);
     await expect(va.getByTestId("va-brief")).toHaveCount(1);
     await expect(va.getByTestId("va-brief-body")).toHaveText(it.body);
-    await expect(va.getByTestId("va-brief-badge")).toContainText("In line with historical trend");
+    await expect(va.getByTestId("va-brief-badge")).toContainText("Meets expectation");
     await expect(va.getByTestId("va-brief-sub")).toHaveText(it.sub);
     await expect(va.getByTestId("va-brief-link")).toContainText(it.links.map((l: any) => `${l.label} ›`));
     await va.getByTestId("va-brief-more").click();
@@ -248,6 +248,66 @@ test.describe("results and event answers (MOCK payloads from the real builders)"
     const cardBox = await va.getByTestId("va-brief").first().boundingBox();
     expect(cardBox && cardBox.width <= 390).toBe(true);
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await va.screenshot({ path: path.join(SHOTS, "calendar-phone.png") }); }
+  });
+
+  test("EA-13 a result is rated Below, Meets or Above expectation, and the counts strip says what expectation means", async ({ page }) => {
+    const p = MOCK.calendar;
+    const { va } = await open(page, p);
+    const cards = block(p, "declared").items;
+    for (const it of cards) {
+      expect(["Above expectation", "Well above expectation", "Meets expectation", "Below expectation", "Well below expectation", "Not rated"]).toContain(it.badge);
+      await expect(cardOf(va, it.symbol).getByTestId("va-brief-badge")).toContainText(it.badge);
+      if (it.badge === "Not rated") await expect(cardOf(va, it.symbol).getByTestId("va-brief-sub")).toContainText("Not rated:");
+    }
+    const strip = block(p, "counts").items.find((i: any) => i.label === "Above · meets · below");
+    expect(strip.sub).toContain("expectation");
+    expect(strip.sub).toContain("not analyst consensus");
+    await expect(frame(va, "counts")).toContainText("Above · meets · below");
+  });
+
+  test("EA-14 each analysed card shows the five-line AI commentary with its signal, impact and confidence", async ({ page }) => {
+    const p = MOCK.calendar;
+    const { va } = await open(page, p);
+    const withC = block(p, "declared").items.filter((it: any) => it.commentary);
+    expect(withC.length).toBeGreaterThan(0);
+    for (const it of withC) {
+      const box = cardOf(va, it.symbol).getByTestId("va-brief-commentary");
+      await expect(box).toHaveAttribute("data-tone", it.commentary.signal.tone);
+      const sig = [it.commentary.signal.label, it.commentary.signal.impact ? `${it.commentary.signal.impact} impact` : null,
+        it.commentary.signal.confidence != null ? `confidence ${it.commentary.signal.confidence}%` : null].filter(Boolean).join(" · ");
+      await expect(box.getByTestId("va-brief-signal")).toHaveText(sig);
+      await expect(box.getByTestId("va-brief-line")).toHaveCount(5);
+      await expect(box.getByTestId("va-brief-line")).toHaveText(it.commentary.lines.map((l: any) => `${l.label}: ${l.text}`));
+      expect(it.commentary.lines.map((l: any) => l.label)).toEqual(["What happened", "Why it matters", "Market impact", "What to watch", "AI take"]);
+    }
+    // a card with no stored AI read has no commentary and says so
+    const none = block(p, "declared").items.find((it: any) => !it.commentary && it.body == null);
+    if (none) {
+      await expect(cardOf(va, none.symbol).getByTestId("va-brief-commentary")).toHaveCount(0);
+      await expect(cardOf(va, none.symbol).getByTestId("va-brief-empty")).toBeVisible();
+    }
+  });
+
+  test("EA-15 a line the stored read does not support is printed as 'Not stated', and an order win gets the five lines too", async ({ page }) => {
+    const p = MOCK.orders;
+    const { va } = await open(page, p, { question: "Any order wins this week?" });
+    const it = block(p, "events").items.find((x: any) => x.commentary);
+    expect(it).toBeTruthy();
+    const box = cardOf(va, it.symbol).getByTestId("va-brief-commentary").first();
+    await expect(box.getByTestId("va-brief-line")).toHaveCount(5);
+    const stated = it.commentary.lines.filter((l: any) => l.text === "Not stated in the stored AI read.");
+    expect(stated.length).toBeGreaterThan(0);                                          // the classifier stores no factors or open questions
+    for (const l of stated) await expect(box.locator(`[data-label="${l.label}"]`)).toContainText("Not stated in the stored AI read.");
+  });
+
+  test("EA-16 the commentary fits a phone: nothing scrolls sideways and the five lines stay in order", async ({ page }) => {
+    const p = MOCK.calendar;
+    const { va } = await open(page, p, { width: 390 });
+    const it = block(p, "declared").items.find((x: any) => x.commentary);
+    const box = cardOf(va, it.symbol).getByTestId("va-brief-commentary");
+    await expect(box).toBeVisible();
+    await expect(box.getByTestId("va-brief-line")).toHaveCount(5);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
   test("EA-12 screenshots at desktop width (only with EV_SHOTS=1)", async ({ page }) => {

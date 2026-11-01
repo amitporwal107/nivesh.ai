@@ -23,6 +23,7 @@ DECISION_LABELS = {"setup_ready": "Setup ready", "wait": "Wait", "avoid": "Avoid
 CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker."
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
+COMMENTARY_TONES = ("up", "down", "warn", "neutral")          # 🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational
 NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile", "open_market_intel")
 
 
@@ -331,6 +332,16 @@ def _block_problems(b: Any, i: int) -> List[str]:
             if not all(isinstance(x, dict) and isinstance(x.get("text"), str) and (x.get("tone") is None or x["tone"] in TONES) and _opt_str(x.get("tag"))
                        for x in it.get("points") or []):
                 out.append(f"{p} briefs: item {k} points need text")
+            cm = it.get("commentary")
+            if cm is not None:
+                sg = cm.get("signal") if isinstance(cm, dict) else None
+                ln = cm.get("lines") if isinstance(cm, dict) else None
+                if not (isinstance(sg, dict) and isinstance(sg.get("label"), str) and sg.get("tone") in COMMENTARY_TONES
+                        and (sg.get("impact") is None or isinstance(sg.get("impact"), str))
+                        and (sg.get("confidence") is None or _is_num(sg.get("confidence")))
+                        and isinstance(ln, list) and len(ln) == 5
+                        and all(isinstance(x, dict) and isinstance(x.get("label"), str) and isinstance(x.get("text"), str) and x["text"] for x in ln)):
+                    out.append(f"{p} briefs: item {k} commentary needs a signal (label, tone {'/'.join(COMMENTARY_TONES)}) and exactly five labelled lines")
             for lk in it.get("links") or []:
                 if not (isinstance(lk, dict) and isinstance(lk.get("label"), str) and lk.get("kind") in _links.LINK_KINDS and _links.safe_url(lk.get("url")) is not None):
                     out.append(f"{p} briefs: item {k} link needs a label, a kind ({', '.join(_links.LINK_KINDS)}) and an https exchange URL")
@@ -469,6 +480,9 @@ def facts(p: Dict[str, Any], subject: Optional[str] = None) -> str:
                 bits = [it.get("title"), it.get("sub"), it.get("badge"), (it.get("body") or it.get("body_note") or "")[:220]]
                 n_l, n_p = len(it.get("links") or []), len(it.get("points") or [])
                 lines.append("  " + " | ".join(str(x) for x in bits if x) + f" [{n_l} source link(s), {n_p} commentary point(s)]")
+                cm = it.get("commentary")
+                if isinstance(cm, dict):
+                    lines.append("    five-line AI read: " + " / ".join(f"{x['label']}: {x['text']}" for x in cm.get("lines") or []))
         elif t == "trade_plan":
             lines.append(f"The desk's TradePlan card {b.get('plan_id')} is shown.")
         elif t == "list":

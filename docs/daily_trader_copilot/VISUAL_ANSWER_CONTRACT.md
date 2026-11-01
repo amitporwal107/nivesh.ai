@@ -160,6 +160,16 @@ Block fields added on 31 Oct 2026 (all optional; a payload without them is uncha
 
 A saved setting (a risk profile) is a source with status `fresh` whatever its date: the freshness rule is for prices and flows.
 
+Added on 1 Nov 2026 (owner: "rate the results as Below / Meet / Above expectation"; "a five-line AI commentary"):
+
+| block | field | meaning |
+|---|---|---|
+| `briefs` item | `badge` | a result's rating against EXPECTATION: `Above expectation` / `Well above expectation` / `Meets expectation` / `Below expectation` / `Well below expectation` / `Not rated` (the reason is in `sub`: "Not rated: baseline too uncertain"). Expectation = the company's own baseline from its past quarters (the desk's verdict); no analyst consensus is held, so nothing is a beat or a miss against the street. The filing's sentiment is never passed off as this rating |
+| `briefs` item | `commentary: {signal, lines}` | the five-line AI commentary of an analysed event: `signal` = `{label, tone: up\|down\|warn\|neutral (🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational), impact: High\|Medium\|Low\|null, confidence: 0-100\|null}`; `lines` = exactly five `{label, text}`: What happened · Why it matters · Market impact · What to watch · AI take |
+
+The commentary is assembled ONLY from the stored AI read (the filing analysis: summary, positives, negatives, open questions, band, materiality, confidence; or the feed classifier's one-line, sentiment and impact). Nothing is generated again; a line the stored read does not support
+reads "Not stated in the stored AI read." Impact is the stored materiality score at fixed thresholds (High from 70, Medium from 45, else Low). An event with no stored read has no `commentary`.
+
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
 day older than the previous session carries the stale notice. `avoid_today` (Q14) is not built.

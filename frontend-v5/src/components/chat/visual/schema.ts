@@ -131,6 +131,12 @@ export const briefsBlock = z.object({
     /** The stored AI summary, verbatim; null when none exists (then `body_note` says why). */
     body: optStr, body_note: optStr,
     points: z.array(z.object({ text: str, tone: optTone })).catch([]).default([]),
+    /** The stored AI read in five lines (What happened / Why it matters / Market impact / What to watch / AI take) with its signal chip:
+     *  🟢 up · 🔴 down · 🟡 warn (mixed) · ⚪ neutral (informational), an impact level and a confidence. */
+    commentary: z.object({
+      signal: z.object({ label: str, tone: z.enum(["up", "down", "warn", "neutral"]).catch("neutral"), impact: optStr, confidence: num.nullable().optional().catch(undefined) }),
+      lines: z.array(z.object({ label: str, text: str })).min(1),
+    }).optional().catch(undefined),
     links: briefLinks.default([]),
     ask: optStr,
   })).min(1),
