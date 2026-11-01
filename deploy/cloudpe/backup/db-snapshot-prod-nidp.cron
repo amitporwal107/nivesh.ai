@@ -1,0 +1,15 @@
+# /etc/cron.d/nidp-prod-db-snapshot — weekly Postgres/TimescaleDB snapshot of the PRODUCTION
+# NIDP warehouse (container nidp-postgres, 127.0.0.1:5433) → this VM's own disk, /opt/nidp/dumps.
+# Replaces the nightly "NIDP — Database backup to GCS" GitHub workflow, whose GCP target no longer exists.
+#
+# Sunday 03:30 IST: after the 02:30 macro_calendar feed, before anything on Monday's schedule.
+# Retention is LATEST ONLY and the snapshot stays on THIS VM (SNAPSHOT_DESTINATION=local) — the same
+# disk as the database. It protects against bad data and bad migrations, not against losing the VM.
+#
+# Install:
+#   sudo bash /opt/nivesh/repo/deploy/cloudpe/backup/install.sh --target prod-nidp --no-encrypt
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+30 3 * * 0  root  /usr/bin/nice -n 10 /usr/bin/ionice -c2 -n7 /opt/nidp/bin/db-snapshot.sh --target prod-nidp >> /opt/nidp/logs/db-snapshot.log 2>&1

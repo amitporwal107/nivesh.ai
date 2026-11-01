@@ -12,7 +12,7 @@
 #   ./restore-snapshot.sh --restore ./snap/nidp_staging_20261022.dump \
 #       --container nidp-postgres-staging
 #
-#   --target app|nidp     which release tag to fetch (app-latest / nidp-latest)
+#   --target app|nidp     which release tag to fetch (app-latest / nidp-latest; prod-* snapshots are local files)
 #   --fetch               download the assets, check sha256, join parts, decrypt
 #   --out DIR             where --fetch writes (default: ./db-snapshot-restore)
 #   --restore FILE        pg_restore a decrypted .dump into --container
@@ -157,6 +157,16 @@ log "copying the archive into ${PG_CONTAINER}:/tmp/restore.dump"
 docker cp "$RESTORE_FILE" "${PG_CONTAINER}:/tmp/restore.dump"
 cleanup() { docker exec "$PG_CONTAINER" rm -f /tmp/restore.dump >/dev/null 2>&1 || true; }
 
+# Restoring into a brand-new empty database (the disaster case): the archive came from a TimescaleDB
+# database but the target has no extension yet, so pre/post_restore below would be skipped and the
+# chunk tables would be replayed against nothing. Create it first, as Timescale's own procedure says.
+if [[ -z "$TSDB" ]] && docker exec "$PG_CONTAINER" pg_restore --list /tmp/restore.dump 2>/dev/null | grep -q ' EXTENSION - timescaledb'; then
+    log "the archive is from a TimescaleDB database and the target has no timescaledb extension — creating it"
+    psql_db -qc "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+    TSDB="$(psql_db -At -c "SELECT coalesce(max(extversion),'') FROM pg_extension WHERE extname='timescaledb';" | tr -d '[:space:]')"
+    log "  timescaledb ${TSDB} (the image must match the version the dump came from)"
+fi
+
 if [[ -n "$TSDB" ]]; then
     # Chunk DDL under _timescaledb_internal cannot be replayed with the
     # extension active; pre/post_restore brackets it. post_restore MUST run even
@@ -179,6 +189,28 @@ docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" \
     --clean --if-exists --no-owner --no-privileges --jobs "$JOBS" \
     /tmp/restore.dump || rc=$?
 log "pg_restore exit code ${rc} (non-zero with --clean is often only 'does not exist' notices)"
+
+if [[ -n "$TSDB" ]]; then
+    # A parallel pg_restore can lose the TimescaleDB chunk catalog: dimension_slice / chunk /
+    # chunk_constraint have circular foreign keys, so their COPY fails. The chunk tables themselves
+    # restore, but every hypertable then reads as EMPTY although the database is full size (seen on
+    # 2026-10-31 restoring the 23 GB NIDP warehouse with --jobs 3). Compare, repair, and refuse to
+    # call it restored if it still does not add up.
+    catalog_counts() {
+        CHUNKS="$(psql_db -At -c "SELECT count(*) FROM _timescaledb_catalog.chunk;")"
+        PHYSICAL="$(psql_db -At -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='_timescaledb_internal' AND c.relname ~ '^_hyper_.*_chunk\$' AND c.relkind='r';")"
+    }
+    catalog_counts
+    log "chunk catalog rows: ${CHUNKS}; physical chunk tables: ${PHYSICAL}"
+    if (( CHUNKS != PHYSICAL )); then
+        warn "catalog does not match — reloading _timescaledb_catalog.{dimension_slice,chunk,chunk_constraint} (data-only, triggers off)"
+        docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" --data-only --disable-triggers --no-owner \
+            -n _timescaledb_catalog -t dimension_slice -t chunk -t chunk_constraint /tmp/restore.dump || true
+        catalog_counts
+        log "after repair — chunk catalog rows: ${CHUNKS}; physical chunk tables: ${PHYSICAL}"
+        (( CHUNKS == PHYSICAL )) || fail "chunk catalog (${CHUNKS}) still does not match the ${PHYSICAL} restored chunk tables — the hypertables would read as empty. NOT a usable restore."
+    fi
+fi
 
 trap - EXIT
 if [[ -n "$TSDB" ]]; then
