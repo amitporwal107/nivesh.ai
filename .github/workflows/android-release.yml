@@ -37,7 +37,7 @@ on:
         type: string
         default: '1'
       publish:
-        description: 'Publish the APK to niveshcopilot.com/downloads (prod VM)'
+        description: 'Publish the APK to https://niveshcopilot.com/downloads/nivesh-v5-prod-release.apk (prod VM)'
         type: boolean
         default: true
 
