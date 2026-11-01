@@ -79,26 +79,6 @@ BUILD_EXIT=0
 ```
 The 32 failures are IDENTICAL BY NAME to the 32 that fail on plain dev (all in copilot-app-desk-strategy-graphs.spec.ts, pre-existing, not touched by this branch); none elsewhere; the 11 hedge cases (HG-1…HG-11) all pass inside this run.
 
-## Merge onto dev 4fd874d3 — re-verification (1 Nov, after PRs #432-#439 landed)
-The branch conflicted with dev in 7 files (two features adding to the same lists and the same end-of-file spots); both sides were kept: copilot_visual `__init__.py` (AGENT_FOR), `payload.py` and `intents.py` (intent tuples), `builders.py` (BUILDERS), `readers.py` (docstring + readers), `tests/test_suggestions.py` (INTENTS 16 -> 17), `frontend-v5/e2e/fixtures/contract-visual-answer.json` (dev's 16 real captures + the real portfolio_hedge capture, 17). The five Quick Hedge suites were added to the CI allowlist (`.github/workflows/backend-tests.yml`).
-
-Backend, the CI allowlist (292 files) run in the staging backend image on the merged tree and on plain dev 35a7931d, failures compared by name:
-```
-MERGED : 84 failed, 7764 passed, 34 skipped, 4 errors in 217.68s
-DEV    : 84 failed, 7635 passed, 34 skipped, 4 errors in 211.84s
-identical FAILED/ERROR names: YES (88 = 88) | Quick Hedge tests among them: 0
-```
-(+129 passed = 127 Quick Hedge tests + 2 suggestion-template cases. The 84 + 4 are the container environment's known baseline, e.g. tests that need network or files the CI runner has; they are identical on dev.)
-
-Frontend, the WHOLE Playwright suite (every /api mocked, production build) on the merged tree:
-```
-TSC_EXIT=0
-BUILD_EXIT=0
-  32 failed
-  1285 passed (13.1m)
-```
-The 32 failures are copilot-app-desk-strategy-graphs.spec.ts (SG-*), which fail with the same 32 names on pure dev e8ffd516 (compared name by name; none outside that spec). The 11 hedge cases (HG-1…HG-11) pass; the 47 existing Risk Desk cases pass.
-
 ## NOT verified (UNVERIFIED)
 - The HTTP route on staging: POST /api/portfolio/quick-hedge with a session and the flag on. Needs the branch deployed (backend process restart) and a staging session token. Only the service and the chat builder ran against real data (in-process), and the route's gate/validation ran in unit tests.
 - Playwright against the DEPLOYED staging app with the flag on (the UI spec is mocked, as the repo's UI specs are); the screen in a real browser; the LLM's wording of the chat explanation (it shares the staging 5-hour limit / Groq key).
