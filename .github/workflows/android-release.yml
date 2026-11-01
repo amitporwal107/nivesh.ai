@@ -73,8 +73,14 @@ jobs:
           cache: npm
           cache-dependency-path: frontend-v5/package-lock.json
 
+      # The action's default `packages` ("tools platform-tools") fails on current runners
+      # (cmdline-tools 16: "Failed to find package 'tools'") — the 2026-11-01 prod run died
+      # right here. Same explicit list the staging APK workflow uses; semicolon entries are
+      # single tokens, the action splits on spaces.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Install web dependencies
         run: npm ci
@@ -169,3 +175,16 @@ jobs:
           echo "served sha256: $SERVED_SHA   (https://niveshcopilot.com/downloads/$APK)"
           [ "$LOCAL_SHA" = "$SERVED_SHA" ] || { echo "::error::nginx is not serving the APK that was just uploaded"; exit 1; }
           echo "✓ served by nginx"
+
+      # Advisory only, like staging: Cloudflare answers 403 to Actions runners, so this can
+      # never be authoritative — the on-VM check above is. It exists so the run log shows the URL.
+      - name: Public URL (advisory)
+        if: ${{ inputs.publish }}
+        run: |
+          URL="https://niveshcopilot.com/downloads/nivesh-v5-prod-release.apk"
+          HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 "$URL" 2>/dev/null || echo "000")
+          case "$HTTP" in
+            200) echo "✅ Public URL serving the APK (HTTP 200): $URL" ;;
+            403) echo "ℹ️  HTTP 403 — Cloudflare blocked this runner, not an APK problem. The on-VM check above is authoritative. Download: $URL" ;;
+            *)   echo "::warning::Public URL returned HTTP $HTTP — the APK is verified published on the VM. Expected download: $URL" ;;
+          esac
