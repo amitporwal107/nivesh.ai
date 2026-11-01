@@ -18,7 +18,7 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { Btn } from "../../components/ui";
-import { useCopilotShell } from "../../lib/shell-context";
+import { useOptionalCopilotShell } from "../../lib/shell-context";
 import { LoadError } from "../markets/parts";
 import { BULK_MAX, useAddStocks, useCreateList, usePersonalLists, writeFailure, type BulkAddAnswer } from "../workspace/personal-lists";
 
@@ -38,7 +38,7 @@ export function defaultListName(query: string, asOf: string | null, today = new 
 
 const field = { minHeight: 44, padding: "8px 10px", borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 14 } as const;
 
-export function AddToList({ selected, matches, query, asOf, onDone }: {
+export function AddToList({ selected, matches, query, asOf, onDone, embedded = false, idPrefix = "screener-add" }: {
   /** The chosen stocks, in the run's order. */
   selected: string[];
   /** How many stocks the run matched (for the "first 100" wording). */
@@ -48,8 +48,14 @@ export function AddToList({ selected, matches, query, asOf, onDone }: {
   asOf: string | null;
   /** Called after a successful add: the page clears its selection. */
   onDone: () => void;
+  /** Inside a chat answer's block, which supplies the frame, title and explanation: no card, heading or paragraph of its own, the stocks
+   *  are named, and the result replaces the form once the add has been done (the selection is fixed there, so it never clears). */
+  embedded?: boolean;
+  /** The test-id prefix: `<prefix>`, `-count`, `-list`, `-name`, `-confirm`, `-result`, `-added`, … */
+  idPrefix?: string;
 }) {
-  const { go, mode } = useCopilotShell();
+  const idp = idPrefix;
+  const shell = useOptionalCopilotShell();
   const lists = usePersonalLists();
   const create = useCreateList();
   const add = useAddStocks();
@@ -107,25 +113,28 @@ export function AddToList({ selected, matches, query, asOf, onDone }: {
     }
   };
 
-  const openLists = () => go(mode === "trader" ? "trader/desk?tab=trade&view=watchlists&wl=my-lists" : "page/watchlist?wl=my-lists");
-  const shownResult = count === 0 ? result : null;
+  const openLists = () => shell?.go(shell.mode === "trader" ? "trader/desk?tab=trade&view=watchlists&wl=my-lists" : "page/watchlist?wl=my-lists");
+  const shownResult = result && (embedded || count === 0) ? result : null;
+  const preview = embedded && count > 0 ? `${selected.slice(0, 4).join(", ")}${count > 4 ? ` and ${count - 4} more` : ""}` : null;
   const error = add.error ?? create.error;
 
   return (
-    <section data-testid="screener-add" aria-label="Add to a list" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: "12px 14px" }}>
+    <section data-testid={idp} aria-label="Add to a list" className={embedded ? "flex min-w-0 flex-col" : "cp-card flex min-w-0 flex-col"} style={embedded ? { gap: 10 } : { gap: 10, padding: "12px 14px" }}>
       <div className="flex flex-wrap items-baseline" style={{ gap: "4px 12px" }}>
-        <span style={{ fontSize: 14, fontWeight: 500, color: "var(--cp-ink)" }}>Add to a list</span>
-        <span data-testid="screener-add-count" aria-live="polite" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
-          {count > 0 ? `${count} selected` : "Tick the stocks you want, then choose a list."}
+        {!embedded && <span style={{ fontSize: 14, fontWeight: 500, color: "var(--cp-ink)" }}>Add to a list</span>}
+        <span data-testid={`${idp}-count`} aria-live="polite" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
+          {embedded ? (shownResult ? "" : `${count} ${count === 1 ? "stock" : "stocks"}: ${preview}`) : count > 0 ? `${count} selected` : "Tick the stocks you want, then choose a list."}
         </span>
       </div>
-      <p className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
-        Puts these stocks in one of your own lists as they are now: a fixed snapshot that does not change when the screen’s matches do.
-        A list is your own note of stocks to follow, not advice. Adding them also tells the Copilot which stocks you follow.
-      </p>
+      {!embedded && (
+        <p className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
+          Puts these stocks in one of your own lists as they are now: a fixed snapshot that does not change when the screen’s matches do.
+          A list is your own note of stocks to follow, not advice. Adding them also tells the Copilot which stocks you follow.
+        </p>
+      )}
 
       {lists.isError && (
-        <div data-testid="screener-add-lists-error"><LoadError title="Your lists didn’t load" error={lists.error} onRetry={() => void lists.refetch()} /></div>
+        <div data-testid={`${idp}-lists-error`}><LoadError title="Your lists didn’t load" error={lists.error} onRetry={() => void lists.refetch()} /></div>
       )}
 
       {!shownResult && (
@@ -134,7 +143,7 @@ export function AddToList({ selected, matches, query, asOf, onDone }: {
             <label htmlFor={selectId} style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>List</label>
             <select
               id={selectId}
-              data-testid="screener-add-list"
+              data-testid={`${idp}-list`}
               value={chosen}
               disabled={!index || !!made}
               onChange={(e) => setTarget(e.target.value)}
@@ -152,7 +161,7 @@ export function AddToList({ selected, matches, query, asOf, onDone }: {
               <label htmlFor={nameId} style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>Name of the new list</label>
               <input
                 id={nameId}
-                data-testid="screener-add-name"
+                data-testid={`${idp}-name`}
                 value={name}
                 maxLength={NAME_MAX}
                 onChange={(e) => setName(e.target.value)}
@@ -161,48 +170,48 @@ export function AddToList({ selected, matches, query, asOf, onDone }: {
               />
             </div>
           )}
-          <Btn variant="primary" disabled={!ready} onClick={() => void confirm()} data-testid="screener-add-confirm" style={{ minHeight: 44, padding: "8px 16px" }}>
+          <Btn variant="primary" disabled={!ready} onClick={() => void confirm()} data-testid={`${idp}-confirm`} style={{ minHeight: 44, padding: "8px 16px" }}>
             {busy ? "Adding…" : count > 0 ? `Add ${count} ${count === 1 ? "stock" : "stocks"}` : "Add"}
           </Btn>
         </div>
       )}
 
       {made && !shownResult && (
-        <p data-testid="screener-add-made" role="status" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
+        <p data-testid={`${idp}-made`} role="status" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
           The list <b style={{ color: "var(--cp-ink)" }}>{made.name}</b> was made, but the stocks were not added. Press the button to add them to it.
         </p>
       )}
       {newBlocked && (
-        <p data-testid="screener-add-maxlists" className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
+        <p data-testid={`${idp}-maxlists`} className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
           You already have {index?.limits.max_lists} lists, the most you can keep. Choose one of them, or delete one on the Watchlist page.
         </p>
       )}
       {matches > BULK_MAX && count === BULK_MAX && (
-        <p data-testid="screener-add-first100" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
+        <p data-testid={`${idp}-first100`} className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
           {matches} stocks matched. A list holds {maxSymbols}, so the first {BULK_MAX} (largest by market cap) are selected.
         </p>
       )}
       {overflow > 0 && !shownResult && (
-        <p data-testid="screener-add-room" className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
+        <p data-testid={`${idp}-room`} className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
           {room === 0 ? "That list is full." : `Only ${room} more fit in that list.`} {overflow} of the {count} will be left out; the answer will name them.
         </p>
       )}
 
       {error != null && (
-        <div data-testid="screener-add-error">
+        <div data-testid={`${idp}-error`}>
           <LoadError title="The stocks weren’t added" error={writeFailure(error)} />
         </div>
       )}
 
       {shownResult && (
-        <div data-testid="screener-add-result" role="status" className="flex min-w-0 flex-col" style={{ gap: 6, fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+        <div data-testid={`${idp}-result`} role="status" className="flex min-w-0 flex-col" style={{ gap: 6, fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
           <span>
-            <b data-testid="screener-add-added" style={{ color: "var(--cp-ink)" }}>Added {shownResult.answer.added.length}</b> to <b style={{ color: "var(--cp-ink)" }}>{shownResult.listName}</b>
-            {shownResult.answer.already.length > 0 && <span data-testid="screener-add-already"> · {shownResult.answer.already.length} {shownResult.answer.already.length === 1 ? "was" : "were"} already there</span>}
-            {shownResult.answer.refused.length > 0 && <span data-testid="screener-add-refused-count"> · {shownResult.answer.refused.length} could not be added</span>}.
+            <b data-testid={`${idp}-added`} style={{ color: "var(--cp-ink)" }}>Added {shownResult.answer.added.length}</b> to <b style={{ color: "var(--cp-ink)" }}>{shownResult.listName}</b>
+            {shownResult.answer.already.length > 0 && <span data-testid={`${idp}-already`}> · {shownResult.answer.already.length} {shownResult.answer.already.length === 1 ? "was" : "were"} already there</span>}
+            {shownResult.answer.refused.length > 0 && <span data-testid={`${idp}-refused-count`}> · {shownResult.answer.refused.length} could not be added</span>}.
           </span>
           {shownResult.answer.refused.length > 0 && (
-            <ul data-testid="screener-add-refused" className="m-0" style={{ paddingLeft: 18 }}>
+            <ul data-testid={`${idp}-refused`} className="m-0" style={{ paddingLeft: 18 }}>
               {shownResult.answer.refused.map((r) => (
                 <li key={r.symbol} data-code={r.code}><b style={{ color: "var(--cp-ink)" }}>{r.symbol}</b> — {r.detail}</li>
               ))}
@@ -211,7 +220,7 @@ export function AddToList({ selected, matches, query, asOf, onDone }: {
           <span>
             <button
               type="button"
-              data-testid="screener-add-open"
+              data-testid={`${idp}-open`}
               onClick={openLists}
               style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 13, fontFamily: "var(--sans)", color: "var(--mint)" }}
             >

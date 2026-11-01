@@ -1714,7 +1714,7 @@ def test_sc10_the_answer_reads_the_rules_first_then_what_was_not_used_then_the_m
     p = build("screen_stocks", message="Screen cheap large cap stocks with ROE over 20 and debt to equity under 0.5")
     assert p["title"] == "Stock screen" and p["as_of"] == "2026-10-29" and p["mode"] == "eod" and p["decision"] is None
     ids = [(b["type"], b["id"]) for b in p["blocks"]]
-    assert ids == [("notice", "read"), ("notice", "not_used"), ("kpis", "summary"), ("ranked", "matches")]
+    assert ids == [("notice", "read"), ("notice", "not_used"), ("kpis", "summary"), ("ranked", "matches"), ("watchlist_add", "add")]
     read = blocks(p, "notice")[0]
     assert read["text"] == "I read this as: Large cap · ROE over 20 · Debt / Equity under 0.5."
     assert read["actions"] == [{"kind": "open_screener", "label": "Open in Screener ›", "query": "r=roe:over:20,de:under:0.5&b=large"}]
@@ -1814,3 +1814,67 @@ def test_sc18_market_caps_use_indian_grouping():
     from services.copilot_visual.screen_builders import indian
     assert [indian(x) for x in (0, 999, 1000, 12345, 100000, 768844, 12345678, 1234567890)] == [
         "0", "999", "1,000", "12,345", "1,00,000", "7,68,844", "1,23,45,678", "1,23,45,67,890"]
+
+
+# ── W5: the card that offers to add the matches to a list (the answer itself never writes) ──
+def test_sc19_the_add_card_carries_the_matches_in_order_and_says_nothing_was_added(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    src.v["screen_run"] = screen_body(130, matched=210)
+    p = build("screen_stocks", message="Screen large cap stocks with ROE over 20")
+    card = blocks(p, "watchlist_add")[0]
+    assert [(b["type"], b["id"]) for b in p["blocks"]][-2:] == [("ranked", "matches"), ("watchlist_add", "add")]   # after the table
+    assert card["symbols"] == [f"FX{i:03d}" for i in range(100)]                       # the first 100, the run's order (largest market cap first)
+    assert card["matched"] == 210 and card["screen"] == "Large cap · ROE over 20" and card["as_of"] == "2026-10-29"
+    assert "Nothing is added until you press the button" in card["note"] and "not advice" in card["note"]
+    f = facts(p)
+    assert "NOTHING has been added" in f and "Never say that anything was added" in f
+    assert "FX050" not in f.split("NOTHING has been added")[1]                          # the model is not handed 100 symbols to talk about
+
+
+def test_sc20_the_answer_builder_never_writes(src, monkeypatch):
+    import ast, inspect
+    from services.copilot_visual import screen_builders
+    tree = ast.parse(inspect.getsource(screen_builders))
+    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert imported <= {"__future__", "re", "typing", "", None, "payload", "intents"} | {"readers", "screen_spec"}, imported    # relative imports show as "" + name
+    names = {a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level for a in n.names}
+    assert names <= {"readers", "screen_spec", "Intent", "Sources", "assemble", "block", "follow", "iso_day", "notice", "num", "short_day", "why"}, names
+    called = {n.func.attr for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert not called & {"insert_one", "update_one", "delete_one", "replace_one", "post", "put", "patch", "delete", "write"}, called
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    build("screen_stocks", message="stocks with ROE over 20")
+    assert [n for n, _ in src.calls if n != "window"] == ["screen_run"]               # the only reader called is the screen
+
+
+def test_sc21_no_card_when_nothing_matched_or_the_screen_failed(src):
+    src.v["screen_run"] = screen_body(0)
+    assert blocks(build("screen_stocks", message="stocks with ROE over 90"), "watchlist_add") == []
+    src.v["screen_run"] = screen_body(3, ok=False)
+    assert blocks(build("screen_stocks", message="stocks with ROE over 20"), "watchlist_add") == []
+    src.fail.add("screen_run")
+    assert blocks(build("screen_stocks", message="stocks with ROE over 20"), "watchlist_add") == []
+
+
+def test_sc22_a_symbol_the_lists_would_refuse_is_not_offered(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    body = screen_body(3)
+    body["widget"]["universe"][1]["ticker"] = "bad symbol!"
+    body["widget"]["universe"][2]["ticker"] = body["widget"]["universe"][0]["ticker"]       # a repeat
+    src.v["screen_run"] = body
+    card = blocks(build("screen_stocks", message="stocks with ROE over 20"), "watchlist_add")[0]
+    assert card["symbols"] == ["FX000"]
+
+
+def test_sc23_the_contract_check_covers_the_card(src, monkeypatch):
+    monkeypatch.setattr(rd, "screen_labels", lambda: LABELS)
+    src.v["screen_run"] = screen_body(4)
+    p = build("screen_stocks", message="stocks with ROE over 20")
+    def card_of(**over):
+        q = json.loads(json.dumps(p))
+        c = [b for b in q["blocks"] if b["type"] == "watchlist_add"][0]
+        c.update(over)
+        return q
+    assert validate(card_of()) == []
+    for bad in ({"symbols": []}, {"symbols": ["OK", "ok lower"]}, {"symbols": ["A"] * 2}, {"symbols": [f"S{i}" for i in range(101)]},
+                {"symbols": ["<script>"]}, {"matched": 1}, {"matched": True}, {"screen": None}, {"as_of": "31/10"}):
+        assert any("watchlist_add" in x for x in validate(card_of(**bad))), bad

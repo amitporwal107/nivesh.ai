@@ -28,6 +28,8 @@ COMMENTARY_TONES = ("up", "down", "warn", "neutral")          # 🟢 positive ·
 NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile", "open_market_intel", "open_screener")
 # `open_screener` carries the rules as the Screener page reads them from its address ("r=roe:over:20&b=large"): only these characters.
 SCREENER_QUERY = re.compile(r"^[A-Za-z0-9:,._=&~-]{0,400}$")
+# A stock symbol the watchlist routes accept (routes/watchlists._SYMBOL_RE); the `watchlist_add` card carries only these.
+WATCH_SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9&.\-]{0,23}$")
 
 
 # ── numbers and formats ──────────────────────────────────────────────────────
@@ -348,6 +350,15 @@ def _block_problems(b: Any, i: int) -> List[str]:
             for lk in it.get("links") or []:
                 if not (isinstance(lk, dict) and isinstance(lk.get("label"), str) and lk.get("kind") in _links.LINK_KINDS and _links.safe_url(lk.get("url")) is not None):
                     out.append(f"{p} briefs: item {k} link needs a label, a kind ({', '.join(_links.LINK_KINDS)}) and an https exchange URL")
+    elif t == "watchlist_add":
+        syms = b.get("symbols")
+        if not (isinstance(syms, list) and 1 <= len(syms) <= 100 and all(isinstance(x, str) and WATCH_SYMBOL.match(x) for x in syms)
+                and len(set(syms)) == len(syms)):
+            out.append(f"{p} watchlist_add: 1 to 100 distinct stock symbols (letters, digits, & . -)")
+        if not (isinstance(b.get("matched"), int) and not isinstance(b.get("matched"), bool) and b["matched"] >= len(syms or [])):
+            out.append(f"{p} watchlist_add: matched is a count of at least the symbols carried")
+        if not isinstance(b.get("screen"), str) or (b.get("as_of") is not None and iso_day(b["as_of"]) != b["as_of"]):
+            out.append(f"{p} watchlist_add: screen text and as_of YYYY-MM-DD or null")
     elif t == "notice":
         if b.get("tone") not in ("warn", "info") or not isinstance(b.get("text"), str):
             out.append(f"{p} notice: tone warn|info and text")
@@ -489,6 +500,9 @@ def facts(p: Dict[str, Any], subject: Optional[str] = None) -> str:
                 cm = it.get("commentary")
                 if isinstance(cm, dict):
                     lines.append("    five-line AI read: " + " / ".join(f"{x['label']}: {x['text']}" for x in cm.get("lines") or []))
+        elif t == "watchlist_add":
+            lines.append(f"A card offers to add {len(b.get('symbols') or [])} of these stocks to one of the user's own lists. NOTHING has been added "
+                         "to any list: only the user can, by pressing the button. Never say that anything was added or saved.")
         elif t == "trade_plan":
             lines.append(f"The desk's TradePlan card {b.get('plan_id')} is shown.")
         elif t == "list":

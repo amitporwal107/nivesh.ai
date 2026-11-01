@@ -13,6 +13,7 @@ the day's data does not carry is named, because no stock can pass it.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 from . import readers as rd
@@ -22,6 +23,8 @@ from .payload import Sources, assemble, block, follow, iso_day, notice, num, sho
 
 SRC_SCREEN = "Stock screener · the day's stock features (nidp.stock_features_daily)"
 SHOWN = 25                                   # rows in the answer; the Screener page shows the rest
+ADD_MAX = 100                                # stocks the add card carries: one list's worth (routes/watchlists.MAX_SYMBOLS)
+SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9&.\-]{0,23}$")   # the watchlist routes' own symbol shape (routes/watchlists._SYMBOL_RE)
 MAX_METRIC_COLUMNS = 4
 _WHOLE = frozenset({"rsi", "momentum", "accumulation", "liquidity", "earningsConsistency"})
 _TWO = frozenset({"de", "beta", "peVsSector"})
@@ -160,6 +163,15 @@ async def screen_stocks(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                             f"{count} These are stocks that match the rules above, not recommendations. A stock with no value for a metric "
                             "shows — and cannot pass a rule on it. The Screener page has every match and more columns.",
                             columns=columns, rows=rows))
+        symbols = [x for x in dict.fromkeys(str(r.get("ticker") or r.get("symbol") or "").strip().upper() for r in universe)
+                   if SYMBOL.match(x)][:ADD_MAX]
+        if symbols:
+            # A card the reader presses to add these stocks to a list of their own. The answer never writes: the card does, from the
+            # browser with the user's session (the watchlist routes check ownership, the instrument list and the 100 limit).
+            blocks.append(block("watchlist_add", "add", "Add these to one of your lists",
+                                "Nothing is added until you press the button. It puts today's matches in a list of your own as they are now (a fixed snapshot): "
+                                "your own note of stocks to follow, not advice. Adding stocks also tells the Copilot which stocks you follow.",
+                                symbols=symbols, matched=matched, screen=ss.words(spec, labels), as_of=as_of))
         head = f"{matched:,} {'stock matches' if matched == 1 else 'stocks match'} your filters."
     return assemble("screen_stocks", title, as_of, head, "neutral", blocks, src, follow_ups, now=ctx.get("now"))
 

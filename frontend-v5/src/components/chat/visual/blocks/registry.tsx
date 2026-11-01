@@ -13,6 +13,7 @@ import { KpisView } from "./Kpis";
 import { QuadrantView } from "./Quadrant";
 import { RankedView } from "./Ranked";
 import { ListView, NoticeView, TradePlanView } from "./Simple";
+import { WatchlistAddView } from "./WatchlistAdd";
 
 export const BLOCK_VIEWS: Record<BlockType, ComponentType<BlockProps<never>>> = {
   kpis: KpisView,
@@ -25,6 +26,7 @@ export const BLOCK_VIEWS: Record<BlockType, ComponentType<BlockProps<never>>> = 
   list: ListView,
   notice: NoticeView,
   briefs: BriefsView,
+  watchlist_add: WatchlistAddView,
 } as Record<BlockType, ComponentType<BlockProps<never>>>;
 
 export function BlockView({ block, compact, ask }: { block: KnownBlock; compact: boolean; ask?: (q: string) => void }) {
