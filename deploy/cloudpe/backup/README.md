@@ -13,6 +13,58 @@ A compressed `pg_dump` of each staging database, every week, encrypted and kept
 | Snapshots | `/opt/nivesh-staging/dumps` (700) | `/opt/nidp-staging/dumps` (700) |
 | Log | `/opt/nivesh-staging/logs/db-snapshot.log` | `/opt/nidp-staging/logs/db-snapshot.log` |
 
+## Production (CloudPe prod VM, added 2026-11-01)
+
+Production runs both stacks on **one** VM (`45.64.105.249`, see `deploy/cloudpe-prod/README.md`), so the same
+job runs there with two extra targets. It replaced the nightly GitHub workflow *"NIDP — Database backup to
+GCS"*, whose GCP VM and bucket no longer exist (its last 8 scheduled runs all failed — it produced no backup).
+
+| | NIDP warehouse | App Postgres |
+|---|---|---|
+| Target | `--target prod-nidp` | `--target prod-app` |
+| Container | `nidp-postgres` | `nivesh-postgres` |
+| Database | `nidp` (PG 16.13 + TimescaleDB 2.26.4, 18 hypertables, ~18 GB) | `portfolio_ingestion` (PG 16.15, ~840 MB) |
+| Schedule | **Sunday 03:30 IST** | **Sunday 02:30 IST** |
+| Cron file | `/etc/cron.d/nidp-prod-db-snapshot` | `/etc/cron.d/nivesh-prod-db-snapshot` |
+| Snapshots | `/opt/nidp/dumps` (700) | `/opt/nivesh/dumps` (700) |
+| Log | `/opt/nidp/logs/db-snapshot.log` | `/opt/nivesh/logs/db-snapshot.log` |
+
+Both run under `nice -n 10 ionice -c2 -n7` so a dump never competes with the site. Installed **unencrypted**
+(`--no-encrypt`, same state as staging; root-only, mode 600, in 700 folders) because no recipient key exists yet.
+Install / reinstall: `sudo bash deploy/cloudpe/backup/install.sh --target prod-nidp --no-encrypt` (and `prod-app`).
+
+**The snapshot sits on the same disk as the database it protects.** It covers a bad migration, bad data or a
+dropped table; it does **not** cover losing the VM or its disk. Copy it elsewhere for that.
+
+**MongoDB is not covered** (users, sessions, `system_config.secrets`, feature flags live in `nivesh-mongo`),
+nor `/opt/nivesh/data/app`. The app snapshot alone cannot restore a working app.
+
+The first prod run also prunes the seed dump `/opt/nidp/dumps/nidp_from_staging.dump` (it matches the
+`nidp_*.dump` retention pattern and is superseded by the first real snapshot).
+
+### Restoring a production TimescaleDB snapshot (drilled 2026-11-01)
+
+Into a **new, empty** database — never over the live one (the script refuses a populated TimescaleDB database):
+
+```bash
+# 1. a throwaway or replacement container on the SAME image tag (cat /opt/nidp/cloudpe.env), e.g.
+docker run -d --name nidp-restore --cpus 2 -e POSTGRES_USER=nidp -e POSTGRES_PASSWORD=… -e POSTGRES_DB=nidp \
+    -v /opt/nidp/restore-data:/var/lib/postgresql/data timescale/timescaledb:2.26.4-pg16
+#    wait for "init process complete" in `docker logs` — the image installs timescaledb, then restarts the server.
+# 2. restore (sections: schema → data with triggers off → indexes/constraints):
+/opt/nidp/bin/restore-snapshot.sh --restore /opt/nidp/dumps/nidp_<date>.dump --container nidp-restore --jobs 2 --confirm-db nidp
+```
+
+Measured on the first prod snapshot (2.0 GB → 18 GB): **8.5 minutes**, 2 CPUs. Expect `pg_restore exit code 1` with exactly one
+error, `COPY failed for table "metadata" … Key (install_timestamp) already exists` — the fresh install already has that row;
+nothing is lost. The script then compares the chunk catalog with the restored chunk tables and refuses to finish if they differ.
+Then check the application against it, and compare row counts with the source before switching anything over.
+
+**Why sections:** a single `pg_restore --clean --jobs N` (what this script did before 2026-11-01, and what the first
+production clone did) loses the TimescaleDB chunk catalog — `dimension_slice`/`chunk`/`chunk_constraint` have circular
+foreign keys — so every hypertable index fails with `chunk not found` and the hypertables read as empty. The drill of the first
+snapshot with the old script produced that exact failure; see `test_reports/prod_db_backup_20261101.md`.
+
 ## Compression
 
 `pg_dump -Fc` with an **explicit** `--compress=` — explicit so a changed default
@@ -184,8 +236,8 @@ An un-drilled encrypted backup is a guess, not a backup.
 - **MongoDB is not covered.** Users, sessions, portfolios and
   `system_config.secrets` live in `nivesh-staging-mongo`, so the app-VM snapshot
   **cannot restore a working app** on its own. Postgres-only was the chosen scope.
-- **Production is not covered.** The old GCP app VM (`34.47.250.214`) is
-  unreachable and prod was never migrated to CloudPe.
+- **Production** is covered since 2026-11-01 (see above) — but the same two gaps apply there: no off-VM
+  copy, and MongoDB is not dumped.
 - **No alerting.** A failed run is a non-zero exit and a line in the log; with
   `MAILTO=""` nothing pages anyone. Check the log, or wire the job into the
   existing Grafana/Loki stack.
@@ -196,8 +248,10 @@ An un-drilled encrypted backup is a guess, not a backup.
 | File | Role |
 |---|---|
 | `db-snapshot.sh` | the job: dump → verify → encrypt → checksum → prune previous |
-| `restore-snapshot.sh` | decrypt/rejoin → `pg_restore` (with the Timescale dance) |
+| `restore-snapshot.sh` | decrypt/rejoin → `pg_restore` (with the Timescale dance; creates the extension in an empty database and repairs/refuses a lost chunk catalog) |
 | `install.sh` | installs the above, the keyring, the config and the cron entry |
 | `set-github-secrets.sh` | optional: escrow the private key as Actions secrets |
 | `db-snapshot-app.cron` | Sunday 02:30 IST, app VM |
 | `db-snapshot-nidp.cron` | Sunday 03:30 IST, NIDP VM |
+| `db-snapshot-prod-app.cron` | Sunday 02:30 IST, prod VM (app Postgres) |
+| `db-snapshot-prod-nidp.cron` | Sunday 03:30 IST, prod VM (NIDP warehouse) |

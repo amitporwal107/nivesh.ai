@@ -4,7 +4,7 @@
 # Run as root ON the VM being set up. Idempotent: re-running updates the
 # scripts, the config and the cron entry in place.
 #
-#   sudo bash install.sh --target app|nidp \
+#   sudo bash install.sh --target app|nidp|prod-app|prod-nidp \
 #        --pubkey-file /path/to/recipient-public-key.asc \
 #        [--compress zstd:12] [--no-encrypt] \
 #        [--destination github --repo owner/private-repo --token-file /path/to/token]
@@ -69,7 +69,9 @@ umask 077
 case "$TARGET" in
     app)  STACK="/opt/nivesh-staging"; CRON_DEST="/etc/cron.d/nivesh-staging-db-snapshot"; CRON_SRC="db-snapshot-app.cron" ;;
     nidp) STACK="/opt/nidp-staging";   CRON_DEST="/etc/cron.d/nidp-staging-db-snapshot";   CRON_SRC="db-snapshot-nidp.cron" ;;
-    *)    fail "--target must be app or nidp" ;;
+    prod-app)  STACK="/opt/nivesh"; CRON_DEST="/etc/cron.d/nivesh-prod-db-snapshot"; CRON_SRC="db-snapshot-prod-app.cron" ;;
+    prod-nidp) STACK="/opt/nidp";   CRON_DEST="/etc/cron.d/nidp-prod-db-snapshot";   CRON_SRC="db-snapshot-prod-nidp.cron" ;;
+    *)    fail "--target must be app, nidp, prod-app or prod-nidp" ;;
 esac
 [[ -d "$STACK" ]] || fail "${STACK} does not exist — is --target ${TARGET} right for this VM?"
 case "$DESTINATION" in local|github) ;; *) fail "--destination must be local or github" ;; esac

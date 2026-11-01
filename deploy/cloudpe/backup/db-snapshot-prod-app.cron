@@ -1,0 +1,14 @@
+# /etc/cron.d/nivesh-prod-db-snapshot — weekly Postgres snapshot of the PRODUCTION app database
+# (container nivesh-postgres, db portfolio_ingestion) → this VM's own disk, /opt/nivesh/dumps.
+# Does NOT cover MongoDB (users' sessions/secrets/feature flags) or /opt/nivesh/data/app — see README.
+#
+# Sunday 02:30 IST, an hour before the NIDP snapshot so the two never overlap.
+# Retention is LATEST ONLY and the snapshot stays on THIS VM (SNAPSHOT_DESTINATION=local).
+#
+# Install:
+#   sudo bash /opt/nivesh/repo/deploy/cloudpe/backup/install.sh --target prod-app --no-encrypt
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+30 2 * * 0  root  /usr/bin/nice -n 10 /usr/bin/ionice -c2 -n7 /opt/nivesh/bin/db-snapshot.sh --target prod-app >> /opt/nivesh/logs/db-snapshot.log 2>&1
