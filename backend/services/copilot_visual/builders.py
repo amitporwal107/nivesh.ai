@@ -1548,6 +1548,11 @@ BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportu
             "sector_rotation": sector_rotation}
 
 
+# Results and market-research event answers (owner, 31 Oct 2026): their builders live in events_builders.py.
+from .events_builders import BUILDERS as _EVENT_BUILDERS  # noqa: E402
+BUILDERS.update(_EVENT_BUILDERS)
+
+
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",
                 trade_idea: Any = None, now: Any = None) -> Dict[str, Any]:
     """The payload for `intent`. Raises only on a programming fault; every data failure is inside the payload."""

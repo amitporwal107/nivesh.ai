@@ -85,6 +85,7 @@ Each block is `{ "type": …, "id": "…", "title": "…", "note": "…" | null,
 | `trade_plan` | `plan_id` | the existing compact decision card (DecisionCardById) |
 | `list` | `items: [{text, tone?, sub?}]` | a short list (warnings, events, reasons) |
 | `notice` | `tone: "warn"\|"info"`, `text` | a callout for stale or missing data |
+| `briefs` | `items: [{title, symbol?, sub?, badge?, tone?, body?, body_note?, points?, links?, ask?}]` | cards of companies or filings: the stored AI summary, commentary points on request, source-filing links (see below) |
 
 Formats: prices in ₹ with two decimals (a negative one with a true minus before the sign, `−₹14,406.00`); percentages with a sign and two decimals; ratios as `1.8×`; dates as
 `29 Oct 2026`.
@@ -117,6 +118,35 @@ Sector view (31 Oct 2026):
 A heatmap cell may carry `members: [{label, value, sub?, ask?}]`, shown when the tile is selected. `sector rotation` is no longer a
 `smart_money` phrase: FII/DII flows, buildup and smart money stay there; the sector questions have their own answer.
 
+Results and market-research events (31 Oct 2026). "Which companies report results this week?" was answered by the Filings analyst with "I have no
+results calendar"; the platform has one, and the owner asked for "an AI summary of each of the result and management commentary and source pdf link
+to download" and for questions on "order winning, Mergers and Acquisitions, Ownership" (the Market Intelligence chips). Two intents, one new block:
+
+| intent | Trader asks (examples) | blocks | sources (existing) |
+|---|---|---|---|
+| `results_calendar` | Which companies report results this week / today / tomorrow / next week? Which F&O stocks report tomorrow? Which IT companies report this week? | kpis (companies, declared, figures awaited, still to report, F&O names, above · in line · below) · briefs `declared` (up to 8 declared results: the stored AI summary, management commentary, source filings) · ranked `due` (up to 15 companies still to report, F&O first) · notice `more` (what was left out, with the `open_market_intel` action) | the desk's results calendar (DaaS events-calendar, `results_week.loaders.expectations`) with the desk's own status and verdict functions, the stored filing analyses (Mongo `event_ai_analysis`), each shown company's exchange filings (DaaS `/announcements`) |
+| `event_intelligence` | Any order wins this week? M&A announcements today? Promoter pledge changes? Bulk and block deals? What did management say on the earnings calls? How were TCS results? Order wins for L&T? | briefs `events` (up to 8 filings, analysed first) or, for bulk and block deals, ranked `deals` · briefs `circulars` (regulatory: SEBI circulars) · notice with the desk's own gap for the chip · notice `more` | `GET /api/filings/feed` (the feed the desk's chips read; one category or subject family per chip), `GET /api/markets/deals`, `GET /api/markets/circulars`; a stock's results: its own feed rows and its company file |
+
+`params.category` of `event_intelligence` is the chip: `announcements` (management, capex, QIP, rating), `results` (earnings), `calls` (calls and guidance), `orders`, `mna` (M&A,
+dividend, buyback), `ownership`, `deals` (bulk and block), `regulatory` (regulatory, litigation, circulars), `exchange` (exchange notices), `all`. FII/DII stays
+`smart_money`, Sector stays `sector_rotation`; Macro is disabled on the desk itself (no macro calendar is ingested) and is not answered here.
+
+`briefs` block: `items: [{title, symbol?, sub?, badge?, tone?, body?, body_note?, points?: [{text, tone?}], links?: [{label, url, kind: "pdf"|"file"|"page"}], ask?}]`.
+`body` is the STORED AI summary of the filing, verbatim (this contract's builders never write summary text); with no analysis `body` is null and `body_note` says
+"Not analysed yet" (or that the stored analyses could not be read: a failed read is never "not analysed"), and the filing's link still shows. `badge` is the desk's verdict against the
+company's OWN past quarters ("Above / In line with / Below historical trend": no analyst consensus is held, so nothing is a beat or a miss), else the filing analysis's band ("Filing
+read: moderately positive"), else the feed classifier's reading ("Positive · high impact"), else "Not rated". `points` are the management commentary the AI read of the company's
+presentations, calls, business updates and press releases (summary, points for and against, what is still unknown), shown on request.
+
+Links: `links[].url` is an attachment URL the data carries, never built from a symbol or a date, and must be https on an exchange or SEBI host (`nsearchives.nseindia.com`,
+`archives.nseindia.com`, `www.nseindia.com`, `nseindia.com`, `www.bseindia.com`, `bseindia.com`, `www.sebi.gov.in`, `sebi.gov.in`; no user-info or port). The backend
+(`services/copilot_visual/links.py`, `validate`) and the frontend (`schema.ts safeFilingUrl`) both enforce it; a link that fails is not drawn. They open in a new tab with
+`rel="noopener noreferrer"`; the label says what opens ("Results filing (PDF)", "Source filing (file)").
+
+Freshness: the calendar's `as_of` is the day it was read; the feed's is the newest filing of any category (how current the pipeline is, not how recent one category's last
+event was); deals use the latest deal date on record. A source older than the previous NSE session is flagged stale as everywhere else. A week is Monday to Saturday
+(the desk's Results week); on a Sunday "this week" is the coming one.
+
 Block fields added on 31 Oct 2026 (all optional; a payload without them is unchanged):
 
 | block | field | meaning |
@@ -126,9 +156,19 @@ Block fields added on 31 Oct 2026 (all optional; a payload without them is uncha
 | `ranked` row | `tips: {cellKey: text}` | a tooltip on a cell (a bought put's theoretical to-zero profit is only here) |
 | `ranked`, `quadrant` | `detail: "fno"` | a row or point with a stock opens that stock's option chain and futures build-up (inside the app shell), with "Open in Chart Analysis ›" |
 | `heatmap` cell | `members: [{label, value, sub?, ask?}]` | the stocks behind a tile, shown when it is selected |
-| `notice` | `actions: [{kind, label}]` | `kite_login` (admins), `connect_broker`, `set_risk_profile` |
+| `notice` | `actions: [{kind, label}]` | `kite_login` (admins), `connect_broker`, `set_risk_profile`, `open_market_intel` (Market Desk › Market Intelligence) |
 
 A saved setting (a risk profile) is a source with status `fresh` whatever its date: the freshness rule is for prices and flows.
+
+Added on 1 Nov 2026 (owner: "rate the results as Below / Meet / Above expectation"; "a five-line AI commentary"):
+
+| block | field | meaning |
+|---|---|---|
+| `briefs` item | `badge` | a result's rating against EXPECTATION: `Above expectation` / `Well above expectation` / `Meets expectation` / `Below expectation` / `Well below expectation` / `Not rated` (the reason is in `sub`: "Not rated: baseline too uncertain"). Expectation = the company's own baseline from its past quarters (the desk's verdict); no analyst consensus is held, so nothing is a beat or a miss against the street. The filing's sentiment is never passed off as this rating |
+| `briefs` item | `commentary: {signal, lines}` | the five-line AI commentary of an analysed event: `signal` = `{label, tone: up\|down\|warn\|neutral (🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational), impact: High\|Medium\|Low\|null, confidence: 0-100\|null}`; `lines` = exactly five `{label, text}`: What happened · Why it matters · Market impact · What to watch · AI take |
+
+The commentary is assembled ONLY from the stored AI read (the filing analysis: summary, positives, negatives, open questions, band, materiality, confidence; or the feed classifier's one-line, sentiment and impact). Nothing is generated again; a line the stored read does not support
+reads "Not stated in the stored AI read." Impact is the stored materiality score at fixed thresholds (High from 70, Medium from 45, else Low). An event with no stored read has no `commentary`.
 
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
