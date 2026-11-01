@@ -133,7 +133,7 @@ export default function CopilotTourArticle() {
           See it on your own portfolio
         </h3>
         <p style={{ fontSize: 15, color: "var(--ink-2)", margin: "12px auto 0", maxWidth: 440, lineHeight: 1.6 }}>
-          Read-only, SEBI-aligned analysis that grades your holdings and tells you what to fix — in plain language.
+          Read-only analysis that grades your holdings and tells you what to fix — in plain language.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
           <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>

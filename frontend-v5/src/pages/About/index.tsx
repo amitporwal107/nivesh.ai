@@ -9,7 +9,7 @@ const PRINCIPLES = [
   { t: "Legible, not louder", d: "Most tools throw more numbers at you. We translate your portfolio into plain language and a single grade you can act on." },
   { t: "Read-only by design", d: "We analyse; we never trade or move your money. Access is read-only, and your decisions stay yours." },
   { t: "Grounded, never guessed", d: "Every score traces back to a real holding, and every Copilot answer cites the data it used. No made-up numbers." },
-  { t: "Aligned with you", d: "SEBI-aligned analysis tied to your goals and risk profile — not to selling you a product." },
+  { t: "Aligned with you", d: "Analysis tied to your goals and risk profile — not to selling you a product." },
 ];
 
 const STATS = [
@@ -66,7 +66,7 @@ export default function AboutPage() {
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 56px 16px", textAlign: "center" as const }}>
         <h2 className="nv-serif" style={{ fontSize: 40, letterSpacing: "-0.03em", margin: 0 }}>Built in India, for Indian portfolios.</h2>
         <p style={{ fontSize: 16, color: "var(--ink-2)", margin: "14px auto 0", maxWidth: 460 }}>
-          SEBI-aligned · ARN-128459 · Investments are subject to market risk.
+          ARN-128459 · Investments are subject to market risk.
         </p>
         <div style={{ display: "flex", gap: 12, marginTop: 28, justifyContent: "center" }}>
           <button className="nv-btn nv-btn-primary" style={{ padding: "14px 22px", fontSize: 15 }} onClick={() => navigate("/login")}>

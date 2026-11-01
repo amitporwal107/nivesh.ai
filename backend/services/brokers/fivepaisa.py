@@ -1,9 +1,13 @@
 """5paisa native broker adapter.
 
-5paisa uses an OAuth-like flow with `RequestToken` + `Encrypt(api_key,
-api_secret, request_token)`. No browser-based redirect — user runs the
-5paisa trader login, retrieves a request_token via the partner portal,
-pastes it into Nivesh. We surface this as form-style for now.
+SIGN-IN IS NOT OFFERED. The py5paisa SDK's session call
+(`get_totp_session(client_code, totp, pin)`) needs the user's 5paisa
+password/PIN and a one-time code typed into Nivesh, and Nivesh never accepts
+broker credentials: an account is connected only by signing in on the
+broker's own page (see services/brokers/sessions.py). `exchange_code`
+therefore refuses every request, and `AUTH_STYLE = "form"` keeps the broker
+off the connectable list (`registry.list_supported`). The read helpers stay
+for the day 5paisa offers a redirect sign-in.
 
 Operator: register at https://www.5paisa.com/developerapi/.
 Secrets: BROKER_FIVEPAISA_API_KEY, BROKER_FIVEPAISA_API_SECRET,
@@ -29,35 +33,17 @@ def auth_url(*, state: str, redirect_uri: str) -> str:
     return f"/broker-credentials/fivepaisa?state={state}"
 
 
+CREDENTIALS_REFUSED = (
+    "5paisa sign-in is not offered: it needs your 5paisa password and a one-time code, "
+    "and Nivesh never accepts broker credentials."
+)
+
+
 async def exchange_code(*, code: str, state: str, redirect_uri: str) -> AccessToken:
-    """`code` is JSON `{client_code, password, totp}` from form."""
-    import json
-    sdk = require_sdk("py5paisa", "Add `py5paisa` to requirements.txt.")
-    try:
-        creds = json.loads(code)
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"5paisa malformed creds: {e}")
-    cred = {
-        "APP_NAME": require("BROKER_FIVEPAISA_API_KEY"),
-        "APP_SOURCE": require("BROKER_FIVEPAISA_API_SECRET"),
-        "USER_ID": require("BROKER_FIVEPAISA_USER_ID"),
-        "PASSWORD": require("BROKER_FIVEPAISA_USER_KEY"),
-        "USER_KEY": require("BROKER_FIVEPAISA_USER_KEY"),
-        "ENCRYPTION_KEY": require("BROKER_FIVEPAISA_USER_KEY"),
-    }
-    cl = sdk.FivePaisaClient(cred=cred)
-    await to_thread(
-        cl.get_totp_session, creds.get("client_code"), creds.get("totp"), creds.get("password"),
-    )
-    if not getattr(cl, "Login_check", False):
-        raise RuntimeError("5paisa login failed")
-    return AccessToken(
-        token=cl.client_code,
-        extras={
-            "jwt": getattr(cl, "Jwt_token", None),
-            "client_code": cl.client_code,
-        },
-    )
+    """Refuse. The only 5paisa session the SDK offers is built from the user's
+    password/PIN and TOTP, which Nivesh must not receive. `code` is never
+    parsed, logged or passed on."""
+    raise RuntimeError(CREDENTIALS_REFUSED)
 
 
 def _client(token: AccessToken):

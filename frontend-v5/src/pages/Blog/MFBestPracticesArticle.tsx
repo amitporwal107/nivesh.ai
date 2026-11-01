@@ -153,7 +153,7 @@ export default function MFBestPracticesArticle() {
           Put these to work on your own portfolio
         </h3>
         <p style={{ fontSize: 15, color: "var(--ink-2)", margin: "12px auto 0", maxWidth: 460, lineHeight: 1.6 }}>
-          Read-only, SEBI-aligned analysis that grades your funds on allocation, overlap, cost and goal-fit —
+          Read-only analysis that grades your funds on allocation, overlap, cost and goal-fit —
           then tells you exactly what to fix, in plain language.
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
