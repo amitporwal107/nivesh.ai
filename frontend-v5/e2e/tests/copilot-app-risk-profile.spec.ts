@@ -77,11 +77,11 @@ test.describe("How much should I risk? and the usage-limit message (MOCK payload
     await expect(notice.getByTestId("va-notice-action-set_risk_profile")).toHaveText("Set up your risk profile");
   });
 
-  test("RP-2 the action opens the Risk Desk's limits and profile", async ({ page }) => {
+  test("RP-2 the action opens the Risk Desk's Controls & profile, where the profile is edited", async ({ page }) => {
     const va = await ask(page, PAYLOADS.none);
     await expect(va).toBeVisible(SLOW);
     await va.getByTestId("va-notice-action-set_risk_profile").click();
-    await expect(page).toHaveURL(/\/app\/trader\/desk\?tab=risk&view=limits/);
+    await expect(page).toHaveURL(/\/app\/trader\/desk\?tab=risk&view=controls/);
   });
 
   test("RP-3 a saved profile is not stale, however old: its title and the date it was set, and no ask", async ({ page }) => {
