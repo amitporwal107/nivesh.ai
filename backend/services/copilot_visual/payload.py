@@ -12,6 +12,8 @@ import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+from . import links as _links
+
 SCHEMA = "visual-answer-v1"
 IST = timezone(timedelta(hours=5, minutes=30))
 MINUS = "−"
@@ -21,6 +23,8 @@ DECISION_LABELS = {"setup_ready": "Setup ready", "wait": "Wait", "avoid": "Avoid
 CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker."
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
+COMMENTARY_TONES = ("up", "down", "warn", "neutral")          # 🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational
+NOTICE_ACTIONS = ("kite_login", "connect_broker", "set_risk_profile", "open_market_intel")
 
 
 # ── numbers and formats ──────────────────────────────────────────────────────
@@ -143,6 +147,11 @@ class Sources:
                 f"{' (' + day_text(self.w.floor) + ')' if self.w is not None else ''}: shown with its date, not as today's.",
                 "warn", f"stale-{len(self.notices)}"))
         return ok
+
+    def setting(self, name: str, as_of: Any = None, note: Optional[str] = None) -> None:
+        """Record a source that is the user's own saved setting (a risk profile), not market data. The freshness rule is about
+        prices and flows: a setting made months ago is still the setting, so it is never stale, and no notice is added."""
+        self.rows.append({"name": name, "as_of": iso_day(as_of), "status": "fresh", "note": note})
 
     def miss(self, name: str, reason: str) -> None:
         """Record a source that could not answer: no number from it is shown."""
@@ -268,6 +277,10 @@ def _block_problems(b: Any, i: int) -> List[str]:
         if not isinstance(cells, list) or not cells or not all(
                 isinstance(x, dict) and isinstance(x.get("label"), str) and (x.get("value") is None or _is_num(x.get("value"))) for x in cells):
             out.append(f"{p} heatmap: at least one labelled numeric cell")
+        elif not all(x.get("members") is None or (isinstance(x["members"], list) and all(
+                isinstance(m, dict) and isinstance(m.get("label"), str) and (m.get("value") is None or _is_num(m.get("value")))
+                and _opt_str(m.get("sub")) and _opt_str(m.get("ask")) for m in x["members"])) for x in cells):
+            out.append(f"{p} heatmap: members need a label and a numeric value")
     elif t == "quadrant":
         pts = b.get("points")
         q = b.get("quadrants")
@@ -286,11 +299,18 @@ def _block_problems(b: Any, i: int) -> List[str]:
             if isinstance(c, dict) and c.get("format") is not None and c["format"] not in RANKED_FORMATS:
                 out.append(f"{p} ranked: unknown format {c['format']}")
         rows = b.get("rows")
-        if not isinstance(rows, list) or not all(
-                isinstance(r, dict) and isinstance(r.get("cells"), dict)
-                and all(v is None or isinstance(v, (str, bool)) or _is_num(v) for v in r["cells"].values())
-                and _opt_str(r.get("symbol")) and _opt_str(r.get("plan_id")) and _opt_str(r.get("ask")) for r in rows):
+
+        def _row_ok(r: Any) -> bool:
+            return (isinstance(r, dict) and isinstance(r.get("cells"), dict)
+                    and all(v is None or isinstance(v, (str, bool)) or _is_num(v) for v in r["cells"].values())
+                    and _opt_str(r.get("symbol")) and _opt_str(r.get("plan_id")) and _opt_str(r.get("ask")) and _opt_str(r.get("badge"))
+                    and (r.get("tips") is None or (isinstance(r["tips"], dict) and all(isinstance(v, str) for v in r["tips"].values()))))
+        if not isinstance(rows, list) or not all(_row_ok(r) for r in rows):
             out.append(f"{p} ranked: rows need cells of text/number/bool/null")
+        elif not all(r.get("alternatives") is None or (isinstance(r["alternatives"], list) and all(_row_ok(a) and not a.get("alternatives")
+                                                                                                    for a in r["alternatives"]))
+                     for r in rows):
+            out.append(f"{p} ranked: alternatives must be rows of the same shape, one level deep")
     elif t == "trade_plan":
         if not (isinstance(b.get("plan_id"), str) and b["plan_id"]):
             out.append(f"{p} trade_plan: plan_id")
@@ -298,9 +318,40 @@ def _block_problems(b: Any, i: int) -> List[str]:
         items = b.get("items")
         if not isinstance(items, list) or not items or not all(isinstance(x, dict) and isinstance(x.get("text"), str) for x in items):
             out.append(f"{p} list: at least one item with text")
+    elif t == "briefs":
+        items = b.get("items")
+        if not isinstance(items, list) or not items:
+            out.append(f"{p} briefs: at least one item")
+        for k, it in enumerate(items if isinstance(items, list) else []):
+            if not (isinstance(it, dict) and isinstance(it.get("title"), str) and it["title"] and _opt_str(it.get("symbol")) and _opt_str(it.get("sub"))
+                    and _opt_str(it.get("badge")) and _opt_str(it.get("body")) and _opt_str(it.get("body_note")) and _opt_str(it.get("ask"))):
+                out.append(f"{p} briefs: item {k} needs a title and text fields")
+                continue
+            if it.get("tone") is not None and it["tone"] not in TONES:
+                out.append(f"{p} briefs: item {k} tone must be one of {', '.join(TONES)}")
+            if not all(isinstance(x, dict) and isinstance(x.get("text"), str) and (x.get("tone") is None or x["tone"] in TONES) and _opt_str(x.get("tag"))
+                       for x in it.get("points") or []):
+                out.append(f"{p} briefs: item {k} points need text")
+            cm = it.get("commentary")
+            if cm is not None:
+                sg = cm.get("signal") if isinstance(cm, dict) else None
+                ln = cm.get("lines") if isinstance(cm, dict) else None
+                if not (isinstance(sg, dict) and isinstance(sg.get("label"), str) and sg.get("tone") in COMMENTARY_TONES
+                        and (sg.get("impact") is None or isinstance(sg.get("impact"), str))
+                        and (sg.get("confidence") is None or _is_num(sg.get("confidence")))
+                        and isinstance(ln, list) and len(ln) == 5
+                        and all(isinstance(x, dict) and isinstance(x.get("label"), str) and isinstance(x.get("text"), str) and x["text"] for x in ln)):
+                    out.append(f"{p} briefs: item {k} commentary needs a signal (label, tone {'/'.join(COMMENTARY_TONES)}) and exactly five labelled lines")
+            for lk in it.get("links") or []:
+                if not (isinstance(lk, dict) and isinstance(lk.get("label"), str) and lk.get("kind") in _links.LINK_KINDS and _links.safe_url(lk.get("url")) is not None):
+                    out.append(f"{p} briefs: item {k} link needs a label, a kind ({', '.join(_links.LINK_KINDS)}) and an https exchange URL")
     elif t == "notice":
         if b.get("tone") not in ("warn", "info") or not isinstance(b.get("text"), str):
             out.append(f"{p} notice: tone warn|info and text")
+        acts = b.get("actions")
+        if acts is not None and not (isinstance(acts, list) and all(
+                isinstance(a, dict) and a.get("kind") in NOTICE_ACTIONS and isinstance(a.get("label"), str) for a in acts)):
+            out.append(f"{p} notice: each action needs a known kind ({', '.join(NOTICE_ACTIONS)}) and a label")
     else:
         out.append(f"{p}: unknown block type {t}")
     return out
@@ -315,7 +366,8 @@ def validate(p: Any) -> List[str]:
         out.append("schema")
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
-            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "portfolio_hedge"):
+            "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation",
+            "results_calendar", "event_intelligence", "portfolio_hedge"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")
@@ -353,6 +405,12 @@ def validate(p: Any) -> List[str]:
     if not all(isinstance(f, dict) and isinstance(f.get("label"), str) and isinstance(f.get("query"), str)
                for f in p.get("follow_ups") or []):
         out.append("follow_ups")
+    rf = p.get("refresh")
+    if rf is not None and not (isinstance(rf, dict) and isinstance(rf.get("path"), str) and rf["path"].startswith("/api/")
+                               and _is_num(rf.get("interval_s")) and rf["interval_s"] >= 5
+                               and isinstance(rf.get("block_ids"), list) and rf["block_ids"]
+                               and all(isinstance(i, str) for i in rf["block_ids"])):
+        out.append("refresh: path (/api/…), interval_s (at least 5) and block_ids")
     return out
 
 
@@ -415,6 +473,16 @@ def facts(p: Dict[str, Any], subject: Optional[str] = None) -> str:
             lines.append(f"{title}: {len(bars)} daily candles of {b.get('symbol')}, last {last.get('d')} close {_cell(last.get('c'))}"
                          + (f"; levels: {lv}" if lv else "")
                          + (f"; band {band['low']:,.2f}–{band['high']:,.2f} ({band.get('label')})" if band else ""))
+        elif t == "briefs":
+            its = b.get("items") or []
+            lines.append(f"{title}: {len(its)} cards (stored AI summaries of the filings, shown with their source links):")
+            for it in its[:10]:
+                bits = [it.get("title"), it.get("sub"), it.get("badge"), (it.get("body") or it.get("body_note") or "")[:220]]
+                n_l, n_p = len(it.get("links") or []), len(it.get("points") or [])
+                lines.append("  " + " | ".join(str(x) for x in bits if x) + f" [{n_l} source link(s), {n_p} commentary point(s)]")
+                cm = it.get("commentary")
+                if isinstance(cm, dict):
+                    lines.append("    five-line AI read: " + " / ".join(f"{x['label']}: {x['text']}" for x in cm.get("lines") or []))
         elif t == "trade_plan":
             lines.append(f"The desk's TradePlan card {b.get('plan_id')} is shown.")
         elif t == "list":

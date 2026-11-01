@@ -2,12 +2,15 @@
  * `quadrant`: a 2×2 scatter on axes crossing at zero (e.g. price change vs open-interest change: long buildup, short
  * covering, short buildup, long unwinding). The quadrant a point is drawn in is read from its own x and y, so the
  * dot, its colour and the table under the chart always agree; the names are the payload's. Inline SVG at its real
- * width. Labels that would collide are left off the chart; every point is in the table with both values.
+ * width. Labels that would collide are left off the chart; every point is in the table with both values. With `detail: "fno"`
+ * (and inside the app shell) a point, and a row's Details ›, open that stock's option chain and futures build-up.
  */
 import { useState } from "react";
+import { useOptionalCopilotShell } from "@/pages/CopilotApp/lib/shell-context";
 import { useBoxWidth } from "@/pages/CopilotApp/screens/tradingdesk/decision/PlanPayoff";
 import type { QuadrantBlock } from "../schema";
 import { fmtUnit } from "../format";
+import { FnoSymbolDialog, type FnoDetailContext } from "../FnoSymbolDialog";
 import { axisText, type BlockProps } from "./common";
 
 type Corner = "tr" | "tl" | "br" | "bl";
@@ -19,6 +22,9 @@ const cornerOf = (x: number, y: number): Corner => (x >= 0 ? (y >= 0 ? "tr" : "b
 export function QuadrantView({ b, compact }: BlockProps<QuadrantBlock>) {
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const measured = useBoxWidth(box);
+  const shell = useOptionalCopilotShell();
+  const canOpen = b.detail === "fno" && !!shell;
+  const [detail, setDetail] = useState<FnoDetailContext | null>(null);
   const W = Math.round(Math.min(760, Math.max(240, measured ?? 540)));
   const H = Math.round(Math.min(compact ? 240 : 300, Math.max(200, W * 0.62)));
   const L = 8, R = 8, T = 16, B = 26;
@@ -47,6 +53,7 @@ export function QuadrantView({ b, compact }: BlockProps<QuadrantBlock>) {
     const inC = pts.filter((p) => p.corner === c);
     return `${names[c]}: ${inC.length ? inC.map((p) => p.label).join(", ") : "none"}`;
   }).join(". ")}.`;
+  const openFor = (p: (typeof pts)[number]) => setDetail({ symbol: p.label, label: names[p.corner], sub: `${b.x.label} ${fmtUnit(p.x, b.x.unit)}, ${b.y.label} ${fmtUnit(p.y, b.y.unit)}` });
   const corner = { fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase" } as const;
   return (
     <div data-testid="va-quadrant" className="flex min-w-0 flex-col" style={{ gap: 8 }}>
@@ -64,8 +71,12 @@ export function QuadrantView({ b, compact }: BlockProps<QuadrantBlock>) {
           <text x={L} y={H - 8} style={axisText}>{fmtUnit(-xFar, b.x.unit)}</text>
           <text x={px(0) + 4} y={T - 5} style={axisText}>↑ {b.y.label} {fmtUnit(yFar, b.y.unit)}</text>
           {pts.map((p, i) => (
-            <g key={`${p.label}-${i}`} data-testid="va-quadrant-point" data-label={p.label} data-x={p.x} data-y={p.y} data-corner={p.corner}>
+            <g key={`${p.label}-${i}`} data-testid="va-quadrant-point" data-label={p.label} data-x={p.x} data-y={p.y} data-corner={p.corner}
+              role={canOpen ? "button" : undefined} tabIndex={canOpen ? 0 : undefined} aria-label={canOpen ? `Open the F&O detail of ${p.label}` : undefined}
+              style={canOpen ? { cursor: "pointer" } : undefined} onClick={canOpen ? () => openFor(p) : undefined}
+              onKeyDown={canOpen ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFor(p); } } : undefined}>
               <title>{`${p.label}: ${b.x.label} ${fmtUnit(p.x, b.x.unit)}, ${b.y.label} ${fmtUnit(p.y, b.y.unit)} (${names[p.corner]})`}</title>
+              {canOpen && <circle cx={px(p.x)} cy={py(p.y)} r={11} style={{ fill: "transparent" }} />}
               <circle cx={px(p.x)} cy={py(p.y)} r={4.5} style={{ fill: CORNER_COLOR[p.corner], stroke: "var(--bg-1)" }} strokeWidth={2} />
               {labelled.has(i) && (
                 <text x={px(p.x) + (labelled.get(i) ? 6 : -6)} y={py(p.y) + 3.5} textAnchor={labelled.get(i) ? "start" : "end"}
@@ -82,6 +93,7 @@ export function QuadrantView({ b, compact }: BlockProps<QuadrantBlock>) {
             <th scope="col" style={{ textAlign: "left", fontWeight: 400, padding: "3px 4px" }}>Name</th>
             <th scope="col" style={{ textAlign: "right", fontWeight: 400, padding: "3px 4px" }}>{b.x.label}</th>
             <th scope="col" style={{ textAlign: "right", fontWeight: 400, padding: "3px 4px" }}>{b.y.label}</th>
+            {canOpen && <th scope="col" style={{ width: 84, padding: "3px 4px" }}><span className="sr-only">F&amp;O detail</span></th>}
           </tr>
         </thead>
         {ORDER.map((c) => {
@@ -90,7 +102,7 @@ export function QuadrantView({ b, compact }: BlockProps<QuadrantBlock>) {
           return (
             <tbody key={c} data-testid="va-quadrant-group" data-corner={c}>
               <tr>
-                <th scope="rowgroup" colSpan={3} style={{ textAlign: "left", fontWeight: 400, padding: "6px 4px 2px", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: CORNER_COLOR[c] }}>
+                <th scope="rowgroup" colSpan={canOpen ? 4 : 3} style={{ textAlign: "left", fontWeight: 400, padding: "6px 4px 2px", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: CORNER_COLOR[c] }}>
                   {names[c]}
                 </th>
               </tr>
@@ -99,12 +111,19 @@ export function QuadrantView({ b, compact }: BlockProps<QuadrantBlock>) {
                   <td style={{ padding: "3px 4px", color: "var(--cp-ink)", fontFamily: "var(--sans)", overflowWrap: "anywhere" }}>{p.label}</td>
                   <td data-testid="va-quadrant-x" style={{ padding: "3px 4px", textAlign: "right", color: "var(--cp-ink-2)" }}>{fmtUnit(p.x, b.x.unit)}</td>
                   <td data-testid="va-quadrant-y" style={{ padding: "3px 4px", textAlign: "right", color: "var(--cp-ink-2)" }}>{fmtUnit(p.y, b.y.unit)}</td>
+                  {canOpen && (
+                    <td style={{ padding: "2px 4px", textAlign: "right" }}>
+                      <button type="button" data-testid="va-quadrant-detail" className="cp-btn" data-variant="ghost" aria-label={`Open the F&O detail of ${p.label}`}
+                        onClick={() => openFor(p)} style={{ padding: "2px 8px", fontSize: 11.5 }}>Details ›</button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           );
         })}
       </table>
+      {detail && <FnoSymbolDialog detail={detail} onClose={() => setDetail(null)} />}
     </div>
   );
 }

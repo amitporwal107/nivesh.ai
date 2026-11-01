@@ -49,11 +49,17 @@ export const barsBlock = z.object({
 export const heatmapBlock = z.object({
   ...base, type: z.literal("heatmap"),
   unit: str.catch("%"),
-  cells: z.array(z.object({ label: str, value: num.nullable(), group: optStr, sub: optStr })).min(1),
+  cells: z.array(z.object({
+    label: str, value: num.nullable(), group: optStr, sub: optStr,
+    /** The stocks behind a tile (the sector rotation answer: a sector's strongest five), shown when the tile is selected. */
+    members: z.array(z.object({ label: str, value: num.nullable(), sub: optStr, ask: optStr })).optional().catch(undefined),
+  })).min(1),
 });
 
 export const quadrantBlock = z.object({
   ...base, type: z.literal("quadrant"),
+  /** "fno": a point or row opens that stock's F&O detail (option chain and futures build-up) inside the app shell. */
+  detail: z.enum(["fno"]).optional().catch(undefined),
   x: z.object({ label: str, unit: str }),
   y: z.object({ label: str, unit: str }),
   quadrants: z.object({ tr: str, tl: str, br: str, bl: str }),
@@ -62,16 +68,25 @@ export const quadrantBlock = z.object({
 
 export const RANKED_FORMATS = ["price", "pct", "x", "int", "text"] as const;
 const cell = z.union([str, num, z.boolean()]).nullable();
+const baseRow = z.object({
+  symbol: optStr, cells: z.record(cell), tone: optTone, plan_id: optStr, ask: optStr,
+  /** A short tag by the symbol: "Live", or the close the row was priced at. */
+  badge: optStr,
+  /** A tooltip per cell key. */
+  tips: z.record(str).optional().catch(undefined),
+});
+/** A row may carry its other structures, one level deep (the F&O board folds an underlying's alternatives under its lead). */
+const rankedRow = baseRow.extend({ alternatives: z.array(baseRow).optional().catch(undefined) });
 export const rankedBlock = z.object({
   ...base, type: z.literal("ranked"),
+  /** "fno": a row with a symbol gets a Details › button that opens that stock's F&O detail inside the app shell. */
+  detail: z.enum(["fno"]).optional().catch(undefined),
   columns: z.array(z.object({
     key: str, label: str,
     align: z.enum(["left", "right"]).optional().catch(undefined),
     format: z.enum(RANKED_FORMATS).optional().catch(undefined),
   })).min(1),
-  rows: z.array(z.object({
-    symbol: optStr, cells: z.record(cell), tone: optTone, plan_id: optStr, ask: optStr,
-  })),
+  rows: z.array(rankedRow),
 });
 
 export const tradePlanBlock = z.object({ ...base, type: z.literal("trade_plan"), plan_id: str.min(1) });
@@ -81,11 +96,62 @@ export const listBlock = z.object({
   items: z.array(z.object({ text: str, tone: optTone, sub: optStr })).min(1),
 });
 
-export const noticeBlock = z.object({ ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str });
+/** Hosts a source-filing link may point to: the exchanges' attachment archives and SEBI. The backend (services/copilot_visual/links.py)
+ *  applies the same rule; a link that fails it is not drawn, whatever the payload says. */
+export const FILING_HOSTS: readonly string[] = [
+  "nsearchives.nseindia.com", "archives.nseindia.com", "www.nseindia.com", "nseindia.com", "www.bseindia.com", "bseindia.com", "www.sebi.gov.in", "sebi.gov.in",
+];
+/** The URL itself when it is https, on one of FILING_HOSTS, with no user-info, odd port, spaces or backslash; else null. */
+export function safeFilingUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const raw = v.trim();
+  if (!raw || raw.length > 2000 || /[\\\s\u0000-\u001f]/.test(raw)) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" || u.username || u.password || u.port || !FILING_HOSTS.includes(u.hostname)) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+/** `briefs`: cards of companies or filings — the stored AI summary, commentary points and source-filing links. Links that fail
+ *  safeFilingUrl are dropped here, so no block can show one. */
+const briefLink = z.object({ label: str, url: str, kind: z.enum(["pdf", "file", "page"]).catch("file") });
+const briefLinks = z.preprocess(
+  (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object" && safeFilingUrl((x as { url?: unknown }).url) !== null) : []),
+  z.array(briefLink),
+);
+export const briefsBlock = z.object({
+  ...base, type: z.literal("briefs"),
+  items: z.array(z.object({
+    title: str.min(1), symbol: optStr, sub: optStr,
+    /** The desk's verdict against the company's own past quarters, or an AI classifier's reading: always words, with a tone. */
+    badge: optStr, tone: optTone,
+    /** The stored AI summary, verbatim; null when none exists (then `body_note` says why). */
+    body: optStr, body_note: optStr,
+    points: z.array(z.object({ text: str, tone: optTone })).catch([]).default([]),
+    /** The stored AI read in five lines (What happened / Why it matters / Market impact / What to watch / AI take) with its signal chip:
+     *  🟢 up · 🔴 down · 🟡 warn (mixed) · ⚪ neutral (informational), an impact level and a confidence. */
+    commentary: z.object({
+      signal: z.object({ label: str, tone: z.enum(["up", "down", "warn", "neutral"]).catch("neutral"), impact: optStr, confidence: num.nullable().optional().catch(undefined) }),
+      lines: z.array(z.object({ label: str, text: str })).min(1),
+    }).optional().catch(undefined),
+    links: briefLinks.default([]),
+    ask: optStr,
+  })).min(1),
+});
+
+export const NOTICE_ACTIONS = ["kite_login", "connect_broker", "set_risk_profile", "open_market_intel"] as const;
+export const noticeBlock = z.object({
+  ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str,
+  /** What the reader can do about it: log in to Kite (admins), connect a broker, set up a risk profile, open Market Intelligence. */
+  actions: z.array(z.object({ kind: z.enum(NOTICE_ACTIONS), label: str })).optional().catch(undefined),
+});
 
 const BLOCKS = {
   kpis: kpisBlock, candles: candlesBlock, bars: barsBlock, heatmap: heatmapBlock, quadrant: quadrantBlock,
-  ranked: rankedBlock, trade_plan: tradePlanBlock, list: listBlock, notice: noticeBlock,
+  ranked: rankedBlock, trade_plan: tradePlanBlock, list: listBlock, notice: noticeBlock, briefs: briefsBlock,
 } as const;
 export type BlockType = keyof typeof BLOCKS;
 export const BLOCK_TYPES = Object.keys(BLOCKS) as BlockType[];
@@ -99,7 +165,8 @@ export type RankedBlock = z.infer<typeof rankedBlock>;
 export type TradePlanBlock = z.infer<typeof tradePlanBlock>;
 export type ListBlock = z.infer<typeof listBlock>;
 export type NoticeBlock = z.infer<typeof noticeBlock>;
-export type KnownBlock = KpisBlock | CandlesBlock | BarsBlock | HeatmapBlock | QuadrantBlock | RankedBlock | TradePlanBlock | ListBlock | NoticeBlock;
+export type BriefsBlock = z.infer<typeof briefsBlock>;
+export type KnownBlock = KpisBlock | CandlesBlock | BarsBlock | HeatmapBlock | QuadrantBlock | RankedBlock | TradePlanBlock | ListBlock | NoticeBlock | BriefsBlock;
 
 /** One block after parsing: drawn, or a short note saying why not. */
 export type ParsedBlock =
@@ -151,8 +218,12 @@ export const visualAnswer = z.object({
   }).nullable().catch(null).default(null),
   follow_ups: z.array(z.object({ label: str, query: str })).catch([]).default([]),
   caveat: optStr.catch(null),
+  /** An answer that keeps itself current (open trades on the broker book): the page asks `path` every `interval_s` seconds
+   *  while the market is open and the answer is on screen, and swaps in the blocks it names (`block_ids`) by id. */
+  refresh: z.object({ path: str.startsWith("/api/"), interval_s: num.min(5), block_ids: z.array(str).min(1) }).nullable().catch(null).default(null),
 });
 export type VisualAnswerPayload = z.infer<typeof visualAnswer>;
+export type AnswerRefresh = NonNullable<VisualAnswerPayload["refresh"]>;
 
 export type ParsedAnswer = { ok: true; answer: VisualAnswerPayload; blocks: ParsedBlock[] } | { ok: false; problem: string };
 

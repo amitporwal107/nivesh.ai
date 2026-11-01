@@ -59,7 +59,7 @@ export function fmtCell(v: string | number | boolean | null | undefined, format?
   if (typeof v === "boolean") return v ? "Yes" : "No";
   if (typeof v === "string") return v;
   switch (format) {
-    case "price": return fmtPrice(v);
+    case "price": return v < 0 ? `${MINUS}₹${group(Math.abs(v), 2)}` : fmtPrice(v);       // "−₹14,406.00", never "₹-14,406.00"
     case "pct": return fmtPct(v);
     case "x": return fmtX(v);
     case "int": return fmtInt(v);

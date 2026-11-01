@@ -14,6 +14,7 @@ from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
 from services import copilot_trade_idea as _trade_idea
+from services import chat_errors
 from services import copilot_visual as _visual
 from services.llm_safety import wrap_external_data
 from services.action_plan_manager import ActionPlanManager
@@ -1884,7 +1885,7 @@ async def stream_chat(request: Request):
 
         except Exception as e:
             logger.error(f"Stream error: {e}")
-            error_msg = "I'm having trouble connecting right now. Please try again."
+            error_msg = chat_errors.friendly_error(e)      # the usage limit says so, with its reset time; anything else is the generic text
             # Save error response
             ai_msg_doc = {
                 "message_id": ai_msg_id,

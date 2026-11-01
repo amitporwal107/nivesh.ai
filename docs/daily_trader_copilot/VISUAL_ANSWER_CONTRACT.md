@@ -85,8 +85,9 @@ Each block is `{ "type": …, "id": "…", "title": "…", "note": "…" | null,
 | `trade_plan` | `plan_id` | the existing compact decision card (DecisionCardById) |
 | `list` | `items: [{text, tone?, sub?}]` | a short list (warnings, events, reasons) |
 | `notice` | `tone: "warn"\|"info"`, `text` | a callout for stale or missing data |
+| `briefs` | `items: [{title, symbol?, sub?, badge?, tone?, body?, body_note?, points?, links?, ask?}]` | cards of companies or filings: the stored AI summary, commentary points on request, source-filing links (see below) |
 
-Formats: prices in ₹ with two decimals; percentages with a sign and two decimals; ratios as `1.8×`; dates as
+Formats: prices in ₹ with two decimals (a negative one with a true minus before the sign, `−₹14,406.00`); percentages with a sign and two decimals; ratios as `1.8×`; dates as
 `29 Oct 2026`.
 
 ## Intents (Release 1)
@@ -108,6 +109,114 @@ Release 2 added `open_trades`, `trade_validity`, `exit_options`, `fno_setups` an
 |---|---|---|---|
 | `daily_review` | What did I learn from today's trades? How did I do this week? My mistakes today? | kpis (closed, wins / losses, win rate, net realised P&L, average R) · ranked plan vs actual (planned entry, fill, stop, target, exit, R, net P&L) · list how the trades ended (plan's rules vs closed by you, gaps through the stop) · list what the risk checks refused · bars `₹` equity curve (cumulative net realised P&L per session) · notice: no live signal hit-rate | the paper book's closed trades (`desk_paper_trades`, read directly, not through the GET route that runs the exit rule) and the risk decisions log (`risk_decisions`) |
 
+Sector view (31 Oct 2026):
+
+| intent | Trader asks (examples) | blocks | sources (existing) |
+|---|---|---|---|
+| `sector_rotation` | Which sectors are leading and lagging? Show sector rotation today. Sector heatmap. | kpis (leading, lagging, sectors up today) · heatmap sectors (1-week return, best first; 1-day and 1-month in `sub`), each cell carrying `members`: its five strongest stocks by the day's move with index weight and an `ask` | desk sector returns · desk sector constituents (NSE index lists with bhavcopy closes) |
+
+A heatmap cell may carry `members: [{label, value, sub?, ask?}]`, shown when the tile is selected. `sector rotation` is no longer a
+`smart_money` phrase: FII/DII flows, buildup and smart money stay there; the sector questions have their own answer.
+
+Results and market-research events (31 Oct 2026). "Which companies report results this week?" was answered by the Filings analyst with "I have no
+results calendar"; the platform has one, and the owner asked for "an AI summary of each of the result and management commentary and source pdf link
+to download" and for questions on "order winning, Mergers and Acquisitions, Ownership" (the Market Intelligence chips). Two intents, one new block:
+
+| intent | Trader asks (examples) | blocks | sources (existing) |
+|---|---|---|---|
+| `results_calendar` | Which companies report results this week / today / tomorrow / next week? Which F&O stocks report tomorrow? Which IT companies report this week? | kpis (companies, declared, figures awaited, still to report, F&O names, above · in line · below) · briefs `declared` (up to 8 declared results: the stored AI summary, management commentary, source filings) · ranked `due` (up to 15 companies still to report, F&O first) · notice `more` (what was left out, with the `open_market_intel` action) | the desk's results calendar (DaaS events-calendar, `results_week.loaders.expectations`) with the desk's own status and verdict functions, the stored filing analyses (Mongo `event_ai_analysis`), each shown company's exchange filings (DaaS `/announcements`) |
+| `event_intelligence` | Any order wins this week? M&A announcements today? Promoter pledge changes? Bulk and block deals? What did management say on the earnings calls? How were TCS results? Order wins for L&T? | briefs `events` (up to 8 filings, analysed first) or, for bulk and block deals, ranked `deals` · briefs `circulars` (regulatory: SEBI circulars) · notice with the desk's own gap for the chip · notice `more` | `GET /api/filings/feed` (the feed the desk's chips read; one category or subject family per chip), `GET /api/markets/deals`, `GET /api/markets/circulars`; a stock's results: its own feed rows and its company file |
+
+`params.category` of `event_intelligence` is the chip: `announcements` (management, capex, QIP, rating), `results` (earnings), `calls` (calls and guidance), `orders`, `mna` (M&A,
+dividend, buyback), `ownership`, `deals` (bulk and block), `regulatory` (regulatory, litigation, circulars), `exchange` (exchange notices), `all`. FII/DII stays
+`smart_money`, Sector stays `sector_rotation`; Macro is disabled on the desk itself (no macro calendar is ingested) and is not answered here.
+
+`briefs` block: `items: [{title, symbol?, sub?, badge?, tone?, body?, body_note?, points?: [{text, tone?}], links?: [{label, url, kind: "pdf"|"file"|"page"}], ask?}]`.
+`body` is the STORED AI summary of the filing, verbatim (this contract's builders never write summary text); with no analysis `body` is null and `body_note` says
+"Not analysed yet" (or that the stored analyses could not be read: a failed read is never "not analysed"), and the filing's link still shows. `badge` is the desk's verdict against the
+company's OWN past quarters ("Above / In line with / Below historical trend": no analyst consensus is held, so nothing is a beat or a miss), else the filing analysis's band ("Filing
+read: moderately positive"), else the feed classifier's reading ("Positive · high impact"), else "Not rated". `points` are the management commentary the AI read of the company's
+presentations, calls, business updates and press releases (summary, points for and against, what is still unknown), shown on request.
+
+Links: `links[].url` is an attachment URL the data carries, never built from a symbol or a date, and must be https on an exchange or SEBI host (`nsearchives.nseindia.com`,
+`archives.nseindia.com`, `www.nseindia.com`, `nseindia.com`, `www.bseindia.com`, `bseindia.com`, `www.sebi.gov.in`, `sebi.gov.in`; no user-info or port). The backend
+(`services/copilot_visual/links.py`, `validate`) and the frontend (`schema.ts safeFilingUrl`) both enforce it; a link that fails is not drawn. They open in a new tab with
+`rel="noopener noreferrer"`; the label says what opens ("Results filing (PDF)", "Source filing (file)").
+
+Freshness: the calendar's `as_of` is the day it was read; the feed's is the newest filing of any category (how current the pipeline is, not how recent one category's last
+event was); deals use the latest deal date on record. A source older than the previous NSE session is flagged stale as everywhere else. A week is Monday to Saturday
+(the desk's Results week); on a Sunday "this week" is the coming one.
+
+Block fields added on 31 Oct 2026 (all optional; a payload without them is unchanged):
+
+| block | field | meaning |
+|---|---|---|
+| `ranked` row | `alternatives: [row]` | the row's other structures, one level deep, same columns; the table shows "+N more ›" (the F&O board folds an underlying's alternatives under its lead) |
+| `ranked` row | `badge: text` | a tag by the symbol: `Live`, or the close the row was priced at (`30 Oct close`) |
+| `ranked` row | `tips: {cellKey: text}` | a tooltip on a cell (a bought put's theoretical to-zero profit is only here) |
+| `ranked`, `quadrant` | `detail: "fno"` | a row or point with a stock opens that stock's option chain and futures build-up (inside the app shell), with "Open in Chart Analysis ›" |
+| `heatmap` cell | `members: [{label, value, sub?, ask?}]` | the stocks behind a tile, shown when it is selected |
+| `notice` | `actions: [{kind, label}]` | `kite_login` (admins), `connect_broker`, `set_risk_profile`, `open_market_intel` (Market Desk › Market Intelligence) |
+
+A saved setting (a risk profile) is a source with status `fresh` whatever its date: the freshness rule is for prices and flows.
+
+Added on 1 Nov 2026 (owner: "rate the results as Below / Meet / Above expectation"; "a five-line AI commentary"):
+
+| block | field | meaning |
+|---|---|---|
+| `briefs` item | `badge` | a result's rating against EXPECTATION: `Above expectation` / `Well above expectation` / `Meets expectation` / `Below expectation` / `Well below expectation` / `Not rated` (the reason is in `sub`: "Not rated: baseline too uncertain"). Expectation = the company's own baseline from its past quarters (the desk's verdict); no analyst consensus is held, so nothing is a beat or a miss against the street. The filing's sentiment is never passed off as this rating |
+| `briefs` item | `commentary: {signal, lines}` | the five-line AI commentary of an analysed event: `signal` = `{label, tone: up\|down\|warn\|neutral (🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational), impact: High\|Medium\|Low\|null, confidence: 0-100\|null}`; `lines` = exactly five `{label, text}`: What happened · Why it matters · Market impact · What to watch · AI take |
+
+The commentary is assembled ONLY from the stored AI read (the filing analysis: summary, positives, negatives, open questions, band, materiality, confidence; or the feed classifier's one-line, sentiment and impact). Nothing is generated again; a line the stored read does not support
+reads "Not stated in the stored AI read." Impact is the stored materiality score at fixed thresholds (High from 70, Medium from 45, else Low). An event with no stored read has no `commentary`.
+
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
 day older than the previous session carries the stale notice. `avoid_today` (Q14) is not built.
+
+
+## Open trades on the broker book, and answers that keep themselves current (31 Oct 2026)
+
+`open_trades` shows the user's own broker positions beside the paper trades, labelled, by the user's broker configuration:
+
+| state | what the answer has |
+|---|---|
+| no broker connected | a `notice` (id `no-broker`) with the `connect_broker` action; the paper trades as before |
+| broker hub off for the user | a `notice` (id `no-hub`), no action |
+| session ended | a `notice` (id `ended-<account>`) with a `connect_broker` action ("Sign in to <broker> again"); the account's LAST STORED read (rows badged `As of <date time>`, the notice names the time, a read older than the previous session also carries the stale banner); funds "Not available" |
+| a read failed | a `notice` (id `failed-<account>`), the last stored read if any; the other accounts are unaffected |
+| signed in | blocks `book` (kpis), `positions` (ranked, one row per broker position), `levels` (ranked, one row per underlying), `accounts` (ranked), `commentary` (list), then the paper blocks `summary` and `trades` |
+
+Figures: quantity, average, price and P&L are the broker's own (a share's price and P&L move with Kite's live price while the market is open;
+a future or option keeps the broker's price of its last read, said on hover). A row the broker sent no P&L for (ICICI Direct sends null for
+futures and options) is marked at the last price and says so. Stop and target are the user's own levels, else the plan they recorded when it
+points the same way as the position; the loss at the stop is never the price falling to zero; margin is Zerodha's calculator for the F&O legs
+(shares are paid in full), else "Needs Kite login" with the `kite_login` / `connect_broker` actions; available cash, collateral and used margin
+are each broker's own funds figures, read only while its session is live. `commentary` holds the deterministic checks (distance to the stop,
+loss at the stop, expiry, the plan's direction against the position, margin as a share of the account's cash); the written commentary explains
+them and adds no figure.
+
+Envelope field `refresh` (optional): `{path, interval_s, block_ids}`. The page asks `path` (an `/api/` route, authenticated as the user) every
+`interval_s` seconds (at least 5) while the tab is visible, the answer is on screen and it was built today, and swaps in the blocks the response
+names by `id`. The response is `{generated_at, mode, blocks: [...], refresh: {active, interval_s, why}}`; `active: false` tells the page to stop
+(the market closed, no live session). A failed ask keeps the blocks shown, the page says "Live feed lost" with the time of the last good read, backs
+off, and stops after three failures. `GET /api/positions/book/live` serves the open-trades answer. The server never calls a broker more than once
+per 15 s per account however many pages ask (see services/positions/book.py).
+
+
+## Broker trades in the daily review (31 Oct 2026)
+
+`daily_review` keeps its paper review exactly as it was and, when the user has broker trades on record, adds a section labelled BROKER, never merged into
+the paper figures (block ids `broker_*`; `broker-<broker>-<n>-<state>` notices):
+
+| block | content |
+|---|---|
+| notices | one per account that cannot supply trades: session ended (with a `connect_broker` "Sign in to <broker> again" action and how many days of its trade book are kept), a broker with no trade-book reader ("<Broker> has no trade-book reader yet, so its trades are not in this review"), a failed read; never an empty list that reads as "no trades" |
+| `broker_record` kpis | round trips closed, wins / losses, realised P&L (the broker's own fill prices, gross; charges are never estimated), unmatched legs |
+| `broker_trips` ranked | one row per round trip (contract, account, side, quantity in units, entry, exit, P&L, rules), badge `Broker` |
+| `broker_rules` list | did the trade follow its entry, stop-loss and exit rules: only where the user's own stop (set before the trade closed, `position_levels`) or a plan they recorded (before it opened, `trade_plans`) existed; otherwise "no plan recorded", never a guess |
+| `broker_open` list | legs with no other side in the trade books on record, shown as open; a sell with no buy is not assumed to be a short |
+
+Brokers return only the current day, so the day's fills of every live account are kept (change-only, one document per account and IST day, `broker_trade_days`) by
+the 17:30 IST broker daily sync and by any review; a week is answered from the days kept. Zerodha (`trades()`) and ICICI Direct (`/trades`) have readers; every other
+broker is "not supported" with its reason. Matching is FIFO per contract per account across the days kept; partial fills of one order are one round trip.

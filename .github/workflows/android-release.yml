@@ -1,9 +1,13 @@
 name: Build & publish Android app [prod]
 
 # Builds the PRODUCTION v5 Android app with Capacitor and publishes the signed
-# APK to https://data.niveshcopilot.com/downloads/ (the NIDP VM webroot
-# /var/www/nidp-downloads). The AAB (Play Store upload format) is attached as a
-# workflow artifact only — it is never served publicly.
+# APK to https://niveshcopilot.com/downloads/nivesh-v5-prod-release.apk — a file on
+# the CloudPe prod VM (/opt/nivesh/downloads), served by the app's edge nginx. The AAB
+# (Play Store upload format) is attached as a workflow artifact only — it is never
+# served publicly.
+#
+# Until 2026-11-01 this published to data.niveshcopilot.com/downloads via the GCP
+# nidp-stack-vm, which no longer exists (and both runs ever made, in June, failed).
 #
 # Manual-only: a prod app release is a deliberate act, not something every push
 # should trigger. Run from the Actions tab → "Build & publish Android app
@@ -14,10 +18,12 @@ name: Build & publish Android app [prod]
 #   ANDROID_KEYSTORE_PASSWORD      keystore store password
 #   ANDROID_KEY_ALIAS              signing key alias
 #   ANDROID_KEY_PASSWORD           signing key password (optional; defaults to store pw)
-#   PROD_GOOGLE_SERVER_CLIENT_ID   prod web OAuth client id (aud the prod backend trusts)
-#   NIDP_VM_HOST                   IP of nidp-stack-vm (serves data.niveshcopilot.com)
-#   DEVOPS_SSH_USER                CI/CD Linux user on the VM
-#   DEVOPS_SSH_KEY                 Ed25519 private key for that user
+#   PROD_GOOGLE_SERVER_CLIENT_ID   prod web OAuth client id — MUST equal the GOOGLE_CLIENT_ID the
+#                                  prod backend serves at /api/auth/google-client-id, or native
+#                                  Google sign-in fails with "Token audience mismatch"
+#   PROD_VM_HOST                   IP of the CloudPe prod VM
+#   PROD_SSH_USER                  CI user on the VM (ci-deploy; owns /opt/nivesh/downloads)
+#   PROD_SSH_KEY                   Ed25519 private key for that user
 
 on:
   workflow_dispatch:
@@ -31,7 +37,7 @@ on:
         type: string
         default: '1'
       publish:
-        description: 'Publish the APK to data.niveshcopilot.com'
+        description: 'Publish the APK to niveshcopilot.com/downloads (prod VM)'
         type: boolean
         default: true
 
@@ -104,21 +110,19 @@ jobs:
             frontend-v5/nivesh-v5-prod-release.apk
             frontend-v5/nivesh-v5-prod-release.aab
 
-      # ── Publish the APK to data.niveshcopilot.com ───────────────────────────
+      # ── Publish the APK to the prod VM ──────────────────────────────────────
       # Stream the APK over the ssh exec channel (`ssh … 'cat > file'`) instead of
-      # scp/sftp. appleboy/scp-action (drone-scp) fails here with "error copy file
-      # to dest … Process exited with status 1" — and it still failed after the
-      # /tmp/android-release staging dir was pre-created, so the cause is drone-scp's
-      # transfer itself, not a missing target. The plain ssh *exec* channel works
-      # (the mkdir step using it succeeded, as do the NIDP deploy workflows), so we
-      # pipe the bytes through it and sudo-install into the root-owned webroot. An
-      # end-to-end sha256 check guards against a truncated transfer.
-      - name: Publish APK to data.niveshcopilot.com
+      # scp/sftp (appleboy/scp-action failed the June runs with "error copy file to
+      # dest"). The CI user owns /opt/nivesh/downloads, so no sudo is needed (its only
+      # sudo right is ci-deploy.sh). The file is written under a .part name and renamed
+      # so nginx never serves a half-written APK, and an end-to-end sha256 check guards
+      # against a truncated transfer.
+      - name: Publish APK to the prod VM
         if: ${{ inputs.publish }}
         env:
-          SSH_KEY:  ${{ secrets.DEVOPS_SSH_KEY }}
-          SSH_USER: ${{ secrets.DEVOPS_SSH_USER }}
-          SSH_HOST: ${{ secrets.NIDP_VM_HOST }}
+          SSH_KEY:  ${{ secrets.PROD_SSH_KEY }}
+          SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          SSH_HOST: ${{ secrets.PROD_VM_HOST }}
         run: |
           set -euo pipefail
           install -d -m 700 ~/.ssh
@@ -126,19 +130,18 @@ jobs:
           chmod 600 ~/.ssh/id_deploy
 
           APK="nivesh-v5-prod-release.apk"   # cwd is frontend-v5 (job default)
+          DEST=/opt/nivesh/downloads
           SSH="ssh -i $HOME/.ssh/id_deploy -p 22 -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
 
-          echo "▸ streaming $APK ($(stat -c%s "$APK") bytes) over ssh → /tmp/$APK"
-          $SSH "$SSH_USER@$SSH_HOST" "cat > /tmp/$APK" < "$APK"
+          echo "▸ streaming $APK ($(stat -c%s "$APK") bytes) over ssh → $DEST/$APK"
+          $SSH "$SSH_USER@$SSH_HOST" "cat > $DEST/.$APK.part" < "$APK"
 
-          echo "▸ installing into /var/www/nidp-downloads (sudo)"
           REMOTE="set -e; \
-            test -s /tmp/$APK; \
-            sudo mkdir -p /var/www/nidp-downloads; \
-            sudo install -m 644 /tmp/$APK /var/www/nidp-downloads/$APK; \
-            rm -f /tmp/$APK; \
-            ls -l /var/www/nidp-downloads/$APK; \
-            sha256sum /var/www/nidp-downloads/$APK"
+            test -s $DEST/.$APK.part; \
+            chmod 644 $DEST/.$APK.part; \
+            mv -f $DEST/.$APK.part $DEST/$APK; \
+            ls -l $DEST/$APK; \
+            sha256sum $DEST/$APK"
           REMOTE_SHA="$($SSH "$SSH_USER@$SSH_HOST" "$REMOTE" | awk 'END{print $1}')"
           LOCAL_SHA="$(sha256sum "$APK" | cut -d' ' -f1)"
 
@@ -147,12 +150,22 @@ jobs:
           [ "$LOCAL_SHA" = "$REMOTE_SHA" ] || { echo "::error::sha256 mismatch after upload"; exit 1; }
           echo "✓ published & verified"
 
-      - name: Confirm public download URL
+      # Cloudflare answers 403 to Actions runners, so the public URL cannot be checked from
+      # here. Check it ON the VM instead, through the host nginx on loopback (same path a
+      # visitor's request takes after Cloudflare), and compare the served bytes.
+      - name: Confirm the APK is served by nginx
         if: ${{ inputs.publish }}
+        env:
+          SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          SSH_HOST: ${{ secrets.PROD_VM_HOST }}
         run: |
-          URL="https://data.niveshcopilot.com/downloads/nivesh-v5-prod-release.apk"
-          CODE=$(curl -sS -o /dev/null -w "%{http_code}" -I --max-time 20 "$URL" || echo "000")
-          echo "GET (HEAD) $URL → HTTP $CODE"
-          if [ "$CODE" != "200" ]; then
-            echo "::warning::Public URL returned $CODE — check nginx /downloads location and Cloudflare cache."
-          fi
+          set -euo pipefail
+          APK="nivesh-v5-prod-release.apk"
+          LOCAL_SHA="$(sha256sum "$APK" | cut -d' ' -f1)"
+          SSH="ssh -i $HOME/.ssh/id_deploy -p 22 -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+          SERVED_SHA="$($SSH "$SSH_USER@$SSH_HOST" \
+            "curl -sk --max-time 60 --resolve niveshcopilot.com:443:127.0.0.1 https://niveshcopilot.com/downloads/$APK | sha256sum | cut -d' ' -f1")"
+          echo "local  sha256: $LOCAL_SHA"
+          echo "served sha256: $SERVED_SHA   (https://niveshcopilot.com/downloads/$APK)"
+          [ "$LOCAL_SHA" = "$SERVED_SHA" ] || { echo "::error::nginx is not serving the APK that was just uploaded"; exit 1; }
+          echo "✓ served by nginx"

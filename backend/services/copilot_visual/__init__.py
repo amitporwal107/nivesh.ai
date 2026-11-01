@@ -19,6 +19,8 @@ Which node explains each answer (the pin):
                                               rules, so they stay off the stock analyst too.
     stock_decision, trade_validity, exit_options
                                               stock_analyst — it has the TRADE_PLAN rules ("How to trade it, an idea").
+    results_calendar, event_intelligence      market_analyst — it explains the calendar / filing cards it is handed (stored AI summaries
+                                              of the filings, never advice); the Filings analyst answered "I have no results calendar".
     daily_review                              market_analyst — the account's own record of closed trades and risk
                                               checks; it explains the figures it is handed and gives no advice.
 
@@ -53,7 +55,9 @@ AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "
              "top_opportunities": "market_analyst", "breakouts": "market_analyst", "unusual_volume": "market_analyst",
              "stock_decision": "stock_analyst", "open_trades": "market_analyst", "fno_setups": "market_analyst",
              "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
-             "daily_review": "market_analyst", "portfolio_hedge": "portfolio_analyst"}
+             "daily_review": "market_analyst", "sector_rotation": "market_analyst",
+             "results_calendar": "market_analyst", "event_intelligence": "market_analyst",
+             "portfolio_hedge": "portfolio_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 

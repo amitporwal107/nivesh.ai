@@ -13,7 +13,8 @@ the seven Release-1 intents and the chat takes its usual path unchanged.
     expected_move      "What is the expected move in Nifty?" (NIFTY or BANKNIFTY), PCR / max pain / ATM IV of an index
 
 Release 2:
-    open_trades        "What are my open trades doing?", "my open positions" — the paper book, not a broker's
+    open_trades        "What are my open trades doing?", "my open positions", "my broker positions" — the user's broker book
+                       (live when signed in, else the last stored read; the connect prompt when none) and the paper book
     fno_setups         "Which F&O setups are attractive?" — index and stock F&O, ranked by fit to today's regime
     trade_validity     "Is my trade in X still valid?", "has my thesis on X weakened?" — a named or thread stock
     exit_options       "Should I book profits or hold X?", "should I trail my stop?" — a named or thread stock
@@ -22,6 +23,18 @@ Release 2:
 Release 3:
     daily_review       "What did I learn from today's trades?", "How did I do this week?", "my mistakes today" — the
                        paper book's closed trades and risk checks for the day (or the ISO week), `params.period`
+
+Sector view (31 Oct 2026):
+    sector_rotation    "Which sectors are leading and lagging?", "Show sector rotation today", "sector heatmap" — the sector
+                       heatmap first, each sector with its five strongest stocks by the day's move
+
+Results and market-research events (31 Oct 2026):
+    results_calendar   "Which companies report results this week?" (today / tomorrow / yesterday / this week / next week / last
+                       week; F&O only; a sector) — the desk's results calendar with each declared result's stored AI summary
+    event_intelligence "Any order wins this week?", "M&A announcements today", "promoter pledge changes", "bulk and block deals",
+                       "what did management say on the earnings call?", "How were TCS results?" — the Market Intelligence feed
+                       the desk's chips read (Announcements, Results, Calls & guidance, Orders, M&A & actions, Ownership,
+                       Bulk & block, Regulatory, Exchange notices), `params.category` = the chip, an optional stock
 
 Not ours (None): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book, not the
 paper-trading desk's), averaging a position, "what should I avoid today" (Q14, not built).
@@ -36,7 +49,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
-           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "portfolio_hedge")
+           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review",
+           "sector_rotation", "results_calendar", "event_intelligence", "portfolio_hedge")
 # Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
 SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
@@ -56,10 +70,11 @@ NOT_A_STOCK = frozenset({
     "TP", "RR", "EMA", "SMA", "RSI", "MACD", "ATR", "VWAP", "LTP", "NSE", "BSE", "EOD", "MTF", "MIS", "CNC", "NRML",
     "IST", "DII", "FII", "FPI", "MF", "SIP", "OK", "ENTRY", "EXIT", "TRADE", "PLAN", "SETUP", "BREAKOUT", "VOLUME", "STOP",
     "LOSS", "TARGET", "CALL", "PUT", "OPTION", "OPTIONS", "FUTURES", "INDEX", "MARKET", "TODAY", "NOW", "IS", "MY", "ME",
+    "M&A", "MNA", "SAST", "ESOP", "SEBI", "QIP", "NCLT",            # corporate-event words (results / market-research events)
 })
 # The same words in any case (index and F&O words are never company names).
 _ANY_CASE = frozenset({"f&o", "fno", "pcr", "p&l", "pnl", "gift", "iv", "oi", "atm", "vix", "nifty", "nifty50", "banknifty",
-                       "finnifty", "midcpnifty", "sensex", "bankex"})
+                       "finnifty", "midcpnifty", "sensex", "bankex", "m&a"})
 _TOKEN = re.compile(r"[A-Za-z0-9&]+")
 _BANK_NIFTY = re.compile(r"\b(bank\s*nifty|nifty\s*bank)\b", re.I)
 
@@ -77,8 +92,17 @@ _INDEX_WORD = re.compile(r"\b(nifty|bank\s*nifty|banknifty|nifty\s*bank|index)\b
 
 _SMART_MONEY = re.compile(
     r"\bsmart\s+money\b|\bfiis?\b|\bdiis?\b|\bfpis?\b|\binstitution(al|s)?\b.{0,30}\b(flows?|buying|selling|money|activity)\b|"
-    r"\bwhere\s+is\s+(the\s+)?money\b|\bmoney\s+(flow|flows|flowing|moving)\b|\bsector\s+rotation\b|"
+    r"\bwhere\s+is\s+(the\s+)?money\b|\bmoney\s+(flow|flows|flowing|moving)\b|"
     r"\b(long|short)\s+build[- ]?ups?\b|\bshort\s+covering\b|\blong\s+unwinding\b|\bbuild[- ]?ups?\b", re.I)
+# Sector questions have their own answer since 31 Oct 2026 (owner: "its a sector rotation intent so load the sector rotation
+# heatmap"); `sector rotation` used to be a smart-money phrase and showed the FII/DII bars first.
+_SECTOR_ROTATION = re.compile(
+    r"\bsector\s+rotation\b|\bsectors?\s+(heat\s*map|rotation|performance|strength|leaders?|laggards?|trend|momentum|view|overview)\b|"
+    r"\bheat\s*map\b.{0,20}\bsectors?\b|"
+    r"\b(leading|lagging|strongest|weakest|best|worst|top|hot|cold)\s+(performing\s+)?sectors?\b|\bwhich\s+sectors?\b|"
+    r"\bsectors?\b.{0,40}\b(leading|lagging|outperform\w*|underperform\w*|strong(er|est)?|weak(er|est)?|performing|"
+    r"doing|moving|rotating|in\s+favou?r|out\s+of\s+favou?r)\b|"
+    r"\b(lagging|leading|outperforming|underperforming)\b.{0,30}\bsectors?\b", re.I)
 _UNUSUAL_VOLUME = re.compile(
     r"\bunusual(ly)?\s+(high\s+)?volumes?\b|\bvolume\s+(spikes?|surges?|shockers?|buzzers?)\b|"
     r"\b(high|heavy|abnormal|huge|big)\s+volumes?\b|\brelative\s+volume\b|\brvol\b", re.I)
@@ -104,7 +128,8 @@ _MARKET_VIEW = re.compile(
 _OPEN_TRADES = re.compile(
     r"\bmy\s+open\s+(trades?|positions?)\b|\bopen\s+trades?\b|\bwhat\s+are\s+my\s+(trades?|positions?)\s+doing\b|"
     r"\bhow\s+are\s+my\s+(trades?|positions?)\s+(doing|going)\b|\bmy\s+(trades?|positions?)\s+today\b|"
-    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b", re.I)
+    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b|"
+    r"\b(my\s+)?broker\s+(positions?|trades?|book|portfolio)\b", re.I)
 _FNO_SETUPS = re.compile(
     r"\b(f&o|fno|options?|futures)\s+(setups?|strateg(y|ies)|trades?|ideas?|opportunit\w+)\b|"
     r"\bwhich\s+(f&o|fno|options?)\b.{0,30}\battractive\b|\boptions?\s+trading\s+ideas?\b|"
@@ -196,6 +221,166 @@ _DEICTIC = re.compile(r"\b(this|that|the\s+same)\s+(stock|share|one|name|company
                       r"\bon\s+it\b", re.I)
 
 
+# ── Results and market-research events (owner, 31 Oct 2026) ──────────────────────────────────────────────────────
+# "Which companies report results this week?" went to the Filings analyst, which said it had no results calendar. The
+# calendar and the event feed exist (desk: Market Desk › Market Intelligence); these patterns send the question to them.
+_RES = re.compile(r"\b(results?|earnings|quarterly\s+numbers|q[1-4]\s*(fy\s*\d{2,4}\s*)?(results?|numbers|earnings))\b", re.I)
+_REPORT_VERB = re.compile(r"\b(report(s|ing|ed)?|announc(e|es|ing|ed)|declar(e|es|ing|ed)|releas(e|es|ing)|publish(es|ing)?|due|"
+                          r"scheduled|coming\s+up|upcoming|lined\s+up)\b", re.I)
+_CAL_NOUN = re.compile(r"\b(results?|earnings)\s+(calendar|schedule|dates?|season)\b|\b(calendar|schedule)\s+(of|for)\s+(the\s+)?(results?|earnings)\b", re.I)
+_RES_PERIOD = re.compile(r"\b(results?|earnings)\b.{0,12}\b(today|tomorrow|yesterday|tonight|this\s+week|next\s+week|last\s+week|"
+                         r"coming\s+week|previous\s+week|past\s+week)\b", re.I)
+# A question about a price move or a definition is not a calendar question.
+_NOT_CALENDAR = re.compile(r"\b(react\w*|rall(y|ied|ies)|fell|fall(s|en)?|jump\w*|surg\w*|plung\w*|crash\w*|gap(ped)?\s+(up|down)|why)\b|"
+                           r"^\s*(how\s+(to|do|does)|explain|define|what\s+(is|are|does)\s+(a|an|the)?\s*(quarterly\s+)?(results?|earnings)\b)", re.I)
+_CONCEPT = re.compile(r"^\s*(what\s+(is|are|does|do)|explain|define|meaning\s+of|how\s+(does|do|to))\b", re.I)
+_LISTING_CUE = re.compile(r"\b(today|tonight|yesterday|tomorrow|this\s+week|next\s+week|last\s+week|this\s+month|latest|recent|recently|new|"
+                          r"any|which|show|list|biggest|largest|top|current|fresh)\b", re.I)
+_BEAT_MISS = re.compile(r"\b(did|has|have|will|would)\b.{0,40}\b(beat|miss(ed)?)\b|\b(beat|miss(ed)?)\b.{0,25}\b(estimates?|expectations?|"
+                        r"consensus|street|forecasts?|results?|earnings|numbers)\b", re.I)
+_FNO_WORD = re.compile(r"\b(f&o|fno)\b", re.I)
+# The desk's sector names (DaaS events calendar), by the words a trader uses.
+_SECTOR_WORDS = (
+    (r"\b(it|information\s+technology|software|tech)\b(?!\s*(trade|setup))", "Information Technology"),
+    (r"\b(banks?|banking|nbfcs?|financials?|financial\s+services|insurers?|insurance)\b", "Financial Services"),
+    (r"\b(pharma\w*|healthcare|hospitals?|health\s+care)\b", "Healthcare"),
+    (r"\b(auto|autos|automobiles?|automotive)\b", "Automobile and Auto Components"),
+    (r"\b(fmcg|consumer\s+goods)\b", "Fast Moving Consumer Goods"),
+    (r"\b(metals?|mining|steel)\b", "Metals & Mining"),
+    (r"\b(realty|real\s+estate)\b", "Realty"),
+    (r"\b(oil|gas|energy)\b", "Oil Gas & Consumable Fuels"),
+    (r"\bcapital\s+goods\b", "Capital Goods"),
+    (r"\bchemicals?\b", "Chemicals"),
+    (r"\bconsumer\s+durables?\b", "Consumer Durables"),
+    (r"\b(telecom\w*)\b", "Telecommunication"),
+    (r"\bpower\b", "Power"),
+    (r"\b(cement|construction\s+materials?)\b", "Construction Materials"),
+    (r"\btextiles?\b", "Textiles"),
+)
+
+
+def _calendar_period(msg: str) -> str:
+    low = msg.lower()
+    if re.search(r"\byesterday\b", low):
+        return "yesterday"
+    if re.search(r"\btomorrow\b", low):
+        return "tomorrow"
+    if re.search(r"\b(next|coming|following)\s+week\b", low):
+        return "next_week"
+    if re.search(r"\b(last|previous|past)\s+week\b", low):
+        return "last_week"
+    if re.search(r"\b(today|tonight)\b", low):
+        return "today"
+    return "this_week"
+
+
+def _results_calendar(msg: str) -> Optional[Intent]:
+    """"Which companies report results this week/today/tomorrow/next week?" — a list of companies (no one stock named)."""
+    if not _RES.search(msg) or _NOT_CALENDAR.search(msg) or _EV_CALLS.search(msg):      # "earnings calls this week" is the calls chip
+        return None
+    if not (_CAL_NOUN.search(msg) or _REPORT_VERB.search(msg) or _RES_PERIOD.search(msg)):
+        return None
+    sector = next((name for pat, name in _SECTOR_WORDS if re.search(pat, msg, re.I)), None)
+    return Intent("results_calendar", params={"period": _calendar_period(msg), "fno_only": bool(_FNO_WORD.search(msg)), "sector": sector})
+
+
+# Event categories = the chips of the desk's Market Intelligence (frontend intel-data.ts INTEL_CHIPS), by the words a trader uses.
+_EV_DEALS = re.compile(r"\b(bulk|block)\s+(and\s+(bulk|block)\s+)?deals?\b|\bbulk\s*/\s*block\b|\bbulk\s+and\s+block\b", re.I)
+_EV_MNA = re.compile(
+    r"\bm\s?&\s?a\b|\bmergers?\b|\bmerg(e|es|ed|ing)\b|\bacqui(re|res|red|ring|sitions?)\b|\bamalgamat\w+|\bde-?merg\w+|\bspin[- ]?offs?\b|"
+    r"\bbuy[- ]?backs?\b|\bopen\s+offers?\b|\btake[- ]?overs?\b|\bstake\s+(sales?|purchases?|buys?|acquisitions?|hikes?|increases?|cuts?|sold|bought)\b|"
+    r"\bdivest\w*|\bdelist\w*|\bjoint\s+ventures?\b|\bbonus\s+(issues?|shares?)\b|\bstock\s+splits?\b|\bsplit\s+announcements?\b|"
+    r"\b(announc\w+|declar\w+|upcoming|recent|latest|any|new)\b.{0,20}\bdividends?\b|\bdividends?\b.{0,20}\b(announc\w+|declar\w+|"
+    r"record\s+dates?|ex[- ]?dates?|this\s+week|today|tomorrow|upcoming)\b", re.I)
+_EV_MNA_NOT = re.compile(r"\bdividend\s+(yield|stocks?|history|payout|calculator|tax)\b|\bdividend\b.{0,12}\b(yield|payout)\b", re.I)
+_EV_ORDERS = re.compile(
+    r"\border\s+(wins?|won|inflows?|intake|bagging|announcements?|news)\b|\b(won|win|wins|bagged|bags|bagging|secured?|receiv(ed|es|ing)|"
+    r"awarded|clinch(ed|es)|landed)\b.{0,30}\b(orders?|contracts?)\b|\b(big|large|major|new|fresh|mega)\s+(orders?|contracts?)\b|"
+    r"\bbagging\s*/\s*receiving\b|\b(orders?|contracts?)\s+(won|received|awarded|announced|wins)\b|\bwhich\s+companies\s+won\b|"
+    r"\border\s+book\b.{0,25}\b(update\w*|position|size|growth|strong|backlog|announc\w+|latest|recent)\b|"
+    r"\b(update\w*|latest|recent|strong)\s+order\s+book\b", re.I)
+_EV_OWNERSHIP = re.compile(
+    r"\bpledg(e|ed|es|ing)\b|\bencumbrance\b|\bsast\b|\bsubstantial\s+acquisition\b|\binsider\s+(trad\w+|buying|selling|transactions?|deals?)\b|"
+    r"\b(promoters?|promoter\s+group|fii|fpi|dii)\s+(holding|shareholding|stake)\b.{0,40}\b(chang\w+|rais\w+|cut|hike|sold|sell\w*|bought|buy\w*|"
+    r"increas\w+|decreas\w+|reduc\w+|disclos\w+|recent|latest|any|new|moves?)\b|"
+    r"\b(chang\w+|rais\w+|cut|hike|sold|sell\w*|bought|buy\w*|increas\w+|decreas\w+|reduc\w+|disclos\w+|recent|latest|any|new)\b.{0,30}\b"
+    r"(promoters?|promoter\s+group)\b.{0,12}\b(holding|shareholding|stake)\b|\b(promoters?)\s+(buying|selling|buy|sell|sold|bought|transactions?|dealings?)\b|"
+    r"\bshareholding\s+(pattern\s+)?(changes?|updates?|disclosures?)\b|\bownership\s+(changes?|disclosures?|filings?|updates?)\b|"
+    r"\bstake\s+(change|changes|disclosures?)\b", re.I)
+_EV_CALLS = re.compile(
+    r"\b(earnings|conference|con)\s*calls?\b|\bconcalls?\b|\bmanagement\s+(commentary|said|says|say|guidance|outlook|remarks|comments?|discussion|views?)\b|"
+    r"\bwhat\s+did\s+(the\s+)?(\w+\s+)?management\b|\bguidance\b|\binvestor\s+(meets?|presentations?|days?)\b|\banalyst\s+meets?\b|"
+    r"\btranscripts?\b|\bcall\s+(highlights|summary|takeaways)\b", re.I)
+_EV_REGULATORY = re.compile(
+    r"\bsebi\s+(circulars?|orders?|notices?|rules?|regulations?|norms?|directives?|updates?|actions?)\b|"
+    r"\bregulatory\s+(announcements?|updates?|news|filings?|events?|actions?)\b|\blitigation\s+(news|updates?|filings?|cases?)\b|"
+    r"\bmaster\s+circulars?\b", re.I)
+_EV_EXCHANGE = re.compile(
+    r"\bexchange\s+(notices?|queries|query|clarifications?|surveillance|alerts?)\b|\bprice\s+movement\s+(queries|query|clarifications?|notices?)\b|"
+    r"\bclarification\s+(sought|on)\b|\bspurt\s+in\s+volume\b|\brumou?r\s+verification\b|\bnews\s+verification\b", re.I)
+_EV_ANNOUNCEMENTS = re.compile(
+    r"\bcapex\b|\bcapital\s+expenditure\b|\bqips?\b|\bfund[- ]?raising\b|\bfund\s+raise\b|\brights\s+issues?\b|\bcredit\s+rating\b|"
+    r"\brating\s+(upgrades?|downgrades?|actions?)\b|\bmanagement\s+changes?\b|\b(ceo|cfo|md)\s+(appointments?|resignations?|changes?)\b|"
+    r"\bresignations?\b", re.I)
+_EV_GENERIC = re.compile(r"\b(corporate\s+)?(announcements?|filings?|disclosures?|corporate\s+actions?)\b", re.I)
+
+
+def _event_period(msg: str, with_symbol: bool) -> str:
+    low = msg.lower()
+    if re.search(r"\b(today|tonight)\b", low):
+        return "today"
+    if re.search(r"\b(this\s+month|last\s+30\s+days|past\s+month|month)\b", low):
+        return "month"
+    if re.search(r"\b(this\s+week|last\s+7\s+days|past\s+week|recent|latest)\b", low):
+        return "week"
+    return "month" if with_symbol else "week"
+
+
+def _event_category(msg: str, with_symbol: bool) -> Optional[str]:
+    """The Market Intelligence chip a question is about, or None. Definitions ("what is a bulk deal?") and fundamentals
+    ("promoter holding of TCS", "dividend yield of ITC") are not event questions."""
+    if not with_symbol and _CONCEPT.search(msg) and not _LISTING_CUE.search(msg):
+        return None
+    if _EV_DEALS.search(msg):
+        return "deals"
+    if _EV_MNA.search(msg) and not _EV_MNA_NOT.search(msg):
+        return "mna"
+    if _EV_ORDERS.search(msg):
+        return "orders"
+    if _EV_OWNERSHIP.search(msg):
+        return "ownership"
+    if _EV_REGULATORY.search(msg):
+        return "regulatory"
+    if _EV_EXCHANGE.search(msg):
+        return "exchange"
+    if _EV_CALLS.search(msg):
+        return "calls"
+    if _EV_ANNOUNCEMENTS.search(msg):
+        return "announcements"
+    if _EV_GENERIC.search(msg) and (with_symbol or _LISTING_CUE.search(msg)):
+        return "all"
+    return None
+
+
+def _event_intent(msg: str, sym: Optional[str]) -> Optional[Intent]:
+    """results_calendar (a list of companies) or event_intelligence (a chip, optionally one stock). Results come first:
+    "results" with a stock is that stock's results file; without one it is the calendar."""
+    if sym is None:
+        cal = _results_calendar(msg)
+        if cal is not None:
+            return cal
+        cat = _event_category(msg, False)
+        if cat is not None:
+            return Intent("event_intelligence", params={"category": cat, "period": _event_period(msg, False)})
+        return None
+    if (_RES.search(msg) and not _NOT_CALENDAR.search(msg)) or _BEAT_MISS.search(msg):
+        return Intent("event_intelligence", symbol=sym, params={"category": "results", "period": "month"})
+    cat = _event_category(msg, True)
+    if cat is not None:
+        return Intent("event_intelligence", symbol=sym, params={"category": cat, "period": _event_period(msg, True)})
+    return None
+
+
 def _strip_non_stock(text: str) -> str:
     text = _BANK_NIFTY.sub(" ", text)
 
@@ -281,13 +466,20 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
             return Intent("exit_options", symbol=sym)
         if _POSITION_SIZE.search(msg):
             return Intent("position_size", symbol=sym)
-        return Intent("stock_decision", symbol=sym) if _decision_words(msg, trader) else None
+        if _decision_words(msg, trader):
+            return Intent("stock_decision", symbol=sym)
+        return _event_intent(msg, sym)
+    ev = _event_intent(msg, None)
+    if ev is not None:
+        return ev
     if _OPEN_TRADES.search(msg):
         return Intent("open_trades")
     if _POSITION_SIZE.search(msg):
         return Intent("position_size")
     if _FNO_SETUPS.search(msg):
         return Intent("fno_setups")
+    if _SECTOR_ROTATION.search(msg):
+        return Intent("sector_rotation")
     if _SMART_MONEY.search(msg):
         return Intent("smart_money")
     if _UNUSUAL_VOLUME.search(msg):

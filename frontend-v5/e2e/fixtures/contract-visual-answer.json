@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2, the Q15 daily review and Quick Hedge (portfolio_hedge, captured 31 Oct 2026 22:24 IST for the staging test account, aggregates only, flag-gated); data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch.",
+ "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up). Added 31 Oct 2026 (16 of 16 intents): results_calendar (the week of 26-31 Oct, built over the desk's results calendar and the stored filing analyses) and event_intelligence (the Orders chip of the Market Intelligence filings feed), captured the same way, read-only, from nivesh-staging-app-backend. UPDATE 1 Nov 2026 (early morning): results_calendar (period last_week, asked on Sunday 1 Nov) and event_intelligence (orders, week) re-captured from the branch fix/results-rating-labels the same way (overlay inside nivesh-staging-app-backend, read-only, auth stubbed, nothing written): results rated Below / Meets / Above expectation and each analysed card carries the five-line AI commentary. Quick Hedge (portfolio_hedge) added 31 Oct 2026 22:24 IST: built by the same code in-process in nivesh-staging-app-backend for the staging test account, read-only, aggregates only, flag-gated; now 17 intents.",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
@@ -976,7 +976,7 @@
    "intent": "smart_money",
    "title": "Where smart money is moving",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T06:30:49+05:30",
+   "generated_at": "2026-10-31T16:58:54+05:30",
    "mode": "eod",
    "headline": {
     "text": "FIIs bought a net ₹3,598.54 Cr and DIIs sold a net ₹817.51 Cr in cash on 30 Oct; 24 F&O stocks show long buildup and 33 short covering.",
@@ -1571,7 +1571,8 @@
        "y": -3.34,
        "quadrant": "Short covering"
       }
-     ]
+     ],
+     "detail": "fno"
     },
     {
      "type": "ranked",
@@ -1715,7 +1716,8 @@
        "tone": "up",
        "ask": "Trade plan for LTM"
       }
-     ]
+     ],
+     "detail": "fno"
     },
     {
      "type": "list",
@@ -4052,28 +4054,20 @@
    "schema": "visual-answer-v1",
    "intent": "fno_setups",
    "title": "F&O setups that fit today",
-   "as_of": null,
-   "generated_at": "2026-10-31T06:31:02+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-31T12:07:22+05:30",
    "mode": "eod",
    "headline": {
-    "text": "5 F&O setups fit today's regime (Bearish).",
+    "text": "7 F&O setups fit today's regime (Bearish): 2 index, 5 stock.",
     "tone": "neutral"
    },
    "decision": null,
    "blocks": [
     {
-     "type": "notice",
-     "id": "stale-0",
-     "title": null,
-     "note": null,
-     "tone": "warn",
-     "text": "Desk F&O board (StrategyPlan, fit to today's regime) is from an unknown date, older than the previous session (30 Oct 2026): shown with its date, not as today's."
-    },
-    {
      "type": "ranked",
-     "id": "fno",
-     "title": "5 F&O setups · fit to today's regime",
-     "note": "Fit to today's measured regime, not a performance rank. Max loss/profit are gross, before charges; an unbounded side shows as —.",
+     "id": "fno_index",
+     "title": "Index options · 2 setups",
+     "note": "Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; R:R is measured at that move. Margin is Zerodha's calculator for the structure.",
      "columns": [
       {
        "key": "symbol",
@@ -4094,6 +4088,12 @@
        "format": "text"
       },
       {
+       "key": "lots",
+       "label": "Lots",
+       "align": "left",
+       "format": "text"
+      },
+      {
        "key": "maxloss",
        "label": "Max loss",
        "align": "right",
@@ -4106,10 +4106,22 @@
        "format": "price"
       },
       {
+       "key": "atmove",
+       "label": "At exp. move",
+       "align": "right",
+       "format": "price"
+      },
+      {
        "key": "rr",
-       "label": "R:R",
+       "label": "R:R at move",
        "align": "right",
        "format": "x"
+      },
+      {
+       "key": "margin",
+       "label": "Margin",
+       "align": "right",
+       "format": "price"
       },
       {
        "key": "fit",
@@ -4128,41 +4140,61 @@
         "symbol": "BANKNIFTY",
         "structure": "Bear put spread 53100/54700",
         "view": "Bearish",
+        "lots": "1 lot × 30",
         "maxloss": -14406.0,
         "maxprofit": 33594.0,
+        "atmove": 33337.54,
         "rr": 2.31,
+        "margin": "Needs login",
         "fit": 92.5
-       }
-      },
-      {
-       "symbol": "BANKNIFTY",
-       "plan_id": "tp_f69b2ec21b6e2845",
-       "ask": "What's the setup for BANKNIFTY?",
-       "tone": "down",
-       "cells": {
-        "symbol": "BANKNIFTY",
-        "structure": "Long put 54700",
-        "view": "Bearish",
-        "maxloss": -22813.5,
-        "maxprofit": 1618186.5,
-        "rr": 1.15,
-        "fit": 92.5
-       }
-      },
-      {
-       "symbol": "BANKNIFTY",
-       "plan_id": "tp_411ea6900e897724",
-       "ask": "What's the setup for BANKNIFTY?",
-       "tone": "down",
-       "cells": {
-        "symbol": "BANKNIFTY",
-        "structure": "Long put 54600",
-        "view": "Bearish",
-        "maxloss": -21594.0,
-        "maxprofit": 1616406.0,
-        "rr": 1.13,
-        "fit": 92.5
-       }
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "BANKNIFTY",
+         "plan_id": "tp_f69b2ec21b6e2845",
+         "ask": "What's the setup for BANKNIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "BANKNIFTY",
+          "structure": "Long put 54700",
+          "view": "Bearish",
+          "lots": "1 lot × 30",
+          "maxloss": -22813.5,
+          "maxprofit": "Not capped",
+          "atmove": 26144.67,
+          "rr": 1.15,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,618,186.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "BANKNIFTY",
+         "plan_id": "tp_411ea6900e897724",
+         "ask": "What's the setup for BANKNIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "BANKNIFTY",
+          "structure": "Long put 54600",
+          "view": "Bearish",
+          "lots": "1 lot × 30",
+          "maxloss": -21594.0,
+          "maxprofit": "Not capped",
+          "atmove": 24372.58,
+          "rr": 1.13,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,616,406.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
       },
       {
        "symbol": "NIFTY",
@@ -4173,26 +4205,474 @@
         "symbol": "NIFTY",
         "structure": "Bear put spread 22800/23050",
         "view": "Bearish",
+        "lots": "1 lot × 65",
         "maxloss": -5450.25,
         "maxprofit": 10799.75,
+        "atmove": 9254.87,
         "rr": 1.7,
+        "margin": "Needs login",
         "fit": 92.5
-       }
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "NIFTY",
+         "plan_id": "tp_e06c03dda4aa30f5",
+         "ask": "What's the setup for NIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "NIFTY",
+          "structure": "Long put 23050",
+          "view": "Bearish",
+          "lots": "1 lot × 65",
+          "maxloss": -8274.5,
+          "maxprofit": "Not capped",
+          "atmove": 6461.05,
+          "rr": 0.78,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,489,975.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "NIFTY",
+         "plan_id": "tp_7f548fcf46ab7396",
+         "ask": "What's the setup for NIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "NIFTY",
+          "structure": "Long put 23000",
+          "view": "Bearish",
+          "lots": "1 lot × 65",
+          "maxloss": -6779.5,
+          "maxprofit": "Not capped",
+          "atmove": 4715.34,
+          "rr": 0.7,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,488,220.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "fno_stock",
+     "title": "Stock F&O · 5 setups",
+     "note": "Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; R:R is measured at that move. Margin is Zerodha's calculator for the structure.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Underlying",
+       "align": "left",
+       "format": "text"
       },
       {
-       "symbol": "NIFTY",
-       "plan_id": "tp_e06c03dda4aa30f5",
-       "ask": "What's the setup for NIFTY?",
+       "key": "structure",
+       "label": "Structure",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "view",
+       "label": "View",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "lots",
+       "label": "Lots",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "maxloss",
+       "label": "Max loss",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "maxprofit",
+       "label": "Max profit",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "atmove",
+       "label": "At exp. move",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R at move",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "margin",
+       "label": "Margin",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "fit",
+       "label": "Fit",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "PERSISTENT",
+       "plan_id": "tp_d13bc0823a66a04e",
+       "ask": "What's the setup for PERSISTENT?",
        "tone": "down",
        "cells": {
-        "symbol": "NIFTY",
-        "structure": "Long put 23050",
+        "symbol": "PERSISTENT",
+        "structure": "Bear put spread 5800/6000",
         "view": "Bearish",
-        "maxloss": -8274.5,
-        "maxprofit": 1489975.5,
-        "rr": 0.78,
-        "fit": 92.5
-       }
+        "lots": "1 lot × 125",
+        "maxloss": -10106.25,
+        "maxprofit": 14893.75,
+        "atmove": 14641.86,
+        "rr": 1.45,
+        "margin": "Needs login",
+        "fit": 100.0
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "PERSISTENT",
+         "plan_id": "tp_bc1973773a5aaa91",
+         "ask": "What's the setup for PERSISTENT?",
+         "tone": "down",
+         "cells": {
+          "symbol": "PERSISTENT",
+          "structure": "Long put 6000",
+          "view": "Bearish",
+          "lots": "1 lot × 125",
+          "maxloss": -21993.75,
+          "maxprofit": "Not capped",
+          "atmove": 16882.41,
+          "rr": 0.77,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹728,006.25, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "PERSISTENT",
+         "plan_id": "tp_6ed2b717fdb6863d",
+         "ask": "What's the setup for PERSISTENT?",
+         "tone": "down",
+         "cells": {
+          "symbol": "PERSISTENT",
+          "structure": "Long put 5900",
+          "view": "Bearish",
+          "lots": "1 lot × 125",
+          "maxloss": -16300.0,
+          "maxprofit": "Not capped",
+          "atmove": 10111.81,
+          "rr": 0.62,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹721,200.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      },
+      {
+       "symbol": "PNB",
+       "plan_id": "tp_b174f67f2f76f4f8",
+       "ask": "What's the setup for PNB?",
+       "tone": "down",
+       "cells": {
+        "symbol": "PNB",
+        "structure": "Bear put spread 120/123",
+        "view": "Bearish",
+        "lots": "1 lot × 8000",
+        "maxloss": -9760.0,
+        "maxprofit": 14240.0,
+        "atmove": 13927.46,
+        "rr": 1.43,
+        "margin": "Needs login",
+        "fit": 100.0
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "PNB",
+         "plan_id": "tp_8a0519916f5c69d2",
+         "ask": "What's the setup for PNB?",
+         "tone": "down",
+         "cells": {
+          "symbol": "PNB",
+          "structure": "Long put 123",
+          "view": "Bearish",
+          "lots": "1 lot × 8000",
+          "maxloss": -25520.0,
+          "maxprofit": "Not capped",
+          "atmove": 27240.34,
+          "rr": 1.07,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹958,480.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "PNB",
+         "plan_id": "tp_46025d169c042246",
+         "ask": "What's the setup for PNB?",
+         "tone": "down",
+         "cells": {
+          "symbol": "PNB",
+          "structure": "Long put 122",
+          "view": "Bearish",
+          "lots": "1 lot × 8000",
+          "maxloss": -21920.0,
+          "maxprofit": "Not capped",
+          "atmove": 22863.15,
+          "rr": 1.04,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹954,080.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      },
+      {
+       "symbol": "ZYDUSLIFE",
+       "plan_id": "tp_5d9a6eb0f4729ab4",
+       "ask": "What's the setup for ZYDUSLIFE?",
+       "tone": "down",
+       "cells": {
+        "symbol": "ZYDUSLIFE",
+        "structure": "Bear put spread 1200/1250",
+        "view": "Bearish",
+        "lots": "1 lot × 450",
+        "maxloss": -9270.0,
+        "maxprofit": 13230.0,
+        "atmove": 12980.0,
+        "rr": 1.4,
+        "margin": "Needs login",
+        "fit": 100.0
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "ZYDUSLIFE",
+         "plan_id": "tp_712fd20063357535",
+         "ask": "What's the setup for ZYDUSLIFE?",
+         "tone": "down",
+         "cells": {
+          "symbol": "ZYDUSLIFE",
+          "structure": "Long put 1250",
+          "view": "Bearish",
+          "lots": "1 lot × 450",
+          "maxloss": -19462.5,
+          "maxprofit": "Not capped",
+          "atmove": 20070.22,
+          "rr": 1.03,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹543,037.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "ZYDUSLIFE",
+         "plan_id": "tp_10ec7a8ffd3aefe7",
+         "ask": "What's the setup for ZYDUSLIFE?",
+         "tone": "down",
+         "cells": {
+          "symbol": "ZYDUSLIFE",
+          "structure": "Long put 1240",
+          "view": "Bearish",
+          "lots": "1 lot × 450",
+          "maxloss": -17347.5,
+          "maxprofit": "Not capped",
+          "atmove": 17698.13,
+          "rr": 1.02,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹540,652.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      },
+      {
+       "symbol": "ANANDRATHI",
+       "plan_id": "tp_916e4c21b0306f31",
+       "ask": "What's the setup for ANANDRATHI?",
+       "tone": "down",
+       "cells": {
+        "symbol": "ANANDRATHI",
+        "structure": "Bear put spread 2200/2260",
+        "view": "Bearish",
+        "lots": "1 lot × 250",
+        "maxloss": -6312.5,
+        "maxprofit": 8687.5,
+        "atmove": 8499.01,
+        "rr": 1.35,
+        "margin": "Needs login",
+        "fit": 100.0
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "ANANDRATHI",
+         "plan_id": "tp_09bb54a0ee9614c2",
+         "ask": "What's the setup for ANANDRATHI?",
+         "tone": "down",
+         "cells": {
+          "symbol": "ANANDRATHI",
+          "structure": "Long put 2240",
+          "view": "Bearish",
+          "lots": "1 lot × 250",
+          "maxloss": -9187.5,
+          "maxprofit": "Not capped",
+          "atmove": 10723.13,
+          "rr": 1.17,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹550,812.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "ANANDRATHI",
+         "plan_id": "tp_8bb03525dc355098",
+         "ask": "What's the setup for ANANDRATHI?",
+         "tone": "down",
+         "cells": {
+          "symbol": "ANANDRATHI",
+          "structure": "Long put 2260",
+          "view": "Bearish",
+          "lots": "1 lot × 250",
+          "maxloss": -11650.0,
+          "maxprofit": "Not capped",
+          "atmove": 13246.16,
+          "rr": 1.14,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹553,350.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      },
+      {
+       "symbol": "INDIANB",
+       "plan_id": "tp_03fa4713c8effb4e",
+       "ask": "What's the setup for INDIANB?",
+       "tone": "down",
+       "cells": {
+        "symbol": "INDIANB",
+        "structure": "Bear put spread 850/870",
+        "view": "Bearish",
+        "lots": "1 lot × 1000",
+        "maxloss": -9850.0,
+        "maxprofit": 10150.0,
+        "atmove": 9834.79,
+        "rr": 1.0,
+        "margin": "Needs login",
+        "fit": 100.0
+       },
+       "badge": "30 Oct close",
+       "alternatives": [
+        {
+         "symbol": "INDIANB",
+         "plan_id": "tp_e7725a313247f756",
+         "ask": "What's the setup for INDIANB?",
+         "tone": "down",
+         "cells": {
+          "symbol": "INDIANB",
+          "structure": "Long put 860",
+          "view": "Bearish",
+          "lots": "1 lot × 1000",
+          "maxloss": -21700.0,
+          "maxprofit": "Not capped",
+          "atmove": 18843.64,
+          "rr": 0.87,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹838,300.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "INDIANB",
+         "plan_id": "tp_df9620cc70919220",
+         "ask": "What's the setup for INDIANB?",
+         "tone": "down",
+         "cells": {
+          "symbol": "INDIANB",
+          "structure": "Long put 870",
+          "view": "Bearish",
+          "lots": "1 lot × 1000",
+          "maxloss": -27500.0,
+          "maxprofit": "Not capped",
+          "atmove": 23013.91,
+          "rr": 0.84,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "30 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹842,500.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "login",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Margin needs a Kite login: ask an admin to log in to Kite for the day (the header's Log in to Kite), or connect your own Zerodha account in Brokers.",
+     "actions": [
+      {
+       "kind": "kite_login",
+       "label": "Log in to Kite"
+      },
+      {
+       "kind": "connect_broker",
+       "label": "Connect a broker"
       }
      ]
     },
@@ -4209,13 +4689,15 @@
     "sources": [
      {
       "name": "Desk F&O board (StrategyPlan, fit to today's regime)",
-      "as_of": null,
-      "status": "stale",
+      "as_of": "2026-10-30",
+      "status": "fresh",
       "note": null
      }
     ],
-    "stale": true,
-    "missing": []
+    "stale": false,
+    "missing": [
+     "Margin: every Zerodha calculator session was refused (the Kite login has expired)"
+    ]
    },
    "follow_ups": [
     {
@@ -4235,7 +4717,7 @@
      "query": "Today's top 5 opportunities"
     }
    ],
-   "caveat": "Built from end-of-day data. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "trade_validity": {
    "schema": "visual-answer-v1",
@@ -5882,6 +6364,2148 @@
     }
    ],
    "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "sector_rotation": {
+   "schema": "visual-answer-v1",
+   "intent": "sector_rotation",
+   "title": "Sector rotation",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-31T12:07:27+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Pharma leads the week (+7.09%) and Cement lags (−1.79%).",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "Sector leaders and laggards",
+     "note": null,
+     "items": [
+      {
+       "label": "Leading",
+       "value": "Pharma",
+       "sub": "+7.09% over 1 week",
+       "tone": "up"
+      },
+      {
+       "label": "Lagging",
+       "value": "Cement",
+       "sub": "−1.79% over 1 week",
+       "tone": "down"
+      },
+      {
+       "label": "Sectors up today",
+       "value": "5 of 20",
+       "sub": "by the sector index's 1-day move"
+      }
+     ]
+    },
+    {
+     "type": "heatmap",
+     "id": "rotation",
+     "title": "Sector rotation · 1 week",
+     "note": "Sector index returns over 1 week, best first. Select a sector for its top 5 stocks by the day's move (with index weight): a rank of today's move, not a recommendation.",
+     "unit": "%",
+     "cells": [
+      {
+       "label": "Pharma",
+       "value": 7.09,
+       "group": null,
+       "sub": "1d +1.55% · 1m +0.71%",
+       "members": [
+        {
+         "label": "LAURUSLABS",
+         "value": 7.2,
+         "sub": null,
+         "ask": "Trade plan for LAURUSLABS"
+        },
+        {
+         "label": "ZYDUSLIFE",
+         "value": 5.16,
+         "sub": null,
+         "ask": "Trade plan for ZYDUSLIFE"
+        },
+        {
+         "label": "SAILIFE",
+         "value": 4.13,
+         "sub": null,
+         "ask": "Trade plan for SAILIFE"
+        },
+        {
+         "label": "PPLPHARMA",
+         "value": 3.52,
+         "sub": null,
+         "ask": "Trade plan for PPLPHARMA"
+        },
+        {
+         "label": "CIPLA",
+         "value": 1.54,
+         "sub": null,
+         "ask": "Trade plan for CIPLA"
+        }
+       ]
+      },
+      {
+       "label": "Healthcare",
+       "value": 6.91,
+       "group": null,
+       "sub": "1d +1.58% · 1m −0.68%",
+       "members": [
+        {
+         "label": "LAURUSLABS",
+         "value": 7.2,
+         "sub": null,
+         "ask": "Trade plan for LAURUSLABS"
+        },
+        {
+         "label": "ZYDUSLIFE",
+         "value": 5.16,
+         "sub": null,
+         "ask": "Trade plan for ZYDUSLIFE"
+        },
+        {
+         "label": "APOLLOHOSP",
+         "value": 3.02,
+         "sub": null,
+         "ask": "Trade plan for APOLLOHOSP"
+        },
+        {
+         "label": "FORTIS",
+         "value": 1.76,
+         "sub": null,
+         "ask": "Trade plan for FORTIS"
+        },
+        {
+         "label": "CIPLA",
+         "value": 1.54,
+         "sub": null,
+         "ask": "Trade plan for CIPLA"
+        }
+       ]
+      },
+      {
+       "label": "Power",
+       "value": 5.9,
+       "group": null,
+       "sub": "1d +0.22% · 1m −1.76%",
+       "members": [
+        {
+         "label": "VEDPOWER",
+         "value": 14.72,
+         "sub": null,
+         "ask": "Trade plan for VEDPOWER"
+        },
+        {
+         "label": "POWERGRID",
+         "value": 1.92,
+         "sub": null,
+         "ask": "Trade plan for POWERGRID"
+        },
+        {
+         "label": "SJVN",
+         "value": 1.89,
+         "sub": null,
+         "ask": "Trade plan for SJVN"
+        },
+        {
+         "label": "NTPC",
+         "value": 1.85,
+         "sub": null,
+         "ask": "Trade plan for NTPC"
+        },
+        {
+         "label": "NHPC",
+         "value": 0.7,
+         "sub": null,
+         "ask": "Trade plan for NHPC"
+        }
+       ]
+      },
+      {
+       "label": "Media",
+       "value": 4.34,
+       "group": null,
+       "sub": "1d −1.46% · 1m +5.86%",
+       "members": [
+        {
+         "label": "SAREGAMA",
+         "value": 2.36,
+         "sub": null,
+         "ask": "Trade plan for SAREGAMA"
+        },
+        {
+         "label": "PVRINOX",
+         "value": 0.32,
+         "sub": null,
+         "ask": "Trade plan for PVRINOX"
+        },
+        {
+         "label": "TIPSMUSIC",
+         "value": -1.18,
+         "sub": null,
+         "ask": "Trade plan for TIPSMUSIC"
+        },
+        {
+         "label": "MPSLTD",
+         "value": -1.3,
+         "sub": null,
+         "ask": "Trade plan for MPSLTD"
+        },
+        {
+         "label": "PFOCUS",
+         "value": -1.55,
+         "sub": null,
+         "ask": "Trade plan for PFOCUS"
+        }
+       ]
+      },
+      {
+       "label": "Realty",
+       "value": 3.77,
+       "group": null,
+       "sub": "1d −0.72% · 1m −2.39%",
+       "members": [
+        {
+         "label": "PRESTIGE",
+         "value": 0.99,
+         "sub": null,
+         "ask": "Trade plan for PRESTIGE"
+        },
+        {
+         "label": "OBEROIRLTY",
+         "value": 0.4,
+         "sub": null,
+         "ask": "Trade plan for OBEROIRLTY"
+        },
+        {
+         "label": "DLF",
+         "value": -0.4,
+         "sub": null,
+         "ask": "Trade plan for DLF"
+        },
+        {
+         "label": "PHOENIXLTD",
+         "value": -0.64,
+         "sub": null,
+         "ask": "Trade plan for PHOENIXLTD"
+        },
+        {
+         "label": "LODHA",
+         "value": -0.84,
+         "sub": null,
+         "ask": "Trade plan for LODHA"
+        }
+       ]
+      },
+      {
+       "label": "Metals",
+       "value": 2.67,
+       "group": null,
+       "sub": "1d −0.54% · 1m −9.03%",
+       "members": [
+        {
+         "label": "VAML",
+         "value": 2.15,
+         "sub": null,
+         "ask": "Trade plan for VAML"
+        },
+        {
+         "label": "VEDL",
+         "value": 1.43,
+         "sub": null,
+         "ask": "Trade plan for VEDL"
+        },
+        {
+         "label": "JINDALSTEL",
+         "value": 0.11,
+         "sub": null,
+         "ask": "Trade plan for JINDALSTEL"
+        },
+        {
+         "label": "SAIL",
+         "value": 0.0,
+         "sub": null,
+         "ask": "Trade plan for SAIL"
+        },
+        {
+         "label": "LLOYDSME",
+         "value": -0.09,
+         "sub": null,
+         "ask": "Trade plan for LLOYDSME"
+        }
+       ]
+      },
+      {
+       "label": "Auto",
+       "value": 2.25,
+       "group": null,
+       "sub": "1d −0.87% · 1m −2.87%",
+       "members": [
+        {
+         "label": "SONACOMS",
+         "value": 1.93,
+         "sub": null,
+         "ask": "Trade plan for SONACOMS"
+        },
+        {
+         "label": "HEROMOTOCO",
+         "value": 1.21,
+         "sub": null,
+         "ask": "Trade plan for HEROMOTOCO"
+        },
+        {
+         "label": "ASHOKLEY",
+         "value": -0.12,
+         "sub": null,
+         "ask": "Trade plan for ASHOKLEY"
+        },
+        {
+         "label": "TMPV",
+         "value": -0.23,
+         "sub": null,
+         "ask": "Trade plan for TMPV"
+        },
+        {
+         "label": "EICHERMOT",
+         "value": -0.25,
+         "sub": null,
+         "ask": "Trade plan for EICHERMOT"
+        }
+       ]
+      },
+      {
+       "label": "FMCG",
+       "value": 2.18,
+       "group": null,
+       "sub": "1d −0.62% · 1m −2.64%",
+       "members": [
+        {
+         "label": "UNITDSPR",
+         "value": 3.43,
+         "sub": null,
+         "ask": "Trade plan for UNITDSPR"
+        },
+        {
+         "label": "TATACONSUM",
+         "value": 0.48,
+         "sub": null,
+         "ask": "Trade plan for TATACONSUM"
+        },
+        {
+         "label": "HINDUNILVR",
+         "value": 0.34,
+         "sub": null,
+         "ask": "Trade plan for HINDUNILVR"
+        },
+        {
+         "label": "ITC",
+         "value": 0.23,
+         "sub": null,
+         "ask": "Trade plan for ITC"
+        },
+        {
+         "label": "BRITANNIA",
+         "value": -0.32,
+         "sub": null,
+         "ask": "Trade plan for BRITANNIA"
+        }
+       ]
+      },
+      {
+       "label": "PSU Banks",
+       "value": 2.03,
+       "group": null,
+       "sub": "1d −0.93% · 1m +3.29%",
+       "members": [
+        {
+         "label": "MAHABANK",
+         "value": 0.44,
+         "sub": null,
+         "ask": "Trade plan for MAHABANK"
+        },
+        {
+         "label": "INDIANB",
+         "value": 0.16,
+         "sub": null,
+         "ask": "Trade plan for INDIANB"
+        },
+        {
+         "label": "UNIONBANK",
+         "value": -0.27,
+         "sub": null,
+         "ask": "Trade plan for UNIONBANK"
+        },
+        {
+         "label": "UCOBANK",
+         "value": -0.5,
+         "sub": null,
+         "ask": "Trade plan for UCOBANK"
+        },
+        {
+         "label": "PNB",
+         "value": -0.85,
+         "sub": null,
+         "ask": "Trade plan for PNB"
+        }
+       ]
+      },
+      {
+       "label": "IT",
+       "value": 1.91,
+       "group": null,
+       "sub": "1d +2.32% · 1m +17.84%",
+       "members": [
+        {
+         "label": "WIPRO",
+         "value": 4.32,
+         "sub": null,
+         "ask": "Trade plan for WIPRO"
+        },
+        {
+         "label": "COFORGE",
+         "value": 4.23,
+         "sub": null,
+         "ask": "Trade plan for COFORGE"
+        },
+        {
+         "label": "LTM",
+         "value": 3.39,
+         "sub": null,
+         "ask": "Trade plan for LTM"
+        },
+        {
+         "label": "INFY",
+         "value": 3.36,
+         "sub": null,
+         "ask": "Trade plan for INFY"
+        },
+        {
+         "label": "PERSISTENT",
+         "value": 2.86,
+         "sub": null,
+         "ask": "Trade plan for PERSISTENT"
+        }
+       ]
+      },
+      {
+       "label": "Consumer Durables",
+       "value": 1.78,
+       "group": null,
+       "sub": "1d −1.78% · 1m −7.02%",
+       "members": [
+        {
+         "label": "KAJARIACER",
+         "value": 0.64,
+         "sub": null,
+         "ask": "Trade plan for KAJARIACER"
+        },
+        {
+         "label": "TITAN",
+         "value": 0.06,
+         "sub": null,
+         "ask": "Trade plan for TITAN"
+        },
+        {
+         "label": "HAVELLS",
+         "value": -0.61,
+         "sub": null,
+         "ask": "Trade plan for HAVELLS"
+        },
+        {
+         "label": "WHIRLPOOL",
+         "value": -0.94,
+         "sub": null,
+         "ask": "Trade plan for WHIRLPOOL"
+        },
+        {
+         "label": "LGEINDIA",
+         "value": -1.2,
+         "sub": null,
+         "ask": "Trade plan for LGEINDIA"
+        }
+       ]
+      },
+      {
+       "label": "Private Banks",
+       "value": 1.49,
+       "group": null,
+       "sub": "1d +0.00% · 1m +2.31%",
+       "members": [
+        {
+         "label": "HDFCBANK",
+         "value": 1.39,
+         "sub": null,
+         "ask": "Trade plan for HDFCBANK"
+        },
+        {
+         "label": "ICICIBANK",
+         "value": 0.82,
+         "sub": null,
+         "ask": "Trade plan for ICICIBANK"
+        },
+        {
+         "label": "KOTAKBANK",
+         "value": 0.57,
+         "sub": null,
+         "ask": "Trade plan for KOTAKBANK"
+        },
+        {
+         "label": "AXISBANK",
+         "value": -0.65,
+         "sub": null,
+         "ask": "Trade plan for AXISBANK"
+        },
+        {
+         "label": "YESBANK",
+         "value": -1.81,
+         "sub": null,
+         "ask": "Trade plan for YESBANK"
+        }
+       ]
+      },
+      {
+       "label": "Capital Goods",
+       "value": 1.43,
+       "group": null,
+       "sub": "1d −1.91% · 1m −7.21%",
+       "members": [
+        {
+         "label": "VOLTAMP",
+         "value": 1.72,
+         "sub": null,
+         "ask": "Trade plan for VOLTAMP"
+        },
+        {
+         "label": "PREMIERENE",
+         "value": 1.26,
+         "sub": null,
+         "ask": "Trade plan for PREMIERENE"
+        },
+        {
+         "label": "GRSE",
+         "value": 1.07,
+         "sub": null,
+         "ask": "Trade plan for GRSE"
+        },
+        {
+         "label": "BEML",
+         "value": 0.64,
+         "sub": null,
+         "ask": "Trade plan for BEML"
+        },
+        {
+         "label": "POLYCAB",
+         "value": 0.54,
+         "sub": null,
+         "ask": "Trade plan for POLYCAB"
+        }
+       ]
+      },
+      {
+       "label": "Financial Services",
+       "value": 1.27,
+       "group": null,
+       "sub": "1d +0.03% · 1m +0.26%",
+       "members": [
+        {
+         "label": "HDFCLIFE",
+         "value": 1.53,
+         "sub": null,
+         "ask": "Trade plan for HDFCLIFE"
+        },
+        {
+         "label": "HDFCBANK",
+         "value": 1.39,
+         "sub": null,
+         "ask": "Trade plan for HDFCBANK"
+        },
+        {
+         "label": "ICICIBANK",
+         "value": 0.82,
+         "sub": null,
+         "ask": "Trade plan for ICICIBANK"
+        },
+        {
+         "label": "KOTAKBANK",
+         "value": 0.57,
+         "sub": null,
+         "ask": "Trade plan for KOTAKBANK"
+        },
+        {
+         "label": "ICICIGI",
+         "value": 0.5,
+         "sub": null,
+         "ask": "Trade plan for ICICIGI"
+        }
+       ]
+      },
+      {
+       "label": "Energy",
+       "value": 1.27,
+       "group": null,
+       "sub": "1d −0.97% · 1m −4.25%",
+       "members": [
+        {
+         "label": "POWERGRID",
+         "value": 1.92,
+         "sub": null,
+         "ask": "Trade plan for POWERGRID"
+        },
+        {
+         "label": "NTPC",
+         "value": 1.85,
+         "sub": null,
+         "ask": "Trade plan for NTPC"
+        },
+        {
+         "label": "GAIL",
+         "value": 1.66,
+         "sub": null,
+         "ask": "Trade plan for GAIL"
+        },
+        {
+         "label": "NHPC",
+         "value": 0.7,
+         "sub": null,
+         "ask": "Trade plan for NHPC"
+        },
+        {
+         "label": "CASTROLIND",
+         "value": 0.2,
+         "sub": null,
+         "ask": "Trade plan for CASTROLIND"
+        }
+       ]
+      },
+      {
+       "label": "Chemicals",
+       "value": 1.13,
+       "group": null,
+       "sub": "1d −1.04% · 1m −5.03%",
+       "members": [
+        {
+         "label": "NAVINFLUOR",
+         "value": 5.08,
+         "sub": null,
+         "ask": "Trade plan for NAVINFLUOR"
+        },
+        {
+         "label": "DEEPAKNTR",
+         "value": 2.91,
+         "sub": null,
+         "ask": "Trade plan for DEEPAKNTR"
+        },
+        {
+         "label": "PIDILITIND",
+         "value": 2.78,
+         "sub": null,
+         "ask": "Trade plan for PIDILITIND"
+        },
+        {
+         "label": "PIIND",
+         "value": -0.47,
+         "sub": null,
+         "ask": "Trade plan for PIIND"
+        },
+        {
+         "label": "FLUOROCHEM",
+         "value": -0.75,
+         "sub": null,
+         "ask": "Trade plan for FLUOROCHEM"
+        }
+       ]
+      },
+      {
+       "label": "Telecom",
+       "value": 1.12,
+       "group": null,
+       "sub": "1d −2.10% · 1m +1.54%",
+       "members": [
+        {
+         "label": "BHARTIARTL",
+         "value": 0.08,
+         "sub": null,
+         "ask": "Trade plan for BHARTIARTL"
+        },
+        {
+         "label": "BHARTIHEXA",
+         "value": -1.28,
+         "sub": null,
+         "ask": "Trade plan for BHARTIHEXA"
+        },
+        {
+         "label": "INDUSTOWER",
+         "value": -1.48,
+         "sub": null,
+         "ask": "Trade plan for INDUSTOWER"
+        },
+        {
+         "label": "TATACOMM",
+         "value": -1.99,
+         "sub": null,
+         "ask": "Trade plan for TATACOMM"
+        },
+        {
+         "label": "IDEA",
+         "value": -2.39,
+         "sub": null,
+         "ask": "Trade plan for IDEA"
+        }
+       ]
+      },
+      {
+       "label": "Banks",
+       "value": 0.74,
+       "group": null,
+       "sub": "1d −0.41% · 1m +0.79%",
+       "members": [
+        {
+         "label": "HDFCBANK",
+         "value": 1.39,
+         "sub": null,
+         "ask": "Trade plan for HDFCBANK"
+        },
+        {
+         "label": "ICICIBANK",
+         "value": 0.82,
+         "sub": null,
+         "ask": "Trade plan for ICICIBANK"
+        },
+        {
+         "label": "KOTAKBANK",
+         "value": 0.57,
+         "sub": null,
+         "ask": "Trade plan for KOTAKBANK"
+        },
+        {
+         "label": "UNIONBANK",
+         "value": -0.27,
+         "sub": null,
+         "ask": "Trade plan for UNIONBANK"
+        },
+        {
+         "label": "AXISBANK",
+         "value": -0.65,
+         "sub": null,
+         "ask": "Trade plan for AXISBANK"
+        }
+       ]
+      },
+      {
+       "label": "Oil & Gas",
+       "value": -0.74,
+       "group": null,
+       "sub": "1d −0.47% · 1m −2.50%",
+       "members": [
+        {
+         "label": "GAIL",
+         "value": 1.66,
+         "sub": null,
+         "ask": "Trade plan for GAIL"
+        },
+        {
+         "label": "CASTROLIND",
+         "value": 0.2,
+         "sub": null,
+         "ask": "Trade plan for CASTROLIND"
+        },
+        {
+         "label": "PETRONET",
+         "value": 0.12,
+         "sub": null,
+         "ask": "Trade plan for PETRONET"
+        },
+        {
+         "label": "CHENNPETRO",
+         "value": -0.02,
+         "sub": null,
+         "ask": "Trade plan for CHENNPETRO"
+        },
+        {
+         "label": "OIL",
+         "value": -0.11,
+         "sub": null,
+         "ask": "Trade plan for OIL"
+        }
+       ]
+      },
+      {
+       "label": "Cement",
+       "value": -1.79,
+       "group": null,
+       "sub": "1d −1.26% · 1m −3.32%",
+       "members": [
+        {
+         "label": "INDIACEM",
+         "value": 3.95,
+         "sub": null,
+         "ask": "Trade plan for INDIACEM"
+        },
+        {
+         "label": "GRASIM",
+         "value": 1.66,
+         "sub": null,
+         "ask": "Trade plan for GRASIM"
+        },
+        {
+         "label": "JSWCEMENT",
+         "value": -0.27,
+         "sub": null,
+         "ask": "Trade plan for JSWCEMENT"
+        },
+        {
+         "label": "SHREECEM",
+         "value": -0.54,
+         "sub": null,
+         "ask": "Trade plan for SHREECEM"
+        },
+        {
+         "label": "ULTRACEMCO",
+         "value": -1.16,
+         "sub": null,
+         "ask": "Trade plan for ULTRACEMCO"
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "NSE sector indices (desk sector returns)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE index lists with bhavcopy closes (stocks of each sector index)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    },
+    {
+     "label": "Which stocks have unusual volume?",
+     "query": "Which stocks have unusual volume?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "results_calendar": {
+   "schema": "visual-answer-v1",
+   "intent": "results_calendar",
+   "title": "Results calendar · 19–24 Oct 2026",
+   "as_of": "2026-11-01",
+   "generated_at": "2026-11-01T03:26:13+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "166 companies report in 19–24 Oct 2026: 165 declared (50 with an AI summary), 1 awaiting figures.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "counts",
+     "title": "Results in this window",
+     "note": null,
+     "items": [
+      {
+       "label": "Companies",
+       "value": "166",
+       "sub": "19–24 Oct 2026"
+      },
+      {
+       "label": "Declared",
+       "value": "165",
+       "sub": "50 with an AI summary, 115 not analysed yet"
+      },
+      {
+       "label": "Figures awaited",
+       "value": "1",
+       "sub": "meeting held, results not loaded yet"
+      },
+      {
+       "label": "F&O names",
+       "value": "37"
+      },
+      {
+       "label": "Above · meets · below",
+       "value": "2 · 51 · 3",
+       "sub": "109 not rated · expectation = each company's own baseline from its past quarters, not analyst consensus"
+      }
+     ]
+    },
+    {
+     "type": "briefs",
+     "id": "declared",
+     "title": "Declared results · AI summary, management commentary, source filings",
+     "note": "Showing 8 of 165 declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and confidence are the analysis's, not recommendations.",
+     "items": [
+      {
+       "title": "Hindustan Petroleum Corporation Limited",
+       "symbol": "HINDPETRO",
+       "sub": "Declared 22 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "HPCL reported Q2 FY27 standalone net profit of ₹3,483 crore (versus ₹3,830 crore in Q2 FY26) on revenue of ₹1,39,140 crore, while H1 FY27 standalone shows a net loss of ₹8,044 crore against a ₹8,201 crore profit a year earlier. GRM rose to US$32.15 per barrel in Q2 from US$8.80, with sales volume up 5.5% YoY.",
+       "body_note": "AI summary of the results filing, analysed 22 Oct 2026, filing read: slightly negative. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 22 Oct: HPCL reported Q2 FY27 standalone net profit of ₹3,483 crore (versus ₹3,830 crore in Q2 FY26) on revenue of ₹1,39,140 crore, while H1 FY27 standalone shows a net loss of ₹8,044 crore against a ₹8,201 crore profit a year earlier. GRM rose to US$32.15 per barrel in Q2 from US$8.80, with sales volume up 5.5% YoY.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Q2 GRM of US$32.15/bbl versus US$8.80 a year earlier; refineries ran at 100% of capacity",
+         "tone": "up"
+        },
+        {
+         "text": "Revenue up to ₹1,39,140 crore in Q2 from ₹1,10,323 crore; sales volumes up 5.5% YoY",
+         "tone": "up"
+        },
+        {
+         "text": "H1 FY27 standalone net loss of ₹8,044 crore versus ₹8,201 crore profit in H1 FY26",
+         "tone": "down"
+        },
+        {
+         "text": "Q2 profit lower than ₹3,830 crore a year ago despite much higher GRM, suggesting pressure elsewhere, likely marketing",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Cause and size of the Q1 loss are not given",
+         "tone": "neutral"
+        },
+        {
+         "text": "Business update · 22 Oct: HPCL's investor handout shows Q2 FY27 PAT of Rs 3,483 crore on revenue of Rs 1,39,140 crore, but H1 PAT is a loss of Rs 8,044 crore on revenue of Rs 2,84,267 crore. Refinery utilisation was 100.4% in Q2 and the Q2 GRM before export cess was US$32.15/bbl.",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDPETRO1_22102026165513_BM_H1_Results_signed.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDPETRO1_22102026172415_PressreleaseSEIntimation_signed.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDPETRO1_23102026205920_Audio_Recording_ConCall.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for HINDPETRO?",
+       "commentary": {
+        "signal": {
+         "label": "Slightly negative",
+         "tone": "down",
+         "impact": "High",
+         "confidence": 78
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "HPCL reported Q2 FY27 standalone net profit of ₹3,483 crore (versus ₹3,830 crore in Q2 FY26) on revenue of ₹1,39,140 crore, while H1 FY27 standalone shows a net loss of ₹8,044 crore against a ₹8,201…"
+         },
+         {
+          "label": "Why it matters",
+          "text": "H1 FY27 standalone net loss of ₹8,044 crore versus ₹8,201 crore profit in H1 FY26. Q2 profit lower than ₹3,830 crore a year ago despite much higher GRM, suggesting pressure elsewhere, likely marketing."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bearish — a slightly negative read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Cause and size of the Q1 loss are not given; Segment-wise profit for refining and marketing is not given"
+         },
+         {
+          "label": "AI take",
+          "text": "Slightly negative · High impact · confidence 78% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Hindustan Zinc Limited",
+       "symbol": "HINDZINC",
+       "sub": "Declared 19 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: no reliable baseline",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "Hindustan Zinc reported Q2 FY27 revenue of ₹15,093 crore (up 77% YoY), EBITDA of ₹9,285 crore (up 108%) and net profit of ₹6,412 crore (up 142%). Zinc cost of production fell 29% YoY to $703 per tonne and the EBITDA margin was 62%.",
+       "body_note": "AI summary of the results filing, analysed 19 Oct 2026, filing read: strongly positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 19 Oct: Hindustan Zinc reported Q2 FY27 revenue of ₹15,093 crore (up 77% YoY), EBITDA of ₹9,285 crore (up 108%) and net profit of ₹6,412 crore (up 142%). Zinc cost of production fell 29% YoY to $703 per tonne and the EBITDA margin was 62%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Record quarterly net profit and EBITDA, up 142% and 108% YoY, with margin up about 900 bps to 62%",
+         "tone": "up"
+        },
+        {
+         "text": "Zinc cost of production down 29% YoY to $703/t on better grades, higher output and renewable power",
+         "tone": "up"
+        },
+        {
+         "text": "Growth is driven largely by higher metal prices and a stronger dollar, which are outside the company's control",
+         "tone": "down"
+        },
+        {
+         "text": "Input commodity prices rose and domestic coal usage fell, partly offsetting the cost gains",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: How much of the profit growth depends on metal prices and exchange rates rather than lasting operating gains",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_19102026153330_Finaloutcome.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_19102026154508_SEintimationpressrelease.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_19102026154642_SEintimationinvestorpresentation.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/HINDZINCNSE_23102026153438_SEIntimation23102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for HINDZINC?",
+       "commentary": {
+        "signal": {
+         "label": "Strongly positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Hindustan Zinc reported Q2 FY27 revenue of ₹15,093 crore (up 77% YoY), EBITDA of ₹9,285 crore (up 108%) and net profit of ₹6,412 crore (up 142%)."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Record quarterly net profit and EBITDA, up 142% and 108% YoY, with margin up about 900 bps to 62%. Zinc cost of production down 29% YoY to $703/t on better grades, higher output and renewable power."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a strongly positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "How much of the profit growth depends on metal prices and exchange rates rather than lasting operating gains; Forward guidance on production, costs and capex"
+         },
+         {
+          "label": "AI take",
+          "text": "Strongly positive · High impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "CG Power and Industrial Solutions Limited",
+       "symbol": "CGPOWER",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O",
+       "badge": "Meets expectation",
+       "tone": "neutral",
+       "body": "CG Power reported Q2 FY27 standalone sales of INR 3,505 Cr (+32% YoY) and PAT of INR 450 Cr (+46%), with standalone order backlog at INR 21,820 Cr. The board also approved capacity capex in switchgear and power transformers, including about INR 300 Cr for the OIP unit and about INR 68 Cr for the T3 transformer facility.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: CG Power reported Q2 FY27 standalone sales of INR 3,505 Cr (+32% YoY) and PAT of INR 450 Cr (+46%), with standalone order backlog at INR 21,820 Cr. The board also approved capacity capex in switchgear and power transformers, including about INR 300 Cr for the OIP unit and about INR 68 Cr for the T3 transformer facility.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Standalone sales +32% and PAT +46% YoY; EBITDA margin up to 18.2% from 16.4%",
+         "tone": "up"
+        },
+        {
+         "text": "Order intake +90% YoY at INR 8,016 Cr; backlog +61% YoY gives multi-quarter visibility",
+         "tone": "up"
+        },
+        {
+         "text": "Industrial Systems PBIT margin slipped YoY (9.4% vs 9.7%); 6M EBITDA only +3%",
+         "tone": "down"
+        },
+        {
+         "text": "Semiconductor talent investments weigh on consolidated profit (INR 35 Cr, 91 bps impact)",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: How sustainable the Power Systems pricing and margin gains are",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/CGPOWER_23102026142554_OutcomeoftheBoardMeeting23102026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/CGPOWER_23102026145423_SEDisclosure_PressRelease.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/CGPOWER_23102026190537_IntimationofRecording_InvestorCall_Q2_2026_27.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for CGPOWER?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "CG Power reported Q2 FY27 standalone sales of INR 3,505 Cr (+32% YoY) and PAT of INR 450 Cr (+46%), with standalone order backlog at INR 21,820 Cr."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Standalone sales +32% and PAT +46% YoY; EBITDA margin up to 18.2% from 16.4%. Order intake +90% YoY at INR 8,016 Cr; backlog +61% YoY gives multi-quarter visibility."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing; rated meets expectation against its own baseline."
+         },
+         {
+          "label": "What to watch",
+          "text": "How sustainable the Power Systems pricing and margin gains are; How the capex will be funded and the expected returns"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Coforge Limited",
+       "symbol": "COFORGE",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "Coforge reported Q2 revenue of INR 61,708 Mn, up 53.6% YoY (40.1% in USD terms), with EBIT margin of 16.0% and PAT of INR 5,881 Mn. It signed eight large deals, reported a $2.38 Bn next-12-month order book, and raised FY27 EBIT margin guidance from 15.5% to 16%.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: strongly positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: Coforge reported Q2 revenue of INR 61,708 Mn, up 53.6% YoY (40.1% in USD terms), with EBIT margin of 16.0% and PAT of INR 5,881 Mn. It signed eight large deals, reported a $2.38 Bn next-12-month order book, and raised FY27 EBIT margin guidance from 15.5% to 16%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Revenue up 53.6% YoY in INR and 40.1% in USD, with 10.1% sequential USD growth",
+         "tone": "up"
+        },
+        {
+         "text": "Record eight large deals; order intake $1.04 Bn; next-12-month order book $2.38 Bn, up 45% YoY",
+         "tone": "up"
+        },
+        {
+         "text": "Organic constant-currency growth was 3.8% sequentially, well below headline growth, implying inorganic or currency contribution",
+         "tone": "down"
+        },
+        {
+         "text": "PAT margin is lower than EBIT-level growth implies; PAT growth in USD (42.7%) trails EBIT growth",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Split of growth between acquisitions and organic business",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/COFORGE_23102026161820_BMOutcome23102026F.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/COFORGE_23102026163959_3PressReleaseF.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/COFORGE_24102026143550_8SignedTranscriptIntimation.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for COFORGE?",
+       "commentary": {
+        "signal": {
+         "label": "Strongly positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 85
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Coforge reported Q2 revenue of INR 61,708 Mn, up 53.6% YoY (40.1% in USD terms), with EBIT margin of 16.0% and PAT of INR 5,881 Mn."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Revenue up 53.6% YoY in INR and 40.1% in USD, with 10.1% sequential USD growth. Record eight large deals; order intake $1.04 Bn; next-12-month order book $2.38 Bn, up 45% YoY."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a strongly positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Split of growth between acquisitions and organic business; Reasons for PAT growth lagging EBIT growth (tax, interest, other items)"
+         },
+         {
+          "label": "AI take",
+          "text": "Strongly positive · Medium impact · confidence 85% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "IndusInd Bank Limited",
+       "symbol": "INDUSINDBK",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: no reliable baseline",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "IndusInd Bank reported Q2 FY27 net profit of ₹1,242 crore against a net loss of ₹437 crore a year earlier, with NII of ₹4,569 crore and PPOP of ₹2,874 crore. Gross NPA fell to 2.73% and net NPA to 0.83%, while NIM slipped to 3.23% and CRAR to 16.59%.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: IndusInd Bank reported Q2 FY27 net profit of ₹1,242 crore against a net loss of ₹437 crore a year earlier, with NII of ₹4,569 crore and PPOP of ₹2,874 crore. Gross NPA fell to 2.73% and net NPA to 0.83%, while NIM slipped to 3.23% and CRAR to 16.59%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "Net profit of ₹1,242 crore versus a ₹437 crore loss a year ago; H1 profit ₹2,279 crore versus ₹167 crore",
+         "tone": "up"
+        },
+        {
+         "text": "Gross NPA down to 2.73% from 3.25% in June 2026 and 3.60% a year ago; provisions fell to ₹1,223 crore from ₹2,631 crore",
+         "tone": "up"
+        },
+        {
+         "text": "NIM fell to 3.23% from 3.32% and yield on assets fell to 8.35% from 8.75%",
+         "tone": "down"
+        },
+        {
+         "text": "CRAR fell to 16.59% from 17.10% and Tier 1 to 15.55%; LCR lower at 127% versus 132%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Details of the 'normalized' Q1 FY27 profit of ₹824 crore and any one-off items in Q2",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK3_23102026155243_Financialresultsfinalsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK4_23102026162409_finaluploadPRsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK4_23102026161027_Investor_Presentationmergedfinalsigned.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/INDUSINDBK3_27102026112538_TranscriptofEarningCall.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for INDUSINDBK?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 85
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "IndusInd Bank reported Q2 FY27 net profit of ₹1,242 crore against a net loss of ₹437 crore a year earlier, with NII of ₹4,569 crore and PPOP of ₹2,874 crore."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Net profit of ₹1,242 crore versus a ₹437 crore loss a year ago; H1 profit ₹2,279 crore versus ₹167 crore. Gross NPA down to 2.73% from 3.25% in June 2026 and 3.60% a year ago; provisions fell to ₹1,223 crore from ₹2,631 crore."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Details of the 'normalized' Q1 FY27 profit of ₹824 crore and any one-off items in Q2; Return on assets and return on equity for the quarter"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 85% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "SBI Cards and Payment Services Limited",
+       "symbol": "SBICARD",
+       "sub": "Declared 23 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: no reliable baseline",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "SBI Card reported Q2 FY27 PAT of ₹778 Cr, up 75% from ₹445 Cr a year earlier, on total income of ₹5,302 Cr (up 3%). Profit growth was driven by a 37% fall in impairment costs to ₹819 Cr, while receivables fell 2% and earnings before credit costs fell 1%.",
+       "body_note": "AI summary of the results filing, analysed 23 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 23 Oct: SBI Card reported Q2 FY27 PAT of ₹778 Cr, up 75% from ₹445 Cr a year earlier, on total income of ₹5,302 Cr (up 3%). Profit growth was driven by a 37% fall in impairment costs to ₹819 Cr, while receivables fell 2% and earnings before credit costs fell 1%.",
+         "tone": "neutral"
+        },
+        {
+         "text": "PAT up 75% YoY and 17% QoQ; ROAA 4.4% vs 2.6%, ROAE 18.4% vs 12.1%",
+         "tone": "up"
+        },
+        {
+         "text": "Credit costs down 37% YoY; gross NPA 1.90% vs 2.85%, net NPA 0.77% vs 1.29%",
+         "tone": "up"
+        },
+        {
+         "text": "Revenue growth only 3%; earnings before credit costs down 1% YoY",
+         "tone": "down"
+        },
+        {
+         "text": "Operating costs up 7% and finance costs up 4%, ahead of income growth",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Whether the lower credit cost is sustainable or reflects one-off provisioning or write-off effects",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICARDS_23102026143701_SEFilingOutcomeofBoardMeetingSep2026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICARDS_23102026150310_SEFilingPressReleaseSep2026signed.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICARDS_23102026145459_SEFilingInvestorPresentationSep2026.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SBICPSL_23102026204327_SEFilingAudioRecordingSep2026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for SBICARD?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "SBI Card reported Q2 FY27 PAT of ₹778 Cr, up 75% from ₹445 Cr a year earlier, on total income of ₹5,302 Cr (up 3%)."
+         },
+         {
+          "label": "Why it matters",
+          "text": "PAT up 75% YoY and 17% QoQ; ROAA 4.4% vs 2.6%, ROAE 18.4% vs 12.1%. Credit costs down 37% YoY; gross NPA 1.90% vs 2.85%, net NPA 0.77% vs 1.29%."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Whether the lower credit cost is sustainable or reflects one-off provisioning or write-off effects; Management guidance on receivables growth and margins"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Adani Energy Solutions Limited",
+       "symbol": "ADANIENSOL",
+       "sub": "Declared 22 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "AESL reported Q2FY27 consolidated total income of Rs 10,239 crore (up 51%), EBITDA of Rs 3,548 crore (up 67%) and PAT of Rs 1,364 crore (up 145% from Rs 557 crore). H1FY27 EBITDA was Rs 6,726 crore (up 62%) and PAT Rs 2,600 crore, with a transmission pipeline of ~Rs 87,000 crore.",
+       "body_note": "AI summary of the results filing, analysed 22 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 22 Oct: AESL reported Q2FY27 consolidated total income of Rs 10,239 crore (up 51%), EBITDA of Rs 3,548 crore (up 67%) and PAT of Rs 1,364 crore (up 145% from Rs 557 crore). H1FY27 EBITDA was Rs 6,726 crore (up 62%) and PAT Rs 2,600 crore, with a transmission pipeline of ~Rs 87,000 crore.",
+         "tone": "neutral"
+        },
+        {
+         "text": "PAT up 145% and EBITDA up 67% YoY in Q2, with H1 EBITDA up 62%",
+         "tone": "up"
+        },
+        {
+         "text": "Energy solutions platform added Rs 803 crore operating EBITDA in Q2 versus Rs 11 crore a year earlier",
+         "tone": "up"
+        },
+        {
+         "text": "Transmission and distribution revenue growth was modest (distribution revenue up 2% in Q2; transmission up 17%)",
+         "tone": "down"
+        },
+        {
+         "text": "Smart meters installed in Q2 and H1 fell YoY (1.3 vs 1.8 million; 3.5 vs 4.2 million)",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Debt levels, interest costs and cash flow are not given",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ADANITRANS_22102026144617_UFR_FINAL.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ADANITRANS_26102026190834_AESL_-_Audio.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ADANIENSOL?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 85
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "AESL reported Q2FY27 consolidated total income of Rs 10,239 crore (up 51%), EBITDA of Rs 3,548 crore (up 67%) and PAT of Rs 1,364 crore (up 145% from Rs 557 crore)."
+         },
+         {
+          "label": "Why it matters",
+          "text": "PAT up 145% and EBITDA up 67% YoY in Q2, with H1 EBITDA up 62%. Energy solutions platform added Rs 803 crore operating EBITDA in Q2 versus Rs 11 crore a year earlier."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Debt levels, interest costs and cash flow are not given; How much of the profit growth comes from other income or one-time items"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 85% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "AU Small Finance Bank Limited",
+       "symbol": "AUBANK",
+       "sub": "Declared 24 Oct · Q2 FY27 (Jul–Sep 2026) · F&O · Not rated: baseline too uncertain",
+       "badge": "Not rated",
+       "tone": "neutral",
+       "body": "AU Small Finance Bank reported Q2 FY27 PAT of ₹858 cr, up 53% YoY, with NII up 32% to ₹2,820 cr and core PPoP up 31% to ₹1,480 cr. Deposits grew 28.6% to ₹1,70,460 cr, gross loan portfolio grew 25.1%, GNPA improved to 1.99% and ICRA moved its outlook to Positive.",
+       "body_note": "AI summary of the results filing, analysed 26 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "points": [
+        {
+         "text": "Press release · 24 Oct: AU Small Finance Bank reported Q2 FY27 PAT of ₹858 cr, up 53% YoY, with NII up 32% to ₹2,820 cr and core PPoP up 31% to ₹1,480 cr. Deposits grew 28.6% to ₹1,70,460 cr, gross loan portfolio grew 25.1%, GNPA improved to 1.99% and ICRA moved its outlook to Positive.",
+         "tone": "neutral"
+        },
+        {
+         "text": "PAT up 53% YoY; RoA 1.7% and RoE 16.1% versus 1.4% and 12.4% a year earlier",
+         "tone": "up"
+        },
+        {
+         "text": "NIM up 33 bps to 5.8% as cost of funds fell 43 bps; NII up 32%",
+         "tone": "up"
+        },
+        {
+         "text": "Opex up 26% YoY to ₹2,077 cr, though cost-to-assets edged down",
+         "tone": "down"
+        },
+        {
+         "text": "Gross advance yields fell 27 bps on mix change; average LCR slipped to 116% from 119%",
+         "tone": "down"
+        },
+        {
+         "text": "Open question: Capital adequacy ratio and any capital raising plans are not shown in the available text",
+         "tone": "neutral"
+        }
+       ],
+       "links": [
+        {
+         "label": "Results filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_24102026152406_BM_Outcome.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Results press release (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_24102026152913_Press_Release.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Investor presentation (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_24102026153558_Investor_Presentation.pdf",
+         "kind": "pdf"
+        },
+        {
+         "label": "Earnings call / investor meet (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/SUMIT1_28102026192812_Investor_call_transcript_SE_Submission.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for AUBANK?",
+       "commentary": {
+        "signal": {
+         "label": "Moderately positive",
+         "tone": "up",
+         "impact": "Medium",
+         "confidence": 88
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "AU Small Finance Bank reported Q2 FY27 PAT of ₹858 cr, up 53% YoY, with NII up 32% to ₹2,820 cr and core PPoP up 31% to ₹1,480 cr."
+         },
+         {
+          "label": "Why it matters",
+          "text": "PAT up 53% YoY; RoA 1.7% and RoE 16.1% versus 1.4% and 12.4% a year earlier. NIM up 33 bps to 5.8% as cost of funds fell 43 bps; NII up 32%."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a moderately positive read of the results filing."
+         },
+         {
+          "label": "What to watch",
+          "text": "Capital adequacy ratio and any capital raising plans are not shown in the available text; Forward guidance is not given"
+         },
+         {
+          "label": "AI take",
+          "text": "Moderately positive · Medium impact · confidence 88% — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "due",
+     "title": "Still to report",
+     "note": "F&O names first, then by date. Select Ask for a company's latest results.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Symbol",
+       "format": "text"
+      },
+      {
+       "key": "name",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "date",
+       "label": "Date",
+       "format": "text"
+      },
+      {
+       "key": "status",
+       "label": "Status",
+       "format": "text"
+      },
+      {
+       "key": "fno",
+       "label": "F&O",
+       "format": "text"
+      },
+      {
+       "key": "sector",
+       "label": "Sector",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "PITTIENG",
+       "ask": "How were PITTIENG results?",
+       "cells": {
+        "symbol": "PITTIENG",
+        "name": "Pitti Engineering Limited",
+        "date": "22 Oct",
+        "status": "Figures awaited",
+        "fno": "—",
+        "sector": "—"
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Showing 8 of 165 declared results and all 1 still to report. The full calendar, with every company's score and the market's reaction, is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Results calendar (NSE board-meeting dates, DaaS events calendar)",
+      "as_of": "2026-11-01",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Companies' exchange filings (DaaS announcements)",
+      "as_of": "2026-11-01",
+      "status": "fresh",
+      "note": "8 of 8 companies read"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which F&O stocks report results tomorrow?",
+     "query": "Which F&O stocks report results tomorrow?"
+    },
+    {
+     "label": "Which companies report results next week?",
+     "query": "Which companies report results next week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 1 Nov 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+  },
+  "event_intelligence": {
+   "schema": "visual-answer-v1",
+   "intent": "event_intelligence",
+   "title": "Order wins · last 7 days",
+   "as_of": "2026-10-31",
+   "generated_at": "2026-11-01T03:26:13+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Order filings in the last 7 days: 67. All 8 shown have an AI summary.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "briefs",
+     "id": "events",
+     "title": "Order wins",
+     "note": null,
+     "items": [
+      {
+       "title": "Gayatri Projects Limited",
+       "symbol": "GAYAPROJ",
+       "sub": "30 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Gayatri Projects has been awarded a contract by B-RIDE, under a joint venture, for design and construction of civil works from Bennigenahalli to Jakkur on Corridor-4 of the Bengaluru Suburban Transport Project. Total contract value is Rs.342 crore, inclusive of all taxes excluding GST.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/GAYAPROJ_30102026165940_Intmn_of_bagging_contract_30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for GAYAPROJ?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Gayatri Projects has been awarded a contract by B-RIDE, under a joint venture, for design and construction of civil works from Bennigenahalli to Jakkur on Corridor-4 of the Bengaluru Suburban…"
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Knowledge Marine & Engineering Works Limited",
+       "symbol": "KMEW",
+       "sub": "30 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "KMEW received a work order from New Mangalore Port Authority for maintenance dredging over FY2026-27 to FY2028-29, valued at ₹303.17 crore including GST. The company calls it its largest-ever dredging order, with about ₹101.07 crore a year and work starting 15 November 2026.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/KMEW_30102026120614_Intimation_Work_Order_NMPA-r.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for KMEW?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "KMEW received a work order from New Mangalore Port Authority for maintenance dredging over FY2026-27 to FY2028-29, valued at ₹303.17 crore including GST."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Oswal Pumps Limited",
+       "symbol": "OSWALPUMPS",
+       "sub": "30 Oct 2026 · NSE · Press Release",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Oswal Pumps received an additional order from MSEDCL for 10,000 off-grid DC solar water pumping systems under PM Kusum B, worth about Rs. 235.92 crore including GST. Installation is to be completed within 60 days of the Notice to Proceed/Work Order, with 5 years of warranty, maintenance and remote monitoring.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/OSWALPUMPS_30102026120459_SELetterPMKusumOPL30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for OSWALPUMPS?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Oswal Pumps received an additional order from MSEDCL for 10,000 off-grid DC solar water pumping systems under PM Kusum B, worth about Rs."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Acme Solar Holdings Limited",
+       "symbol": "ACMESOLAR",
+       "sub": "30 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "ACME Solar, through subsidiary ACME Marigold Urja, signed a PPA with NTPC for a 400 MW ISTS-connected FDRE project at a tariff of INR 4.37 per unit. The PPA-locked under-construction portfolio now stands at 4,710 MW out of 5,380 MW of under-construction contracted capacity.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/ACMECS_30102026084319_Intimation30102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for ACMESOLAR?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "ACME Solar, through subsidiary ACME Marigold Urja, signed a PPA with NTPC for a 400 MW ISTS-connected FDRE project at a tariff of INR 4.37 per unit."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Afcons Infrastructure Limited",
+       "symbol": "AFCONS",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Afcons secured two EPC contracts in Uttar Pradesh worth about ₹3,469 crore combined: the ₹2,086 crore Jewar Link Expressway from UPEIDA and a ₹1,383 crore underground section of Lucknow Metro Phase-1B (notice of award) from UPMRC. FY27 fresh order inflow now stands at ₹19,438 crore.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/AFCONS_29102026184329_Afcons_Intimation_of_UPEDA_awarddated29102026.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for AFCONS?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Afcons secured two EPC contracts in Uttar Pradesh worth about ₹3,469 crore combined: the ₹2,086 crore Jewar Link Expressway from UPEIDA and a ₹1,383 crore underground section of Lucknow Metro…"
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Texmaco Rail & Engineering Limited",
+       "symbol": "TEXRAIL",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Ministry of Railways exercised the option clause to raise the BOXNS wagon order from 3,400 to 4,420 wagons, an additional 1,020 wagons valued at Rs. 412.32 crores, on the same price and terms. The total amended contract value is ₹1786.74 crores including taxes, with delivery for the extra quantity up to 11.06.2027.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/TEXRAIL_29102026133824_ORDERMINISTRYOFRAILWAYS29102026SIGNED.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for TEXRAIL?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Ministry of Railways exercised the option clause to raise the BOXNS wagon order from 3,400 to 4,420 wagons, an additional 1,020 wagons valued at Rs."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "NBCC (India) Limited",
+       "symbol": "NBCC",
+       "sub": "29 Oct 2026 · NSE · Updates",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "NBCC concluded an e-auction selling about 8.80 lac sq. ft of residential apartments at Avenue Towers, Africa Avenue Marg, Sarojini Nagar, New Delhi, for a total sale value of approx. Rs. 5191 crores. NBCC will receive a marketing fee of 1% of the sale value.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/NBCC_29102026130207_STXafricaavenue.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for NBCC?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "NBCC concluded an e-auction selling about 8.80 lac sq. ft of residential apartments at Avenue Towers, Africa Avenue Marg, Sarojini Nagar, New Delhi, for a total sale value of approx."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      },
+      {
+       "title": "Dilip Buildcon Limited",
+       "symbol": "DBL",
+       "sub": "29 Oct 2026 · NSE · Bagging/Receiving of orders/contracts",
+       "badge": "Positive · high impact",
+       "tone": "up",
+       "body": "Dilip Buildcon received a Letter of Award from NHAI for a 4-lane elevated corridor on NH-65 in Solapur (9.66 km) on Hybrid Annuity Mode, worth Rs 688.23 crore excluding GST. Construction period is 24 months, followed by a 15-year operation period from COD.",
+       "body_note": "AI summary of the filing. Not a recommendation.",
+       "points": [],
+       "links": [
+        {
+         "label": "Source filing (PDF)",
+         "url": "https://nsearchives.nseindia.com/corporate/DBL_29102026105210_IntimationPune_sd.pdf",
+         "kind": "pdf"
+        }
+       ],
+       "ask": "Any recent announcements for DBL?",
+       "commentary": {
+        "signal": {
+         "label": "Positive",
+         "tone": "up",
+         "impact": "High",
+         "confidence": null
+        },
+        "lines": [
+         {
+          "label": "What happened",
+          "text": "Dilip Buildcon received a Letter of Award from NHAI for a 4-lane elevated corridor on NH-65 in Solapur (9.66 km) on Hybrid Annuity Mode, worth Rs 688.23 crore excluding GST."
+         },
+         {
+          "label": "Why it matters",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "Market impact",
+          "text": "Bullish — a positive reading by the filing classifier."
+         },
+         {
+          "label": "What to watch",
+          "text": "Not stated in the stored AI read."
+         },
+         {
+          "label": "AI take",
+          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "more",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Showing 8 of 67 order filings from the last 7 days: the ones with an AI summary first, then by impact, then newest. 8 shown have an AI summary; the rest are not analysed yet. Tone and impact are an AI classifier's reading of each filing, not a view on the stock. Every filing is in Market Intelligence.",
+     "actions": [
+      {
+       "kind": "open_market_intel",
+       "label": "Open in Market Intelligence"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Exchange filings feed (NSE, AI-read by Nivesh)",
+      "as_of": "2026-10-31",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Which companies report results this week?",
+     "query": "Which companies report results this week?"
+    },
+    {
+     "label": "Any order wins this week?",
+     "query": "Any order wins this week?"
+    },
+    {
+     "label": "Any M&A announcements today?",
+     "query": "Any M&A announcements today?"
+    },
+    {
+     "label": "Which stocks saw bulk deals today?",
+     "query": "Which stocks saw bulk deals today?"
+    }
+   ],
+   "caveat": "Built from exchange filings and board-meeting dates, data of 31 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
   },
   "portfolio_hedge": {
    "schema": "visual-answer-v1",
