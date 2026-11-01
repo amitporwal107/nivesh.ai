@@ -18,6 +18,8 @@
 #   --restore FILE        pg_restore a decrypted .dump into --container
 #   --container NAME      target Postgres container for --restore
 #   --jobs N              parallel restore jobs (default 2)
+#   --confirm-db NAME     answer the "type the database name" prompt up front (for a drill or a script);
+#                         NAME must still equal the target database's name, so it cannot be a blind --yes
 #
 # Env: SNAPSHOT_REPO, SNAPSHOT_GITHUB_TOKEN (or /etc/nivesh/db-snapshot.env).
 #
@@ -32,7 +34,7 @@ warn() { printf '[%s] WARN: %s\n' "$TAG" "$*" >&2; }
 fail() { printf '[%s] FATAL: %s\n' "$TAG" "$*" >&2; exit 1; }
 
 TARGET=""; DO_FETCH=false; OUT_DIR="./db-snapshot-restore"
-RESTORE_FILE=""; PG_CONTAINER=""; JOBS=2
+RESTORE_FILE=""; PG_CONTAINER=""; JOBS=2; CONFIRM_DB=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
         --restore)   RESTORE_FILE="${2:-}"; shift 2 ;;
         --container) PG_CONTAINER="${2:-}"; shift 2 ;;
         --jobs)      JOBS="${2:-}"; shift 2 ;;
+        --confirm-db) CONFIRM_DB="${2:-}"; shift 2 ;;
         -h|--help)   sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)           echo "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -135,7 +138,7 @@ docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER" || fail "Container ${
 cenv() { docker inspect "$PG_CONTAINER" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n "s/^$1=//p" | head -1; }
 PG_USER="$(cenv POSTGRES_USER)"; PG_DB="$(cenv POSTGRES_DB)"
 [[ -n "$PG_USER" && -n "$PG_DB" ]] || fail "Could not read POSTGRES_USER/POSTGRES_DB from ${PG_CONTAINER}."
-psql_db() { docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 "$@"; }
+psql_db() { docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 "$@" </dev/null; }
 
 TSDB="$(psql_db -At -c "SELECT coalesce(max(extversion),'') FROM pg_extension WHERE extname='timescaledb';" | tr -d '[:space:]')"
 cat <<EOF
@@ -147,9 +150,14 @@ cat <<EOF
       archive   : ${RESTORE_FILE}
       timescaledb: ${TSDB:-none}
 
-  Existing objects will be overwritten (pg_restore --clean --if-exists).
+  Non-Timescale databases: existing objects are overwritten (pg_restore --clean --if-exists).
+  TimescaleDB snapshots: restored in sections into an EMPTY database (refuses a populated one).
 EOF
-read -r -p "  Type the database name to continue: " confirm
+if [[ -n "$CONFIRM_DB" ]]; then
+    confirm="$CONFIRM_DB"; log "confirmation given with --confirm-db ${CONFIRM_DB}"
+else
+    read -r -p "  Type the database name to continue: " confirm
+fi
 [[ "$confirm" == "$PG_DB" ]] || fail "Not confirmed — nothing was changed."
 
 # A parallel pg_restore needs a seekable file inside the container.
@@ -160,7 +168,10 @@ cleanup() { docker exec "$PG_CONTAINER" rm -f /tmp/restore.dump >/dev/null 2>&1 
 # Restoring into a brand-new empty database (the disaster case): the archive came from a TimescaleDB
 # database but the target has no extension yet, so pre/post_restore below would be skipped and the
 # chunk tables would be replayed against nothing. Create it first, as Timescale's own procedure says.
-if [[ -z "$TSDB" ]] && docker exec "$PG_CONTAINER" pg_restore --list /tmp/restore.dump 2>/dev/null | grep -q ' EXTENSION - timescaledb'; then
+# (Capture the listing first: `pg_restore --list | grep -q` makes grep exit at the first match, SIGPIPE
+# the writer, and under `set -o pipefail` the whole test then reads as false.)
+ARCHIVE_TOC="$(docker exec "$PG_CONTAINER" pg_restore --list /tmp/restore.dump 2>/dev/null || true)"
+if [[ -z "$TSDB" ]] && grep -q ' EXTENSION - timescaledb' <<<"$ARCHIVE_TOC"; then
     log "the archive is from a TimescaleDB database and the target has no timescaledb extension — creating it"
     psql_db -qc "CREATE EXTENSION IF NOT EXISTS timescaledb;"
     TSDB="$(psql_db -At -c "SELECT coalesce(max(extversion),'') FROM pg_extension WHERE extname='timescaledb';" | tr -d '[:space:]')"
@@ -183,12 +194,31 @@ else
     trap cleanup EXIT
 fi
 
-log "pg_restore --jobs ${JOBS} (this takes a while)"
 rc=0
-docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" \
-    --clean --if-exists --no-owner --no-privileges --jobs "$JOBS" \
-    /tmp/restore.dump || rc=$?
-log "pg_restore exit code ${rc} (non-zero with --clean is often only 'does not exist' notices)"
+if [[ -n "$TSDB" ]]; then
+    # TimescaleDB: restore in SECTIONS into an EMPTY database. A single `pg_restore --clean --jobs N`
+    # loses the chunk catalog (dimension_slice / chunk / chunk_constraint have circular foreign keys,
+    # so their COPY is rejected), after which every hypertable index/constraint fails with
+    # "chunk not found" and the hypertables read as empty — what the 2026-11-01 drill of the first
+    # prod snapshot showed. So: schema first; then data with triggers DISABLED (the FK checks cannot
+    # reject the catalog rows); then indexes/constraints, once the catalog exists.
+    existing_tables="$(psql_db -At -c "SELECT count(*) FROM information_schema.tables WHERE table_type='BASE TABLE' AND table_schema NOT IN ('pg_catalog','information_schema') AND table_schema !~ '^(pg_|_timescaledb_|timescaledb_)';")"
+    (( existing_tables == 0 )) || fail "A TimescaleDB snapshot is restored into an EMPTY database; ${PG_DB} already has ${existing_tables} tables. Start a fresh container/database (restoring over a live hypertable database with --clean is not supported)."
+    PGR=(docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" --no-owner --no-privileges)
+    log "pg_restore --section=pre-data (schema, hypertable definitions)"
+    "${PGR[@]}" --section=pre-data /tmp/restore.dump || rc=$?
+    log "pg_restore --section=data --disable-triggers --jobs ${JOBS} (the long part)"
+    "${PGR[@]}" --section=data --disable-triggers --jobs "$JOBS" /tmp/restore.dump || rc=$?
+    log "pg_restore --section=post-data --jobs ${JOBS} (indexes, constraints)"
+    "${PGR[@]}" --section=post-data --jobs "$JOBS" /tmp/restore.dump || rc=$?
+    log "pg_restore exit code ${rc} (any error here is a REAL error — the catalog and row-count checks below decide)"
+else
+    log "pg_restore --jobs ${JOBS} (this takes a while)"
+    docker exec "$PG_CONTAINER" pg_restore -U "$PG_USER" -d "$PG_DB" \
+        --clean --if-exists --no-owner --no-privileges --jobs "$JOBS" \
+        /tmp/restore.dump || rc=$?
+    log "pg_restore exit code ${rc} (non-zero with --clean is often only 'does not exist' notices)"
+fi
 
 if [[ -n "$TSDB" ]]; then
     # A parallel pg_restore can lose the TimescaleDB chunk catalog: dimension_slice / chunk /

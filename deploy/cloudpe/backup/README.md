@@ -42,6 +42,29 @@ nor `/opt/nivesh/data/app`. The app snapshot alone cannot restore a working app.
 The first prod run also prunes the seed dump `/opt/nidp/dumps/nidp_from_staging.dump` (it matches the
 `nidp_*.dump` retention pattern and is superseded by the first real snapshot).
 
+### Restoring a production TimescaleDB snapshot (drilled 2026-11-01)
+
+Into a **new, empty** database — never over the live one (the script refuses a populated TimescaleDB database):
+
+```bash
+# 1. a throwaway or replacement container on the SAME image tag (cat /opt/nidp/cloudpe.env), e.g.
+docker run -d --name nidp-restore --cpus 2 -e POSTGRES_USER=nidp -e POSTGRES_PASSWORD=… -e POSTGRES_DB=nidp \
+    -v /opt/nidp/restore-data:/var/lib/postgresql/data timescale/timescaledb:2.26.4-pg16
+#    wait for "init process complete" in `docker logs` — the image installs timescaledb, then restarts the server.
+# 2. restore (sections: schema → data with triggers off → indexes/constraints):
+/opt/nidp/bin/restore-snapshot.sh --restore /opt/nidp/dumps/nidp_<date>.dump --container nidp-restore --jobs 2 --confirm-db nidp
+```
+
+Measured on the first prod snapshot (2.0 GB → 18 GB): **8.5 minutes**, 2 CPUs. Expect `pg_restore exit code 1` with exactly one
+error, `COPY failed for table "metadata" … Key (install_timestamp) already exists` — the fresh install already has that row;
+nothing is lost. The script then compares the chunk catalog with the restored chunk tables and refuses to finish if they differ.
+Then check the application against it, and compare row counts with the source before switching anything over.
+
+**Why sections:** a single `pg_restore --clean --jobs N` (what this script did before 2026-11-01, and what the first
+production clone did) loses the TimescaleDB chunk catalog — `dimension_slice`/`chunk`/`chunk_constraint` have circular
+foreign keys — so every hypertable index fails with `chunk not found` and the hypertables read as empty. The drill of the first
+snapshot with the old script produced that exact failure; see `test_reports/prod_db_backup_20261101.md`.
+
 ## Compression
 
 `pg_dump -Fc` with an **explicit** `--compress=` — explicit so a changed default
