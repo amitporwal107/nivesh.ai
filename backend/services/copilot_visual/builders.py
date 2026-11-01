@@ -1540,11 +1540,155 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                     now=ctx.get("now"))
 
 
+# ── portfolio_hedge (Quick Hedge) ───────────────────────────────────────────────
+
+SRC_HEDGE_HOLDINGS = "Your holdings (equity-linked part) and their one-year beta"
+SRC_HEDGE_OPTIONS = "NSE Nifty options (F&O bhavcopy): close, lot, puts that traded"
+SRC_HEDGE_FIT = "Fit to Nifty 50: R² of daily returns over the last year"
+HEDGE_DEFAULT_FALL_PCT = 10.0
+HEDGE_DEFAULT_TOLERANCE_PCT = 5.0
+HEDGE_LABELS = {"maximum": "Maximum protection", "balanced": "Balanced", "lowest_cost": "Lowest cost"}
+HEDGE_ORDER = ("balanced", "maximum", "lowest_cost")
+
+
+def _hedge_structure(mode: Dict[str, Any], lot: int) -> str:
+    legs = mode.get("legs") or []
+    lots = int(legs[0]["qty"] // lot) if legs and lot else 0
+    plural = "lots" if lots != 1 else "lot"
+    if mode.get("structure") == "put_spread" and len(legs) == 2:
+        return f"Buy {lots} {plural} of the {legs[0]['strike']:,.0f} put, sell the {legs[1]['strike']:,.0f} put"
+    return f"Buy {lots} {plural} of the {legs[0]['strike']:,.0f} put" if legs else "—"
+
+
+def _hedge_row(mode: Dict[str, Any], lot: int, fall_pct: float) -> Dict[str, Any]:
+    label = HEDGE_LABELS[mode["mode"]]
+    if not mode.get("available"):
+        reason = (mode.get("reason") or {}).get("message") or "Not available."
+        return {"symbol": None, "cells": {"choice": label, "structure": "Not available", "starts": reason, "cost": None, "at_fear": None}, "tone": None, "ask": None}
+    fear = next((r for r in mode["scenario_rows"] if r.get("is_expected_fall")), None)
+    return {"symbol": None, "ask": f"Show the scenarios for the {label.lower()} hedge",
+            "cells": {"choice": label, "structure": _hedge_structure(mode, lot),
+                      "starts": f"after a {price(mode['deductible_rs'])} loss",
+                      "cost": f"{price(mode['cost']['total_rs'])} ({mode['cost']['pct_of_portfolio']:.2f}%)",
+                      "at_fear": (f"{rupees(fear['with_hedge_rs'])} (vs {rupees(fear['without_hedge_rs'])})" if fear else None)},
+            "tone": None}
+
+
+async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """"Protect my portfolio": the Quick Hedge answer (services/quick_hedge). Every figure comes from that service; the
+    wording only describes it. What the question did not state (the fall feared, the loss tolerated, the period) is filled
+    with a stated default and said in a notice, so it can be changed. Paper only: nothing here places an order."""
+    src: Sources = ctx["src"]
+    prm = dict(intent.params or {})
+    assumed: List[str] = []
+    fall = prm.get("expected_fall_pct")
+    if fall is None:
+        fall = HEDGE_DEFAULT_FALL_PCT
+        assumed.append(f"a {fall:g}% fall in Nifty")
+    tol_rs, tol_pct = prm.get("tolerance_rs"), prm.get("tolerance_pct")
+    if tol_rs is None and tol_pct is None:
+        tol_pct = HEDGE_DEFAULT_TOLERANCE_PCT
+        assumed.append(f"a tolerable loss of {tol_pct:g}% of your equity-linked holdings before protection starts")
+    tenor = prm.get("tenor")
+    if tenor is None:
+        tenor = "1m"
+        assumed.append("protection for about a month")
+    follow_ups = follow("Protect my portfolio against a 15% fall", "I don't want to lose more than ₹1 lakh",
+                        "Make my portfolio hedge cheaper", "What happens if Nifty falls 20%?")
+    res, err = await _try(rd.quick_hedge(ctx["user_id"], expected_fall_pct=fall, tenor=tenor, tolerance_rs=tol_rs, tolerance_pct=tol_pct))
+    if err or not isinstance(res, dict):
+        src.miss("Quick Hedge", why(err) if err else "no answer")
+        return assemble("portfolio_hedge", "Protect your portfolio", None, None, "neutral", [], src, follow_ups, now=ctx.get("now"))
+
+    data = res.get("data") or {}
+    port, mk, fit = data.get("portfolio") or {}, data.get("market") or {}, data.get("fit") or {}
+    ex = res.get("exposure") or {}
+    conf = res.get("confidence") or {}
+    if mk.get("as_of"):
+        src.add(SRC_HEDGE_OPTIONS, mk["as_of"], f"expiry {mk.get('expiry')}, {mk.get('puts_traded')} puts traded")
+    if port.get("as_of"):
+        src.rows.append({"name": SRC_HEDGE_HOLDINGS, "as_of": iso_day(port["as_of"]), "status": "fresh",
+                         "note": "your holdings as last uploaded; their prices are those stored with them"})
+    if fit.get("window_end"):
+        src.add(SRC_HEDGE_FIT, fit["window_end"], f"{fit.get('observations')} sessions, {fit.get('series_used')} holdings")
+
+    blocks: List[Dict[str, Any]] = []
+    status = res.get("status")
+    reasons = res.get("reasons") or []
+    excluded = port.get("excluded_rs") or {}
+    left_out = sum(num(v) or 0.0 for v in excluded.values())
+    if port.get("hedgeable_value_rs"):
+        beta, r2v = num(port.get("beta")), num(fit.get("r2"))
+        blocks.append(block("kpis", "portfolio", "Your portfolio", None, items=[
+            _kpi("Equity-linked holdings", price(port["hedgeable_value_rs"]), f"of {price(port['portfolio_value_rs'])} in total"),
+            _kpi("Beta to Nifty", f"{beta:.2f}" if beta is not None else None,
+                 f"measured on {num(port.get('beta_coverage')) * 100:.0f}% of that value" if num(port.get("beta_coverage")) is not None else None),
+            _kpi("Fit to Nifty", f"R² {r2v:.2f}" if r2v is not None else "Not measured", conf.get("message"),
+                 "warn" if conf.get("level") in ("poor", "unknown") else None),
+            _kpi("Not covered by a Nifty hedge", price(left_out), "hybrid, gold, overseas, debt and other holdings")]))
+    if status == "ok":
+        chosen = prm.get("mode") if prm.get("mode") in HEDGE_LABELS else "balanced"
+        modes = {m["mode"]: m for m in res.get("modes") or []}
+        mode = modes.get(chosen) if (modes.get(chosen) or {}).get("available") else next((modes[k] for k in HEDGE_ORDER if (modes.get(k) or {}).get("available")), None)
+        lot = int(ex.get("lot") or 0)
+        blocks.append(block("kpis", "size", "How much Nifty exposure to cover", "Whole exchange lots only, rounded down, so the hedge never exceeds your exposure.", items=[
+            _kpi("Nifty exposure", price(ex.get("beta_adjusted_exposure_rs")), "equity-linked holdings × beta"),
+            _kpi("Lots", f"{ex.get('executed_lots')} of {num(ex.get('required_lots')):.2f}", f"1 lot = {price(ex.get('lot_notional_rs'))} of Nifty"),
+            _kpi("Covered", f"{num(ex.get('protected_pct')):.0f}%", None),
+            _kpi("Left uncovered", f"{num(ex.get('residual_pct')):.0f}%", None, "warn" if (num(ex.get("residual_pct")) or 0) > 25 else None)]))
+        blocks.append(block("ranked", "choices", f"Your three choices · expiry {day_text(mk.get('expiry'))}", "Tap a row to see its scenarios.",
+                            columns=[{"key": "choice", "label": "Choice", "format": "text"}, {"key": "structure", "label": "What you would buy", "format": "text"},
+                                     {"key": "starts", "label": "Protection starts", "format": "text"}, {"key": "cost", "label": "Cost", "format": "text", "align": "right"},
+                                     {"key": "at_fear", "label": f"If Nifty falls {fall:g}%", "format": "text", "align": "right"}],
+                            rows=[_hedge_row(modes[k], lot, fall) for k in HEDGE_ORDER if k in modes]))
+        head = None
+        tone = "neutral"
+        if mode:
+            label = HEDGE_LABELS[mode["mode"]]
+            blocks.append(block("ranked", "scenarios", f"{label}: what happens by expiry",
+                                "Estimated scenario, not guaranteed future performance. Your holdings are assumed to move with Nifty by their beta.",
+                                columns=[{"key": "nifty", "label": "Nifty at expiry", "format": "text"}, {"key": "move", "label": "Move", "format": "text", "align": "right"},
+                                         {"key": "without", "label": "Without hedge", "format": "text", "align": "right"},
+                                         {"key": "hedge", "label": "Hedge P&L", "format": "text", "align": "right"},
+                                         {"key": "with", "label": "With hedge", "format": "text", "align": "right"}],
+                                rows=[{"symbol": None, "tone": "warn" if r.get("is_expected_fall") else None, "ask": None,
+                                       "cells": {"nifty": level(r["nifty_level"]), "move": pct(r["move_pct"]), "without": rupees(r["without_hedge_rs"]),
+                                                 "hedge": rupees(r["hedge_pnl_rs"]), "with": rupees(r["with_hedge_rs"])}} for r in mode["scenario_rows"]]))
+            head = (f"{label}: {_hedge_structure(mode, lot).lower()} for about {price(mode['cost']['total_rs'])} "
+                    f"({mode['cost']['pct_of_portfolio']:.2f}% of your portfolio). Protection starts after a {price(mode['deductible_rs'])} loss.")
+            for n in mode.get("notes") or []:
+                blocks.append(notice(n["message"], "warn", f"note-{n['code']}"))
+            if not mode.get("place_allowed"):
+                tone = "warn"
+                blocks.append(notice((mode.get("reason") or {}).get("message") or "This hedge cannot be placed.", "warn", "no-place"))
+        else:
+            head = "No hedge is offered for these inputs."
+            tone = "warn"
+            for m in modes.values():
+                if (m.get("reason") or {}).get("message"):
+                    blocks.append(notice(f"{HEDGE_LABELS[m['mode']]}: {m['reason']['message']}", "warn", f"unavailable-{m['mode']}"))
+    else:
+        head = reasons[0]["message"] if reasons else "No hedge is shown."
+        tone = "warn" if status == "incomplete" else "neutral"
+        for r in reasons:
+            blocks.append(notice(r["message"], "warn" if status == "incomplete" else "info", f"reason-{r['code']}"))
+    if status == "ok" and left_out > 0:
+        blocks.append(notice(f"{price(left_out)} of your holdings are not covered by a Nifty hedge (hybrid, gold, overseas, debt or unclassified).", "info", "excluded"))
+    if assumed:
+        blocks.append(notice("Because you did not say, this assumes " + "; ".join(assumed) + ". Tell me your own numbers to change it.", "info", "assumed"))
+    for r in reasons:
+        if status == "ok" and r.get("message"):
+            blocks.append(notice(r["message"], "warn", f"reason-{r['code']}"))
+    blocks.append(notice("Paper only: nothing is sent to a broker. To place a paper hedge, open Risk Desk, then Portfolio hedge. "
+                         "A hedge reduces the size of a possible loss; it does not eliminate it, and the premium is a cost whether or not it pays.", "info", "paper-only"))
+    return assemble("portfolio_hedge", "Protect your portfolio", mk.get("as_of"), head, tone, blocks, src, follow_ups, now=ctx.get("now"))
+
+
 BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportunities": top_opportunities,
             "breakouts": breakouts, "unusual_volume": unusual_volume, "stock_decision": stock_decision,
             "expected_move": expected_move, "open_trades": open_trades, "fno_setups": fno_setups,
             "trade_validity": trade_validity, "exit_options": exit_options, "position_size": position_size,
-            "daily_review": daily_review,
+            "daily_review": daily_review, "portfolio_hedge": portfolio_hedge,
             "sector_rotation": sector_rotation}
 
 

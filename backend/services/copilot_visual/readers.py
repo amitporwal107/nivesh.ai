@@ -27,6 +27,11 @@ Release 2:
     risk_profile        services.risk_profile.read — GET /api/risk/profile (the account's own limits)
     latest_trade_plan   Mongo trade_plans, the newest stored plan for a symbol (services.strategy_plan.trade_plan.COLLECTION)
 
+Portfolio hedge (Quick Hedge):
+    hedge_enabled       the `portfolio_hedge` feature flag for this person (fail-closed, same rule as routes' require_feature)
+    quick_hedge         services.quick_hedge.service.run — POST /api/portfolio/quick-hedge (reads only; the language model
+                        never sees an input or makes a number)
+
 F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
     in_session          09:15-15:30 IST on a weekday (services.kite_live_feed.day_quote.in_session)
     fno_live_quotes     Kite REST quote() for the named option contracts, only those that traded today
@@ -253,6 +258,29 @@ async def risk_decisions(user_id: str, since_utc: str, limit: int = 1000) -> Lis
         {"user_id": user_id, "at": {"$gte": since_utc}},
         {"_id": 1, "at": 1, "outcome": 1, "symbol": 1, "reasons": 1, "source": 1, "supersedes": 1, "path": 1},
     ).sort("at", -1).to_list(limit)
+
+
+async def hedge_enabled(user: Dict[str, Any]) -> bool:
+    """The portfolio_hedge flag for this person. Any failure to read the flag state is a no."""
+    import feature_flags as ff
+    import feature_gate
+    from deps import db
+    try:
+        await feature_gate.refresh_if_stale(db)
+        email = (user or {}).get("email")
+        owner = (user or {}).get("_session_user_id")
+        if owner and owner != (user or {}).get("user_id"):          # an advisor acting for a client: the logged-in person's flag
+            doc = await db.users.find_one({"user_id": owner}, {"_id": 0, "email": 1})
+            email = (doc or {}).get("email")
+        return bool(ff.is_enabled("portfolio_hedge", email))
+    except Exception:  # noqa: BLE001 — fail closed
+        return False
+
+
+async def quick_hedge(user_id: str, **kw: Any) -> Dict[str, Any]:
+    from deps import db
+    from services.quick_hedge import service
+    return await service.run(db, user_id, **kw)
 
 
 # ── F&O board: live premiums and margin ──────────────────────────────────────

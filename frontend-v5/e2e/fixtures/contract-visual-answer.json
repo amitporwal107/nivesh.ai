@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up). Added 31 Oct 2026 (16 of 16 intents): results_calendar (the week of 26-31 Oct, built over the desk's results calendar and the stored filing analyses) and event_intelligence (the Orders chip of the Market Intelligence filings feed), captured the same way, read-only, from nivesh-staging-app-backend. UPDATE 1 Nov 2026 (early morning): results_calendar (period last_week, asked on Sunday 1 Nov) and event_intelligence (orders, week) re-captured from the branch fix/results-rating-labels the same way (overlay inside nivesh-staging-app-backend, read-only, auth stubbed, nothing written): results rated Below / Meets / Above expectation and each analysed card carries the five-line AI commentary.",
+ "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up). Added 31 Oct 2026 (16 of 16 intents): results_calendar (the week of 26-31 Oct, built over the desk's results calendar and the stored filing analyses) and event_intelligence (the Orders chip of the Market Intelligence filings feed), captured the same way, read-only, from nivesh-staging-app-backend. UPDATE 1 Nov 2026 (early morning): results_calendar (period last_week, asked on Sunday 1 Nov) and event_intelligence (orders, week) re-captured from the branch fix/results-rating-labels the same way (overlay inside nivesh-staging-app-backend, read-only, auth stubbed, nothing written): results rated Below / Meets / Above expectation and each analysed card carries the five-line AI commentary. Quick Hedge (portfolio_hedge) added 31 Oct 2026 22:24 IST: built by the same code in-process in nivesh-staging-app-backend for the staging test account, read-only, aggregates only, flag-gated; now 17 intents.",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
@@ -8506,6 +8506,341 @@
     }
    ],
    "caveat": "Built from exchange filings and board-meeting dates, data of 31 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+  },
+  "portfolio_hedge": {
+   "schema": "visual-answer-v1",
+   "intent": "portfolio_hedge",
+   "title": "Protect your portfolio",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-31T22:24:49+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Balanced: buy 2 lots of the 21,300 put for about ₹4,708.04 (0.04% of your portfolio). Protection starts after a ₹256,672.70 loss.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "portfolio",
+     "title": "Your portfolio",
+     "note": null,
+     "items": [
+      {
+       "label": "Equity-linked holdings",
+       "value": "₹5,443,890.62",
+       "sub": "of ₹11,351,031.76 in total"
+      },
+      {
+       "label": "Beta to Nifty",
+       "value": "0.62",
+       "sub": "measured on 100% of that value"
+      },
+      {
+       "label": "Fit to Nifty",
+       "value": "R² 0.87",
+       "sub": "Nifty explains most of this portfolio's moves."
+      },
+      {
+       "label": "Not covered by a Nifty hedge",
+       "value": "₹5,907,141.14",
+       "sub": "hybrid, gold, overseas, debt and other holdings"
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "size",
+     "title": "How much Nifty exposure to cover",
+     "note": "Whole exchange lots only, rounded down, so the hedge never exceeds your exposure.",
+     "items": [
+      {
+       "label": "Nifty exposure",
+       "value": "₹3,375,221.86",
+       "sub": "equity-linked holdings × beta"
+      },
+      {
+       "label": "Lots",
+       "value": "2 of 2.25",
+       "sub": "1 lot = ₹1,498,451.50 of Nifty"
+      },
+      {
+       "label": "Covered",
+       "value": "89%",
+       "sub": null
+      },
+      {
+       "label": "Left uncovered",
+       "value": "11%",
+       "sub": null
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "choices",
+     "title": "Your three choices · expiry 1 Dec 2026",
+     "note": "Tap a row to see its scenarios.",
+     "columns": [
+      {
+       "key": "choice",
+       "label": "Choice",
+       "format": "text"
+      },
+      {
+       "key": "structure",
+       "label": "What you would buy",
+       "format": "text"
+      },
+      {
+       "key": "starts",
+       "label": "Protection starts",
+       "format": "text"
+      },
+      {
+       "key": "cost",
+       "label": "Cost",
+       "format": "text",
+       "align": "right"
+      },
+      {
+       "key": "at_fear",
+       "label": "If Nifty falls 15%",
+       "format": "text",
+       "align": "right"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "ask": "Show the scenarios for the balanced hedge",
+       "cells": {
+        "choice": "Balanced",
+        "structure": "Buy 2 lots of the 21,300 put",
+        "starts": "after a ₹256,672.70 loss",
+        "cost": "₹4,708.04 (0.04%)",
+        "at_fear": "−₹289,918.92 (vs −₹506,283.28)"
+       },
+       "tone": null
+      },
+      {
+       "symbol": null,
+       "ask": "Show the scenarios for the maximum protection hedge",
+       "cells": {
+        "choice": "Maximum protection",
+        "structure": "Buy 2 lots of the 22,150 put",
+        "starts": "after a ₹132,223.56 loss",
+        "cost": "₹15,885.67 (0.14%)",
+        "at_fear": "−₹190,864.01 (vs −₹506,283.28)"
+       },
+       "tone": null
+      },
+      {
+       "symbol": null,
+       "ask": "Show the scenarios for the lowest cost hedge",
+       "cells": {
+        "choice": "Lowest cost",
+        "structure": "Buy 2 lots of the 21,300 put, sell the 20,850 put",
+        "starts": "after a ₹256,672.70 loss",
+        "cost": "₹1,489.51 (0.01%)",
+        "at_fear": "−₹450,011.48 (vs −₹506,283.28)"
+       },
+       "tone": null
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "scenarios",
+     "title": "Balanced: what happens by expiry",
+     "note": "Estimated scenario, not guaranteed future performance. Your holdings are assumed to move with Nifty by their beta.",
+     "columns": [
+      {
+       "key": "nifty",
+       "label": "Nifty at expiry",
+       "format": "text"
+      },
+      {
+       "key": "move",
+       "label": "Move",
+       "format": "text",
+       "align": "right"
+      },
+      {
+       "key": "without",
+       "label": "Without hedge",
+       "format": "text",
+       "align": "right"
+      },
+      {
+       "key": "hedge",
+       "label": "Hedge P&L",
+       "format": "text",
+       "align": "right"
+      },
+      {
+       "key": "with",
+       "label": "With hedge",
+       "format": "text",
+       "align": "right"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "tone": null,
+       "ask": null,
+       "cells": {
+        "nifty": "25,358.41",
+        "move": "+10.00%",
+        "without": "+₹337,522.19",
+        "hedge": "−₹4,731.64",
+        "with": "+₹332,790.55"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "ask": null,
+       "cells": {
+        "nifty": "24,205.76",
+        "move": "+5.00%",
+        "without": "+₹168,761.09",
+        "hedge": "−₹4,731.64",
+        "with": "+₹164,029.45"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "ask": null,
+       "cells": {
+        "nifty": "23,053.10",
+        "move": "+0.00%",
+        "without": "₹0.00",
+        "hedge": "−₹4,731.64",
+        "with": "−₹4,731.64"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "ask": null,
+       "cells": {
+        "nifty": "21,900.44",
+        "move": "−5.00%",
+        "without": "−₹168,761.09",
+        "hedge": "−₹4,731.64",
+        "with": "−₹173,492.73"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "ask": null,
+       "cells": {
+        "nifty": "20,747.79",
+        "move": "−10.00%",
+        "without": "−₹337,522.19",
+        "hedge": "+₹66,881.91",
+        "with": "−₹270,640.28"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": "warn",
+       "ask": null,
+       "cells": {
+        "nifty": "19,595.13",
+        "move": "−15.00%",
+        "without": "−₹506,283.28",
+        "hedge": "+₹216,364.36",
+        "with": "−₹289,918.92"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "ask": null,
+       "cells": {
+        "nifty": "18,442.48",
+        "move": "−20.00%",
+        "without": "−₹675,044.37",
+        "hedge": "+₹365,846.82",
+        "with": "−₹309,197.55"
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "excluded",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "₹5,907,141.14 of your holdings are not covered by a Nifty hedge (hybrid, gold, overseas, debt or unclassified)."
+    },
+    {
+     "type": "notice",
+     "id": "assumed",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Because you did not say, this assumes a tolerable loss of 5% of your equity-linked holdings before protection starts; protection for about a month. Tell me your own numbers to change it."
+    },
+    {
+     "type": "notice",
+     "id": "paper-only",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Paper only: nothing is sent to a broker. To place a paper hedge, open Risk Desk, then Portfolio hedge. A hedge reduces the size of a possible loss; it does not eliminate it, and the premium is a cost whether or not it pays."
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "NSE Nifty options (F&O bhavcopy): close, lot, puts that traded",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": "expiry 2026-12-01, 42 puts traded"
+     },
+     {
+      "name": "Your holdings (equity-linked part) and their one-year beta",
+      "as_of": "2026-10-31",
+      "status": "fresh",
+      "note": "your holdings as last uploaded; their prices are those stored with them"
+     },
+     {
+      "name": "Fit to Nifty 50: R² of daily returns over the last year",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": "252 sessions, 29 holdings"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Protect my portfolio against a 15% fall",
+     "query": "Protect my portfolio against a 15% fall"
+    },
+    {
+     "label": "I don't want to lose more than ₹1 lakh",
+     "query": "I don't want to lose more than ₹1 lakh"
+    },
+    {
+     "label": "Make my portfolio hedge cheaper",
+     "query": "Make my portfolio hedge cheaper"
+    },
+    {
+     "label": "What happens if Nifty falls 20%?",
+     "query": "What happens if Nifty falls 20%?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   }
  }
 }

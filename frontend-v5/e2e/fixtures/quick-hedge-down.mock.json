@@ -1,0 +1,67 @@
+{
+ "policy_version": "quick-hedge-v1",
+ "status": "incomplete",
+ "reasons": [
+  {
+   "code": "market_data_unavailable",
+   "message": "The data platform is unavailable."
+  }
+ ],
+ "expiry": "",
+ "modes": [],
+ "exposure": null,
+ "confidence": {
+  "level": "high",
+  "r2": 0.83,
+  "correlation": 0.91,
+  "message": "Nifty explains most of this portfolio's moves."
+ },
+ "disclosures": [
+  "Estimated scenario, not guaranteed future performance.",
+  "A hedge reduces the size of a possible loss but does not eliminate it; the premium is a cost whether or not it pays.",
+  "The portfolio is assumed to move with Nifty by its beta. If it does not track Nifty closely, the hedge will protect less (or more) than shown.",
+  "Option premiums are the last exchange closing prices, not live quotes. Figures are before income tax.",
+  "Nifty options are European-style and cash-settled at expiry; the hedge protects only if Nifty is below the strike at expiry."
+ ],
+ "inputs": {
+  "tolerance_rs": 100000.0,
+  "expected_fall_pct": 10.0
+ },
+ "tenor": "1m",
+ "data": {
+  "portfolio": {
+   "portfolio_value_rs": 2500000.0,
+   "hedgeable_value_rs": 2000000.0,
+   "excluded_rs": {
+    "hybrid": 300000.0,
+    "debt": 0.0,
+    "gold": 200000.0,
+    "other": 0.0,
+    "unclassified": 0.0
+   },
+   "beta": 1.0,
+   "beta_coverage": 1.0,
+   "holdings_counted": 2,
+   "as_of": "2026-10-30"
+  },
+  "market": {
+   "as_of": null,
+   "expiry": null,
+   "days_to_expiry": null,
+   "expiries": [],
+   "puts_traded": 0,
+   "source": null
+  },
+  "fit": {
+   "r2": 0.83,
+   "correlation": 0.91,
+   "regression_beta": 1.02,
+   "observations": 252,
+   "coverage": 0.95,
+   "series_used": 2,
+   "window_start": "2025-10-31",
+   "window_end": "2026-10-30",
+   "reason": null
+  }
+ }
+}
