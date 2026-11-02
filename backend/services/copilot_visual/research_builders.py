@@ -109,8 +109,9 @@ def _r(v: Any, digits: int = 2) -> Optional[float]:
 
 
 def _q_label(d: Any) -> str:
+    """'Sep 2026' for the quarter ended 30 Sep 2026 (live check, 3 Nov: the model read 'Dec 24' as 24 December)."""
     x = date.fromisoformat(iso_day(d))
-    return f"{x.strftime('%b')} {x.strftime('%y')}"
+    return f"{x.strftime('%b')} {x.year}"
 
 
 def _fy_label(d: Any) -> str:

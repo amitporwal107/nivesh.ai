@@ -36,7 +36,8 @@ RESEARCH_INTENTS = ("financial_trend", "valuation_view", "ownership_trend", "pee
 WORDING_RULE = ("WORDING RULE for this research answer (evidence only, SEBI): describe what the figures show, with their dates, and "
                 "say what is not in our data. Never write buy, sell, hold, accumulate, entry, exit, stop loss, SL, target, price "
                 "target, upside, downside, book profit, multibagger, should invest, recommend, pick, cheap, expensive, undervalued "
-                "or overvalued, even when the question uses those words; never give a view on what the reader should do.")
+                "or overvalued, even when the question uses those words (describe shareholding with 'own' or 'held'); never give a view on what "
+                "the reader should do.")
 MAX_COMPARE = 5                     # companies one comparison names at most (the subject plus four)
 MAX_QUARTERS = 12
 MAX_YEARS = 10

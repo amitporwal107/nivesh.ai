@@ -9,7 +9,7 @@
    "params": {
     "years": 5
    },
-   "build_secs": 3.39
+   "build_secs": 3.88
   },
   "valuation_view": {
    "question": "What happens if TCS earnings grow by 15%, 20%, or 25%?",
@@ -23,7 +23,7 @@
      25.0
     ]
    },
-   "build_secs": 0.09
+   "build_secs": 0.08
   },
   "ownership_trend": {
    "question": "Has promoter holding of ICICIBANK increased?",
@@ -31,7 +31,7 @@
    "intent": "ownership_trend",
    "symbol": "ICICIBANK",
    "params": {},
-   "build_secs": 0.1
+   "build_secs": 0.11
   },
   "peer_compare": {
    "question": "Compare TCS with its peers",
@@ -43,7 +43,7 @@
      "TCS"
     ]
    },
-   "build_secs": 1.27
+   "build_secs": 1.43
   },
   "company_risks": {
    "question": "What are the biggest risks for TCS?",
@@ -51,7 +51,7 @@
    "intent": "company_risks",
    "symbol": "TCS",
    "params": {},
-   "build_secs": 0.1
+   "build_secs": 0.13
   },
   "peer_compare:named_banks": {
    "question": "Compare HDFC Bank, ICICI Bank and Axis Bank across fundamentals, valuation, growth, profitability, asset quality and institutional ownership.",
@@ -65,7 +65,7 @@
      "AXISBANK"
     ]
    },
-   "build_secs": 0.13
+   "build_secs": 0.14
   },
   "company_risks:route_sql": {
    "question": "What are the biggest risks for ADANIPORTS?",
@@ -81,7 +81,7 @@
    "intent": "company_risks",
    "symbol": "TCS",
    "params": {},
-   "build_secs": 0.05
+   "build_secs": 0.07
   },
   "company_risks:no_data": {
    "question": "What are the biggest risks for TIMEX?",
@@ -89,7 +89,7 @@
    "intent": "company_risks",
    "symbol": "TIMEX",
    "params": {},
-   "build_secs": 0.09
+   "build_secs": 0.1
   }
  },
  "payloads": {
@@ -98,10 +98,10 @@
    "intent": "financial_trend",
    "title": "TCS · Financial trend",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:02+05:30",
+   "generated_at": "2026-11-03T04:44:23+05:30",
    "mode": "eod",
    "headline": {
-    "text": "TCS reported revenue of ₹73,188 Cr (+11.2% year on year) and PAT of ₹13,934 Cr (+15.4%) for the Sep 26 quarter. Year-on-year revenue growth was slower than the Jun 26 quarter's (+13.9%).",
+    "text": "TCS reported revenue of ₹73,188 Cr (+11.2% year on year) and PAT of ₹13,934 Cr (+15.4%) for the Sep 2026 quarter. Year-on-year revenue growth was slower than the Jun 2026 quarter's (+13.9%).",
     "tone": "neutral"
    },
    "decision": null,
@@ -113,19 +113,19 @@
      "note": null,
      "items": [
       {
-       "label": "Revenue · Sep 26 quarter",
+       "label": "Revenue · Sep 2026 quarter",
        "value": "₹73,188 Cr",
        "sub": "+11.2% YoY · +1.3% QoQ"
       },
       {
-       "label": "PAT · Sep 26 quarter",
+       "label": "PAT · Sep 2026 quarter",
        "value": "₹13,934 Cr",
        "sub": "+15.4% YoY"
       },
       {
        "label": "EBITDA margin",
        "value": "25.7%",
-       "sub": "−1.61 pp vs Sep 25"
+       "sub": "−1.61 pp vs Sep 2025"
       },
       {
        "label": "ROE (latest)",
@@ -148,42 +148,42 @@
      "orientation": "v",
      "items": [
       {
-       "label": "Dec 24",
+       "label": "Dec 2024",
        "value": 63973.0,
        "sub": null
       },
       {
-       "label": "Mar 25",
+       "label": "Mar 2025",
        "value": 64479.0,
        "sub": null
       },
       {
-       "label": "Jun 25",
+       "label": "Jun 2025",
        "value": 63437.0,
        "sub": null
       },
       {
-       "label": "Sep 25",
+       "label": "Sep 2025",
        "value": 65799.0,
        "sub": null
       },
       {
-       "label": "Dec 25",
+       "label": "Dec 2025",
        "value": 67087.0,
        "sub": "+4.9% YoY"
       },
       {
-       "label": "Mar 26",
+       "label": "Mar 2026",
        "value": 70698.0,
        "sub": "+9.7% YoY"
       },
       {
-       "label": "Jun 26",
+       "label": "Jun 2026",
        "value": 72275.0,
        "sub": "+13.9% YoY"
       },
       {
-       "label": "Sep 26",
+       "label": "Sep 2026",
        "value": 73188.0,
        "sub": "+11.2% YoY"
       }
@@ -198,35 +198,35 @@
      "orientation": "v",
      "items": [
       {
-       "label": "Dec 24",
+       "label": "Dec 2024",
        "value": 12380.0
       },
       {
-       "label": "Mar 25",
+       "label": "Mar 2025",
        "value": 12224.0
       },
       {
-       "label": "Jun 25",
+       "label": "Jun 2025",
        "value": 12760.0
       },
       {
-       "label": "Sep 25",
+       "label": "Sep 2025",
        "value": 12075.0
       },
       {
-       "label": "Dec 25",
+       "label": "Dec 2025",
        "value": 10657.0
       },
       {
-       "label": "Mar 26",
+       "label": "Mar 2026",
        "value": 13718.0
       },
       {
-       "label": "Jun 26",
+       "label": "Jun 2026",
        "value": 13349.0
       },
       {
-       "label": "Sep 26",
+       "label": "Sep 2026",
        "value": 13934.0
       }
      ]
@@ -240,35 +240,35 @@
      "orientation": "v",
      "items": [
       {
-       "label": "Dec 24",
+       "label": "Dec 2024",
        "value": null
       },
       {
-       "label": "Mar 25",
+       "label": "Mar 2025",
        "value": null
       },
       {
-       "label": "Jun 25",
+       "label": "Jun 2025",
        "value": null
       },
       {
-       "label": "Sep 25",
+       "label": "Sep 2025",
        "value": 27.32
       },
       {
-       "label": "Dec 25",
+       "label": "Dec 2025",
        "value": 27.23
       },
       {
-       "label": "Mar 26",
+       "label": "Mar 2026",
        "value": 27.27
       },
       {
-       "label": "Jun 26",
+       "label": "Jun 2026",
        "value": 25.67
       },
       {
-       "label": "Sep 26",
+       "label": "Sep 2026",
        "value": 25.71
       }
      ]
@@ -334,7 +334,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev": "73,188",
         "rev_yoy": 11.23,
         "rev_qoq": 1.26,
@@ -349,7 +349,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Jun 26",
+        "q": "Jun 2026",
         "rev": "72,275",
         "rev_yoy": 13.93,
         "rev_qoq": 2.23,
@@ -364,7 +364,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Mar 26",
+        "q": "Mar 2026",
         "rev": "70,698",
         "rev_yoy": 9.65,
         "rev_qoq": 5.38,
@@ -379,7 +379,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Dec 25",
+        "q": "Dec 2025",
         "rev": "67,087",
         "rev_yoy": 4.87,
         "rev_qoq": 1.96,
@@ -394,7 +394,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Sep 25",
+        "q": "Sep 2025",
         "rev": "65,799",
         "rev_yoy": null,
         "rev_qoq": 3.72,
@@ -409,7 +409,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Jun 25",
+        "q": "Jun 2025",
         "rev": "63,437",
         "rev_yoy": null,
         "rev_qoq": -1.62,
@@ -424,7 +424,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Mar 25",
+        "q": "Mar 2025",
         "rev": "64,479",
         "rev_yoy": null,
         "rev_qoq": 0.79,
@@ -439,7 +439,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Dec 24",
+        "q": "Dec 2024",
         "rev": "63,973",
         "rev_yoy": null,
         "rev_qoq": null,
@@ -608,7 +608,7 @@
      "title": null,
      "note": null,
      "tone": "info",
-     "text": "Our data has 8 quarters (Dec 24 to Sep 26) and 12 fiscal years (FY15 to FY26) for TCS."
+     "text": "Our data has 8 quarters (Dec 2024 to Sep 2026) and 12 fiscal years (FY15 to FY26) for TCS."
     },
     {
      "type": "list",
@@ -675,7 +675,7 @@
    "intent": "valuation_view",
    "title": "TCS · Valuation",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:08+05:30",
+   "generated_at": "2026-11-03T04:44:30+05:30",
    "mode": "eod",
    "headline": {
     "text": "TCS trades at 17.5× trailing earnings (2 Nov 2026), 26.6% below the median P/E of its sector label (23.9×); its P/E was lower on 68% of the 208 sessions since 29 Dec 2025.",
@@ -880,10 +880,10 @@
    "intent": "ownership_trend",
    "title": "ICICIBANK · Ownership",
    "as_of": "2026-09-30",
-   "generated_at": "2026-11-03T04:25:07+05:30",
+   "generated_at": "2026-11-03T04:44:29+05:30",
    "mode": "eod",
    "headline": {
-    "text": "ICICIBANK at Sep 26, percent of shares: FIIs 34.68% (+0.89 pp); DIIs 41.78% (−0.54 pp) (change from Jun 26 in brackets).",
+    "text": "ICICIBANK at Sep 2026, percent of shares: FIIs 34.68% (+0.89 pp); DIIs 41.78% (−0.54 pp) (change from Jun 2026 in brackets).",
     "tone": "neutral"
    },
    "decision": null,
@@ -891,26 +891,26 @@
     {
      "type": "kpis",
      "id": "latest",
-     "title": "Shareholding · Sep 26",
+     "title": "Shareholding · Sep 2026",
      "note": null,
      "items": [
       {
-       "label": "Promoters · Sep 26",
+       "label": "Promoters · Sep 2026",
        "value": "not reported",
        "sub": null
       },
       {
-       "label": "FIIs · Sep 26",
+       "label": "FIIs · Sep 2026",
        "value": "34.68%",
-       "sub": "+0.89 pp vs Jun 26 · −10.88 pp vs Sep 25"
+       "sub": "+0.89 pp vs Jun 2026 · −10.88 pp vs Sep 2025"
       },
       {
-       "label": "DIIs · Sep 26",
+       "label": "DIIs · Sep 2026",
        "value": "41.78%",
-       "sub": "−0.54 pp vs Jun 26 · −3.28 pp vs Sep 25"
+       "sub": "−0.54 pp vs Jun 2026 · −3.28 pp vs Sep 2025"
       },
       {
-       "label": "Mutual funds · Sep 26",
+       "label": "Mutual funds · Sep 2026",
        "value": "29.39%",
        "sub": "no earlier quarter to compare"
       },
@@ -924,7 +924,7 @@
     {
      "type": "bars",
      "id": "change",
-     "title": "Change from Dec 24 to Sep 26",
+     "title": "Change from Dec 2024 to Sep 2026",
      "note": "Percentage points of the company's shares.",
      "unit": "pp",
      "orientation": "h",
@@ -1000,7 +1000,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "prom": null,
         "d_prom": null,
         "fii": "34.68%",
@@ -1015,7 +1015,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Jun 26",
+        "q": "Jun 2026",
         "prom": null,
         "d_prom": null,
         "fii": "33.79%",
@@ -1030,7 +1030,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Mar 26",
+        "q": "Mar 2026",
         "prom": null,
         "d_prom": null,
         "fii": "34.48%",
@@ -1045,7 +1045,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Dec 25",
+        "q": "Dec 2025",
         "prom": null,
         "d_prom": null,
         "fii": "43.87%",
@@ -1060,7 +1060,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Sep 25",
+        "q": "Sep 2025",
         "prom": null,
         "d_prom": null,
         "fii": "45.56%",
@@ -1075,7 +1075,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Jun 25",
+        "q": "Jun 2025",
         "prom": null,
         "d_prom": null,
         "fii": "46.77%",
@@ -1090,7 +1090,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Mar 25",
+        "q": "Mar 2025",
         "prom": null,
         "d_prom": null,
         "fii": "45.83%",
@@ -1105,7 +1105,7 @@
       {
        "symbol": null,
        "cells": {
-        "q": "Dec 24",
+        "q": "Dec 2024",
         "prom": null,
         "d_prom": null,
         "fii": "45.70%",
@@ -1125,7 +1125,7 @@
      "title": null,
      "note": null,
      "tone": "info",
-     "text": "Our data has 12 quarters of shareholding for ICICIBANK (Dec 23 to Sep 26)."
+     "text": "Our data has 12 quarters of shareholding for ICICIBANK (Dec 2023 to Sep 2026)."
     },
     {
      "type": "notice",
@@ -1133,7 +1133,7 @@
      "title": null,
      "note": null,
      "tone": "warn",
-     "text": "For Sep 26, NSE's filing puts ICICIBANK's FII holding at 50.44% and screener.in at 34.68%: the two sources define it differently for this company. The series uses screener.in, which carries the earlier quarters, and no change is computed across the two sources."
+     "text": "For Sep 2026, NSE's filing puts ICICIBANK's FII holding at 50.44% and screener.in at 34.68%: the two sources define it differently for this company. The series uses screener.in, which carries the earlier quarters, and no change is computed across the two sources."
     },
     {
      "type": "notice",
@@ -1141,7 +1141,7 @@
      "title": null,
      "note": null,
      "tone": "warn",
-     "text": "Unusually large one-quarter changes for ICICIBANK: FIIs −9.39 pp (Dec 25 to Mar 26); DIIs −6.80 pp (Dec 25 to Mar 26). A move of more than 5 points can be real, or a change in how the source classifies holders; check the company's shareholding filings for those quarters."
+     "text": "Unusually large one-quarter changes for ICICIBANK: FIIs −9.39 pp (Dec 2025 to Mar 2026); DIIs −6.80 pp (Dec 2025 to Mar 2026). A move of more than 5 points can be real, or a change in how the source classifies holders; check the company's shareholding filings for those quarters."
     },
     {
      "type": "notice",
@@ -1149,7 +1149,7 @@
      "title": null,
      "note": null,
      "tone": "info",
-     "text": "NSE's filing carries a pledge figure for ICICIBANK (Jun 26) that does not agree with the promoter holding (or no promoter group is reported), so it is not shown."
+     "text": "NSE's filing carries a pledge figure for ICICIBANK (Jun 2026) that does not agree with the promoter holding (or no promoter group is reported), so it is not shown."
     },
     {
      "type": "notice",
@@ -1157,7 +1157,7 @@
      "title": null,
      "note": null,
      "tone": "warn",
-     "text": "The mutual-fund scheme disclosures for Sep 2026 add up to 65.26% of ICICIBANK's shares, against 29.39% held by mutual funds in the company's Sep 26 shareholding filing. The disclosures appear to count the same holding under more than one plan of a scheme, so the fund-house figures are not shown."
+     "text": "The mutual-fund scheme disclosures for Sep 2026 add up to 65.26% of ICICIBANK's shares, against 29.39% held by mutual funds in the company's Sep 2026 shareholding filing. The disclosures appear to count the same holding under more than one plan of a scheme, so the fund-house figures are not shown."
     },
     {
      "type": "list",
@@ -1221,7 +1221,7 @@
    "intent": "peer_compare",
    "title": "TCS · Peer comparison",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:03+05:30",
+   "generated_at": "2026-11-03T04:44:24+05:30",
    "mode": "eod",
    "headline": {
     "text": "8 companies compared on their latest filed quarter and the platform's latest ratios; TCS's P/E is 17.5× against a median of 22.5× for the set.",
@@ -1319,7 +1319,7 @@
        "ask": "What is the financial trend of TCS?",
        "cells": {
         "co": "TCS",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 11.23,
         "pat_yoy": 15.4,
         "roe": "45.9%",
@@ -1334,7 +1334,7 @@
        "ask": "What is the financial trend of INFY?",
        "cells": {
         "co": "INFY",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 10.69,
         "pat_yoy": 6.44,
         "roe": "31.7%",
@@ -1349,7 +1349,7 @@
        "ask": "What is the financial trend of HCLTECH?",
        "cells": {
         "co": "HCLTECH",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 11.51,
         "pat_yoy": 21.18,
         "roe": "22.1%",
@@ -1364,7 +1364,7 @@
        "ask": "What is the financial trend of WIPRO?",
        "cells": {
         "co": "WIPRO",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 9.06,
         "pat_yoy": -1.42,
         "roe": "15.0%",
@@ -1379,7 +1379,7 @@
        "ask": "What is the financial trend of TECHM?",
        "cells": {
         "co": "TECHM",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 15.61,
         "pat_yoy": 34.78,
         "roe": "16.2%",
@@ -1394,7 +1394,7 @@
        "ask": "What is the financial trend of LTM?",
        "cells": {
         "co": "LTM",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 13.6,
         "pat_yoy": -1.51,
         "roe": "20.9%",
@@ -1409,7 +1409,7 @@
        "ask": "What is the financial trend of PERSISTENT?",
        "cells": {
         "co": "PERSISTENT",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 30.25,
         "pat_yoy": -25.34,
         "roe": "23.8%",
@@ -1424,7 +1424,7 @@
        "ask": "What is the financial trend of OFSS?",
        "cells": {
         "co": "OFSS",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 6.61,
         "pat_yoy": 28.55,
         "roe": "33.7%",
@@ -1669,7 +1669,7 @@
    "intent": "company_risks",
    "title": "TCS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:03+05:30",
+   "generated_at": "2026-11-03T04:44:25+05:30",
    "mode": "eod",
    "headline": {
     "text": "None of the 13 checks that could run is flagged for TCS.",
@@ -1696,7 +1696,7 @@
       },
       {
        "label": "Latest balance sheet",
-       "value": "Sep 26",
+       "value": "Sep 2026",
        "sub": "filed 8 Oct 2026"
       },
       {
@@ -1747,7 +1747,7 @@
         "value": "0.00× (₹0 Cr debt)",
         "rule": "above 1.0×",
         "result": "Within the rule",
-        "when": "Sep 26"
+        "when": "Sep 2026"
        }
       },
       {
@@ -1758,7 +1758,7 @@
         "value": "no debt at either date",
         "rule": "debt up over 20%, faster than PAT, and at least 0.1× equity",
         "result": "Within the rule",
-        "when": "Sep 26"
+        "when": "Sep 2026"
        }
       },
       {
@@ -1780,7 +1780,7 @@
         "value": "2.48×",
         "rule": "below 1.0×",
         "result": "Within the rule",
-        "when": "Sep 26"
+        "when": "Sep 2026"
        }
       },
       {
@@ -1824,7 +1824,7 @@
         "value": "receivables +9.0%, revenue (12 months) +9.9%",
         "rule": "receivables growth over 15 points above revenue growth",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -1835,7 +1835,7 @@
         "value": "104 days (a year earlier 103)",
         "rule": "up more than 15 days of revenue in a year",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -1846,7 +1846,7 @@
         "value": "0.68% of promoter shares",
         "rule": "above 10% of promoter shares",
         "result": "Within the rule",
-        "when": "Jun 26"
+        "when": "Jun 2026"
        }
       },
       {
@@ -1857,7 +1857,7 @@
         "value": "±0.00 pp to 71.77%",
         "rule": "down more than 2 points in four quarters",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -1868,7 +1868,7 @@
         "value": "25.7% vs 27.3%",
         "rule": "down more than 3 points",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -2023,7 +2023,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Sep 26",
+        "p": "Sep 2026",
         "eq": "1,19,994",
         "debt": "0",
         "cash": "5,106",
@@ -2036,7 +2036,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Mar 26",
+        "p": "Mar 2026",
         "eq": "1,08,478",
         "debt": "0",
         "cash": "6,417",
@@ -2049,7 +2049,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Sep 25",
+        "p": "Sep 2025",
         "eq": "1,07,461",
         "debt": "0",
         "cash": "6,358",
@@ -2062,7 +2062,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Mar 25",
+        "p": "Mar 2025",
         "eq": "95,771",
         "debt": "0",
         "cash": "8,342",
@@ -2157,7 +2157,7 @@
    "intent": "peer_compare",
    "title": "HDFCBANK vs ICICIBANK vs AXISBANK · Comparison",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:09+05:30",
+   "generated_at": "2026-11-03T04:44:30+05:30",
    "mode": "eod",
    "headline": {
     "text": "3 companies compared on their latest filed quarter and the platform's latest ratios; HDFCBANK's P/E is 13.8× against a median of 13.6× for the set.",
@@ -2242,7 +2242,7 @@
        "ask": "What is the financial trend of HDFCBANK?",
        "cells": {
         "co": "HDFCBANK",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": 3.67,
         "pat_yoy": 18.37,
         "roe": "13.0%",
@@ -2256,7 +2256,7 @@
        "ask": "What is the financial trend of ICICIBANK?",
        "cells": {
         "co": "ICICIBANK",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": null,
         "pat_yoy": null,
         "roe": "15.1%",
@@ -2270,7 +2270,7 @@
        "ask": "What is the financial trend of AXISBANK?",
        "cells": {
         "co": "AXISBANK",
-        "q": "Sep 26",
+        "q": "Sep 2026",
         "rev_yoy": null,
         "pat_yoy": 22.78,
         "roe": "12.3%",
@@ -2440,7 +2440,7 @@
    "intent": "company_risks",
    "title": "ADANIPORTS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:09+05:30",
+   "generated_at": "2026-11-03T04:44:31+05:30",
    "mode": "eod",
    "headline": {
     "text": "1 of the 13 checks that could run is flagged for ADANIPORTS: Current ratio.",
@@ -2467,7 +2467,7 @@
       },
       {
        "label": "Latest balance sheet",
-       "value": "Sep 26",
+       "value": "Sep 2026",
        "sub": "filed 28 Oct 2026"
       },
       {
@@ -2518,7 +2518,7 @@
         "value": "0.55× (₹57,717 Cr debt)",
         "rule": "above 1.0×",
         "result": "Within the rule",
-        "when": "Sep 26"
+        "when": "Sep 2026"
        }
       },
       {
@@ -2529,7 +2529,7 @@
         "value": "debt +13.0% to ₹57,717 Cr (0.55× equity); PAT +15.6% (FY26)",
         "rule": "debt up over 20%, faster than PAT, and at least 0.1× equity",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -2551,7 +2551,7 @@
         "value": "0.78×",
         "rule": "below 1.0×",
         "result": "Flagged",
-        "when": "Sep 26"
+        "when": "Sep 2026"
        }
       },
       {
@@ -2595,7 +2595,7 @@
         "value": "receivables +23.6%, revenue (12 months) +22.6%",
         "rule": "receivables growth over 15 points above revenue growth",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -2606,7 +2606,7 @@
         "value": "−96 days (a year earlier −11)",
         "rule": "up more than 15 days of revenue in a year",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -2617,7 +2617,7 @@
         "value": "1.14% of promoter shares",
         "rule": "above 10% of promoter shares",
         "result": "Within the rule",
-        "when": "Sep 26"
+        "when": "Sep 2026"
        }
       },
       {
@@ -2628,7 +2628,7 @@
         "value": "+0.14 pp to 66.03%",
         "rule": "down more than 2 points in four quarters",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -2639,7 +2639,7 @@
         "value": "60.0% vs 60.5%",
         "rule": "down more than 3 points",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -2794,7 +2794,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Sep 26",
+        "p": "Sep 2026",
         "eq": "1,05,322",
         "debt": "57,717",
         "cash": "5,074",
@@ -2807,7 +2807,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Mar 26",
+        "p": "Mar 2026",
         "eq": "98,981",
         "debt": "55,103",
         "cash": "5,162",
@@ -2820,7 +2820,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Sep 25",
+        "p": "Sep 2025",
         "eq": "69,707",
         "debt": "51,082",
         "cash": "3,378",
@@ -2833,7 +2833,7 @@
       {
        "symbol": null,
        "cells": {
-        "p": "Mar 25",
+        "p": "Mar 2025",
         "eq": "64,973",
         "debt": "45,810",
         "cash": "3,406",
@@ -2928,7 +2928,7 @@
    "intent": "company_risks",
    "title": "TCS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:10+05:30",
+   "generated_at": "2026-11-03T04:44:32+05:30",
    "mode": "eod",
    "headline": {
     "text": "None of the 5 checks that could run is flagged for TCS; 8 could not run for lack of data.",
@@ -3113,7 +3113,7 @@
         "value": "0.68% of promoter shares",
         "rule": "above 10% of promoter shares",
         "result": "Within the rule",
-        "when": "Jun 26"
+        "when": "Jun 2026"
        }
       },
       {
@@ -3124,7 +3124,7 @@
         "value": "±0.00 pp to 71.77%",
         "rule": "down more than 2 points in four quarters",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -3135,7 +3135,7 @@
         "value": "25.7% vs 27.3%",
         "rule": "down more than 3 points",
         "result": "Within the rule",
-        "when": "Sep 25 to Sep 26"
+        "when": "Sep 2025 to Sep 2026"
        }
       },
       {
@@ -3228,7 +3228,7 @@
    "intent": "company_risks",
    "title": "TIMEX · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:25:08+05:30",
+   "generated_at": "2026-11-03T04:44:30+05:30",
    "mode": "eod",
    "headline": {
     "text": "No check could run for TIMEX: the figures they need are not in our data.",
