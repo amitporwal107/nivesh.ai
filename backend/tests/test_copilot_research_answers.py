@@ -236,7 +236,7 @@ CASH = [{"symbol": "ACME", "period_end": "2026-03-31", "consolidated": True, "cf
 AMC = {"symbol": "ACME", "as_of": "2026-09-01", "previous_month": "2026-08-01", "count": 1,
        "rows": [{"amc_id": "a1", "amc_name": "MOCK Fund House A", "schemes": 5, "schemes_up": 3, "schemes_dn": 1, "shares_delta": 120000,
                  "shares_pct_change": 4.2, "share_of_disclosed_pct": 35.0}],
-       "totals": {"amcs": 1, "schemes": 5, "schemes_up": 3, "schemes_dn": 1, "pct_of_equity": 2.5, "largest_amc_share_pct": 35.0}}  # MOCK
+       "totals": {"amcs": 1, "schemes": 5, "schemes_up": 3, "schemes_dn": 1, "pct_of_equity": 8.1, "largest_amc_share_pct": 35.0}}  # MOCK (agrees with the 8.00% MF filing)
 UNIVERSE = {"as_of": "2026-10-30", "rows": [
     {"symbol": "ACME", "sector": "IT", "industry": "Information Technology", "market_cap_cr": 100000},
     {"symbol": "PEERA", "sector": "IT", "industry": "Information Technology", "market_cap_cr": 200000},
@@ -399,13 +399,36 @@ def test_b3_field_wise_merge_nse_first_and_no_public_figure(src):
     assert blk(p, "amc")["rows"][0]["cells"]["amc"] == "MOCK Fund House A"
 
 
-def test_b3_fund_house_route_404_is_a_named_missing_source(src, monkeypatch):
+def test_b3_fund_house_read_failing_is_a_named_missing_source(src, monkeypatch):
     async def amc404(sym):
-        raise RuntimeError("DaaS /smart-money/amc answered 404")
+        raise RuntimeError("DaaS /desk/smart-money/amc answered 404")
     monkeypatch.setattr(rr, "amc", amc404)
     p = build("ownership_trend")
     assert blk(p, "amc") is None and blk(p, "amc_totals") is None
-    assert any("does not serve the fund-house view yet (HTTP 404)" in x for x in p["data_quality"]["missing"])
+    assert any(x.startswith("Mutual-fund holdings by fund house") and "404" in x for x in p["data_quality"]["missing"])
+
+
+def test_b3_fund_house_reader_calls_the_desk_route(monkeypatch):
+    """The smart-money router is mounted under /desk (daas_api/app.py); /v1/smart-money/amc does not exist (W1 shipped that path:
+    every answer said the view was not served)."""
+    seen = []
+
+    async def daas(path, params=None):
+        seen.append((path, params))
+        return {"symbol": "ACME", "as_of": "2026-09-01", "rows": []}
+    monkeypatch.setattr(rd, "_daas", daas)
+    asyncio.run(rr.amc("ACME"))
+    assert seen == [("/desk/smart-money/amc", {"symbol": "ACME"})]
+
+
+def test_b3_fund_house_figures_that_disagree_with_the_filing_are_not_shown(src):
+    """Real, 3 Nov 2026: the DaaS view sums every plan of a scheme, TCS 11.61% of shares against 5.65% in the filing."""
+    src.v["amc"] = {**AMC, "totals": {**AMC["totals"], "pct_of_equity": 16.4}}         # MOCK: twice the 8.00% filed
+    p = build("ownership_trend")
+    assert blk(p, "amc") is None and blk(p, "amc_totals") is None
+    t = blk(p, "amc-mismatch")["text"]
+    assert "add up to 16.40% of ACME's shares, against 8.00% held by mutual funds in the company's Sep 26 shareholding filing" in t
+    assert advice_words([t]) == []
 
 
 def test_b3_sources_that_disagree_never_make_a_change(src):
@@ -566,6 +589,7 @@ def test_b5_balance_sheet_columns_not_served(src):
     c = checks_of(p)
     assert c["Current ratio"]["value"] == "not served by the data platform yet" and c["Current ratio"]["result"] == "Not in our data"
     assert c["Debt to equity"]["result"] == "Within the rule"                         # equity and debt are served today
+    assert blk(p, "balance")["rows"][0]["cells"]["src"] == "provider not recorded on the row"   # never the P&L row's provider
 
 
 def test_b5_lender_checks_are_not_applicable(src):
@@ -800,4 +824,8 @@ def test_c2_research_real_capture_matches_the_contract():
         assert advice_words(texts(p)) == [], (key, advice_words(texts(p)))
     risks = doc["payloads"]["company_risks:route_sql"]
     assert any(r["cells"]["check"] == "Current ratio" and r["cells"]["value"] for r in blk(risks, "checks")["rows"])
-    assert any("does not serve cash-flow statements yet" in m for m in doc["payloads"]["company_risks"]["data_quality"]["missing"])
+    live = doc["payloads"]["company_risks"]                                         # the live DaaS serves the cash-flow route (#458 deploy)
+    assert live["data_quality"]["missing"] == [] and blk(live, "cash") is not None
+    assert "amc-mismatch" in {b.get("id") for b in doc["payloads"]["ownership_trend"]["blocks"]}   # the real double count is caught
+    prod = doc["payloads"]["company_risks:production"]
+    assert blk(prod, "cash") is None and "nocf" in {b.get("id") for b in prod["blocks"]}
