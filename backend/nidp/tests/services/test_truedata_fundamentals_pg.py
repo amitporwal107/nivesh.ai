@@ -371,33 +371,6 @@ def test_read_references_shares_from_market_cap_and_close_on_its_date(monkeypatc
     run(go())
 
 
-# ── TC-35..TC-37 the real gate query (current_database()) through Warehouse.load_gate ────────────────────────
-
-def test_tc35_to_tc37_gate_reads_the_database_it_would_write_to(monkeypatch):
-    async def go():
-        import asyncpg
-        admin = await asyncpg.connect(DSN)
-        if not await admin.fetchval("SELECT 1 FROM pg_database WHERE datname = 'nidp_staging'"):
-            await admin.execute("CREATE DATABASE nidp_staging")
-        await admin.close()
-        staging_dsn = DSN.rsplit("/", 1)[0] + "/nidp_staging"
-        for dsn, env, want in ((staging_dsn, {}, ("staging", True)),
-                               (staging_dsn, {"NIDP_HOME": "/opt/nidp-staging"}, ("staging", True)),
-                               (staging_dsn, {"NIDP_HOME": "/opt/nidp"}, ("production", False)),
-                               (DSN, {"NIDP_ENV": "staging"}, ("unknown", False))):
-            pool = await asyncpg.create_pool(dsn, min_size=1, max_size=1)
-
-            async def get_pool(p=pool):
-                return p
-            monkeypatch.setattr(L, "get_pool", get_pool)
-            try:
-                v = await L.Warehouse().load_gate(env)
-                assert (v.environment, v.allowed) == want, (dsn, env, v)
-            finally:
-                await pool.close()
-    run(go())
-
-
 # ── TC-35 / TC-36 / TC-37: the real gate reads the database it would write to ────────────────────────────────
 
 def test_tc35_to_tc37_gate_reads_current_database(monkeypatch):
