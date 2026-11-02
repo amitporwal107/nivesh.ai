@@ -14,10 +14,12 @@ One-off backfill of nidp.prices_eod_history (migration 191) from TrueData's adju
   --rollback RUN_ID  delete exactly that run's rows and stitch records (with --dry-run: count them). Any switch position.
 
 The market-data switch (backend/config/market_data_source.json): a load, or anything that would call TrueData, runs only
-in shadow / truedata; at current it prints verdict SWITCHED_OFF and touches nothing. Needs TRUEDATA_USERNAME /
+in shadow / truedata; at current it prints verdict SWITCHED_OFF and touches nothing. STAGING ONLY (owner, 3 Nov 2026):
+on production or an unknown environment (nidp.shared.deploy_env) it prints verdict NOT_STAGING, calls nothing and writes
+no data (a real run records a SKIPPED job_log row). Needs TRUEDATA_USERNAME /
 TRUEDATA_PASSWORD (or TRUEDATA_CRED_FILE) when TrueData is called, and the NIDP database environment.
-Exit: 0 done (flagged symbols are in the report, not failures), 1 a symbol failed to fetch or the run failed,
-2 usage / switched off.
+Exit codes: 0 done (flagged symbols are in the report, not failures), 1 a symbol failed to fetch or the run failed,
+2 usage / switched off / not staging.
 """
 from __future__ import annotations
 
@@ -60,7 +62,7 @@ def main() -> int:
     print(json.dumps(report, indent=2, default=str))
     if args.rollback:
         return 0
-    if report.get("verdict") == "SWITCHED_OFF":
+    if report.get("verdict") in ("SWITCHED_OFF", "NOT_STAGING"):
         return 2
     return 1 if report.get("verdict") in ("FAILED", "PARTIAL") else 0
 

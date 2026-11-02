@@ -17,6 +17,9 @@ Rules
     returns"). NIFTY 50 equals NSE's official close and carries no caveat. Prefer nidp.index_eod where it exists.
   * The market-data switch: at `current` nothing calls TrueData; the run is recorded as SKIPPED (SWITCHED_OFF), like
     truedata_crosscheck. A dry run at `current` touches neither TrueData nor the database.
+  * STAGING ONLY (owner, 3 Nov 2026: "keep on staging.. on prod please use our snapshot data"): after the switch the job
+    asks nidp.shared.deploy_env.truedata_load_gate(); on production or an unknown environment it calls nothing, writes
+    no data and records a SKIPPED run (error_class NOT_STAGING). Its cron file is a staging file only.
 
 Not available from TrueData (2 Nov 2026): USDINR (currency segment not subscribed; INR proxy = NIFTY 50 / NIFTY50 USD),
 repo-rate history, bond yields (only G-Sec index prices), rollover-adjusted continuous futures (-I / -II roll at expiry).
@@ -27,8 +30,9 @@ import asyncio
 import logging
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from nidp.shared import deploy_env
 from nidp.shared import market_data_source as mds
 from nidp.shared.sources import truedata as td
 from nidp.services.truedata_history import bars as B
@@ -125,7 +129,7 @@ def _fetch(client: td.TrueDataClient, code: str, start: date, end: date) -> List
 
 async def refresh(*, client: Optional[td.TrueDataClient] = None, switch: Optional[Callable[[], mds.Resolution]] = None,
                   pool=None, now_ist: Optional[datetime] = None, dry_run: bool = False, codes: Optional[Sequence[str]] = None,
-                  job_run_factory=None) -> Dict[str, Any]:
+                  job_run_factory=None, env: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
     resolution = (switch or mds.resolve)()
     now_ist = now_ist or datetime.now(IST)
     codes = list(codes or SERIES)
@@ -142,10 +146,20 @@ async def refresh(*, client: Optional[td.TrueDataClient] = None, switch: Optiona
             report["job_status"] = "SKIPPED"
         return report
 
-    client = client or td.TrueDataClient()
     if pool is None:
         from nidp.shared.storage.pg import get_pool
         pool = await get_pool()
+    async with pool.acquire() as conn:
+        gate = await deploy_env.truedata_load_gate(conn, env)
+    report["environment"] = gate.environment
+    if not gate.allowed:                                  # production / unknown: no TrueData call, no data written
+        report.update(verdict=deploy_env.NOT_STAGING, message=gate.reason)
+        if not dry_run:
+            async with job_run_factory(INGESTER, target_date=now_ist.date()) as run:
+                await run.finalize("SKIPPED", error_message=gate.reason[:500], error_class=deploy_env.NOT_STAGING)
+            report["job_status"] = "SKIPPED"
+        return report
+    client = client or td.TrueDataClient()
 
     async def body(run_id: Optional[uuid.UUID]) -> Dict[str, Any]:
         async with pool.acquire() as conn:
@@ -157,19 +171,19 @@ async def refresh(*, client: Optional[td.TrueDataClient] = None, switch: Optiona
             after = last.get(sid)
             start = (after + timedelta(days=1)) if after else FIRST_DAY
             end = last_final_day(seg, now_ist)
-            entry: Dict[str, Any] = {"series_id": sid, "last_stored": after, "fetch_from": start, "fetch_to": end}
+            info: Dict[str, Any] = {"series_id": sid, "last_stored": after, "fetch_from": start, "fetch_to": end}
             if start > end:
-                per[code] = {**entry, "status": "UP_TO_DATE", "new_days": 0, "calls": 0}
+                per[code] = {**info, "status": "UP_TO_DATE", "new_days": 0, "calls": 0}
                 continue
             try:
                 rows = await asyncio.to_thread(_fetch, client, code, start, end)
             except td.TrueDataError as e:
-                per[code] = {**entry, "status": "FAILED", "error_code": e.code, "message": e.message, "calls": 1}
+                per[code] = {**info, "status": "FAILED", "error_code": e.code, "message": e.message, "calls": 1}
                 continue
             got, rep = new_rows(code, rows, after, now_ist)
             label = series_label(code)
             batch.extend((d, sid, label, v, units) for d, v in got)
-            per[code] = {**entry, "status": "OK", "new_days": len(got), "calls": 1,
+            per[code] = {**info, "status": "OK", "new_days": len(got), "calls": 1,
                          "first_new": got[0][0] if got else None, "last_new": got[-1][0] if got else None, **rep}
         inserted = 0
         if run_id is not None and batch:
