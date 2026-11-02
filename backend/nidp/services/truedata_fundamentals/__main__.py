@@ -17,7 +17,7 @@ nothing is written except a SKIPPED job_log row.
   --rollback RUN_ID  undo one run exactly (deletes the rows it inserted, NULLs the columns it filled that still hold
                      its values); works whatever the switch says
 
-Exit: 0 OK / PARTIAL / SKIPPED / dry run / rollback; 1 FAILED; 2 usage.
+Return codes: 0 OK / PARTIAL / SKIPPED / dry run / rollback; 1 FAILED; 2 usage.
 Needs TRUEDATA_USERNAME / TRUEDATA_PASSWORD and the NIDP database environment.
 """
 from __future__ import annotations

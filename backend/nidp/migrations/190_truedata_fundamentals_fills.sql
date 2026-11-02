@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS nidp.truedata_fundamentals_fills (
     id              BIGSERIAL   PRIMARY KEY,
     run_id          UUID        NOT NULL,              -- = nidp.job_log.run_id of the run
     kind            TEXT        NOT NULL,              -- what TrueData statement the values came from
-    target_table    TEXT        NOT NULL,              -- the nidp table written
+    table_written    TEXT        NOT NULL,              -- the nidp table written
     symbol          TEXT        NOT NULL,
     period_end      DATE        NOT NULL,
     consolidated    BOOLEAN     NOT NULL,
@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS nidp.truedata_fundamentals_fills (
     CONSTRAINT truedata_fundamentals_fills_kind_chk
         CHECK (kind IN ('balance_sheet', 'cash_flow', 'finance_costs')),
     CONSTRAINT truedata_fundamentals_fills_table_chk
-        CHECK (target_table IN ('nse_financials_quarterly', 'nse_financials_cashflow')),
+        CHECK (table_written IN ('nse_financials_quarterly', 'nse_financials_cashflow')),
     CONSTRAINT truedata_fundamentals_fills_unit_chk
         CHECK (unit IN ('crore', 'million', 'lakh', 'thousand', 'rupee')),
     CONSTRAINT truedata_fundamentals_fills_once
-        UNIQUE (run_id, kind, target_table, symbol, period_end, consolidated, period_type)
+        UNIQUE (run_id, kind, table_written, symbol, period_end, consolidated, period_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_td_fundamentals_fills_row

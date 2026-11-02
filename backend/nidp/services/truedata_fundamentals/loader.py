@@ -136,7 +136,7 @@ _CF_INSERT = (
     "ON CONFLICT ON CONSTRAINT uq_cashflow DO NOTHING "
     "RETURNING symbol, period_end, consolidated")
 _PROV_INSERT = (
-    f"INSERT INTO {PROVENANCE} (run_id, kind, target_table, symbol, period_end, consolidated, period_type, row_source, "
+    f"INSERT INTO {PROVENANCE} (run_id, kind, table_written, symbol, period_end, consolidated, period_type, row_source, "
     "td_filing_id, unit, unit_how, columns_filled, values_written, inserted) "
     "VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13::jsonb, $14)")
 
@@ -246,9 +246,9 @@ async def rollback_run(conn, run_id: str) -> Dict[str, Any]:
             f"SELECT * FROM {PROVENANCE} WHERE run_id = $1::uuid AND rolled_back_at IS NULL ORDER BY id FOR UPDATE",
             str(run_id))
         for p in prov:
-            table = p["target_table"]
+            table = p["table_written"]
             if table not in _ALLOWED:
-                raise RuntimeError(f"unknown target table {table!r} in provenance")
+                raise RuntimeError(f"unknown table {table!r} in provenance")
             if p["inserted"]:
                 n = len(_key_args(table, p))
                 status = await conn.execute(

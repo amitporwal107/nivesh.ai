@@ -53,7 +53,7 @@ merged, migration 190 is applied by the deploy and the owner installs the cron f
 | TC-27 | migration | 190 applied twice on a fresh DB (idempotent) — in every PG test | integration | PASS |
 | TC-28 | job | `current` → no call, only a SKIPPED job_log row; `shadow` runs; rollback ignores switch | unit | PASS |
 | TC-29 | job | cache: no refetch; last 3 days' lists refetched; empty cached, failures not; rate limit; deadline; refused login | unit | PASS |
-| TC-30 | job | CLI parsing and exit codes 0/1/2 | unit | PASS |
+| TC-30 | job | CLI parsing and return codes 0/1/2 | unit | PASS |
 | TC-31 | real data | transform on real raw files vs the 2 Nov staging rows | data | PASS (identical or each difference explained) |
 | TC-32 | real data | `InterestExpense` = finance costs? vs our own figures | data | PASS (scoped below) |
 | TC-33 | live | 6 real calls through the new client methods | app | PASS |

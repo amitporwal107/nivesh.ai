@@ -323,3 +323,23 @@ def test_tc30_rollback_cli(monkeypatch):
     monkeypatch.setattr(cli, "rollback", fake_rollback)
     monkeypatch.setattr("nidp.shared.storage.pg.close_pool", fake_close)
     assert cli.main(["--rollback", rid]) == 0 and seen == [rid]
+
+
+# ── TC-39 the cron file is staging-only ──────────────────────────────────────────────────────────────────────
+
+REPO = __import__("pathlib").Path(__file__).resolve().parents[4]
+
+
+def test_tc39_production_cron_is_built_from_the_staging_feed_file_only():
+    """deploy/cloudpe-prod/deploy-nidp.sh writes production's /etc/cron.d/nidp by rewriting
+    deploy/cloudpe/nidp/nidp-staging.cron. This job is not in that file, so it can never be scheduled on production."""
+    prod = (REPO / "deploy" / "cloudpe-prod" / "deploy-nidp.sh").read_text()
+    sources = set(__import__("re").findall(r"deploy/cloudpe/nidp/[\w.-]+\.cron", prod))
+    assert sources == {"deploy/cloudpe/nidp/nidp-staging.cron"}
+    assert "truedata" not in prod.lower()
+    assert "truedata_fundamentals" not in (REPO / "deploy" / "cloudpe" / "nidp" / "nidp-staging.cron").read_text()
+    ours = (REPO / "deploy" / "cloudpe" / "nidp" / "nidp-staging-truedata-fundamentals.cron").read_text()
+    lines = [x for x in ours.splitlines() if x.strip() and not x.lstrip().startswith("#") and "=" not in x.split()[0]]
+    assert lines == ["15 21 * * 1-5  nidp-staging  NIDP_MAX_ATTEMPTS=1 /opt/nidp-staging/run_service.sh "
+                     "truedata_fundamentals --days 10 --max-minutes 75"]
+    assert "NIDP_HOME=/opt/nidp-staging" in ours

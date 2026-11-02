@@ -157,7 +157,7 @@ def window_days(today: date, days: int) -> List[date]:
 
 
 def select(cache: RawCache, refs: Any, today: date, days: int) -> Tuple[List[T.Filing], List[T.Filing], Counter]:
-    """(targets: the load window's filings, all: every cached filing for the unit anchors), both ours, consolidated
+    """(window_filings: the load window's filings, all: every cached filing for the unit anchors), both ours, consolidated
     preferred, duplicates removed."""
     filings, counts = T.filings_from_records(cache.list_records(), refs.known, refs.bse_map)
     all_f = T.dedupe(T.prefer_consolidated(filings))
@@ -168,10 +168,10 @@ def select(cache: RawCache, refs: Any, today: date, days: int) -> Tuple[List[T.F
                 window_ids.add(int(r.get("id")))
             except (TypeError, ValueError):
                 continue
-    targets = [f for f in all_f if f.id in window_ids]
+    window_filings = [f for f in all_f if f.id in window_ids]
     counts["filings_ours_deduped"] = len(all_f)
-    counts["filings_in_window"] = len(targets)
-    return targets, all_f, counts
+    counts["filings_in_window"] = len(window_filings)
+    return window_filings, all_f, counts
 
 
 async def run(*, days: int = DEFAULT_DAYS, symbols: Optional[Sequence[str]] = None, dry_run: bool = False,
@@ -237,8 +237,8 @@ async def _run(*, run_id: Optional[str], dry_run: bool, days: int, symbols: Opti
     if not offline:
         fetcher = Fetcher(client, cache, clock() + max_minutes * 60.0, clock=clock, sleep=sleep)
         fetcher.fetch_lists(window_days(today, max(days, anchor_days)), today)
-    targets, all_f, sel_counts = select(cache, refs, today, days)
-    needed = T.statements_needed(targets, all_f, finance_costs, rank=_size_rank(refs))
+    window_filings, all_f, sel_counts = select(cache, refs, today, days)
+    needed = T.statements_needed(window_filings, all_f, finance_costs, rank=_size_rank(refs))
     if fetcher is not None and not fetcher.stopped:
         fetcher.fetch_statements(needed)
     report["fetch"] = {"needed": len(needed), **(dict(fetcher.counts) if fetcher else {}),
@@ -248,7 +248,7 @@ async def _run(*, run_id: Optional[str], dry_run: bool, days: int, symbols: Opti
         report.update(status="FAILED", status_reason=f"TrueData refused: {fetcher.fatal}", error_class=fetcher.fatal)
         return report
 
-    result = T.build(targets, all_f, cache.read, refs.ours, refs.shares, finance_costs)
+    result = T.build(window_filings, all_f, cache.read, refs.ours, refs.shares, finance_costs)
     report["transform"] = result.summary()
     report["rejected"] = [{"kind": r.kind, "symbol": r.symbol, "period_end": str(r.period_end),
                            "filing_id": r.filing_id, "why": r.reason} for r in result.rejects[:REPORT_REJECTS]]
@@ -261,7 +261,7 @@ async def _run(*, run_id: Optional[str], dry_run: bool, days: int, symbols: Opti
     else:
         report["status"] = "OK"
     logger.info("truedata_fundamentals %s: %s filings in window, %s offers, load %s", report["status"],
-                len(targets), len(result.offers), report["load"])
+                len(window_filings), len(result.offers), report["load"])
     return report
 
 
