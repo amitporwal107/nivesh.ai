@@ -37,6 +37,7 @@ INGESTERS=(
     parsed price_adjuster
     rbi_yields
     sebi_circulars snapshot_builder
+    truedata_fundamentals
 )
 
 mkdir -p "$DATA_DIR"
