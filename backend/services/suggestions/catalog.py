@@ -104,6 +104,18 @@ QUERY_TEMPLATES: List[Dict[str, Any]] = [
      "intent": "fno_setups", "tab": "fno_lab", "audience": ["trader"]},
     {"_id": "t_expected_move_banknifty", "label": "Bank Nifty's expected move",
      "query": "What is the expected move in Bank Nifty?", "intent": "expected_move", "tab": "fno_lab", "audience": ["trader"]},
+    # Research Copilot W1 (2 Nov 2026). No rule points at these yet, so no card shows them: research prompt cards wait for the
+    # owner's choice of surface (docs/research_copilot/RESEARCH_COPILOT_REQUIREMENTS.md, Q1 and FR-RC-13).
+    {"_id": "t_financial_trend", "label": "A company's financial trend", "query": "What is the financial trend of {symbol}?",
+     "intent": "financial_trend", "tab": "for_you", "audience": ["investor", "trader"], "params": ["symbol"]},
+    {"_id": "t_valuation_view", "label": "A company's valuation", "query": "What is the valuation of {symbol}?",
+     "intent": "valuation_view", "tab": "for_you", "audience": ["investor", "trader"], "params": ["symbol"]},
+    {"_id": "t_ownership_trend", "label": "Who owns a company, over time", "query": "Has promoter holding of {symbol} changed over time?",
+     "intent": "ownership_trend", "tab": "for_you", "audience": ["investor", "trader"], "params": ["symbol"]},
+    {"_id": "t_peer_compare", "label": "A company against its peers", "query": "Compare {symbol} with its peers",
+     "intent": "peer_compare", "tab": "for_you", "audience": ["investor", "trader"], "params": ["symbol"]},
+    {"_id": "t_company_risks", "label": "A company's financial health checks", "query": "What are the biggest risks for {symbol}?",
+     "intent": "company_risks", "tab": "for_you", "audience": ["investor", "trader"], "params": ["symbol"]},
 ]
 
 # `trigger` names an evaluator in rules.py; `inputs` are the sources it reads (inputs.py), each gated by `freshness`

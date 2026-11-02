@@ -1067,7 +1067,8 @@ CAPTURE = Path(__file__).resolve().parents[2] / "frontend-v5" / "e2e" / "fixture
 def test_c2_the_staging_capture_matches_the_contract():
     doc = json.loads(CAPTURE.read_text(encoding="utf-8"))
     assert "REAL staging capture" in doc["about"]
-    assert set(doc["payloads"]) == set(builders.BUILDERS)
+    from services.copilot_visual.research_intents import RESEARCH_INTENTS     # their capture: tests/fixtures/research_visual_capture.json
+    assert set(doc["payloads"]) == set(builders.BUILDERS) - set(RESEARCH_INTENTS)
     for intent, p in doc["payloads"].items():
         assert p["intent"] == intent and validate(p) == [], (intent, validate(p))
 
