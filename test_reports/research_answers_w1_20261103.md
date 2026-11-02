@@ -2,7 +2,7 @@
 
 - **Branches:**
   - **Round 1:** `feat/research-answers-w1` was merged as **#458** at 101b98b4 (owner, 2 Nov 22:42 UTC) and deployed to staging (backend container restarted 22:46 UTC).
-  - **Round 2 (this report):** `feat/research-answers-w1-r2`, from origin/dev 19d8d974, code at e47d1e51. It carries the owner's 3 Nov rules and the fixes to defects found in the deployed round 1.
+  - **Round 2 (this report):** `feat/research-answers-w1-r2`, from origin/dev 19d8d974, code at 22652a54. It carries the owner's 3 Nov rules and the fixes to defects found in the deployed round 1.
 - **Date:** 2026-11-03
 - **Author:** Claude (Full stack developer + QA engineer; domain and SEBI-wording review)
 - **Environment:** staging. Branch code ran in-process inside `nivesh-staging-app-backend` from a scratch copy, against the live staging DaaS and the NIDP warehouse, read-only. Nothing was deployed or restarted. The scratch copy was deleted after each run.
@@ -41,7 +41,7 @@ Round 1 (#458) added five deterministic visual answers: `financial_trend`, `valu
 | TC-R1 | routing | 101 owner questions × 3 fillers; with thread stock TCS; with no company and no thread (on the new dev base) | unit | 100% | **PASS**: 303/303, 101/101, 101/101 |
 | TC-R2…R6 | routing | Thesis not trade_validity; ownership trend vs event; thread stock; market-wide; multi-company; acronyms | unit | as stated | **PASS** |
 | TC-R7 | regression | 11 existing Copilot, suggestions and agent suites (on dev 19d8d974 + this branch) | unit | all pass | **PASS**: 720 passed |
-| TC-B11 | explanation (new) | Research card explained from the card alone (no tool reads, research prompt, wording rule); an ordinary stock question unchanged; real model on branch code for the five questions | unit + real model | 0 lint hits, card figures only | **PASS**: unit; real model 5/5 clean |
+| TC-B11 | explanation (new) | Research card explained from the card alone (no tool reads, research prompt, wording rule); an ordinary stock question unchanged; real model on branch code for the five questions | unit + real model | 0 lint hits, card figures only | **PASS**: unit (incl. a lint over the whole explanation request: advice words appear only in the user's question and in the two instructions that forbid them; the non-research path keeps `_SYSTEM`, its tools and no research text); real model 5/5 clean |
 | TC-B1…B6, B8, B9 | builders | As in round 1 (trend, valuation, ownership, peers, risk checks, freshness, registration, failure) | unit | as stated | **PASS** |
 | TC-B3+ | ownership (new) | Fund-house reader calls `/desk/smart-money/amc`; figures hidden when the total disagrees with the filing (notice gives both numbers); read failure → named missing source | unit + real data | as stated | **PASS**: 9 of 9 real companies hidden with the notice; TIMEX has no fund-house holding |
 | TC-B5+ | risk checks (new) | An untagged balance-sheet row reads "provider not recorded on the row" | unit | as stated | **PASS** |
@@ -90,7 +90,7 @@ S1 | What are the biggest risks for ADANIPORTS? | company_risks:ADANIPORTS | val
 S1 | What are the biggest risks for ITC?        | company_risks:ITC   | valid=True | missing=0 | 2 of the 11 checks that could run are flagged for ITC: EBITDA margin trend; Piotroski F-score.
 P  | What are the biggest risks for TCS?        | company_risks:TCS   | valid=True | missing=0 | None of the 5 checks that could run is flagged for TCS; 8 could not run for lack of data.
 COMPLIANCE LINT over 96 real payloads + facts: 0 hits []
-TOTAL builds: 96 contract problems: 0 max secs: 3.88   (final run on e47d1e51; the earlier run on 5f70e2bc: 3.39)
+TOTAL builds: 96 contract problems: 0 max secs: 3.88   (final run on the code of 22652a54, whose last commit only changed tests; the earlier run on 5f70e2bc: 3.39)
 ```
 
 **Fund-house cross-check on real data.** Every company in the sample with fund-house holdings was hidden, with a notice:
@@ -118,8 +118,10 @@ The double count was measured on the warehouse: TCS has 658 scheme entries for S
 **Real capture** `backend/tests/fixtures/research_visual_capture.json` was re-taken from this run (9 payloads, including `company_risks:production`). Its test checks the contract, the lint, the live cash-flow route, the fund-house mismatch notice and the production shape.
 
 **pytest** (throwaway `nivesh/backend:staging` container, `--network none`, on dev 19d8d974 + this branch):
-- `python -m pytest tests/test_copilot_research_answers.py -q -p no:cacheprovider` → `587 passed, 2 warnings in 6.20s`
+- `python -m pytest tests/test_copilot_research_answers.py -q -p no:cacheprovider` → `588 passed, 2 warnings in 6.57s`
 - `python -m pytest tests/test_copilot_visual.py tests/test_copilot_visual_chat.py tests/test_copilot_events.py tests/test_copilot_prompts_mode.py tests/test_copilot_trade_idea.py tests/test_quick_hedge_chat.py tests/test_open_book.py tests/test_broker_trades.py tests/test_suggestions.py tests/test_copilot_agents_oneshot.py tests/test_chat_persona_routing.py -q -p no:cacheprovider` → `720 passed, 2 warnings in 44.17s`
+
+**Other suites that use the stock node** (`tests/test_copilot_symbol_resolution.py`, `tests/test_llm_input_hardening.py`, `tests/test_copilot_trade_idea.py`), branch vs a `git archive` of origin/dev in the same image: both trees give `1 failed, 94 passed`, with the same failure, `test_copilot_symbol_resolution.py::test_stock_node_asks_when_no_symbol`. It is pre-existing and not in the CI allowlist.
 
 ### CI: "Backend unit tests (allowlist)", side by side
 
@@ -133,7 +135,8 @@ python -m pytest -q -p no:cacheprovider -rfE --tb=line $(allowlist)
 |---|---|---|
 | untouched origin/dev 19d8d974 | 296 | `3 failed, 8151 passed, 34 skipped, 15 warnings in 235.15s` (exit 1) |
 | this branch 5f70e2bc | 297 (+ `tests/test_copilot_research_answers.py`) | `3 failed, 8736 passed, 34 skipped, 15 warnings in 235.92s` (exit 1) |
-| this branch e47d1e51 (final) | 297 | `3 failed, 8739 passed, 34 skipped, 15 warnings in 352.61s` (exit 1); the same three failures |
+| this branch e47d1e51  | 297 | `3 failed, 8739 passed, 34 skipped, 15 warnings in 352.61s` (exit 1); the same three failures |
+| this branch 22652a54 (final code), run with nothing else on the VM | 297 | `3 failed, 8739 passed, 34 skipped, 15 warnings in 264.22s` (exit 1); the same three failures; 8,739 = dev's 8,151 + this branch's 588 |
 
 The failures are identical and pre-existing (`diff` of the sorted `FAILED` lines is empty):
 
@@ -143,7 +146,7 @@ The failures are identical and pre-existing (`diff` of the sorted `FAILED` lines
 | `nidp/tests/shared/test_truedata_client.py::test_sw7_shipped_switch_keeps_truedata_off` | `assert ('shadow' == 'current'` |
 | `tests/test_move_odds_filing_analysis.py::test_tc10_tc11_route_gate_validation_and_payload` | `IndexError: list index out of range` |
 
-The +585 passing tests on the branch are exactly this branch's test file. The same comparison on the earlier dev tip 1beb5c92 gave 3 = 3 as well (8,112 vs 8,705). UNVERIFIED: GitHub's runner failure list (logs unreadable); the local run uses the staging image's dependency set, not a fresh `uv pip install`.
+The +585 passing tests on the branch are exactly this branch's test file. One run of 22652a54 made while another test run shared the VM's CPUs also failed `tests/test_symbol_lookup.py::test_warm_search_is_fast_on_a_large_universe`, a wall-clock test. Alone it passed 3 times out of 3 (`37 passed`), the branch does not touch symbol lookup, and the uncontended full run above does not fail it. The same comparison on the earlier dev tip 1beb5c92 gave 3 = 3 as well (8,112 vs 8,705). UNVERIFIED: GitHub's runner failure list (logs unreadable); the local run uses the staging image's dependency set, not a fresh `uv pip install`.
 
 **Another measurement of dev's allowlist.** The PR #455 agent counted 6 pre-existing failures on dev: MS-11, SW-7, `test_cas_api_client` ×2, `test_move_odds_filing_analysis` TC-10/11 and `test_nidp_stamp_broadcast_at`. In the `nivesh/backend:staging` image used here, dev has 3 (MS-11, SW-7, TC-10/11). The other three pass in this image, so they depend on the environment (the dependency set or env). Either way, this branch adds no failure in the same environment: 3 = 3 here. Not re-run in a fresh `uv` install, because the VM disk is at 3 GB free and no new image was built.
 
@@ -239,7 +242,7 @@ The live DaaS cash-flow rows equal the warehouse rows (52,094 / −4,078 for FY2
 ## Unverified
 
 - **UNVERIFIED: live chat on staging (TC-S5).**
-- **UNVERIFIED: the stock analyst's prose** against `WORDING_RULE`; no LLM call was made.
+- **UNVERIFIED: the round-2 explanation in live chat.** The real model was checked in-process on branch code (5/5 clean, above); the live chat path for round 2 runs after merge and deploy. `WORDING_RULE` and the research prompt instruct the model; they do not guarantee its output. A deterministic word filter would; that belongs to the compliance node (the separate compliance-wording work), not this PR.
 - **UNVERIFIED: production** itself; the production shape was simulated on staging data.
 - **UNVERIFIED: the desk Smart Money page's AMC figures.**
 - **UNVERIFIED: Playwright rendering.**
