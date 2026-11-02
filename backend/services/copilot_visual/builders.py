@@ -1700,6 +1700,10 @@ BUILDERS.update(_EVENT_BUILDERS)
 from .screen_builders import BUILDERS as _SCREEN_BUILDERS  # noqa: E402
 BUILDERS.update(_SCREEN_BUILDERS)
 
+# Research Copilot W1 (2 Nov 2026): financial_trend, valuation_view, ownership_trend, peer_compare, company_risks.
+from .research_builders import BUILDERS as _RESEARCH_BUILDERS  # noqa: E402
+BUILDERS.update(_RESEARCH_BUILDERS)
+
 
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",
                 trade_idea: Any = None, now: Any = None) -> Dict[str, Any]:

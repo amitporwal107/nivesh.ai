@@ -48,6 +48,7 @@ from . import readers
 from .builders import BUILDERS, build
 from .intents import INTENTS, Intent, last_symbol_from, resolve_intent, stock_in, wants_thread_symbol
 from .payload import facts, validate
+from .research_intents import RESEARCH_INTENTS
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,10 @@ AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "
              "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
              "daily_review": "market_analyst", "sector_rotation": "market_analyst",
              "results_calendar": "market_analyst", "event_intelligence": "market_analyst",
-             "portfolio_hedge": "portfolio_analyst", "screen_stocks": "market_analyst"}
+             "portfolio_hedge": "portfolio_analyst", "screen_stocks": "market_analyst",
+             # Research Copilot W1: a company's own figures, explained by the stock analyst (research_builders.py).
+             "financial_trend": "stock_analyst", "valuation_view": "stock_analyst", "ownership_trend": "stock_analyst",
+             "peer_compare": "stock_analyst", "company_risks": "stock_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 
@@ -122,5 +126,5 @@ async def prepare(request: Any, user: Dict[str, Any], message: str, persona: Opt
     except Exception as e:  # noqa: BLE001 — the question then takes the usual path (with the plan, if one was built)
         logger.warning("copilot visual: %s answer not built: %s", intent.name, type(e).__name__, exc_info=True)
         return VisualAnswer(intent, agent, None, None, idea) if idea is not None else None
-    subject = intent.symbol if intent.name == "stock_decision" else None
+    subject = intent.symbol if intent.name == "stock_decision" or intent.name in RESEARCH_INTENTS else None
     return VisualAnswer(intent, agent, widget_for(payload, agent), facts(payload, subject=subject), idea)
