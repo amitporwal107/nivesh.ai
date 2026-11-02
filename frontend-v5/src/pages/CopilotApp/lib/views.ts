@@ -78,13 +78,34 @@ export function allToolsNav(mode: Mode): NavItem[] {
 }
 
 /**
- * The tools the Trader rail lists: the Smart trading desk only (the owner's decision of 2026-10-27, 16:30). The Screener,
- * Stock research and Sector rotation are views of its Market Desk, and in Trader mode their old routes open those views
- * (index.tsx, screens/tradingdesk/desk-nav.ts TRADER_TOOL_TO_DESK). The other Trader screens remain reachable by URL.
+ * The tools the Trader rail lists: the Smart trading desk (the owner's decision of 2026-10-27, 16:30) and, since 2026-11-01
+ * (docs/plans_20261031/SCREENER_WATCHLIST_PLAN.md, slice W1), two rows that open desk views directly: Screener (Market Desk)
+ * and Watchlists (Trade Desk). Stock research and Sector rotation are still only views of the Market Desk, and in Trader mode
+ * their old routes open those views (index.tsx, screens/tradingdesk/desk-nav.ts TRADER_TOOL_TO_DESK). The other Trader screens
+ * remain reachable by URL.
  */
 const TRADER_RAIL_TOOLS: NavItem[] = [
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
+  { view: "trader/desk?tab=market&view=screener", label: "Screener" },
+  { view: "trader/desk?tab=trade&view=watchlists", label: "Watchlists" },
 ];
+
+/**
+ * Which row of `items` is the current page. A row's `view` may carry a query ("trader/desk?tab=market&view=screener"): it matches
+ * when the path is the same and every one of its params is in `search`. A row with no query (the desk's own row) is current only
+ * when no sibling row with the same path matches, so the desk row does not stay lit while Screener is open.
+ */
+export function isNavCurrent(item: NavItem, items: NavItem[], view: string, search = ""): boolean {
+  const [path, query = ""] = item.view.split("?");
+  if (path !== view) return false;
+  const have = new URLSearchParams(search);
+  const matches = (q: string) => {
+    for (const [k, v] of new URLSearchParams(q)) if (have.get(k) !== v) return false;
+    return true;
+  };
+  if (query) return matches(query);
+  return !items.some((o) => o !== item && o.view.startsWith(`${path}?`) && matches(o.view.split("?")[1]));
+}
 
 /** Tools shown in the rail for a mode. */
 export function toolsNav(mode: Mode): NavItem[] {

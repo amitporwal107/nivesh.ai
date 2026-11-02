@@ -201,7 +201,6 @@ export default function HomepagePage() {
               </button>
             </div>
             <div className="trust h-rv d3">
-              <span>SEBI-aligned</span>
               <span>Read-only access</span>
               <span>No card needed</span>
             </div>
@@ -391,7 +390,7 @@ export default function HomepagePage() {
         <section className="wrap section" style={{ paddingTop: 0 }}>
           <div className="cta-band rv">
             <p className="eyebrow" style={{ marginBottom: 16 }}>
-              <b>★</b> SEBI-aligned · ARN-128459
+              <b>★</b> Read-only · ARN-128459
             </p>
             <h2>
               Make your portfolio <em>legible</em> today.
@@ -416,7 +415,7 @@ export default function HomepagePage() {
             <span className="nvx-mark">न</span>
             <b>Nivesh Copilot</b>
           </a>
-          <span className="meta">SEBI-aligned · ARN-128459 · India-hosted (Bangalore)</span>
+          <span className="meta">ARN-128459 · India-hosted (Bangalore)</span>
           <nav className="flinks">
             <a onClick={() => navigate("/blog")}>Blog</a>
             <a onClick={() => navigate("/login")}>Sign in</a>

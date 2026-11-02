@@ -39,6 +39,12 @@ F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
     margin_calculators  Zerodha's margin calculator: the platform's Kite login, else the user's own Zerodha session
     fno_margins         one basket-margin call per structure
 
+Stock screens (1 Nov 2026; services/copilot_visual/screen_builders.py):
+    screen_vocabulary   the recommendation node's own metric vocabulary (the words a rule is written in), so a rule means the same
+                        thing in the chat's legacy screener and here
+    screen_labels       the Screener catalog's metric labels (key → label) and units
+    screen_run          services.screener_run.run_screen — the code behind POST /api/screeners/run (the day's nidp.stock_features_daily)
+
 Broker book (owner, 31 Oct 2026; services/positions/book.py, services/copilot_visual/open_book.py):
     open_book           every connected broker account's state, net positions (or the last stored read), funds, the groups worked
                         out by the positions service, and the plan the user recorded: Mongo broker_accounts / position_snapshots /
@@ -72,7 +78,7 @@ Release 3:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 
@@ -120,6 +126,24 @@ async def sector_constituents(index: str) -> Dict[str, Any]:
     if not isinstance(body, dict) or not body.get("available") or not isinstance(body.get("rows"), list):
         raise RuntimeError((body or {}).get("reason") if isinstance(body, dict) and body.get("reason") else f"no constituents for {index}")
     return body
+
+
+def screen_vocabulary() -> Tuple[Any, str, str]:
+    """(metric table, over-words, under-words) from the recommendation node, which owns the screening vocabulary."""
+    from nidp.services.copilot_agent.nodes import recommendation as _node
+    return _node._SCREEN_METRICS, _node._MIN_WORDS, _node._MAX_WORDS
+
+
+def screen_labels() -> Dict[str, str]:
+    """The Screener's metric labels by widget key ("roe" → "ROE", "de" → "Debt / Equity")."""
+    from services import screener_run
+    return dict(screener_run.metric_catalog()["filter_labels"])
+
+
+async def screen_run(request: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the Screener's screen: `request` is the body POST /api/screeners/run takes (conditions / bucket / sector)."""
+    from services import screener_run
+    return await screener_run.run_screen(screener_run.ScreenRunRequest(**request))
 
 
 async def chain(request: Any, symbol: str) -> Dict[str, Any]:

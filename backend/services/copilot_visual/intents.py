@@ -36,6 +36,12 @@ Results and market-research events (31 Oct 2026):
                        the desk's chips read (Announcements, Results, Calls & guidance, Orders, M&A & actions, Ownership,
                        Bulk & block, Regulatory, Exchange notices), `params.category` = the chip, an optional stock
 
+Stock screens (1 Nov 2026, plan W4):
+    screen_stocks      "Screen large cap stocks with ROE over 20 and debt to equity under 0.5", "stocks with P/E under 15 and
+                       dividend yield above 3" — the Screener's own screen run on the day's data (the same code as the page,
+                       services/screener_run.py), with the rules as understood printed first and every word that was not
+                       used listed; the model never sees a result or runs anything
+
 Not ours (None): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book, not the
 paper-trading desk's), averaging a position, "what should I avoid today" (Q14, not built).
 
@@ -50,7 +56,7 @@ from typing import Any, Dict, Iterable, Optional
 
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
            "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review",
-           "sector_rotation", "results_calendar", "event_intelligence", "portfolio_hedge")
+           "sector_rotation", "results_calendar", "event_intelligence", "portfolio_hedge", "screen_stocks")
 # Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
 SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
@@ -203,6 +209,22 @@ def hedge_params(message: str) -> Dict[str, Any]:
 
 
 # ── Release 3 ────────────────────────────────────────────────────────────────
+# A screening sentence: the word "screen" with stocks, or stocks "with/where …" a screening metric over/under a number.
+# Tight on purpose: a question that only mentions a metric ("what is ROE?") or stocks ("which stocks are good?") is not a
+# screen. The rules themselves are read by screen_spec.parse; this only decides that the question is one.
+_STOCKS = r"(?:stocks?|compan(?:y|ies)|shares?|scrips?)"
+_SCREEN_A = re.compile(rf"\bscreen(?:er|ing)?\b.{{0,60}}\b{_STOCKS}\b|\b{_STOCKS}\b.{{0,40}}\bscreen(?:er|ing)?\b|^\s*screen\b", re.I)
+_SCREEN_METRIC = (r"(?:roe|roce|p\s*/?\s*e|p\s*/?\s*b|ev\s*/?\s*ebitda|debt|d\s*/\s*e|dividend|yield|market\s+cap|mcap|rsi|beta|"
+                  r"volatility|momentum|accumulation|drawdown|margin|growth|promoter|pledge|fii|dii|return|interest\s+cover|liquidity)")
+_SCREEN_THRESHOLD = r"(?:over|above|greater\s+than|more\s+than|at\s+least|under|below|less\s+than|at\s+most|higher\s+than|lower\s+than|[<>])\s*-?\d"
+_SCREEN_B = re.compile(rf"\b{_STOCKS}\b.{{0,50}}\b(?:with|where|having|whose|(?:that\s+|which\s+)?(?:have|has))\b.{{0,80}}\b{_SCREEN_METRIC}\b.{{0,30}}{_SCREEN_THRESHOLD}", re.I)
+_SCREEN_CONCEPT = re.compile(r"^\s*(what\s+(is|are|does|do)|explain|define|meaning\s+of|how\s+(does|do)\s+(a|the)?\s*screen)\b", re.I)
+
+
+def _is_screen(msg: str) -> bool:
+    return not _SCREEN_CONCEPT.search(msg) and bool(_SCREEN_A.search(msg) or _SCREEN_B.search(msg))
+
+
 _DAILY_REVIEW = re.compile(
     r"\blearn(ed|t)?\s+from\b|\bwhat\s+did\s+i\s+learn\b|\bhow\s+did\s+i\s+do\b|"
     r"\bmistakes?\b.{0,25}\b(today|this\s+week|trades?|trading)\b|\bmy\s+mistakes\b|"
@@ -454,6 +476,9 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
     if _DAILY_REVIEW.search(msg):
         # Before the stock read: "how did I do on the TCS trade today?" is the day's review (TCS is one of its rows).
         return Intent("daily_review", params={"period": "week" if _WEEK.search(msg) else "day"})
+    if _is_screen(msg):
+        # Before the stock read: "screen large cap stocks with ROE over 20" names a metric, not a company.
+        return Intent("screen_stocks")
     sym = stock_in(msg)
     if _EXPECTED_MOVE.search(msg) and sym is None:
         return Intent("expected_move", symbol=_index_of(msg))

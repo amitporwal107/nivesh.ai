@@ -35,7 +35,7 @@ export default function MarketingShell({
               <span className="nv-serif" style={{ fontSize: 21 }}>Nivesh</span>
             </div>
             <p style={{ fontSize: 13, color: "var(--ink-3)", lineHeight: 1.6, marginTop: 16, maxWidth: 280 }}>
-              Your portfolio, finally legible. Read-only, SEBI-aligned analysis that
+              Your portfolio, finally legible. Read-only analysis that
               tells you what to fix and why.
             </p>
             <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 18, letterSpacing: ".06em" }}>

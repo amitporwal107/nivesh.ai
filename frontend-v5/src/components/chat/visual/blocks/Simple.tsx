@@ -41,7 +41,7 @@ export function ListView({ b }: BlockProps<ListBlock>) {
   );
 }
 
-/** What the reader can do about a notice. The platform's Kite login is an admin's step (it is the day's feed login for every
+/** What the reader can do about a notice ("Open in Screener" carries the rules). The platform's Kite login is an admin's step (it is the day's feed login for every
  *  user), so only an admin gets that button; anyone can connect their own broker or set up their risk profile, which need the
  *  app shell to move to. */
 function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"]> }) {
@@ -50,7 +50,12 @@ function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"
   const [failed, setFailed] = useState(false);
   const shown = actions.filter((a) => (a.kind === "kite_login" ? !!shell?.isAdmin : !!shell));
   if (!shown.length) return null;
-  const run = async (kind: string) => {
+  const run = async (kind: string, query?: string) => {
+    if (kind === "open_screener") {                                                                       // the Screener, with the rules that were run (Trader: Market Desk › Screener)
+      const base = shell?.mode === "trader" ? "trader/desk?tab=market&view=screener" : "tool/screener";
+      shell?.go(query ? `${base}${base.includes("?") ? "&" : "?"}${query}` : base);
+      return;
+    }
     if (kind === "connect_broker") { shell?.go("page/brokers"); return; }
     if (kind === "set_risk_profile") { shell?.go("trader/desk?tab=risk&view=controls"); return; }        // Risk Desk › Controls & profile: the profile's change form lives here; Limits only shows used vs left
     if (kind === "open_market_intel") { shell?.go("trader/desk?tab=market&view=intel"); return; }        // Market Desk › Market Intelligence
@@ -61,7 +66,7 @@ function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"
     <span className="inline-flex flex-wrap items-center" style={{ gap: 8, marginTop: 6 }}>
       {shown.map((a) => (
         <button key={a.kind} type="button" data-testid={`va-notice-action-${a.kind}`} className="cp-btn" data-variant="ghost" disabled={busy && a.kind === "kite_login"}
-          onClick={() => void run(a.kind)} style={{ padding: "3px 10px", fontSize: 12 }}>
+          onClick={() => void run(a.kind, a.query)} style={{ padding: "3px 10px", fontSize: 12 }}>
           {a.kind === "kite_login" && failed ? "Login link failed, retry" : a.label}
         </button>
       ))}

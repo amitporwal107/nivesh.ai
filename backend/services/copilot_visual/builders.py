@@ -1696,6 +1696,10 @@ BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportu
 from .events_builders import BUILDERS as _EVENT_BUILDERS  # noqa: E402
 BUILDERS.update(_EVENT_BUILDERS)
 
+# Stock screens (owner, 1 Nov 2026): screen_builders.py.
+from .screen_builders import BUILDERS as _SCREEN_BUILDERS  # noqa: E402
+BUILDERS.update(_SCREEN_BUILDERS)
+
 
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",
                 trade_idea: Any = None, now: Any = None) -> Dict[str, Any]:
