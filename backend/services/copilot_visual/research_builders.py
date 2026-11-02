@@ -729,7 +729,7 @@ async def ownership_trend(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
         blocks.extend(hold.notices(sym))
     _amc_blocks(sym, amc, e_a, src, blocks)
     gaps = ["Promoter trades one by one: the insider-trading table is empty; the exchange filings (ask for ownership filings) list SAST and pledge disclosures",
-            "Which FIIs entered or exited: FII holdings are reported only as a category total",
+            "Which FIIs started or ended a holding: FII holdings are reported only as a category total",
             "Mutual-fund holdings before September 2025"]
     blocks.append(block("list", "gaps", "Not in our data", None, items=[{"text": t} for t in gaps]))
     as_of = _newest(*(r.get("as_of") for r in src.rows))

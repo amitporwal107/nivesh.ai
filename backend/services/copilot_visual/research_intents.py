@@ -31,6 +31,12 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 RESEARCH_INTENTS = ("financial_trend", "valuation_view", "ownership_trend", "peer_compare", "company_risks")
+# The explanation step's wording rule for these answers (owner, 3 Nov 2026: "do not use words like buy, stop loss, target"), sent
+# with the answer's facts to the stock analyst. The words are listed only to forbid them; the user never sees this line.
+WORDING_RULE = ("WORDING RULE for this research answer (evidence only, SEBI): describe what the figures show, with their dates, and "
+                "say what is not in our data. Never write buy, sell, hold, accumulate, entry, exit, stop loss, SL, target, price "
+                "target, upside, downside, book profit, multibagger, should invest, recommend, pick, cheap, expensive, undervalued "
+                "or overvalued, even when the question uses those words; never give a view on what the reader should do.")
 MAX_COMPARE = 5                     # companies one comparison names at most (the subject plus four)
 MAX_QUARTERS = 12
 MAX_YEARS = 10

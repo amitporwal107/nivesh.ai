@@ -48,7 +48,7 @@ from . import readers
 from .builders import BUILDERS, build
 from .intents import INTENTS, Intent, last_symbol_from, resolve_intent, stock_in, wants_thread_symbol
 from .payload import facts, validate
-from .research_intents import RESEARCH_INTENTS
+from .research_intents import RESEARCH_INTENTS, WORDING_RULE
 
 logger = logging.getLogger(__name__)
 
@@ -127,4 +127,7 @@ async def prepare(request: Any, user: Dict[str, Any], message: str, persona: Opt
         logger.warning("copilot visual: %s answer not built: %s", intent.name, type(e).__name__, exc_info=True)
         return VisualAnswer(intent, agent, None, None, idea) if idea is not None else None
     subject = intent.symbol if intent.name == "stock_decision" or intent.name in RESEARCH_INTENTS else None
-    return VisualAnswer(intent, agent, widget_for(payload, agent), facts(payload, subject=subject), idea)
+    text = facts(payload, subject=subject)
+    if intent.name in RESEARCH_INTENTS:
+        text += "\n" + WORDING_RULE                 # the explanation follows the answers' evidence-only wording
+    return VisualAnswer(intent, agent, widget_for(payload, agent), text, idea)
