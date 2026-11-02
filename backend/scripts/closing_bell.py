@@ -13,6 +13,10 @@ Commands
   revoke --token-file PATH        delete that session (token read from the file)
   ready --date D                  is D a finished trading day? JSON on stdout, exit 0 ready / 3 not yet
   collect --date D --token-file P everything the bulletin says, as one JSON bundle on stdout
+  ready-open --date D             Opening Bell for the morning of D: is the previous session's data in?
+  collect-open --date D --token-file P   the previous session's bundle + Nifty option-chain levels, today's results
+                                  and their option chains, MCX crude/gold (TrueData); the pre-open is fetched later
+                                  by the tools (tools/closing_bell/preopen.py)
   notify                          JSON {date, status, reasons, url} on stdin -> Mongo `closing_bell_runs` + alert on
                                   hold/fail (operator channels, else the app mailer to CLOSING_BELL_ALERT_EMAIL_TO or
                                   KITE_TOKEN_ALERT_EMAIL_TO)
@@ -227,17 +231,96 @@ async def collect(d: str, token: str) -> Dict[str, Any]:
     return bundle
 
 
+# ---------------------------------------------------------------- Opening Bell (the morning of D)
+async def holidays_around(d: date) -> List[str]:
+    out: List[str] = []
+    for m in sorted({d.strftime("%Y-%m"), (d.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")}):
+        cal = await daas("/desk/macro-calendar", {"month": m})
+        if isinstance(cal, dict):
+            out += [h.get("date") for h in cal.get("holidays") or [] if h.get("date")]
+    return out
+
+
+def prev_trading_day(d: date, holidays: List[str]) -> date:
+    hol = set(holidays)
+    p = d - timedelta(days=1)
+    while p.weekday() >= 5 or p.isoformat() in hol:
+        p -= timedelta(days=1)
+    return p
+
+
+async def readiness_open(d: str) -> Dict[str, Any]:
+    """Ready = D is a trading day, and the previous session P has its snapshot, Top 10 list and Nifty option chain."""
+    day = date.fromisoformat(d)
+    hol = await holidays_around(day)
+    no_session = day.weekday() >= 5 or d in hol
+    p = prev_trading_day(day, hol).isoformat()
+    prev = await readiness(p)
+    ch = await daas("/fno/NIFTY/chain")
+    chain_ok = isinstance(ch, dict) and str(ch.get("as_of"))[:10] == p and bool(ch.get("strikes"))
+    return {"date": d, "prev": p, "kind": "opening", "no_session": no_session,
+            "ready": bool(not no_session and prev["snapshot_ready"] and prev["ideas_list"] and chain_ok),
+            "snapshot_ready": prev["snapshot_ready"], "ideas_list": prev["ideas_list"], "chain_ready": chain_ok}
+
+
+def mcx_bars(day: date) -> Dict[str, Any]:
+    """Last few MCX end-of-day bars for crude oil and gold (continuous near-month futures, TrueData)."""
+    from nidp.shared.sources.truedata import TrueDataClient
+    c = TrueDataClient()
+    if not c.configured:
+        return {"_error": "TrueData not configured"}
+    out: Dict[str, Any] = {}
+    start = datetime.combine(day - timedelta(days=12), datetime.min.time())
+    end = datetime.combine(day, datetime.min.time()) - timedelta(seconds=1)   # bars strictly before the morning of D
+    for sym in ("CRUDEOIL-I", "GOLD-I"):
+        try:
+            out[sym] = c.bars(sym, start, end, "eod")
+        except Exception as e:  # noqa: BLE001 — a missing commodity line is dropped by cards, not fatal
+            _err(f"truedata {sym}: {type(e).__name__}")
+            out[sym] = {"_error": type(e).__name__}
+    return out
+
+
+async def collect_open(d: str, token: str) -> Dict[str, Any]:
+    import httpx
+    day = date.fromisoformat(d)
+    p = prev_trading_day(day, await holidays_around(day)).isoformat()
+    bundle = await collect(p, token)                       # everything about the previous session, as the Closing Bell reads it
+    async with httpx.AsyncClient(timeout=120, headers={"Authorization": f"Bearer {token}"}) as c:
+        rw = await desk(c, "/api/desk/results-week", {"date": d})
+    rows = (rw.get("results") or []) if isinstance(rw, dict) else []
+    due = [r for r in rows if r.get("event_date") == d and r.get("fno")]
+    weight = {s["symbol"]: s.get("weight_pct") or 0 for s in (((bundle.get("heatmaps") or {}).get("NIFTY500") or {}).get("stocks") or [])}
+    due.sort(key=lambda r: -weight.get(r["symbol"], 0))
+    chains = {"NIFTY": await daas("/fno/NIFTY/chain")}
+    for r in due[:4]:
+        chains[r["symbol"]] = await daas(f"/fno/{r['symbol']}/chain")
+    bundle["open"] = {
+        "date": d, "prev": p,
+        "results_today": [{"symbol": r["symbol"], "name": r.get("name"), "status": r.get("status"), "filed_at": r.get("filed_at")} for r in due],
+        "results_today_http": rw.get("_http") if isinstance(rw, dict) else None,
+        "chains": chains,
+        "mcx": mcx_bars(day),
+    }
+    bundle["meta"]["open_date"] = d
+    bundle["meta"]["schema"] = "opening-bell-bundle-v1"
+    return bundle
+
+
 # ---------------------------------------------------------------- run record + alert
 async def notify(summary: Dict[str, Any]) -> Dict[str, Any]:
     import html
     import os
     from deps import db
     status = summary.get("status")
-    doc = {**summary, "recorded_at": datetime.now(timezone.utc).isoformat()}
-    await db.closing_bell_runs.update_one({"date": summary.get("date")}, {"$set": doc}, upsert=True)
+    kind = summary.get("kind") or "closing"
+    doc = {**summary, "kind": kind, "recorded_at": datetime.now(timezone.utc).isoformat()}
+    # closing runs recorded before the Opening Bell existed have no `kind`; keep matching them by date
+    key = {"date": summary.get("date"), "kind": "opening"} if kind == "opening" else {"date": summary.get("date"), "kind": {"$ne": "opening"}}
+    await db.closing_bell_runs.update_one(key, {"$set": doc}, upsert=True)
     fired: List[str] = []
     if status in ("held", "failed", "missed"):
-        subject = f"Closing Bell {summary.get('date')}: {status.upper()} — not published"
+        subject = f"{'Opening' if kind == 'opening' else 'Closing'} Bell {summary.get('date')}: {status.upper()} — not published"
         body = "\n".join([f"Status: {status}", f"Date: {summary.get('date')}", "Reasons:"]
                          + [f"  - {r}" for r in summary.get("reasons") or []] + ["", f"Log: {summary.get('log', '')}"])
         from nidp.shared import notify as n
@@ -257,7 +340,7 @@ async def notify(summary: Dict[str, Any]) -> Dict[str, Any]:
                     fired.append("app_email")
             except Exception as e:  # noqa: BLE001 — the run record above still carries the status
                 _err(f"app mailer failed: {type(e).__name__}")
-        await db.closing_bell_runs.update_one({"date": summary.get("date")}, {"$set": {"alert_channels": fired}})
+        await db.closing_bell_runs.update_one(key, {"$set": {"alert_channels": fired}})
     return {"recorded": True, "alert_channels": fired}
 
 
@@ -270,6 +353,8 @@ def main() -> int:
     r = sub.add_parser("revoke"); r.add_argument("--token-file", required=True)
     rd = sub.add_parser("ready"); rd.add_argument("--date", required=True)
     co = sub.add_parser("collect"); co.add_argument("--date", required=True); co.add_argument("--token-file", required=True)
+    ro = sub.add_parser("ready-open"); ro.add_argument("--date", required=True)
+    co2 = sub.add_parser("collect-open"); co2.add_argument("--date", required=True); co2.add_argument("--token-file", required=True)
     sub.add_parser("notify")
     a = ap.parse_args()
 
@@ -284,6 +369,13 @@ def main() -> int:
         res = asyncio.run(readiness(a.date))
         print(json.dumps(res))
         return 0 if res["ready"] else 3
+    elif a.cmd == "ready-open":
+        res = asyncio.run(readiness_open(a.date))
+        print(json.dumps(res))
+        return 0 if res["ready"] else 3
+    elif a.cmd == "collect-open":
+        tok = Path(a.token_file).read_text().strip()
+        print(json.dumps(asyncio.run(collect_open(a.date, tok)), default=str))
     elif a.cmd == "notify":
         print(json.dumps(asyncio.run(notify(json.loads(sys.stdin.read())))))
     elif a.cmd == "collect":

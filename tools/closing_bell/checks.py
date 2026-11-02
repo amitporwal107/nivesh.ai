@@ -9,7 +9,7 @@ Three groups of checks; any failure holds the edition back (nothing is published
           reached every desk screen (no login page, no action errors)
 
 usage:
-  python3 checks.py script CARDS.json SCRIPT.json            -> JSON report, exit 0 pass / 1 fail
+  python3 checks.py script CARDS.json SCRIPT.json [--require-preopen]   -> JSON report, exit 0 pass / 1 fail
   python3 checks.py media  REPORT_media.json TIMELINE.json RAW_DIR   (REPORT_media from pipeline's ffprobe)
 """
 from __future__ import annotations
@@ -37,7 +37,27 @@ CONTEXT_OK = [
 BLOCKING_GAPS = ("index closes missing", "heatmap", "sector index returns", "Top 10 list")
 
 
-def check_data(cards: Dict[str, Any]) -> List[str]:
+BLOCKING_GAPS_OPEN = ("ranges:", "option chain:", "pre-open:", "Top 10 list", "heatmap NIFTY50 unavailable")
+
+
+def check_data_open(cards: Dict[str, Any], require_preopen: bool = False) -> List[str]:
+    """Opening Bell: the previous session's Nifty / VIX closes, the Nifty option chain, the Top 10 list, and in
+    phase B (9:08) the day's pre-open. MCX, FII/DII or sector gaps only drop their sentence."""
+    fails = [g for g in cards.get("gaps") or [] if g.startswith(BLOCKING_GAPS_OPEN)]
+    names = {x["name"] for x in cards.get("idx") or []}
+    for n in ("Nifty 50", "India VIX"):
+        if n not in names:
+            fails.append(f"{n} close for {cards.get('prev')} missing")
+    if len(cards.get("ideas") or []) < 5:
+        fails.append("fewer than 5 Top 10 ideas")
+    if require_preopen and not ((cards.get("pre") or {}).get("nifty")):
+        fails.append("pre-open data missing at the 9:08 build")
+    return fails
+
+
+def check_data(cards: Dict[str, Any], require_preopen: bool = False) -> List[str]:
+    if cards.get("kind") == "opening":
+        return check_data_open(cards, require_preopen)
     fails = [g for g in cards.get("gaps") or [] if g.startswith(BLOCKING_GAPS)]
     if len(cards.get("idx") or []) < 8:
         fails.append(f"only {len(cards.get('idx') or [])} index closes")
@@ -101,13 +121,24 @@ def check_script(cards: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any
                         continue
                     untraced.append(f"{seg['id']} {field}: '{tok}' in “{s[:90]}”")
     fails += [f"untraced number {u}" for u in untraced]
-    # 3. required wording (SEBI) in every language: ideas framed as review, not recommendations; closing disclaimer
+    # 3. required wording (SEBI) in every language: ideas framed as review, not recommendations; closing disclaimer;
+    #    in the morning edition also the levels framed as market-priced ranges, not forecasts
+    opening = script.get("kind") == "opening"
+    extra = {}
+    if opening:
+        from i18n_open import REQUIRED_OPEN
+        extra = REQUIRED_OPEN
     for lang in script.get("languages") or ["en"]:
         all_text = " ".join(((b.get("texts") or {}).get(lang) or (b["text"] if lang == "en" else "")) for s in script["segments"] for b in s["beats"])
         for phrase in REQUIRED[lang]:
             if phrase not in all_text:
                 fails.append(f"{'ideas' if phrase == REQUIRED[lang][0] else 'closing'} disclaimer missing [{lang}]: “{phrase}”")
+        for phrase in extra.get(lang, []):
+            if phrase not in all_text:
+                fails.append(f"levels framing missing [{lang}]: “{phrase}”")
     en_text = " ".join(b["text"] for s in script["segments"] for b in s["beats"])
+    if opening and re.search(r"\btonight\b", en_text, re.I):
+        fails.append("evening wording ('tonight') in the morning edition")
     if re.search(r"\b(buy|sell) (?:now|this)\b|\btarget price\b|\bpicks?\b", en_text, re.I):
         fails.append("advice-like wording (buy now / target price / picks) in narration")
     return {"ok": not fails, "numbers_checked": n_checked, "traced": len(script.get("trace") or []), "fails": fails}
@@ -156,7 +187,7 @@ if __name__ == "__main__":
     if kind == "script":
         cards, script = json.load(open(sys.argv[2])), json.load(open(sys.argv[3]))
         r = check_script(cards, script)
-        r["data_fails"] = check_data(cards)
+        r["data_fails"] = check_data(cards, "--require-preopen" in sys.argv[4:])
         r["ok"] = r["ok"] and not r["data_fails"]
         print(json.dumps(r, indent=1, ensure_ascii=False))
         sys.exit(0 if r["ok"] else 1)

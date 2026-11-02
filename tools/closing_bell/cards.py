@@ -36,6 +36,7 @@ ALIASES = {
     "Hindustan Aeronautics": "HAL",
     "Bharat Electronics": "BEL",
     "Adani Enterprises": "Adani Enterprises",
+    "Fertilisers and Chemicals Travancore": "FACT",
 }
 
 
@@ -51,7 +52,10 @@ def short_name(name: Optional[str], sym: str) -> str:
         if len(n) > 15 and n.endswith(suffix):
             n = n[: -len(suffix)].strip()
     if len(n) > 24:  # long legal names: keep the first two words, never an ellipsis (it is read aloud)
-        n = " ".join(n.split()[:2])
+        w = n.split()[:2]
+        if len(w) > 1 and w[-1].lower() in ("and", "&", "of", "the", "for"):
+            w = w[:1]            # never end a spoken name on a connector ("Fertilisers and")
+        n = " ".join(w)
     return n
 
 

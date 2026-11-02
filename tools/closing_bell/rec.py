@@ -408,8 +408,66 @@ async def act_s7(s):
             await asyncio.sleep(1.2); await s.move(560, 330, 1.0)
 
 
+# ------------------------------------------------------------------ Opening Bell scenes
+async def warm_fno_indices(pg):
+    await goto(pg, BASE + '?tab=market&view=smartmoney&section=fno&lab=indices', '[data-testid="desk-fno-oibar-row"]')
+
+
+async def act_o1(s):
+    """Previous session: the overview's index tiles, sector movers and the Top 10 list (read-only hovers)."""
+    await s.pg.evaluate(MARK_JS)
+    ideas = [i['sym'] for i in CARDS.get('ideas') or []]
+    for i, b in enumerate(s.beats):
+        await s.at(i, 0.4)
+        if i == 0:
+            await s.hover('[data-testid="mo-sector-up"]', 1.2)
+            await s.until(s.B[i] + 4.0); await s.hover('[data-testid="mo-sector-down"]', 1.0)
+        elif i == 1:
+            await s.hover('[data-testid="desk-top10-switch-stocks"]', 1.0)
+        elif ideas:
+            await s.hover(f'[data-testid="desk-top10-stock-{css(ideas[min(i, len(ideas) - 1)])}"]', 1.0, dx=0.2)
+
+
+async def act_o2(s):
+    """Pre-open: recorded in phase A, before the pre-open exists, so the tour runs on a clock (not the beats):
+    a slow pass over the Top 10 list. The 9:08 rebuild only re-cuts this footage to the final length."""
+    await s.pg.evaluate(MARK_JS)
+    await s.scroll_to('[data-testid="desk-top10"]', off=10, dur=0)
+    syms = [i['sym'] for i in CARDS.get('ideas') or []] or [None]
+    k, t = 0, 1.0
+    while t < s.len - 4:
+        await s.until(t)
+        sym = syms[k % len(syms)]
+        if sym:
+            await s.scroll_to(f'[data-testid="desk-top10-stock-{css(sym)}"]', off=180, dur=0.9)
+            await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', 0.9, dx=0.2, dy=0.3, scroll=False)
+        else:
+            await s.move(520 + 200 * (k % 2), 360, 1.2)
+        k, t = k + 1, t + 6.5
+
+
+async def act_o3(s):
+    """Ranges & levels: the NIFTY index card, then the open-interest bars, pointing at the strikes the script names."""
+    await s.pg.evaluate(MARK_JS)
+    for i, b in enumerate(s.beats):
+        f = b.get('focus') or {}
+        await s.at(i, 0.4)
+        if f.get('desk') == 'fno':
+            await s.hover('[data-testid="desk-fno-indices"]', 1.2, dx=0.3, dy=0.2)
+            await s.until(s.B[i] + 3.5)
+            await s.scroll_to('[data-testid="desk-fno-oibar-row"]', off=220, dur=1.6)
+        for k, strike in enumerate(f.get('strikes') or []):
+            sel = f'[data-testid="desk-fno-oibar-row"][data-strike="{int(strike) if float(strike).is_integer() else strike}"]'
+            await s.until(s.B[i] + 0.4 + 2.2 * k)
+            if await s.scroll_to(sel, off=300, dur=0.9) is not None:
+                await s.hover(sel, 0.8, dx=0.5, scroll=False)
+
+
 SCENES = {'s1': (warm_overview, act_s1), 's2': (warm_rw, act_s2), 's3': (warm_sectors, act_s3), 's4': (warm_sectors, act_s4),
-          's5': (warm_sm, act_s5), 's6': (warm_scanner, act_s6), 's7': (warm_rw, act_s7)}
+          's5': (warm_sm, act_s5), 's6': (warm_scanner, act_s6), 's7': (warm_rw, act_s7),
+          # Opening Bell
+          'o1': (warm_overview, act_o1), 'o2': (warm_overview, act_o2), 'o3': (warm_fno_indices, act_o3),
+          'o4': (warm_scanner, act_s6), 'o5': (warm_rw, act_s7)}
 
 
 async def record(p, sid):

@@ -81,6 +81,9 @@ function breadthBar(adv, dec, d0) {
     <div class="bar"><div data-grow="${a}" data-d0="${d0}" style="background:var(--up);width:${a}%"></div><div style="flex:1;background:var(--dn)"></div></div></div>`;
 }
 
+const OPEN = (D) => D.kind === 'opening';
+const BELL = (D) => OPEN(D) ? 'OPENING' : 'CLOSING';
+const EOD = (D) => OPEN(D) ? D.L.prev_short : D.L.day_short;      // the evening list the morning edition reads
 const R = {};
 // ------------------------------------------------------------------ data boxes (440 x 840)
 R.idx = (root, D) => {
@@ -163,13 +166,13 @@ R.fii = (root, D) => {
   addRow(b, `<div class="row"><div class="nm">Three months<small>since ${dshort(f.m3_from)}</small></div><div style="text-align:right;font:700 16px Inter"><div class="${cls(f.m3_fii)}">FII ${sgn(f.m3_fii, 0, '')}</div><div class="${cls(f.m3_dii)}" style="margin-top:3px">DII ${sgn(f.m3_dii, 0, '')}</div></div></div>`);
 };
 R.ideas = (root, D) => {
-  const b = boxShell(root, `AI scanner · cash · end of day ${D.L.day_short}`, 'Top 10 ideas', 'Ordered for review, not a prediction', '<b style="color:var(--gold)">Ideas, not recommendations.</b> Rules-based score, not a probability; the desk scorecard shows no measurable ranking skill so far. Nothing is sent to a broker.');
+  const b = boxShell(root, `AI scanner · cash · end of day ${EOD(D)}`, 'Top 10 ideas', 'Ordered for review, not a prediction', '<b style="color:var(--gold)">Ideas, not recommendations.</b> Rules-based score, not a probability; the desk scorecard shows no measurable ranking skill so far. Nothing is sent to a broker.');
   D.ideas.forEach(i => addRow(b, `<div class="row" style="padding:7px 20px"><div class="cond" style="font-size:22px;font-weight:700;color:var(--mint);width:26px">${String(i.rank).padStart(2, '0')}</div>
      <div class="nm" style="font-size:15.5px">${i.name}<small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.why}</small></div></div>`, 0.04));
 };
 R.fno = (root, D) => {
   const g = D.regime;
-  const b = boxShell(root, `F&O board · end of day ${D.L.day_short}`, 'Structures that fit the regime', '', 'Ranked by fit to the measured regime, then reward : risk. Not a forecast. The desk shows these for information only where they conflict with the bullish cash setup. Payoffs exclude taxes and charges.');
+  const b = boxShell(root, `F&O board · end of day ${EOD(D)}`, 'Structures that fit the regime', '', 'Ranked by fit to the measured regime, then reward : risk. Not a forecast. The desk shows these for information only where they conflict with the bullish cash setup. Payoffs exclude taxes and charges.');
   addRow(b, `<div style="padding:14px 20px 4px;display:flex;gap:8px;flex-wrap:wrap"><span class="chip" style="background:rgba(255,200,87,.15);color:var(--gold)">Regime ${g.label}</span><span class="chip" style="background:${g.trend === 'up' ? 'rgba(47,227,155,.14)' : 'rgba(255,79,109,.14)'};color:${g.trend === 'up' ? 'var(--up)' : 'var(--dn)'}">Trend ${g.trend}</span><span class="chip" style="background:rgba(90,169,255,.14);color:var(--blue)">VIX ${fmtIN(g.india_vix)}</span></div>`);
   D.fno.forEach(x => addRow(b, `<div class="row" style="display:block;padding:10px 20px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 17px Inter">${x.sym}</span><span class="x">exp ${dshort(x.expiry)}</span></div>
      <div style="font:500 13.5px Inter;color:var(--ink2);margin-top:3px">${x.label}</div>
@@ -185,17 +188,94 @@ R.watch = (root, D) => {
   b.appendChild(anim($(`<div class="sect">Results due (F&O)</div>`), 'fade', rowD));
   addRow(b, `<div style="padding:4px 20px;font:500 14px/1.55 Inter;color:var(--ink2)">${D.due.length ? D.due.slice(0, 18).join(' · ') : 'None in the F&O list'}</div>`);
 };
+// ------------------------------------------------------------------ Opening Bell boxes (440 x 840)
+const pctCell = (v, d = 2) => `<div class="v ${cls(v)}" style="min-width:84px">${arrow(v)} ${fmtIN(Math.abs(v), d)}%</div>`;
+R.ovn = (root, D) => {
+  const b = boxShell(root, `Previous close · ${D.L.prev_mid}`, 'Where we left off', 'NSE closes, provisional cash flows, MCX overnight',
+    `Source: NSE index closes (nidp.index_eod) ${D.L.prev_short}; FII/DII provisional (NSE via Sensibull); MCX continuous futures, last close (TrueData).`);
+  ['Nifty 50', 'Nifty Bank', 'Nifty Midcap 150', 'Nifty Smallcap 250', 'India VIX'].forEach(n => { const x = D.idx.find(i => i.name === n); if (x)
+    addRow(b, `<div class="row"><div class="nm">${n}</div><div class="x" style="min-width:96px">${fmtIN(x.close, 2)}</div>${pctCell(x.pct)}</div>`); });
+  if (D.fii.available) {
+    b.appendChild(anim($(`<div class="sect">Cash flows · ${dshort(D.fii.date)} (provisional)</div>`), 'fade', rowD));
+    addRow(b, `<div class="row"><div class="nm">FII</div><div class="v ${cls(D.fii.fii_net)}" style="min-width:150px">${signed(D.fii.fii_net)}</div></div>`);
+    addRow(b, `<div class="row"><div class="nm">DII</div><div class="v ${cls(D.fii.dii_net)}" style="min-width:150px">${signed(D.fii.dii_net)}</div></div>`);
+  }
+  const m = D.mcx || {};
+  if (m.crude && m.gold) {
+    b.appendChild(anim($(`<div class="sect">MCX overnight · ${dshort(m.crude.date)}</div>`), 'fade', rowD));
+    addRow(b, `<div class="row"><div class="nm">Crude oil<small>₹ per barrel</small></div><div class="x" style="min-width:96px">${fmtIN(m.crude.close, 0)}</div>${pctCell(m.crude.pct, 1)}</div>`);
+    addRow(b, `<div class="row"><div class="nm">Gold<small>₹ per 10 grams</small></div><div class="x" style="min-width:96px">${fmtIN(m.gold.close, 0)}</div>${pctCell(m.gold.pct, 1)}</div>`);
+  }
+};
+R.pre = (root, D) => {
+  const p = D.pre;
+  if (!p || !p.nifty) {
+    const b = boxShell(root, 'NSE pre-open · 9:00–9:08 IST', 'Pre-open', 'Call auction before the 9:15 open', 'Source: NSE pre-open market data.');
+    addRow(b, `<div style="padding:60px 24px;font:600 22px/1.5 Inter;color:var(--ink2)">Equilibrium prices land at <span style="color:var(--gold)">9:08 IST</span>; this edition adds them as soon as they do.</div>`);
+    return;
+  }
+  const n = p.nifty;
+  const b = boxShell(root, `NSE pre-open · ${p.hhmm} IST · ${D.L.day_short}`, 'Pre-open', 'Indicative equilibrium prices, before the 9:15 open',
+    `Source: NSE pre-open market data, ${p.time}. Indicated Nifty = ${D.L.prev_short} close × the ${n.cover} priced constituents' equilibrium / previous close, weighted as on the desk. Indicative, not the open.`);
+  addRow(b, `<div style="padding:14px 20px 8px"><div class="kick" style="color:var(--ink3)">Nifty 50 indicated</div>
+    <div style="display:flex;align-items:baseline;gap:14px;margin-top:8px"><span class="cond" style="font-size:56px;font-weight:700">${num(n.ind, 0, 0.4)}</span>
+    <span class="cond ${n.flat ? 'flat' : cls(n.pct)}" style="font-size:30px;font-weight:700">${arrow(n.pct)} ${fmtIN(Math.abs(n.pct))}%</span></div>
+    <div class="sub">vs ${fmtIN(n.prev, 2)} at the ${D.L.prev_short} close · ${n.cover} of ${n.of} stocks priced</div></div>`, 0);
+  addRow(b, `<div><div class="sect" style="color:var(--ink)">F&amp;O stocks</div>${breadthBar(p.adv, p.dec, 0.5)}</div>`, 0.08);
+  b.appendChild(anim($(`<div class="sect up">▲ Biggest gap-ups</div>`), 'fade', rowD));
+  p.ups.slice(0, 4).forEach(m => addRow(b, `<div class="row" style="padding:6px 20px"><div class="nm" style="font-size:16px">${m.name}<small>${m.sym} · ₹${fmtIN(m.iep, 2)}</small></div><div class="v up">${sgn(m.pct)}</div></div>`, 0.035));
+  b.appendChild(anim($(`<div class="sect dn">▼ Biggest gap-downs</div>`), 'fade', rowD));
+  p.dns.slice(0, 4).forEach(m => addRow(b, `<div class="row" style="padding:6px 20px"><div class="nm" style="font-size:16px">${m.name}<small>${m.sym} · ₹${fmtIN(m.iep, 2)}</small></div><div class="v dn">${sgn(m.pct)}</div></div>`, 0.035));
+};
+R.lvl = (root, D) => {
+  const lv = D.lv || {}, oi = lv.oi || {};
+  const b = boxShell(root, `Nifty ${dshort(oi.expiry)} expiry · bhavcopy ${D.L.prev_short}`, 'Ranges & levels', 'What the options market prices — not forecasts',
+    'Range: close × India VIX ÷ √365 (one standard deviation). Levels: largest put / call open interest at or below / above spot. Max pain: least payout to option holders. Source: NSE bhavcopy via NIDP.');
+  if (lv.pts) {
+    addRow(b, `<div style="padding:12px 20px 4px"><div class="kick" style="color:var(--ink3)">India VIX ${fmtIN(lv.vix, 2)} · one-day range ±${lv.pts} pts</div>
+      <div style="position:relative;height:40px;margin-top:10px"><div style="position:absolute;left:0;right:0;top:16px;height:8px;border-radius:4px;background:linear-gradient(90deg,var(--dn),#2a3a55,var(--up))"></div>
+      <div style="position:absolute;left:calc(50% - 7px);top:13px;width:14px;height:14px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)"></div></div>
+      <div style="display:flex;justify-content:space-between;font:700 18px 'Barlow Condensed'"><span class="dn">${fmtIN(lv.lo, 0)}</span><span style="color:var(--gold)">${fmtIN(lv.close, 2)}</span><span class="up">${fmtIN(lv.hi, 0)}</span></div></div>`, 0);
+  }
+  if (oi.bars) {
+    const mx = Math.max(...oi.bars.map(r => Math.max(r.ce_oi, r.pe_oi)));
+    b.appendChild(anim($(`<div class="sect">Open interest by strike · <span class="up">puts</span> | <span class="dn">calls</span></div>`), 'fade', rowD));
+    oi.bars.forEach(r => { const tag = r.k === oi.sup ? 'support' : r.k === oi.res ? 'resistance' : r.k === oi.max_pain ? 'max pain' : '';
+      addRow(b, `<div style="display:grid;grid-template-columns:1fr 92px 1fr;align-items:center;gap:8px;padding:3px 20px">
+        <div style="display:flex;justify-content:flex-end"><div style="height:11px;border-radius:3px;background:var(--up);opacity:${r.k === oi.sup ? 1 : .55};width:${100 * r.pe_oi / mx}%"></div></div>
+        <div style="text-align:center;font:700 14px Inter;color:${tag ? 'var(--gold)' : 'var(--ink2)'}">${fmtIN(r.k, 0)}${tag ? `<div style="font:700 9px Inter;letter-spacing:.12em;text-transform:uppercase">${tag}</div>` : ''}</div>
+        <div><div style="height:11px;border-radius:3px;background:var(--dn);opacity:${r.k === oi.res ? 1 : .55};width:${100 * r.ce_oi / mx}%"></div></div></div>`, 0.02); });
+    addRow(b, `<div style="padding:10px 20px;display:flex;gap:8px;flex-wrap:wrap"><span class="chip" style="background:rgba(255,200,87,.15);color:var(--gold)">PCR ${fmtIN(oi.pcr, 2)}</span>
+      <span class="chip" style="background:rgba(90,169,255,.15);color:var(--blue)">Max pain ${fmtIN(oi.max_pain, 0)}</span>
+      ${oi.expiry_today && oi.straddle ? `<span class="chip" style="background:rgba(47,227,155,.15);color:var(--mint)">${fmtIN(oi.atm, 0)} straddle ${fmtIN(oi.straddle, 2)} · ±${fmtIN(oi.straddle_pct, 1)}%</span>` : ''}</div>`);
+  }
+  if ((D.imp || []).length) {
+    b.appendChild(anim($(`<div class="sect">Results today · implied to ${dshort(D.imp[0].expiry)}</div>`), 'fade', rowD));
+    D.imp.forEach(x => addRow(b, `<div class="row" style="padding:5px 20px"><div class="nm" style="font-size:15px">${x.name}<small>${x.sym} · ${fmtIN(x.atm, 0)} straddle ₹${fmtIN(x.straddle, 2)}</small></div><div class="v" style="color:var(--gold)">±${fmtIN(x.pct, 1)}%</div></div>`, 0.04));
+  }
+};
+R.today = (root, D) => {
+  const oi = (D.lv || {}).oi || {};
+  const b = boxShell(root, D.L.next_long, 'On the calendar', 'Today, India time', 'Source: desk macro calendar and Results Week (F&O names); expiry from the NSE bhavcopy.');
+  b.appendChild(anim($(`<div class="sect">Macro (IST)</div>`), 'fade', 0.2));
+  if (!D.macro.length) addRow(b, `<div style="padding:4px 20px 6px;font:500 14px Inter;color:var(--ink3)">No high or medium impact releases scheduled</div>`);
+  D.macro.forEach(m => addRow(b, `<div class="row"><div class="x" style="min-width:56px;text-align:left">${m[0]}</div><div class="nm" style="font-size:15px">${m[1]}<small>${m[3] === 'IN' ? 'India' : m[3] === 'US' ? 'United States' : m[3]} · ${m[2].toLowerCase()} impact</small></div></div>`));
+  b.appendChild(anim($(`<div class="sect">Results due (F&amp;O)</div>`), 'fade', rowD));
+  addRow(b, `<div style="padding:4px 20px;font:500 15px/1.6 Inter;color:var(--ink2)">${(D.due_today || []).length ? D.due_today.slice(0, 16).join(' · ') : 'None in the F&amp;O list'}</div>`);
+  b.appendChild(anim($(`<div class="sect">Expiry</div>`), 'fade', rowD));
+  addRow(b, `<div style="padding:4px 20px;font:600 16px Inter;color:${oi.expiry_today ? 'var(--gold)' : 'var(--ink2)'}">${oi.expiry_today ? 'Nifty options expire today' : `Next Nifty expiry ${dshort(oi.expiry)}`}</div>`);
+};
 // ------------------------------------------------------------------ full-window cards (1536 x 864)
 function logo(size=64) { return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:var(--mint);display:grid;place-items:center;font:700 ${size * .55}px 'Noto Sans Devanagari';color:#04121c;box-shadow:0 0 40px rgba(47,227,155,.45)">न</div>`; }
 R.title = (root, D) => {
   root.appendChild(anim($(`<div class="scrim"></div>`), 'fade', 0));
   const f = $(`<div class="full"></div>`); root.appendChild(f);
   f.appendChild(anim($(`<div style="display:flex;align-items:center;gap:22px">${logo(84)}<div class="kick" style="font-size:18px">Nivesh Smart Trading Desk</div></div>`), 'left', 0.1));
-  f.appendChild(anim($(`<div class="cond" style="font-size:190px;font-weight:800;line-height:.9;margin-top:22px;letter-spacing:-.01em">CLOSING <span style="color:var(--mint)">BELL</span></div>`), 'wipe', 0.25));
+  f.appendChild(anim($(`<div class="cond" style="font-size:190px;font-weight:800;line-height:.9;margin-top:22px;letter-spacing:-.01em">${BELL(D)} <span style="color:var(--mint)">BELL</span></div>`), 'wipe', 0.25));
   f.lastChild.dataset.dur = 0.55;
   f.appendChild(anim($(`<div style="height:6px;width:520px;background:linear-gradient(90deg,var(--mint),var(--gold));margin-top:18px;border-radius:3px"></div>`), 'wipe', 0.55));
-  f.appendChild(anim($(`<div class="cond" style="font-size:46px;font-weight:600;margin-top:22px;color:var(--ink2)">${D.L.title_date} · <span style="color:var(--ink)">INDIA MARKET WRAP</span></div>`), 'up', 0.7));
-  f.appendChild(anim($(`<div style="font:600 20px Inter;color:var(--ink3);margin-top:18px;letter-spacing:.06em">END-OF-DAY NSE DATA · FROM THE SMART TRADING DESK</div>`), 'up', 0.85));
+  f.appendChild(anim($(`<div class="cond" style="font-size:46px;font-weight:600;margin-top:22px;color:var(--ink2)">${D.L.title_date} · <span style="color:var(--ink)">${OPEN(D) ? 'INDIA PRE-MARKET' : 'INDIA MARKET WRAP'}</span></div>`), 'up', 0.7));
+  f.appendChild(anim($(`<div style="font:600 20px Inter;color:var(--ink3);margin-top:18px;letter-spacing:.06em">${OPEN(D) ? 'NSE PRE-OPEN · OPTIONS RANGES AND LEVELS · FROM THE SMART TRADING DESK' : 'END-OF-DAY NSE DATA · FROM THE SMART TRADING DESK'}</div>`), 'up', 0.85));
 };
 function headline(root, n, kicker, big, small, of = 4) {
   root.appendChild(anim($(`<div class="scrim" style="background:linear-gradient(90deg,rgba(5,11,22,.94) 0%,rgba(5,11,22,.86) 55%,rgba(5,11,22,.55) 100%)"></div>`), 'fade', 0));
@@ -211,9 +291,11 @@ const colourise = (s) => s.replace(/([+−][\d.,]+%|[+−]₹[\d,]+ Cr)/g, (m) =
 R.end = (root, D) => {
   root.appendChild(anim($(`<div class="scrim" style="background:rgba(5,11,22,.95)"></div>`), 'fade', 0));
   const f = $(`<div class="full" style="align-items:flex-start"></div>`); root.appendChild(f);
-  f.appendChild(anim($(`<div style="display:flex;align-items:center;gap:22px">${logo(70)}<div class="cond" style="font-size:96px;font-weight:800;line-height:1">CLOSING <span style="color:var(--mint)">BELL</span></div></div>`), 'left', 0.05));
+  f.appendChild(anim($(`<div style="display:flex;align-items:center;gap:22px">${logo(70)}<div class="cond" style="font-size:96px;font-weight:800;line-height:1">${BELL(D)} <span style="color:var(--mint)">BELL</span></div></div>`), 'left', 0.05));
   f.appendChild(anim($(`<div style="font:600 28px/1.4 Inter;margin-top:30px;max-width:1250px">Market information and education, <span style="color:var(--gold)">not investment advice</span>. Ideas shown are for review, not recommendations. Do your own research.</div>`), 'up', 0.3));
-  f.appendChild(anim($(`<div style="font:500 20px/1.6 Inter;color:var(--ink2);margin-top:26px;max-width:1250px">Data: NSE end-of-day index and stock closes, exchange filings, NSE provisional FII/DII figures (via Sensibull) — read on the Nivesh Smart Trading Desk, ${D.L.day_mid}. Recorded on staging, read-only: nothing was traded, saved or sent to a broker.</div>`), 'up', 0.45));
+  f.appendChild(anim($(`<div style="font:500 20px/1.6 Inter;color:var(--ink2);margin-top:26px;max-width:1250px">${OPEN(D)
+    ? `Data: NSE pre-open (${D.pre ? D.pre.hhmm + ' IST' : '9:08 IST'}) and end-of-day closes, Nifty option chain from the NSE bhavcopy (NIDP), India VIX, MCX via TrueData, NSE provisional FII/DII (via Sensibull) — read on the Nivesh Smart Trading Desk, ${D.L.day_mid}. Ranges and levels are what the options market prices, not forecasts. Recorded on staging, read-only: nothing was traded, saved or sent to a broker.`
+    : `Data: NSE end-of-day index and stock closes, exchange filings, NSE provisional FII/DII figures (via Sensibull) — read on the Nivesh Smart Trading Desk, ${D.L.day_mid}. Recorded on staging, read-only: nothing was traded, saved or sent to a broker.`}</div>`), 'up', 0.45));
   f.appendChild(anim($(`<div style="font:500 18px/1.5 Inter;color:var(--ink3);margin-top:22px">9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).</div>`), 'up', 0.6));
   f.appendChild(anim($(`<div style="font:500 16px/1.5 Inter;color:var(--ink3);margin-top:14px">Music: “The Complex” by Kevin MacLeod (incompetech.com), licensed under Creative Commons Attribution 3.0 (creativecommons.org/licenses/by/3.0).</div>`), 'up', 0.7));
 };
@@ -226,12 +308,12 @@ R.frame = (root, D, spec) => {
     .map(([lbl, n]) => [lbl, ix(n)]).filter(([, x]) => x);
   root.innerHTML = `
   <div style="position:absolute;left:0;top:0;width:1920px;height:72px;background:linear-gradient(180deg,#0a1528,#071020);border-bottom:2px solid rgba(47,227,155,.5);display:flex;align-items:center;padding:0 24px;gap:16px">
-    ${logo(42)}<div><div class="cond" style="font-size:34px;font-weight:800;line-height:.9">CLOSING <span style="color:var(--mint)">BELL</span></div><div style="font:700 11px Inter;letter-spacing:.2em;color:var(--ink3);margin-top:3px">ON THE NIVESH DESK</div></div>
+    ${logo(42)}<div><div class="cond" style="font-size:34px;font-weight:800;line-height:.9">${BELL(D)} <span style="color:var(--mint)">BELL</span></div><div style="font:700 11px Inter;letter-spacing:.2em;color:var(--ink3);margin-top:3px">ON THE NIVESH DESK</div></div>
     <div style="margin-left:40px;display:flex;align-items:center;gap:12px"><span class="chip" style="background:var(--mint);color:#04121c;font-size:14px;padding:7px 14px">${spec.tag}</span><span class="cond" style="font-size:28px;font-weight:600;color:var(--ink)">${spec.title}</span></div>
-    <div style="margin-left:auto;text-align:right"><div class="cond" style="font-size:24px;font-weight:700">${D.L.top_date}</div><div style="font:700 11px Inter;letter-spacing:.16em;color:var(--ink3)">NSE END OF DAY · REPLAY</div></div></div>
+    <div style="margin-left:auto;text-align:right"><div class="cond" style="font-size:24px;font-weight:700">${D.L.top_date}</div><div style="font:700 11px Inter;letter-spacing:.16em;color:var(--ink3)">${OPEN(D) ? 'PRE-MARKET · BEFORE THE 9:15 OPEN' : 'NSE END OF DAY · REPLAY'}</div></div></div>
   <div style="position:absolute;left:22px;top:82px;width:1540px;height:868px;border:2px solid rgba(47,227,155,.28);border-radius:8px"></div>
   <div style="position:absolute;left:1576px;top:84px;width:320px;height:864px;display:flex;flex-direction:column;gap:8px">
-    <div style="font:700 12px Inter;letter-spacing:.16em;color:var(--mint);padding:6px 2px">NSE CLOSE · ${D.L.day_short.toUpperCase()}</div>
+    <div style="font:700 12px Inter;letter-spacing:.16em;color:var(--mint);padding:6px 2px">${OPEN(D) ? 'PREVIOUS CLOSE' : 'NSE CLOSE'} · ${EOD(D).toUpperCase()}</div>
     ${sb.map(([n, x]) => `<div style="flex:1;background:rgba(10,21,38,.92);border:1px solid var(--line);border-left:4px solid ${x.pct >= 0 ? 'var(--up)' : 'var(--dn)'};border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;justify-content:center">
       <div style="font:700 12px Inter;letter-spacing:.1em;color:var(--ink2);text-transform:uppercase">${n}</div>
       <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:4px"><span class="cond" style="font-size:31px;font-weight:700">${fmtIN(x.close)}</span><span class="cond ${cls(x.pct)}" style="font-size:21px;font-weight:700">${arrow(x.pct)} ${fmtIN(Math.abs(x.pct))}%</span></div></div>`).join('')}
