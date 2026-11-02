@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 3 Nov 2026 (data of the 2 Nov 2026 session and the filings in the warehouse that night): the Research Copilot W1 answers built by this branch's backend/services/copilot_visual, copied to a scratch path inside nivesh-staging-app-backend and run in-process against the real staging DaaS and NIDP warehouse, read-only, no restart. Plain keys: every read through the live DaaS as deployed (the cash-flow route and the new balance-sheet columns are not live there yet, so company_risks shows them as not served). ':route_sql': financials and cash flow answered by this branch's new DaaS route SQL, run read-only on the warehouse via nidp-psql (real rows; the route goes live only after a daas-api restart). ':production': the same real rows with the TrueData-fillable balance-sheet columns set to null and no cash-flow rows, the shape production has (no TrueData job there; owner 3 Nov 2026). Every other read live.",
+ "about": "REAL staging capture, 3 Nov 2026 (data of the 2 Nov 2026 session and the filings in the warehouse that night): the Research Copilot W1 answers built by this branch's backend/services/copilot_visual, copied to a scratch path inside nivesh-staging-app-backend and run in-process against the real staging DaaS and NIDP warehouse, read-only, no restart. Plain keys: every read through the live staging DaaS, which since the #458 deploy serves /v1/financials/{s}/cashflow and the balance-sheet columns. ':route_sql': financials and cash flow answered by the same route SQL run read-only on the warehouse via nidp-psql. ':production': those real rows with the TrueData-fillable balance-sheet columns set to null and no cash-flow rows, the shape production has (no TrueData job there; owner 3 Nov 2026). Every other read live.",
  "questions": {
   "financial_trend": {
    "question": "How has revenue grown over the last 5 years for TCS?",
@@ -9,7 +9,7 @@
    "params": {
     "years": 5
    },
-   "build_secs": 3.3
+   "build_secs": 3.39
   },
   "valuation_view": {
    "question": "What happens if TCS earnings grow by 15%, 20%, or 25%?",
@@ -23,7 +23,7 @@
      25.0
     ]
    },
-   "build_secs": 0.1
+   "build_secs": 0.09
   },
   "ownership_trend": {
    "question": "Has promoter holding of ICICIBANK increased?",
@@ -31,7 +31,7 @@
    "intent": "ownership_trend",
    "symbol": "ICICIBANK",
    "params": {},
-   "build_secs": 0.07
+   "build_secs": 0.1
   },
   "peer_compare": {
    "question": "Compare TCS with its peers",
@@ -43,7 +43,7 @@
      "TCS"
     ]
    },
-   "build_secs": 1.53
+   "build_secs": 1.27
   },
   "company_risks": {
    "question": "What are the biggest risks for TCS?",
@@ -51,7 +51,7 @@
    "intent": "company_risks",
    "symbol": "TCS",
    "params": {},
-   "build_secs": 0.13
+   "build_secs": 0.1
   },
   "peer_compare:named_banks": {
    "question": "Compare HDFC Bank, ICICI Bank and Axis Bank across fundamentals, valuation, growth, profitability, asset quality and institutional ownership.",
@@ -73,7 +73,7 @@
    "intent": "company_risks",
    "symbol": "ADANIPORTS",
    "params": {},
-   "build_secs": 0.07
+   "build_secs": 0.05
   },
   "company_risks:production": {
    "question": "What are the biggest risks for TCS?",
@@ -89,7 +89,7 @@
    "intent": "company_risks",
    "symbol": "TIMEX",
    "params": {},
-   "build_secs": 0.1
+   "build_secs": 0.09
   }
  },
  "payloads": {
@@ -98,7 +98,7 @@
    "intent": "financial_trend",
    "title": "TCS · Financial trend",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:06+05:30",
+   "generated_at": "2026-11-03T04:25:02+05:30",
    "mode": "eod",
    "headline": {
     "text": "TCS reported revenue of ₹73,188 Cr (+11.2% year on year) and PAT of ₹13,934 Cr (+15.4%) for the Sep 26 quarter. Year-on-year revenue growth was slower than the Jun 26 quarter's (+13.9%).",
@@ -323,6 +323,11 @@
        "key": "pat_m",
        "label": "PAT margin",
        "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
       }
      ],
      "rows": [
@@ -336,7 +341,7 @@
         "pat": "13,934",
         "pat_yoy": 15.4,
         "pat_m": "19.0%",
-        "src": "not stated",
+        "src": "screener.in",
         "ebitda": "18,815",
         "ebitda_m": "25.7%"
        }
@@ -351,7 +356,7 @@
         "pat": "13,349",
         "pat_yoy": 4.62,
         "pat_m": "18.5%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": "18,556",
         "ebitda_m": "25.7%"
        }
@@ -366,7 +371,7 @@
         "pat": "13,718",
         "pat_yoy": 12.22,
         "pat_m": "19.4%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": "19,276",
         "ebitda_m": "27.3%"
        }
@@ -381,7 +386,7 @@
         "pat": "10,657",
         "pat_yoy": -13.92,
         "pat_m": "15.9%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": "18,269",
         "ebitda_m": "27.2%"
        }
@@ -396,7 +401,7 @@
         "pat": "12,075",
         "pat_yoy": null,
         "pat_m": "18.4%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": "17,978",
         "ebitda_m": "27.3%"
        }
@@ -411,7 +416,7 @@
         "pat": "12,760",
         "pat_yoy": null,
         "pat_m": "20.1%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": null,
         "ebitda_m": null
        }
@@ -426,7 +431,7 @@
         "pat": "12,224",
         "pat_yoy": null,
         "pat_m": "19.0%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": null,
         "ebitda_m": null
        }
@@ -441,12 +446,20 @@
         "pat": "12,380",
         "pat_yoy": null,
         "pat_m": "19.4%",
-        "src": "not stated",
+        "src": "Trendlyne",
         "ebitda": null,
         "ebitda_m": null
        }
       }
      ]
+    },
+    {
+     "type": "notice",
+     "id": "providers",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "These quarters come from more than one provider (Trendlyne, screener.in). Providers can define EBITDA differently, so a jump between quarters from different providers may be a definition change."
     },
     {
      "type": "notice",
@@ -496,6 +509,11 @@
        "key": "roe",
        "label": "ROE (computed)",
        "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
       }
      ],
      "rows": [
@@ -508,7 +526,7 @@
         "pat": "49,454",
         "pat_yoy": 1.35,
         "roe": "48.4%",
-        "src": "not stated",
+        "src": "screener.in",
         "ebitda_m": "27.1%"
        }
       },
@@ -521,7 +539,7 @@
         "pat": "48,797",
         "pat_yoy": 5.85,
         "roe": null,
-        "src": "not stated",
+        "src": "screener.in",
         "ebitda_m": "26.4%"
        }
       },
@@ -534,7 +552,7 @@
         "pat": "46,099",
         "pat_yoy": 8.97,
         "roe": null,
-        "src": "not stated",
+        "src": "screener.in",
         "ebitda_m": "26.7%"
        }
       },
@@ -547,7 +565,7 @@
         "pat": "42,303",
         "pat_yoy": 10.02,
         "roe": null,
-        "src": "not stated",
+        "src": "screener.in",
         "ebitda_m": "26.3%"
        }
       },
@@ -560,7 +578,7 @@
         "pat": "38,449",
         "pat_yoy": 18.08,
         "roe": null,
-        "src": "not stated",
+        "src": "screener.in",
         "ebitda_m": "27.7%"
        }
       }
@@ -657,7 +675,7 @@
    "intent": "valuation_view",
    "title": "TCS · Valuation",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:14+05:30",
+   "generated_at": "2026-11-03T04:25:08+05:30",
    "mode": "eod",
    "headline": {
     "text": "TCS trades at 17.5× trailing earnings (2 Nov 2026), 26.6% below the median P/E of its sector label (23.9×); its P/E was lower on 68% of the 208 sessions since 29 Dec 2025.",
@@ -862,7 +880,7 @@
    "intent": "ownership_trend",
    "title": "ICICIBANK · Ownership",
    "as_of": "2026-09-30",
-   "generated_at": "2026-11-03T04:09:13+05:30",
+   "generated_at": "2026-11-03T04:25:07+05:30",
    "mode": "eod",
    "headline": {
     "text": "ICICIBANK at Sep 26, percent of shares: FIIs 34.68% (+0.89 pp); DIIs 41.78% (−0.54 pp) (change from Jun 26 in brackets).",
@@ -870,14 +888,6 @@
    },
    "decision": null,
    "blocks": [
-    {
-     "type": "notice",
-     "id": "missing-0",
-     "title": null,
-     "note": null,
-     "tone": "warn",
-     "text": "Mutual-fund holdings by fund house (nidp.mf_holdings_deltas) is not available (the data platform does not serve the fund-house view yet (HTTP 404)), so its figures are left out."
-    },
     {
      "type": "kpis",
      "id": "latest",
@@ -1142,6 +1152,14 @@
      "text": "NSE's filing carries a pledge figure for ICICIBANK (Jun 26) that does not agree with the promoter holding (or no promoter group is reported), so it is not shown."
     },
     {
+     "type": "notice",
+     "id": "amc-mismatch",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "The mutual-fund scheme disclosures for Sep 2026 add up to 65.26% of ICICIBANK's shares, against 29.39% held by mutual funds in the company's Sep 26 shareholding filing. The disclosures appear to count the same holding under more than one plan of a scheme, so the fund-house figures are not shown."
+    },
+    {
      "type": "list",
      "id": "gaps",
      "title": "Not in our data",
@@ -1170,15 +1188,13 @@
      },
      {
       "name": "Mutual-fund holdings by fund house (nidp.mf_holdings_deltas)",
-      "as_of": null,
-      "status": "missing",
-      "note": "the data platform does not serve the fund-house view yet (HTTP 404)"
+      "as_of": "2026-09-01",
+      "status": "fresh",
+      "note": "monthly scheme disclosures, 1 Aug 2026 to 1 Sep 2026; not shown (does not agree with the filing)"
      }
     ],
     "stale": false,
-    "missing": [
-     "Mutual-fund holdings by fund house (nidp.mf_holdings_deltas): the data platform does not serve the fund-house view yet (HTTP 404)"
-    ]
+    "missing": []
    },
    "follow_ups": [
     {
@@ -1205,7 +1221,7 @@
    "intent": "peer_compare",
    "title": "TCS · Peer comparison",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:08+05:30",
+   "generated_at": "2026-11-03T04:25:03+05:30",
    "mode": "eod",
    "headline": {
     "text": "8 companies compared on their latest filed quarter and the platform's latest ratios; TCS's P/E is 17.5× against a median of 22.5× for the set.",
@@ -1653,30 +1669,14 @@
    "intent": "company_risks",
    "title": "TCS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:08+05:30",
+   "generated_at": "2026-11-03T04:25:03+05:30",
    "mode": "eod",
    "headline": {
-    "text": "None of the 7 checks that could run is flagged for TCS; 6 could not run for lack of data.",
+    "text": "None of the 13 checks that could run is flagged for TCS.",
     "tone": "neutral"
    },
    "decision": null,
    "blocks": [
-    {
-     "type": "notice",
-     "id": "missing-0",
-     "title": null,
-     "note": null,
-     "tone": "warn",
-     "text": "Cash-flow statements (nidp.nse_financials_cashflow) is not available (the data platform does not serve cash-flow statements yet (HTTP 404)), so its figures are left out."
-    },
-    {
-     "type": "notice",
-     "id": "bs_not_served",
-     "title": null,
-     "note": null,
-     "tone": "info",
-     "text": "Current assets and liabilities, receivables and inventory are not served by the data platform yet, so the liquidity, receivables and working-capital checks show no figure."
-    },
     {
      "type": "kpis",
      "id": "summary",
@@ -1685,13 +1685,13 @@
      "items": [
       {
        "label": "Flagged",
-       "value": "0 of 7",
+       "value": "0 of 13",
        "sub": "checks that could run",
        "tone": null
       },
       {
        "label": "No data",
-       "value": "6",
+       "value": "0",
        "sub": "checks without the figures they need"
       },
       {
@@ -1701,7 +1701,7 @@
       },
       {
        "label": "Latest cash-flow year",
-       "value": "not in our data",
+       "value": "FY26",
        "sub": null
       }
      ]
@@ -1777,10 +1777,10 @@
        "tone": null,
        "cells": {
         "check": "Current ratio",
-        "value": "not served by the data platform yet",
+        "value": "2.48×",
         "rule": "below 1.0×",
-        "result": "Not in our data",
-        "when": null
+        "result": "Within the rule",
+        "when": "Sep 26"
        }
       },
       {
@@ -1788,10 +1788,10 @@
        "tone": null,
        "cells": {
         "check": "Cash from operations ÷ PAT",
-        "value": "not served by the data platform yet",
+        "value": "1.05× (₹52,094 Cr ÷ ₹49,454 Cr)",
         "rule": "below 0.8×",
-        "result": "Not in our data",
-        "when": null
+        "result": "Within the rule",
+        "when": "FY26"
        }
       },
       {
@@ -1799,10 +1799,10 @@
        "tone": null,
        "cells": {
         "check": "PAT growth vs cash-flow growth",
-        "value": "not served by the data platform yet",
+        "value": "PAT +1.4%, CFO +6.5%",
         "rule": "PAT growth over 20 points above CFO growth",
-        "result": "Not in our data",
-        "when": null
+        "result": "Within the rule",
+        "when": "FY25 to FY26"
        }
       },
       {
@@ -1810,10 +1810,10 @@
        "tone": null,
        "cells": {
         "check": "Free cash flow",
-        "value": "not served by the data platform yet",
+        "value": "₹48,016 Cr (CFO ₹52,094 Cr, capex −₹4,078 Cr)",
         "rule": "negative",
-        "result": "Not in our data",
-        "when": null
+        "result": "Within the rule",
+        "when": "FY26"
        }
       },
       {
@@ -1821,10 +1821,10 @@
        "tone": null,
        "cells": {
         "check": "Receivables vs revenue growth",
-        "value": "not served by the data platform yet",
+        "value": "receivables +9.0%, revenue (12 months) +9.9%",
         "rule": "receivables growth over 15 points above revenue growth",
-        "result": "Not in our data",
-        "when": null
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
        }
       },
       {
@@ -1832,10 +1832,10 @@
        "tone": null,
        "cells": {
         "check": "Working capital days",
-        "value": "not served by the data platform yet",
+        "value": "104 days (a year earlier 103)",
         "rule": "up more than 15 days of revenue in a year",
-        "result": "Not in our data",
-        "when": null
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
        }
       },
       {
@@ -1886,9 +1886,97 @@
     },
     {
      "type": "ranked",
+     "id": "cash",
+     "title": "Cash flow by fiscal year",
+     "note": "₹ crore as filed. Free cash flow = cash from operations + capex (capex is filed as a negative outflow).",
+     "columns": [
+      {
+       "key": "fy",
+       "label": "Year",
+       "format": "text"
+      },
+      {
+       "key": "cfo",
+       "label": "CFO ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "pat",
+       "label": "PAT ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "ratio",
+       "label": "CFO ÷ PAT",
+       "format": "text"
+      },
+      {
+       "key": "capex",
+       "label": "Capex ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "fcf",
+       "label": "Free cash flow ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY26",
+        "cfo": "52,094",
+        "pat": "49,454",
+        "ratio": "1.05×",
+        "capex": "−4,078",
+        "fcf": "48,016",
+        "src": "TrueData"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY25",
+        "cfo": "48,908",
+        "pat": "48,797",
+        "ratio": "1.00×",
+        "capex": "−3,937",
+        "fcf": "44,971",
+        "src": "TrueData"
+       }
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "cfo_pat",
+     "title": "Cash from operations ÷ PAT",
+     "note": "1× (dashed) = every rupee of profit arrived as operating cash.",
+     "unit": "×",
+     "orientation": "v",
+     "baseline": 1.0,
+     "items": [
+      {
+       "label": "FY25",
+       "value": 1.0
+      },
+      {
+       "label": "FY26",
+       "value": 1.05
+      }
+     ]
+    },
+    {
+     "type": "ranked",
      "id": "balance",
      "title": "Balance sheets (filed half-yearly)",
-     "note": "Debt = long-term + short-term borrowings. A blank is not in our data, not zero.",
+     "note": "Debt = long-term + short-term borrowings. A blank is not in our data, not zero. Source names TrueData only where the row carries that load's tag.",
      "columns": [
       {
        "key": "p",
@@ -1911,6 +1999,21 @@
        "format": "text"
       },
       {
+       "key": "cr",
+       "label": "Current ratio",
+       "format": "text"
+      },
+      {
+       "key": "rec",
+       "label": "Receivables ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "inv",
+       "label": "Inventory ₹Cr",
+       "format": "text"
+      },
+      {
        "key": "src",
        "label": "Source",
        "format": "text"
@@ -1924,7 +2027,10 @@
         "eq": "1,19,994",
         "debt": "0",
         "cash": "5,106",
-        "src": "filed (not stated row)"
+        "src": "TrueData balance sheet",
+        "cr": "2.48×",
+        "rec": "69,028",
+        "inv": "28"
        }
       },
       {
@@ -1934,7 +2040,10 @@
         "eq": "1,08,478",
         "debt": "0",
         "cash": "6,417",
-        "src": "filed (not stated row)"
+        "src": "TrueData balance sheet",
+        "cr": "2.23×",
+        "rec": "67,714",
+        "inv": "29"
        }
       },
       {
@@ -1944,7 +2053,10 @@
         "eq": "1,07,461",
         "debt": "0",
         "cash": "6,358",
-        "src": "filed (not stated row)"
+        "src": "TrueData balance sheet",
+        "cr": "2.43×",
+        "rec": "63,304",
+        "inv": "26"
        }
       },
       {
@@ -1954,7 +2066,10 @@
         "eq": "95,771",
         "debt": "0",
         "cash": "8,342",
-        "src": "filed (not stated row)"
+        "src": "TrueData balance sheet",
+        "cr": "2.32×",
+        "rec": "59,046",
+        "inv": "21"
        }
       }
      ]
@@ -1997,9 +2112,9 @@
      },
      {
       "name": "Cash-flow statements (nidp.nse_financials_cashflow)",
-      "as_of": null,
-      "status": "missing",
-      "note": "the data platform does not serve cash-flow statements yet (HTTP 404)"
+      "as_of": "2026-03-31",
+      "status": "fresh",
+      "note": "consolidated, provider TrueData"
      },
      {
       "name": "Shareholding pattern (nidp.shareholding_pattern)",
@@ -2015,9 +2130,7 @@
      }
     ],
     "stale": false,
-    "missing": [
-     "Cash-flow statements (nidp.nse_financials_cashflow): the data platform does not serve cash-flow statements yet (HTTP 404)"
-    ]
+    "missing": []
    },
    "follow_ups": [
     {
@@ -2044,7 +2157,7 @@
    "intent": "peer_compare",
    "title": "HDFCBANK vs ICICIBANK vs AXISBANK · Comparison",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:14+05:30",
+   "generated_at": "2026-11-03T04:25:09+05:30",
    "mode": "eod",
    "headline": {
     "text": "3 companies compared on their latest filed quarter and the platform's latest ratios; HDFCBANK's P/E is 13.8× against a median of 13.6× for the set.",
@@ -2327,7 +2440,7 @@
    "intent": "company_risks",
    "title": "ADANIPORTS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:15+05:30",
+   "generated_at": "2026-11-03T04:25:09+05:30",
    "mode": "eod",
    "headline": {
     "text": "1 of the 13 checks that could run is flagged for ADANIPORTS: Current ratio.",
@@ -2634,7 +2747,7 @@
      "type": "ranked",
      "id": "balance",
      "title": "Balance sheets (filed half-yearly)",
-     "note": "Debt = long-term + short-term borrowings. A blank is not in our data, not zero.",
+     "note": "Debt = long-term + short-term borrowings. A blank is not in our data, not zero. Source names TrueData only where the row carries that load's tag.",
      "columns": [
       {
        "key": "p",
@@ -2815,7 +2928,7 @@
    "intent": "company_risks",
    "title": "TCS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:15+05:30",
+   "generated_at": "2026-11-03T04:25:10+05:30",
    "mode": "eod",
    "headline": {
     "text": "None of the 5 checks that could run is flagged for TCS; 8 could not run for lack of data.",
@@ -3115,7 +3228,7 @@
    "intent": "company_risks",
    "title": "TIMEX · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T04:09:13+05:30",
+   "generated_at": "2026-11-03T04:25:08+05:30",
    "mode": "eod",
    "headline": {
     "text": "No check could run for TIMEX: the figures they need are not in our data.",
@@ -3125,11 +3238,11 @@
    "blocks": [
     {
      "type": "notice",
-     "id": "missing-0",
+     "id": "nocf",
      "title": null,
      "note": null,
-     "tone": "warn",
-     "text": "Cash-flow statements (nidp.nse_financials_cashflow) is not available (the data platform does not serve cash-flow statements yet (HTTP 404)), so its figures are left out."
+     "tone": "info",
+     "text": "Cash-flow statements for TIMEX are not in our data yet, so the cash checks show no figure."
     },
     {
      "type": "kpis",
@@ -3242,7 +3355,7 @@
        "tone": null,
        "cells": {
         "check": "Cash from operations ÷ PAT",
-        "value": "not served by the data platform yet",
+        "value": null,
         "rule": "below 0.8×",
         "result": "Not in our data",
         "when": null
@@ -3253,7 +3366,7 @@
        "tone": null,
        "cells": {
         "check": "PAT growth vs cash-flow growth",
-        "value": "not served by the data platform yet",
+        "value": null,
         "rule": "PAT growth over 20 points above CFO growth",
         "result": "Not in our data",
         "when": null
@@ -3264,7 +3377,7 @@
        "tone": null,
        "cells": {
         "check": "Free cash flow",
-        "value": "not served by the data platform yet",
+        "value": null,
         "rule": "negative",
         "result": "Not in our data",
         "when": null
@@ -3363,12 +3476,6 @@
    "data_quality": {
     "sources": [
      {
-      "name": "Cash-flow statements (nidp.nse_financials_cashflow)",
-      "as_of": null,
-      "status": "missing",
-      "note": "the data platform does not serve cash-flow statements yet (HTTP 404)"
-     },
-     {
       "name": "Stock features (nidp.stock_features_daily)",
       "as_of": "2026-11-02",
       "status": "fresh",
@@ -3376,9 +3483,7 @@
      }
     ],
     "stale": false,
-    "missing": [
-     "Cash-flow statements (nidp.nse_financials_cashflow): the data platform does not serve cash-flow statements yet (HTTP 404)"
-    ]
+    "missing": []
    },
    "follow_ups": [
     {

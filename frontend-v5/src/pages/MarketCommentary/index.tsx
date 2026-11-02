@@ -1,14 +1,44 @@
 /**
- * MarketCommentaryPage — /market-commentary (latest edition) and /market-commentary/:date.
+ * MarketCommentaryPage — /market-commentary (latest edition) and /market-commentary/:date, ?show=opening for the
+ * morning edition.
  *
- * The nightly "Closing Bell" video: an end-of-day wrap of the NSE session read off the Smart Trading Desk,
- * built and checked by tools/closing_bell and published after the close (about 23:15 IST on trading days).
+ * Two shows, both built and checked by tools/closing_bell:
+ *  - Closing Bell: an end-of-day wrap of the NSE session read off the Smart Trading Desk (about 23:15 IST);
+ *  - Opening Bell: the pre-market briefing after the 9:00-9:08 pre-open, with the ranges and levels the options
+ *    market is pricing (about 9:10-9:15 IST).
  * Public page inside the marketing shell, like the blog. Data: editions.ts (static files, no backend route).
  */
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import MarketingShell from "@/components/marketing/MarketingShell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { type Edition, fileUrl, languagesOf, useEditions, useTranscript } from "./editions";
+import { type Edition, type EditionKind, fileUrl, languagesOf, useEditions, useTranscript } from "./editions";
+
+/** What differs between the two shows on this page. */
+const SHOW: Record<EditionKind, { name: string; when: string; empty: string; strap: string; sources: string }> = {
+  closing: {
+    name: "Closing Bell",
+    when: "every evening",
+    empty: "Closing Bell is published after the market closes on trading days, once the day's data is in — usually around 11:15 PM IST.",
+    strap: "End-of-day NSE wrap",
+    sources: "Data: NSE end-of-day index and stock closes, exchange filings and NSE provisional FII/DII figures (via Sensibull), as shown on the Smart Trading Desk.",
+  },
+  opening: {
+    name: "Opening Bell",
+    when: "every morning",
+    empty: "Opening Bell is published on trading days right after the 9:00–9:08 pre-open — usually around 9:15 AM IST.",
+    strap: "Pre-market NSE briefing",
+    sources: "Data: NSE pre-open (9:00–9:08 IST) and end-of-day prices, the Nifty option chain from the NSE bhavcopy, India VIX, MCX crude and gold (TrueData) and NSE provisional FII/DII figures (via Sensibull), as shown on the Smart Trading Desk. Ranges and levels are what the options market prices, not forecasts.",
+  },
+};
+
+/** The morning edition's extra line, in each narration language. */
+const LEVELS_NOTE: Record<string, string> = {
+  en: "Ranges and levels are what the options market prices, not forecasts.",
+  hi: "रेंज और लेवल ऑप्शंस बाज़ार के आंके गए भाव हैं, पूर्वानुमान नहीं।",
+  ta: "வரம்புகளும் நிலைகளும் ஆப்ஷன் சந்தை கணக்கிடுபவை, முன்னறிவிப்புகள் அல்ல.",
+  mr: "रेंज आणि लेव्हल ऑप्शन्स बाजाराने आखलेले आहेत, अंदाज नाहीत.",
+  gu: "રેન્જ અને લેવલ ઓપ્શન્સ બજારે આંકેલા છે, આગાહી નથી.",
+};
 
 /** The on-page disclaimer in each narration language (the video's own closing line says the same). */
 const DISCLAIMER: Record<string, { main: string; fno: string }> = {
@@ -38,7 +68,11 @@ export default function MarketCommentaryPage() {
   const { date } = useParams();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const idx = useEditions();
+  const [params] = useSearchParams();
+  const show: EditionKind = params.get("show") === "opening" ? "opening" : "closing";
+  const S = SHOW[show];
+  const q = show === "opening" ? "?show=opening" : "";
+  const idx = useEditions(show);
   const editions = idx.data?.editions ?? [];
   const edition: Edition | undefined = date ? editions.find((e) => e.date === date) : editions[0];
 
@@ -46,7 +80,22 @@ export default function MarketCommentaryPage() {
     <MarketingShell>
       <article data-testid="market-commentary" style={{ maxWidth: 820, margin: "0 auto", padding: isMobile ? "36px 20px 24px" : "64px 56px 32px" }}>
         <div className="nv-mono" style={{ fontSize: 11, letterSpacing: ".16em", color: "var(--mint)", textTransform: "uppercase" }}>
-          Market commentary · Closing Bell
+          Market commentary · {S.name}
+        </div>
+
+        <div role="group" aria-label="Show" data-testid="mc-shows" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          {(["opening", "closing"] as EditionKind[]).map((k) => (
+            <Link
+              key={k}
+              to={`/market-commentary${k === "opening" ? "?show=opening" : ""}`}
+              data-testid={`mc-show-${k}`}
+              aria-current={k === show ? "page" : undefined}
+              className={"nv-btn" + (k === show ? " nv-btn-primary" : "")}
+              style={{ padding: "6px 14px", fontSize: 13, textDecoration: "none" }}
+            >
+              {SHOW[k].name} <span style={{ opacity: 0.7, fontWeight: 400 }}>· {SHOW[k].when}</span>
+            </Link>
+          ))}
         </div>
 
         {idx.isPending && (
@@ -64,18 +113,18 @@ export default function MarketCommentaryPage() {
 
         {idx.isSuccess && editions.length === 0 && (
           <Notice testId="mc-empty" title="The first edition is on its way">
-            Closing Bell is published after the market closes on trading days, once the day's data is in — usually around 11:15 PM IST.
+            {S.empty}
           </Notice>
         )}
 
         {idx.isSuccess && editions.length > 0 && !edition && (
           <Notice testId="mc-not-found" title={`No edition for ${date}`}>
-            There was no Closing Bell for that date (a holiday, or it did not pass its checks).{" "}
-            <Link to="/market-commentary">Watch the latest edition →</Link>
+            There was no {S.name} for that date (a holiday, or it did not pass its checks).{" "}
+            <Link to={`/market-commentary${q}`}>Watch the latest edition →</Link>
           </Notice>
         )}
 
-        {edition && <EditionView edition={edition} isMobile={isMobile} />}
+        {edition && <EditionView edition={edition} kind={show} isMobile={isMobile} />}
 
         {editions.length > 1 && (
           <section data-testid="mc-archive" style={{ marginTop: 36 }}>
@@ -84,7 +133,7 @@ export default function MarketCommentaryPage() {
               {editions.filter((e) => e.date !== edition?.date).slice(0, 20).map((e) => (
                 <li key={e.date}>
                   <Link
-                    to={`/market-commentary/${e.date}`}
+                    to={`/market-commentary/${e.date}${q}`}
                     data-testid={`mc-archive-${e.date}`}
                     className="nv-card"
                     style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "12px 16px", textDecoration: "none", color: "var(--ink)" }}
@@ -111,11 +160,12 @@ export default function MarketCommentaryPage() {
   );
 }
 
-function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolean }) {
+function EditionView({ edition, kind, isMobile }: { edition: Edition; kind: EditionKind; isMobile: boolean }) {
   const [params, setParams] = useSearchParams();
+  const S = SHOW[kind];
   const langs = languagesOf(edition);
   const lang = langs.find((l) => l.code === params.get("lang")) ?? langs[0];
-  const tr = useTranscript(edition, lang);
+  const tr = useTranscript(edition, lang, kind);
   const disc = DISCLAIMER[lang.code] ?? DISCLAIMER.en;
   const choose = (code: string) => {
     const next = new URLSearchParams(params);
@@ -126,10 +176,10 @@ function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolea
   return (
     <>
       <h1 className="nv-serif" style={{ fontSize: isMobile ? 32 : 48, lineHeight: 1.05, letterSpacing: "-0.03em", margin: "12px 0 0" }}>
-        Closing Bell — {edition.day_long}
+        {S.name} — {edition.day_long}
       </h1>
       <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", letterSpacing: ".06em", margin: "14px 0 18px" }}>
-        End-of-day NSE wrap · {edition.duration_label} · {langs.length > 1 ? `voiceover in ${langs.length} languages` : "English voiceover"}, captions available
+        {S.strap} · {edition.duration_label} · {langs.length > 1 ? `voiceover in ${langs.length} languages` : "English voiceover"}, captions available
       </div>
 
       {langs.length > 1 && (
@@ -164,16 +214,16 @@ function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolea
           <video
             key={edition.date + lang.code}
             data-testid="mc-video"
-            aria-label={`Closing Bell market commentary for ${edition.day_long}`}
-            poster={fileUrl(edition.files.poster)}
+            aria-label={`${S.name} market commentary for ${edition.day_long}`}
+            poster={fileUrl(edition.files.poster, kind)}
             controls
             playsInline
             preload="metadata"
             style={{ width: "100%", display: "block", aspectRatio: "16 / 9", background: "#06080F" }}
           >
-            <source src={fileUrl(lang.video)} type="video/mp4" />
-            <track kind="captions" srcLang={lang.code} label={lang.label} src={fileUrl(lang.captions)} default={lang.code !== "en"} />
-            Your browser can’t play embedded video — <a href={fileUrl(lang.video)}>download the bulletin</a> instead.
+            <source src={fileUrl(lang.video, kind)} type="video/mp4" />
+            <track kind="captions" srcLang={lang.code} label={lang.label} src={fileUrl(lang.captions, kind)} default={lang.code !== "en"} />
+            Your browser can’t play embedded video — <a href={fileUrl(lang.video, kind)}>download the bulletin</a> instead.
           </video>
         </div>
       </figure>
@@ -197,6 +247,7 @@ function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolea
       >
         <p lang={lang.code} style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--ink)" }}>
           <b>{disc.main}</b>
+          {kind === "opening" && <> <span data-testid="mc-levels-note">{LEVELS_NOTE[lang.code] ?? LEVELS_NOTE.en}</span></>}
         </p>
         <p lang={lang.code} style={{ margin: "10px 0 0", fontSize: 13, lineHeight: 1.6, color: "var(--ink-3)" }}>
           {disc.fno}
@@ -227,8 +278,7 @@ function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolea
       </div>
 
       <p data-testid="mc-sources" style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-3)", margin: "18px 0 6px" }}>
-        Data: NSE end-of-day index and stock closes, exchange filings and NSE provisional FII/DII figures (via Sensibull), as shown on the
-        Smart Trading Desk. The desk is recorded read-only: nothing is traded or sent to a broker. Every number in the script is checked
+        {S.sources} The desk is recorded read-only: nothing is traded or sent to a broker. Every number in the script is checked
         against its source before an edition is published.
       </p>
       <p data-testid="mc-credit" style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-3)", margin: 0 }}>

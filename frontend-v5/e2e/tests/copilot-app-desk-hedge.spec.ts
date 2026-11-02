@@ -187,12 +187,50 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
   test("HG-10 the dates, the disclosures and the paper-only wording are on the screen", async ({ page }) => {
     await desk(page);
     await page.goto(HEDGE);
-    await expect(page.getByTestId("hedge-dates")).toContainText(`Holdings as of ${OK.data.portfolio.as_of}`, SLOW);
+    await expect(page.getByTestId("hedge-dates")).toContainText(`Holdings last updated ${OK.data.portfolio.as_of}`, SLOW);
     await expect(page.getByTestId("hedge-dates")).toContainText(`Nifty options as of ${OK.data.market.as_of}`);
     await expect(page.getByTestId("hedge-disclosures")).toContainText("not guaranteed future performance");
     await expect(page.getByTestId("hedge-disclosures")).toContainText("does not eliminate");
     await expect(page.getByTestId("hedge-estimate-note")).toContainText("Estimated scenario, not guaranteed future performance");
     await expect(page.getByTestId("hedge-place-note")).toContainText("not part of this release");
+  });
+});
+
+test.describe("MOCK — not real data: Risk Desk › Portfolio hedge · where the holdings come from", () => {
+  test("HG-12 stale sources are named, the ended broker gets a sign-in button, and it opens Broker connections", async ({ page }) => {
+    await desk(page, { answer: load("quick-hedge-sources-stale.mock.json") });
+    await page.goto(HEDGE);
+    const card = page.getByTestId("hedge-sources");
+    await expect(card).toBeVisible(SLOW);
+    await expect(page.getByTestId("hedge-source-cas")).toContainText("CAS statement · 119 lines · statement dated 31-Aug-2026");
+    await expect(page.getByTestId("hedge-source-broker_native")).toContainText("Connected broker · 5 lines · last updated 2026-10-31");
+    await expect(page.getByTestId("hedge-broker-zerodha")).toHaveAttribute("data-state", "ended");
+    await expect(page.getByTestId("hedge-broker-zerodha")).toContainText("session ended, holdings may be out of date");
+    await expect(page.getByTestId("hedge-cas-old")).toContainText("62 days old");
+    await expect(page.getByTestId("hedge-signin-zerodha")).toHaveText("Sign in to Zerodha again");
+    await expect(page.getByTestId("hedge-signin-icicidirect")).toHaveText("Sign in to ICICI Direct again");
+    await expect(page.getByTestId("hedge-update-cas")).toHaveText("Upload a newer CAS");
+    await expect(page.getByTestId("hedge-connect-broker")).toHaveCount(0);                   // a broker is connected: it needs signing in, not connecting
+    await page.getByTestId("hedge-signin-zerodha").click();
+    await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
+  });
+
+  test("HG-13 no equity-linked holdings: it says so, offers to connect a broker or upload a CAS, and shows no choices", async ({ page }) => {
+    await desk(page, { answer: load("quick-hedge-noholdings.mock.json") });
+    await page.goto(HEDGE);
+    await expect(page.getByTestId("hedge-sources-lines")).toContainText("No holdings found yet", SLOW);
+    await expect(page.getByTestId("hedge-reason-missing_portfolio")).toContainText("Connect a broker or upload a CAS statement");
+    await expect(page.getByTestId("hedge-update-cas")).toHaveText("Upload a CAS statement");
+    await expect(page.getByTestId("hedge-choices")).toHaveCount(0);
+    await page.getByTestId("hedge-connect-broker").click();
+    await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
+  });
+
+  test("HG-14 when the sources cannot be read the card is left out, not guessed", async ({ page }) => {
+    await desk(page);                                        // the default fixture carries no sources summary
+    await page.goto(HEDGE);
+    await expect(page.getByTestId("hedge-choices")).toBeVisible(SLOW);
+    await expect(page.getByTestId("hedge-sources")).toHaveCount(0);
   });
 });
 
