@@ -2,7 +2,7 @@
 
 - **Branches:**
   - **Round 1:** `feat/research-answers-w1` was merged as **#458** at 101b98b4 (owner, 2 Nov 22:42 UTC) and deployed to staging (backend container restarted 22:46 UTC).
-  - **Round 2 (this report):** `feat/research-answers-w1-r2`, from origin/dev 19d8d974, code at 5f70e2bc. It carries the owner's 3 Nov rules and the fixes to defects found in the deployed round 1.
+  - **Round 2 (this report):** `feat/research-answers-w1-r2`, from origin/dev 19d8d974, code at e47d1e51. It carries the owner's 3 Nov rules and the fixes to defects found in the deployed round 1.
 - **Date:** 2026-11-03
 - **Author:** Claude (Full stack developer + QA engineer; domain and SEBI-wording review)
 - **Environment:** staging. Branch code ran in-process inside `nivesh-staging-app-backend` from a scratch copy, against the live staging DaaS and the NIDP warehouse, read-only. Nothing was deployed or restarted. The scratch copy was deleted after each run.
@@ -25,6 +25,12 @@ Round 1 (#458) added five deterministic visual answers: `financial_trend`, `valu
    - **Fund-house path.** The reader called `/v1/smart-money/amc`, which does not exist (the router is under `/desk`). So every ownership answer on staging says "the data platform does not serve the fund-house view yet (HTTP 404)", which is false. It now calls `/v1/desk/smart-money/amc`.
    - **Fund-house double count.** That view sums every plan of a scheme, about 2× the filing for all 9 sample companies. Its figures are now shown only when they agree with the company's shareholding filing.
    - **Balance-sheet provenance.** An untagged balance-sheet row no longer names the P&L row's provider.
+5. **The explanation step** (found by asking round 1 live, signed in). For these five answers the stock analyst used its own template and tools:
+   - it quoted a provider's "PAT YoY +4.5%" beside the card's filed +15.4%;
+   - it wrote "relatively cheap valuation" and "bullish bias".
+
+   Now, when the facts carry `WORDING_RULE`, `stock_node` explains only the card's data block: no tool reads, no sections, the wording rule applies. Every other stock question keeps the usual path (tested).
+6. **Quarter labels** read "Sep 2026", not "Sep 26": the model read "Dec 24" as 24 December.
 
 **Correction to round 1's report and PR #458:** they said `/smart-money/amc` "is not live on the running DaaS". That was wrong. The path was mine and it was wrong; the route itself exists under `/desk`.
 
@@ -34,7 +40,8 @@ Round 1 (#458) added five deterministic visual answers: `financial_trend`, `valu
 |----|------|----------|------|----------|--------|
 | TC-R1 | routing | 101 owner questions × 3 fillers; with thread stock TCS; with no company and no thread (on the new dev base) | unit | 100% | **PASS**: 303/303, 101/101, 101/101 |
 | TC-R2…R6 | routing | Thesis not trade_validity; ownership trend vs event; thread stock; market-wide; multi-company; acronyms | unit | as stated | **PASS** |
-| TC-R7 | regression | 9 existing Copilot/suggestions suites (on dev 19d8d974 + this branch) | unit | all pass | **PASS**: 687 passed |
+| TC-R7 | regression | 11 existing Copilot, suggestions and agent suites (on dev 19d8d974 + this branch) | unit | all pass | **PASS**: 720 passed |
+| TC-B11 | explanation (new) | Research card explained from the card alone (no tool reads, research prompt, wording rule); an ordinary stock question unchanged; real model on branch code for the five questions | unit + real model | 0 lint hits, card figures only | **PASS**: unit; real model 5/5 clean |
 | TC-B1…B6, B8, B9 | builders | As in round 1 (trend, valuation, ownership, peers, risk checks, freshness, registration, failure) | unit | as stated | **PASS** |
 | TC-B3+ | ownership (new) | Fund-house reader calls `/desk/smart-money/amc`; figures hidden when the total disagrees with the filing (notice gives both numbers); read failure → named missing source | unit + real data | as stated | **PASS**: 9 of 9 real companies hidden with the notice; TIMEX has no fund-house holding |
 | TC-B5+ | risk checks (new) | An untagged balance-sheet row reads "provider not recorded on the row" | unit | as stated | **PASS** |
@@ -44,7 +51,7 @@ Round 1 (#458) added five deterministic visual answers: `financial_trend`, `valu
 | TC-D1 | DaaS | Round 1's route: SQL columns, cash-flow handler | unit | as stated | **PASS**; and now live (below) |
 | TC-CI | CI | The workflow's own allowlist, branch vs untouched origin/dev, same image | unit | identical pre-existing failures | **PASS**: 3 = 3 |
 | TC-S1…S4 | real data | Live DaaS, route SQL, production shape; warehouse spot checks; gap honesty | api (in-process) + data | valid, matching | **PASS** |
-| TC-S5 | live chat | The five questions asked as a signed-in user in staging chat | e2e | real answers | **Round 1 (deployed): RUN.** 5/5 reach their card and stock_analyst. Found live: the false fund-house 404 and "exited" (both fixed in #460), and "undervalued" in one explanation (from the analyst's own data). **Round 2: BLOCKED** until #460 is merged and deployed |
+| TC-S5 | live chat | The five questions asked as a signed-in user in staging chat | e2e | real answers | **Round 1 (deployed): RUN twice** (two sessions, below). 5/5 reach their card and stock_analyst. Found live: the false fund-house 404 and "exited" (fixed in #460); in the explanations, "cheap", "bullish", "undervalued" and a figure that contradicts the card (all from the analyst's own template and data; fixed in #460 by the card-only explanation, checked with the real model on branch code). **Round 2 live in chat: BLOCKED** until #460 is merged and deployed |
 
 ## API / Endpoint Tests (staging)
 
@@ -83,7 +90,7 @@ S1 | What are the biggest risks for ADANIPORTS? | company_risks:ADANIPORTS | val
 S1 | What are the biggest risks for ITC?        | company_risks:ITC   | valid=True | missing=0 | 2 of the 11 checks that could run are flagged for ITC: EBITDA margin trend; Piotroski F-score.
 P  | What are the biggest risks for TCS?        | company_risks:TCS   | valid=True | missing=0 | None of the 5 checks that could run is flagged for TCS; 8 could not run for lack of data.
 COMPLIANCE LINT over 96 real payloads + facts: 0 hits []
-TOTAL builds: 96 contract problems: 0 max secs: 3.39
+TOTAL builds: 96 contract problems: 0 max secs: 3.88   (final run on e47d1e51; the earlier run on 5f70e2bc: 3.39)
 ```
 
 **Fund-house cross-check on real data.** Every company in the sample with fund-house holdings was hidden, with a notice:
@@ -111,8 +118,8 @@ The double count was measured on the warehouse: TCS has 658 scheme entries for S
 **Real capture** `backend/tests/fixtures/research_visual_capture.json` was re-taken from this run (9 payloads, including `company_risks:production`). Its test checks the contract, the lint, the live cash-flow route, the fund-house mismatch notice and the production shape.
 
 **pytest** (throwaway `nivesh/backend:staging` container, `--network none`, on dev 19d8d974 + this branch):
-- `python -m pytest tests/test_copilot_research_answers.py -q -p no:cacheprovider` → `585 passed, 1 warning in 1.66s`
-- `python -m pytest tests/test_copilot_visual.py tests/test_copilot_visual_chat.py tests/test_copilot_events.py tests/test_copilot_prompts_mode.py tests/test_copilot_trade_idea.py tests/test_quick_hedge_chat.py tests/test_open_book.py tests/test_broker_trades.py tests/test_suggestions.py -q -p no:cacheprovider` → `687 passed, 2 warnings in 41.11s`
+- `python -m pytest tests/test_copilot_research_answers.py -q -p no:cacheprovider` → `587 passed, 2 warnings in 6.20s`
+- `python -m pytest tests/test_copilot_visual.py tests/test_copilot_visual_chat.py tests/test_copilot_events.py tests/test_copilot_prompts_mode.py tests/test_copilot_trade_idea.py tests/test_quick_hedge_chat.py tests/test_open_book.py tests/test_broker_trades.py tests/test_suggestions.py tests/test_copilot_agents_oneshot.py tests/test_chat_persona_routing.py -q -p no:cacheprovider` → `720 passed, 2 warnings in 44.17s`
 
 ### CI: "Backend unit tests (allowlist)", side by side
 
@@ -126,6 +133,7 @@ python -m pytest -q -p no:cacheprovider -rfE --tb=line $(allowlist)
 |---|---|---|
 | untouched origin/dev 19d8d974 | 296 | `3 failed, 8151 passed, 34 skipped, 15 warnings in 235.15s` (exit 1) |
 | this branch 5f70e2bc | 297 (+ `tests/test_copilot_research_answers.py`) | `3 failed, 8736 passed, 34 skipped, 15 warnings in 235.92s` (exit 1) |
+| this branch e47d1e51 (final) | 297 | `3 failed, 8739 passed, 34 skipped, 15 warnings in 352.61s` (exit 1); the same three failures |
 
 The failures are identical and pre-existing (`diff` of the sorted `FAILED` lines is empty):
 
@@ -163,6 +171,45 @@ The five questions were asked through `POST /api/chat/stream` on staging.niveshc
 **Round 2 sends `WORDING_RULE` (no undervalued / target / … words) with these answers' facts.** That instructs the model; it does not guarantee the output. **Decision for the owner:**
 - A deterministic word filter on these answers' explanation (in the compliance node, outside this PR) would make the rule hold every time.
 - The disclaimer's wording itself uses the owner's listed words.
+
+### Second live run (round 1), and the round-2 explanation checked with the real model
+
+A second session asked the same five questions (plus the thesis question) through `POST /api/chat/stream` with `curl`, header on stdin, investor persona, in a new chat session. All six returned HTTP 200. The cards were right; the explanations were not:
+
+| Question | Card | Explanation (stock analyst, round 1) |
+|---|---|---|
+| How has revenue grown… TCS | financial_trend, no missing | clean |
+| Is TCS expensive or cheap? | valuation_view, no missing | "…indicating a relatively **cheap** valuation…" |
+| Has promoter holding of TCS increased? | ownership_trend; false 404 missing source; gap text "entered or **exited**" | clean |
+| Compare TCS with its peers | peer_compare, no missing | its own Technical/Fundamental template; **"PAT YoY +4.5%"** (the provider's figure) against the card's filed **+15.4%** |
+| What are the biggest risks for TCS? | company_risks, 13 checks, none flagged | "The technical tool reports a **bullish** bias…" |
+| Build a research thesis for TCS | no research card (instrument_detail from the LangGraph stock path, not trade_validity) | "**bullish** bias", "Valuation is described as **undervalued** relative to peers": the plain stock analyst, outside W1 |
+
+**Round-2 explanation path, real model, branch code** (in-process in `nivesh-staging-app-backend`, scratch copy, `prepare` → facts → `stock_node`, read-only, deleted after):
+
+```
+### How has revenue grown over the last 5 years for TCS? -> financial_trend (2.6s, 102 words, tools 0)
+lint: []
+TCS revenue for the last five fiscal years is shown as follows:  - FY22 → ₹1,91,754 Cr, YoY +16.80%   - FY23 → ₹2,25,458 Cr, YoY +17.58%   - FY24 → ₹2,40,893 Cr, YoY +6.85%   - FY25 → ₹2,55,324 Cr, YoY +5.99%   - FY26 → ₹2,67,021 Cr, YoY +4.58%    The dashboard also notes a revenue CAGR of +8.6% from FY22 to FY26 (4 years). Quarterly revenue data is available only from Dec 2024 to Sep 2026, so earlier quarters are not in our data. Segment‑level revenue and profit figures are not in our data. EBITDA is missing for three of the eight quarters shown.
+
+### Is TCS expensive or cheap? -> valuation_view (2.3s, 123 words, tools 0)
+lint: []
+The valuation view dated 2 Nov 2026 shows TCS trading at a trailing‑12‑month P/E of 17.5×. The sector median P/E for the “IT” label is 23.9×, making TCS’s P/E 26.6% below that median. Since 29 Dec 2025, the daily P/E has been recorded over 208 sessions; in 68% of those sessions (142 of 208) the P/E was lower than today’s level. The historical range since 29 Dec 2025 is a low of 13.90×, a median of 16.76×, a high of 23.10×, and an average of 17.2×. Other metrics include a P/B of 6.37× (12 Oct 2026), market capitalisation of ₹7,68,844 Cr, and dividend yield of 2.64%. Data not available: EV/EBITDA, any P/E prior to 29 Dec 2025, forward P/E, and valuation‑model growth estimates.
+
+### Has promoter holding of TCS increased? -> ownership_trend (2.1s, 84 words, tools 0)
+lint: []
+Promoter holding was 71.77% on 30 Sep 2026 (±0.00 pp versus Jun 2026 and versus Sep 2025). The same 71.77% appears in each earlier quarter shown: Dec 2025 (±0.00 pp), Sep 2025 (±0.00 pp), Jun 2025 (±0.00 pp), Mar 2025 (±0.00 pp), Dec 2024 (±0.00 pp). The Δ column for promoters is ±0.00 pp in every quarter, indicating no change over the period.  Data not in our records: individual promoter trade details, FIIs that started or ended holdings, and mutual‑fund holdings before Sep 2025.
+
+### Compare TCS with its peers -> peer_compare (15.4s, 171 words, tools 0)
+lint: []
+TCS’s trailing‑twelve‑month P/E is 17.5× as of 2026‑11‑02, compared with a median of 22.5× for the eight IT peers. In the latest quarter (Sep 2026) TCS reported revenue growth YoY of 11.23% and PAT growth YoY of 15.40%, an EBITDA margin of 25.7%, ROE of 45.9%, ROCE of 58.6% and a debt‑to‑equity ratio of 0.00×.    Among the peers, the highest revenue‑growth YoY is PERSISTENT at +30.2% (Sep 2026) and the lowest is OFSS at +6.6% (Sep 2026). The top EBITDA margin is OFSS at 48.6% and the lowest is PERSISTENT at 13.6% (both Sep 2026). ROE peaks at TCS (45.9%) and is lowest at WIPRO (15.0%) (Sep 2026). Debt‑to‑equity is highest at WIPRO (0.19×) and lowest at TCS (0.00×).    Valuation figures show TCS market cap of ₹7,68,844 Cr, P/B of 6.37×, promoter holding 71.77%, FIIs 9.01% and DIIs 13.57% (as of 2026‑11‑02).    The sector map covers 545 of 2,488 IT stocks, so any listed peer outside that s
+
+### What are the biggest risks for TCS? -> company_risks (16.1s, 160 words, tools 0)
+lint: []
+The dashboard shows that none of the 13 risk checks are flagged for TCS. Debt to equity is 0.00× (₹0 Cr debt) as of Sep 2026, and debt growth versus profit growth notes “no debt at either date” for Sep 2026. Interest cover stands at 54.4× for FY26, and the current ratio is 2.48× as of Sep 2026. Cash from operations ÷ PAT is 1.05× (₹52,094 Cr ÷ ₹49,454 Cr) for FY26. PAT grew +1.4% while cash‑flow grew +6.5% from FY25 to FY26. Free cash flow is ₹48,016 Cr (CFO ₹52,094 Cr, capex −₹4,078 Cr) for FY26. Receivables rose +9.0% versus revenue +9.9% from Sep 2025 to Sep 2026. Working‑capital days are 104 days (up from 103) for Sep 2025‑Sep 2026. Promoter pledge is 0.68% of promoter shares as of Jun 2026.  The dashboard cannot check related‑party transactions, debt maturities, auditor remarks or contingent liabilities, and it does not provide a ranked risk impact list. Data unavailable for those i
+```
+
+The thesis question is not a W1 answer. Its stock-analyst text ("bullish", "undervalued") comes from the pre-existing stock path and is not changed here.
 
 ## UI / Playwright Tests
 
