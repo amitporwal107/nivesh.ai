@@ -282,7 +282,22 @@ def build_open_a(d: str, work: str) -> list:
     log("assembling segments (all but the cold open and the pre-open)")
     with cf.ThreadPoolExecutor(max_workers=3) as ex:
         list(ex.map(lambda s: host_py([f"{HERE}/build.py", work, assets, "seg", s], f"seg {s}"), [s for s in segs if s not in ("s0", "o2")]))
+    shutil.copyfile(f"{work}/script.json", f"{work}/script_a.json")
     return []
+
+
+PHASE_B_SEGS = ("s0", "o2")
+
+
+def phase_a_drift(work: str) -> list:
+    """Phase B re-voices only s0 + o2; every other segment keeps its phase-A voices and footage, so its text must be
+    unchanged (a deploy between the runs could change it). Returns the segments whose text differs."""
+    p = os.path.join(work, "script_a.json")
+    if not os.path.exists(p):
+        return ["(no phase A script)"]
+    texts = lambda s: {x["id"]: [b.get("texts") for b in x["beats"]] for x in s["segments"] if x["id"] not in PHASE_B_SEGS}
+    a, b = texts(json.load(open(p))), texts(json.load(open(os.path.join(work, "script.json"))))
+    return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
 
 
 def build_open_b(d: str, work: str, allow_stale: bool) -> list:
@@ -303,7 +318,10 @@ def build_open_b(d: str, work: str, allow_stale: bool) -> list:
     fails = script_checks(work, ["--require-preopen"])
     if fails:
         return fails
-    tools(work, ["python", "synth.py"], "synth s0 o2", env=["CB_SEGS=s0,o2"])
+    drift = phase_a_drift(work)
+    if drift:
+        return [f"script text changed since the morning build in {', '.join(drift)}; its voices no longer match (code or data changed between the runs)"]
+    tools(work, ["python", "synth.py"], "synth s0 o2", env=["CB_SEGS=" + ",".join(PHASE_B_SEGS)])
     host_py([f"{HERE}/build.py", work, assets, "timeline"], "timeline")
     host_py([f"{HERE}/build.py", work, assets, "bed"], "bed")
     tools(work, ["python", "gfx.py", "sup", "h1", "h2", "h3", "h4", "pre"], "graphics s0 o2")

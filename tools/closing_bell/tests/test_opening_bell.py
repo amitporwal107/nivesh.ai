@@ -193,6 +193,20 @@ class Script(unittest.TestCase):
             tb = [bt["texts"] for x in b["segments"] if x["id"] == sid for bt in x["beats"]]
             self.assertEqual(ta, tb, sid)
 
+    def test_phase_b_holds_when_reused_text_changed(self):
+        import tempfile
+        import pipeline
+        _, a = self.build(pre=False)
+        _, b = self.build(pre=True)
+        with tempfile.TemporaryDirectory() as w:
+            self.assertEqual(pipeline.phase_a_drift(w), ["(no phase A script)"])
+            json.dump(a, open(os.path.join(w, "script_a.json"), "w"))
+            json.dump(b, open(os.path.join(w, "script.json"), "w"))
+            self.assertEqual(pipeline.phase_a_drift(w), [])      # only s0 + o2 differ, and those are re-voiced
+            b["segments"][3]["beats"][0]["texts"]["hi"] += " x"
+            json.dump(b, open(os.path.join(w, "script.json"), "w"))
+            self.assertEqual(pipeline.phase_a_drift(w), ["o3"])
+
     def test_no_untraced_numbers_when_numbers_change(self):
         b, _ = fixture()
         c = cards_open.build(b, preopen(b))
