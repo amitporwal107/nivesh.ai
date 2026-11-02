@@ -288,7 +288,14 @@ async def collect_open(d: str, token: str) -> Dict[str, Any]:
     bundle = await collect(p, token)                       # everything about the previous session, as the Closing Bell reads it
     async with httpx.AsyncClient(timeout=120, headers={"Authorization": f"Bearer {token}"}) as c:
         rw = await desk(c, "/api/desk/results-week", {"date": d})
-    rows = (rw.get("results") or []) if isinstance(rw, dict) else []
+    rows = (rw.get("results") or []) if isinstance(rw, dict) and not rw.get("_http") else []
+    src = f"results-week {d}"
+    if not any(r.get("event_date") == d for r in rows):
+        # The day's live week can answer 503 (before its first build) or 422 (a run the evening before). The previous
+        # session's stored week lists the next day too, except across a weekend (Friday's week ends on Saturday).
+        pw = bundle.get("results_week")
+        prev_rows = (pw.get("results") or []) if isinstance(pw, dict) and not pw.get("_http") else []
+        rows, src = (prev_rows, f"results-week {p} (stored)") if any(r.get("event_date") == d for r in prev_rows) else (rows, None)
     due = [r for r in rows if r.get("event_date") == d and r.get("fno")]
     weight = {s["symbol"]: s.get("weight_pct") or 0 for s in (((bundle.get("heatmaps") or {}).get("NIFTY500") or {}).get("stocks") or [])}
     due.sort(key=lambda r: -weight.get(r["symbol"], 0))
@@ -299,6 +306,7 @@ async def collect_open(d: str, token: str) -> Dict[str, Any]:
         "date": d, "prev": p,
         "results_today": [{"symbol": r["symbol"], "name": r.get("name"), "status": r.get("status"), "filed_at": r.get("filed_at")} for r in due],
         "results_today_http": rw.get("_http") if isinstance(rw, dict) else None,
+        "results_today_source": src,
         "chains": chains,
         "mcx": mcx_bars(day),
     }

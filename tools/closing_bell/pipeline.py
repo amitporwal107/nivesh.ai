@@ -51,7 +51,8 @@ TOOLS_IMAGE = "nivesh/closing-bell-tools:1"
 FF_IMAGE = "jrottenberg/ffmpeg:6.1-ubuntu"
 MUSIC_URL = "https://upload.wikimedia.org/wikipedia/commons/c/c8/The_Complex_%28ISRC_USUAN1300025%29.mp3"
 MUSIC_SHA256 = "c270fb44a69828f6cae7412e077a38b92d55015d30ced549d0d477f864e7e41e"
-MIN_FREE_GB = 8          # staging deploys need 6 GB free; never starve them
+# Staging deploys need 6 GB free; never starve them. A build peaks at about 1 GB, so CB_MIN_FREE_GB must stay >= 7.
+MIN_FREE_GB = max(7.0, float(os.environ.get("CB_MIN_FREE_GB") or 8))
 CUTOFF = (0, 50)         # IST next morning: after this a not-ready day is "missed"
 SEGMENT_ORDER = ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"]
 
@@ -136,6 +137,17 @@ def finish(d, status, reasons, work, log_path, dry, now=None, kind="closing", re
         r = backend(["notify"], "notify", input_text=json.dumps(summary), check=False)
         log(f"notify: {(r.stdout or r.stderr).strip()[-300:]}")
     log(f"RESULT {status.upper()} {d}" + (": " + "; ".join(reasons) if reasons else ""))
+
+
+def trim_work(work):
+    """After a publish: drop the build intermediates and the work copies of the videos (≈1 GB, ≈180 MB of it in out/;
+    the published copies are the record). The small JSON / caption / transcript files stay for audit."""
+    for sub in ("raw", "foot", "seg", "gfx", "tts", "lists", "sfx"):
+        shutil.rmtree(os.path.join(work, sub), ignore_errors=True)
+    out = os.path.join(work, "out")
+    for f in os.listdir(out) if os.path.isdir(out) else []:
+        if f.endswith(".mp4"):
+            os.remove(os.path.join(out, f))
 
 
 def preflight(work):
@@ -379,8 +391,7 @@ def main_open(a) -> int:
         log(f"published: {r.stdout.strip()}")
         finish(d, "published", [], work, log_path, a.dry_run, kind="opening")
         if not a.keep_work:
-            for sub in ("raw", "foot", "seg", "gfx", "tts", "lists", "sfx"):
-                shutil.rmtree(os.path.join(work, sub), ignore_errors=True)
+            trim_work(work)
         log(f"done in {time.time() - t0:.0f}s")
     return 0
 
@@ -441,8 +452,7 @@ def main() -> int:
     log(f"published: {r.stdout.strip()}")
     finish(d, "published", [], work, log_path, a.dry_run)
     if not a.keep_work:
-        for sub in ("raw", "foot", "seg", "gfx", "tts", "lists", "sfx"):
-            shutil.rmtree(os.path.join(work, sub), ignore_errors=True)
+        trim_work(work)
     log(f"done in {time.time() - t0:.0f}s")
     return 0
 

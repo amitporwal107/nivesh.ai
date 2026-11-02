@@ -394,18 +394,42 @@ async def act_s6(s):
                 await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', min(0.9, per * 0.5), dx=0.2, dy=0.15, scroll=False)
 
 
+async def rw_focus(s, f):
+    """Results week: hover the beat's macro events, then search its first company."""
+    for k, mid in enumerate(f.get('macro') or []):
+        await s.hover(f'[data-testid="results-week-macro-{css(mid)}"]', 1.0, dx=0.4, scroll=False)
+        await asyncio.sleep(1.5)
+    if f.get('search'):
+        await s.scroll_to('[data-testid="results-week-search"]', off=110, dur=0)
+        await s.type('[data-testid="results-week-search"]', f['search'][0])
+        await asyncio.sleep(1.2); await s.move(560, 330, 1.0)
+
+
 async def act_s7(s):
     await rw_counts_view(s)
     for i, b in enumerate(s.beats):
+        await s.at(i, 0.3)
+        await rw_focus(s, b.get('focus') or {})
+
+
+GLIDE = [(350, 640), (560, 640), (450, 712), (800, 660), (520, 600)]
+
+
+async def act_o5(s):
+    """Today: the results week as act_s7 shows it; a beat with nothing to point at (sign-off, disclaimer, a day with no
+    macro event or result due) gets a slow cursor glide, so the footage is never a still picture (checks.py holds
+    footage under one frame per two seconds)."""
+    await rw_counts_view(s)
+    k = 0
+    for i, b in enumerate(s.beats):
         f = b.get('focus') or {}
         await s.at(i, 0.3)
-        for k, mid in enumerate(f.get('macro') or []):
-            await s.hover(f'[data-testid="results-week-macro-{css(mid)}"]', 1.0, dx=0.4, scroll=False)
-            await asyncio.sleep(1.5)
-        if f.get('search'):
-            await s.scroll_to('[data-testid="results-week-search"]', off=110, dur=0)
-            await s.type('[data-testid="results-week-search"]', f['search'][0])
-            await asyncio.sleep(1.2); await s.move(560, 330, 1.0)
+        if f.get('macro') or f.get('search'):
+            await rw_focus(s, f)
+            continue
+        while s.T() < s.end_of(i) - 1.8:
+            await s.move(*GLIDE[k % len(GLIDE)], 1.6)
+            k += 1
 
 
 # ------------------------------------------------------------------ Opening Bell scenes
@@ -480,7 +504,7 @@ SCENES = {'s1': (warm_overview, act_s1), 's2': (warm_rw, act_s2), 's3': (warm_se
           's5': (warm_sm, act_s5), 's6': (warm_scanner, act_s6), 's7': (warm_rw, act_s7),
           # Opening Bell
           'o1': (warm_overview, act_o1), 'o2': (warm_overview, act_o2), 'o3': (warm_fno_indices, act_o3),
-          'o4': (warm_scanner, act_s6), 'o5': (warm_rw, act_s7)}
+          'o4': (warm_scanner, act_s6), 'o5': (warm_rw, act_o5)}
 
 
 async def record(p, sid):

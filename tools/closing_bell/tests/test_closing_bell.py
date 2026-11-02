@@ -263,6 +263,17 @@ class Scheduling(unittest.TestCase):
         self.assertFalse(pipeline.past_cutoff("2026-10-28", datetime(2026, 10, 29, 0, 40, tzinfo=ist)))
         self.assertTrue(pipeline.past_cutoff("2026-10-28", datetime(2026, 10, 29, 0, 50, tzinfo=ist)))
 
+    def test_trim_work_after_publish(self):
+        """The work copies of the videos go after a publish (they were ≈180 MB a day left on a full disk)."""
+        with tempfile.TemporaryDirectory() as w:
+            for p in ("out/web.mp4", "out/web_hi.mp4", "out/master.mp4", "out/transcript.json", "out/captions.vtt",
+                      "out/media.json", "raw/o1.webm", "tts/en/o1_0.mp3", "script.json"):
+                os.makedirs(os.path.dirname(os.path.join(w, p)), exist_ok=True)
+                open(os.path.join(w, p), "w").write("x")
+            pipeline.trim_work(w)
+            left = sorted(os.path.relpath(os.path.join(r, f), w) for r, _, fs in os.walk(w) for f in fs)
+            self.assertEqual(left, ["out/captions.vtt", "out/media.json", "out/transcript.json", "script.json"])
+
 
 class Publish(unittest.TestCase):
     """TC-10: files land per date, the index is newest-first, re-publish replaces, retention trims list + disk."""

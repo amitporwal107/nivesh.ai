@@ -80,7 +80,7 @@ def tts_path(lang, sid, i):
 def timeline(work, assets):
     segs = load(work, "script.json")["segments"]
     langs = langs_of(work)
-    out = probe(work, assets, "for f in /w/tts/*/s*_*.mp3; do echo \"$(basename $(dirname $f))/$(basename $f .mp3) $(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done")
+    out = probe(work, assets, "for f in /w/tts/*/*_*.mp3; do echo \"$(basename $(dirname $f))/$(basename $f .mp3) $(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done")
     D = {l.split()[0]: float(l.split()[1]) for l in out.splitlines() if l.strip()}
     tl, total = {}, 0.0
     for s in segs:

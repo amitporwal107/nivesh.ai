@@ -119,6 +119,8 @@ def build(b: Dict[str, Any], pre: Optional[Dict[str, Any]] = None) -> Dict[str, 
     out["imp"] = imp
     out["due_today"] = [names[r["symbol"]] for r in op.get("results_today") or []]
     out["due_today_syms"] = [r["symbol"] for r in op.get("results_today") or []]
+    if "results_today_source" in op and not op["results_today_source"]:
+        gaps.append(f"results calendar for {d} unavailable (desk HTTP {op.get('results_today_http')}); results lines dropped")
 
     # ---- MCX overnight (TrueData)
     mx = op.get("mcx") or {}

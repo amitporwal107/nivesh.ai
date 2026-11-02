@@ -94,6 +94,15 @@ class Levels(unittest.TestCase):
         self.assertEqual(c["imp"], [{"sym": "ACME", "name": "Acme Industries", "expiry": "2026-11-24", "spot": 3000.0, "atm": 3000.0,
                                      "straddle": 175.0, "pct": 5.8}])
 
+    def test_no_results_calendar_is_named_not_silent(self):
+        b, _ = fixture()
+        b["open"].update({"results_today": [], "results_today_http": 503, "results_today_source": None})
+        c = cards_open.build(b)
+        self.assertIn(f"results calendar for {DAY} unavailable (desk HTTP 503); results lines dropped", c["gaps"])
+        self.assertEqual(checks.check_data(c), [])                 # a dropped line, not a hold
+        b["open"]["results_today_source"] = f"results-week {PREV} (stored)"
+        self.assertFalse(any(g.startswith("results calendar") for g in cards_open.build(b)["gaps"]))
+
     def test_stale_chain_blocks(self):
         b, _ = fixture()
         b["open"]["chains"]["NIFTY"]["as_of"] = "2026-10-20"
