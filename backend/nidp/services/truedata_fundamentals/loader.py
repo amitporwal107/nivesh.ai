@@ -55,14 +55,14 @@ async def read_references(conn, symbols: Optional[Sequence[str]] = None) -> Refe
             "UNION SELECT symbol FROM nidp.stock_features_daily "
             " WHERE as_of_date = (SELECT max(as_of_date) FROM nidp.stock_features_daily)")
         known = {r["symbol"] for r in rows}
-    try:
+    bse_map: Dict[str, str] = {}
+    if await conn.fetchval("SELECT to_regclass('nidp.v_bse_scrip_to_nse') IS NOT NULL"):
         bse = await conn.fetch(
             "SELECT DISTINCT ON (scrip_code) scrip_code, nse_symbol FROM nidp.v_bse_scrip_to_nse "
             " WHERE nse_symbol IS NOT NULL ORDER BY scrip_code, as_of_date DESC")
         bse_map = {str(r["scrip_code"]).strip(): r["nse_symbol"] for r in bse}
-    except Exception as exc:                                   # the view is optional: NSE symbols still resolve
-        logger.warning("truedata_fundamentals: no BSE scrip map (%s)", type(exc).__name__)
-        bse_map = {}
+    else:                                                      # optional: NSE symbols still resolve without it
+        logger.warning("truedata_fundamentals: nidp.v_bse_scrip_to_nse missing; BSE-only filings are not mapped")
     syms = sorted(known)
     rev = await conn.fetch(
         "SELECT symbol, period_end, consolidated, period_type, revenue_from_ops_cr::float8 AS revenue_from_ops_cr, "
