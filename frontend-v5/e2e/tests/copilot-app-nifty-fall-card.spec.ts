@@ -1,5 +1,5 @@
 /**
- * "If Nifty falls 5%" on the last step of onboarding (components/NiftyFallCard.tsx, screens/Onboarding.tsx StepDone). Cases NF-1 … NF-8.
+ * "If Nifty falls 5%" on the last step of onboarding (components/NiftyFallCard.tsx, screens/Onboarding.tsx StepDone). Cases NF-1 … NF-9.
  *
  * MOCK — not real data. The POST /api/portfolio/quick-hedge answers are fixtures/quick-hedge-*.mock.json, produced by the real backend
  * code (services/quick_hedge) from an INVENTED portfolio (₹25 lakh, beta 1.0) and an INVENTED option chain. The onboarding state is the
@@ -60,11 +60,18 @@ test.describe("MOCK — not real data: onboarding · if Nifty falls 5%", () => {
     const card = page.getByTestId("nifty-fall-card");
     await expect(card).toHaveAttribute("data-state", "ok", SLOW);
     expect(calls).toEqual([{ expected_fall_pct: 5, tenor: "1m", tolerance_pct: 5 }]);
-    const r = row5(FALL5), pv = FALL5.data.portfolio.portfolio_value_rs;
+    // In this fixture a 5% fall takes Nifty from 23,000 to 21,850, exactly the Balanced put's strike: Balanced pays nothing there
+    // (its "with hedge" is the loss plus its cost), so the card shows Maximum protection, the first choice that does pay.
+    const r = row5(FALL5, "maximum"), pv = FALL5.data.portfolio.portfolio_value_rs;
+    expect(row5(FALL5, "balanced").hedge_pnl_rs).toBeLessThan(0);
+    expect(r.hedge_pnl_rs).toBeGreaterThan(0);
+    const maxStrike = new Intl.NumberFormat("en-IN").format(FALL5.modes.find((m: any) => m.mode === "maximum").legs[0].strike);
     await expect(page.getByTestId("nifty-fall-without")).toHaveText(inr(r.without_hedge_rs));
     await expect(card).toContainText(`(${(Math.abs(r.without_hedge_rs) / pv * 100).toFixed(1)}% of your whole portfolio)`);
-    await expect(page.getByTestId("nifty-fall-hedge")).toContainText("How it can be hedged: buy 1 lot of the 21,850 put (Balanced)");
+    await expect(page.getByTestId("nifty-fall-hedge")).toHaveAttribute("data-pays", "yes");
+    await expect(page.getByTestId("nifty-fall-hedge")).toContainText(`How it can be hedged: buy 1 lot of the ${maxStrike} put (Maximum protection)`);
     await expect(page.getByTestId("nifty-fall-with")).toHaveText(inr(r.with_hedge_rs));
+    expect(Math.abs(r.with_hedge_rs)).toBeLessThan(Math.abs(r.without_hedge_rs));            // "would cut it to" is true
     await expect(page.getByTestId("nifty-fall-note")).toContainText("An estimate");
     await expect(page.getByTestId("nifty-fall-note")).toContainText("Paper only");
     await expect(page.getByTestId("nifty-fall-stale")).toHaveCount(0);                      // the fixture's sources are current
@@ -135,5 +142,27 @@ test.describe("MOCK — not real data: onboarding · if Nifty falls 5% · phone 
     await expect(page.getByTestId("nifty-fall-stale")).toBeVisible(SLOW);
     await page.waitForTimeout(400);
     await noSideScroll(page, "onboarding done step with the card");
+  });
+
+  test("NF-9 when no choice pays at a 5% fall, it says where protection starts and never that the hedge cuts the loss", async ({ page }) => {
+    // fixtures/quick-hedge-fall5-inside.mock.json: tolerance 10% of ₹20 lakh = ₹2,00,000. Balanced buys the 20,700 put (10.0% below
+    // 23,000), Maximum the 21,850 put; a 5% fall reaches neither. Balanced first pays at the 15% row: 3,00,000 -> 2,29,382.
+    const INSIDE = load("quick-hedge-fall5-inside.mock.json");
+    for (const m of INSIDE.modes.filter((x: any) => x.available)) expect(row5(INSIDE, m.mode).hedge_pnl_rs).toBeLessThanOrEqual(0);
+    const bal = INSIDE.modes.find((m: any) => m.mode === "balanced");
+    const r15 = bal.scenario_rows.find((x: any) => x.move_pct === -15);
+    await setup(page, { answer: INSIDE });
+    await toDone(page);
+    const hedge = page.getByTestId("nifty-fall-hedge");
+    await expect(hedge).toHaveAttribute("data-pays", "no", SLOW);
+    await expect(hedge).toContainText("How it can be hedged: buy 1 lot of the 20,700 put (Balanced)");
+    await expect(hedge).toContainText("starts paying only below Nifty 20,700 (10.0% down), so at a 5% fall it pays nothing and only adds its cost.");
+    await expect(hedge).toContainText(`At a 15% fall it would cut the loss from ${inr(r15.without_hedge_rs)} to`);
+    await expect(page.getByTestId("nifty-fall-deeper")).toHaveText(inr(r15.with_hedge_rs));
+    await expect(hedge).toContainText("To cover a 5% fall itself, choose a smaller tolerable loss in the hedge.");
+    await expect(hedge).not.toContainText("would cut it to");
+    await expect(page.getByTestId("nifty-fall-with")).toHaveCount(0);
+    await expect(page.getByTestId("nifty-fall-see-hedge")).toBeVisible();
+    await noSideScroll(page, "onboarding done step, hedge not reached");
   });
 });

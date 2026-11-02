@@ -227,6 +227,41 @@ def test_the_card_opens_with_what_the_fall_does_and_what_the_hedge_changes(world
     assert "21,850 put" in p["headline"]["text"]                  # and then how it is hedged
 
 
+def _fear(res, mode):
+    m = next(x for x in res["modes"] if x["mode"] == mode)
+    return m, next(r for r in m["scenario_rows"] if r["is_expected_fall"])
+
+
+def test_a_fall_the_chosen_hedge_does_not_reach_is_said_plainly_and_a_choice_that_pays_is_named(world):
+    # Found on the real staging account: at a 5% fall the Balanced put was not reached, so "with the hedge" was the loss PLUS the
+    # cost, and the old headline read as if the hedge cut the loss. By hand: a 5% fall takes Nifty from 23,000 to 21,850, exactly
+    # the Balanced put's strike, so it pays nothing; Maximum protection (half the tolerance) buys a higher put that does pay.
+    p = build({"expected_fall_pct": 5.0, "tolerance_rs": 100_000.0})
+    res = asyncio.run(service.run(None, "u1", readers=world["fake"], expected_fall_pct=5.0, tenor="1m", tolerance_rs=100_000.0))
+    bal, bal_fear = _fear(res, "balanced")
+    mx, mx_fear = _fear(res, "maximum")
+    assert bal["legs"][0]["strike"] == 21_850.0 and bal_fear["hedge_pnl_rs"] < 0 < mx_fear["hedge_pnl_rs"]
+    head = p["headline"]["text"]
+    assert head.startswith("If Nifty falls 5%, your equity-linked holdings would lose about ₹100,000.00 (4.0% of your whole portfolio). "
+                           "The Balanced hedge starts paying only below Nifty 21,850 (5.0% down), so at a 5% fall it pays nothing and only adds its cost. "
+                           f"The Maximum protection choice would cut that loss to about {price(abs(mx_fear['with_hedge_rs']))}, "
+                           f"for about {price(mx['cost']['total_rs'])}. "), head
+    assert "With the Balanced hedge it would be about" not in head
+    items = {i["label"]: i for i in blk(p, "impact")["items"]}
+    assert items["The hedge changes it by"]["sub"] == "it pays nothing at this fall; it starts paying below Nifty 21,850 (5.0% down)"
+    assert items["With the Balanced hedge"]["value"] == rupees(bal_fear["with_hedge_rs"])     # the figure itself is still shown, unchanged
+
+
+def test_when_no_choice_pays_at_the_fall_none_is_named(world):
+    # A tolerance of 2,00,000 puts Balanced at 20,700 and Maximum (1,00,000) at 21,850: neither is reached by a 5% fall.
+    p = build({"expected_fall_pct": 5.0, "tolerance_rs": 200_000.0})
+    res = asyncio.run(service.run(None, "u1", readers=world["fake"], expected_fall_pct=5.0, tenor="1m", tolerance_rs=200_000.0))
+    assert all(_fear(res, m["mode"])[1]["hedge_pnl_rs"] <= 0 for m in res["modes"] if m["available"])
+    head = p["headline"]["text"]
+    assert "starts paying only below Nifty 20,700 (10.0% down), so at a 5% fall it pays nothing and only adds its cost. " in head, head
+    assert "would cut that loss" not in head and "With the Balanced hedge it would be about" not in head
+
+
 @pytest.mark.parametrize("message", ["What happens to my portfolio if Nifty falls 5%?", "How can I hedge my portfolio against a 5% fall?",
                                      "If Nifty goes down 5% what is the impact on my portfolio?"])
 def test_the_manage_risk_questions_are_taken_with_the_fall_they_name(message):

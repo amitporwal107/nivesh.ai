@@ -1574,6 +1574,18 @@ def _hedge_row(mode: Dict[str, Any], lot: int, fall_pct: float) -> Dict[str, Any
             "tone": None}
 
 
+def _fear_row(mode: Dict[str, Any]) -> Dict[str, Any]:
+    return next((r for r in mode.get("scenario_rows") or [] if r.get("is_expected_fall")), {})
+
+
+def _hedge_starts(mode: Dict[str, Any], spot: Optional[float]) -> Optional[str]:
+    """Where a hedge choice starts paying: its bought put's strike, and how far below Nifty that is: "21,850 (5.0% down)"."""
+    k = num(next((leg.get("strike") for leg in mode.get("legs") or [] if leg.get("side") == "buy"), None))
+    if k is None:
+        return None
+    return f"{k:,.0f} ({(spot - k) / spot * 100:.1f}% down)" if spot else f"{k:,.0f}"
+
+
 def _hedge_sources_notice(info: Any) -> Optional[Dict[str, Any]]:
     """One notice saying where the holdings come from (services/quick_hedge/inputs.summarise_sources) and, when a source looks stale,
     the action that opens Broker connections (which also takes a CAS upload). Counts and dates only; never a holding."""
@@ -1694,14 +1706,29 @@ async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
                 loss = abs(num(fear["without_hedge_rs"]) or 0.0)
                 total = num(port.get("portfolio_value_rs")) or 0.0
                 share = f" ({loss / total * 100:.1f}% of your whole portfolio)" if total > 0 else ""
+                # A put pays only below its strike. When the fall stays above it, "with the hedge" is the loss plus the cost,
+                # so say where protection starts instead of implying the hedge cuts the loss, and name a choice that does pay.
+                pays = (num(fear.get("hedge_pnl_rs")) or 0.0) > 0
+                starts = _hedge_starts(mode, num(ex.get("spot")))
+                changes_sub = (f"it costs about {price(mode['cost']['total_rs'])} up front" if pays or not starts
+                               else f"it pays nothing at this fall; it starts paying below Nifty {starts}")
                 blocks.insert(0, block("kpis", "impact", f"If Nifty falls {fall:g}%",
                                        f"An estimate: your equity-linked holdings are assumed to move with Nifty by their beta ({(num(port.get('beta')) or 0):.2f}). "
                                        "Hybrid, gold, overseas and debt holdings are not in these figures.",
                                        items=[_kpi("Without a hedge", rupees(fear["without_hedge_rs"]), f"your equity-linked holdings{share}", "warn"),
                                               _kpi(f"With the {label} hedge", rupees(fear["with_hedge_rs"]), "after the premium and estimated charges"),
-                                              _kpi("The hedge changes it by", rupees(fear["hedge_pnl_rs"]), f"it costs about {price(mode['cost']['total_rs'])} up front")]))
-                head = (f"If Nifty falls {fall:g}%, your equity-linked holdings would lose about {price(loss)}{share}. "
-                        f"With the {label} hedge it would be about {price(abs(num(fear['with_hedge_rs']) or 0.0))}. ") + head
+                                              _kpi("The hedge changes it by", rupees(fear["hedge_pnl_rs"]), changes_sub)]))
+                if pays:
+                    said = f"With the {label} hedge it would be about {price(abs(num(fear['with_hedge_rs']) or 0.0))}. "
+                else:
+                    said = (f"The {label} hedge starts paying only below Nifty {starts}, so at a {fall:g}% fall it pays nothing and only adds its cost. "
+                            if starts else f"At a {fall:g}% fall the {label} hedge pays nothing and only adds its cost. ")
+                    other = next((m for m in (modes.get(k) for k in HEDGE_ORDER) if m and m is not mode and m.get("available")
+                                  and (num(_fear_row(m).get("hedge_pnl_rs")) or 0.0) > 0), None)
+                    if other:
+                        said += (f"The {HEDGE_LABELS[other['mode']]} choice would cut that loss to about "
+                                 f"{price(abs(num(_fear_row(other).get('with_hedge_rs')) or 0.0))}, for about {price(other['cost']['total_rs'])}. ")
+                head = f"If Nifty falls {fall:g}%, your equity-linked holdings would lose about {price(loss)}{share}. " + said + head
             for n in mode.get("notes") or []:
                 blocks.append(notice(n["message"], "warn", f"note-{n['code']}"))
             if not mode.get("place_allowed"):
