@@ -57,7 +57,17 @@ def _score_overlap(ctx: Dict[str, Any]) -> tuple:
     return (score, badge)
 
 
+def _has_allocation(ctx: Dict[str, Any]) -> bool:
+    """A portfolio with a known asset mix. Without one the shares are the context's
+    zero defaults, not facts: "Equity 0% · Debt 0%" was shown to users with no
+    holdings."""
+    shares = sum((ctx.get(k) or 0) for k in ("equity_pct", "debt_pct", "gold_pct", "other_pct"))
+    return (ctx.get("total_value") or 0) > 0 and shares > 0
+
+
 def _score_risk_alloc(ctx: Dict[str, Any]) -> tuple:
+    if not _has_allocation(ctx):
+        return (30, None)
     equity_pct = ctx.get("equity_pct", 0)
     debt_pct = ctx.get("debt_pct", 0)
     if equity_pct > 85 or debt_pct < 10:
@@ -79,6 +89,8 @@ def _score_exit(ctx: Dict[str, Any]) -> tuple:
 
 
 def _score_add(ctx: Dict[str, Any]) -> tuple:
+    if not _has_allocation(ctx):
+        return (45, None)
     debt_pct = ctx.get("debt_pct", 0)
     if debt_pct < 10:
         return (75, f"Debt gap — only {debt_pct:.0f}%")
@@ -99,7 +111,7 @@ def _score_concentration(ctx: Dict[str, Any]) -> tuple:
     top_amc = ctx.get("top_amc_name")
     if top_amc_pct >= 25 and top_amc:
         return (85, f"{top_amc} {top_amc_pct:.0f}%")
-    if top_amc_pct >= 15:
+    if top_amc_pct >= 15 and top_amc:
         return (55, f"{top_amc} {top_amc_pct:.0f}%")
     return (20, None)
 
@@ -656,6 +668,52 @@ def _advisor_prompts() -> Dict[str, Any]:
     }
 
 
+_APP_MODES = ("investor", "trader", "advisor")
+
+# The Daily Trader Copilot's questions that need no stock named (owner's brief, 30 Oct 2026): the lead question of
+# each of the six entry points first, so the ask box's top five cover Market pulse, Find opportunities, My positions,
+# F&O strategies and Manage risk. Every query resolves to a visual answer (services/copilot_visual) except the
+# "avoid" question, which takes the usual chat path.
+_TRADER_QUESTIONS = (
+    ("market_view", "market_pulse", "What is the market view today?", "Direction, breadth, volatility, key levels", "Activity", "mint"),
+    ("top_opportunities", "opportunities", "Which are today's top 5 opportunities?", "Ranked stocks with evidence and risk", "ScanSearch", "indigo"),
+    ("open_trades", "positions", "What are my open trades doing?", "Latest P&L and status of each open paper trade", "Briefcase", "emerald"),
+    ("fno_setups", "fno", "Which F&O setups are attractive?", "Strategy candidates with defined risk", "BarChart3", "amber"),
+    ("position_size", "risk", "How much should I risk?", "Your risk limits and how much of today's limit is used", "ShieldCheck", "rose"),
+    ("daily_review", "review", "What did I learn from today's trades?", "Performance, rule adherence and plan versus actual", "NotepadText", "indigo"),
+    ("smart_money", "market_pulse", "Where is smart money moving?", "FII/DII flows and buildup signals", "TrendingUp", "mint"),
+    ("sector_rotation", "market_pulse", "Which sectors are leading and lagging?", "Sector heatmap, each sector's strongest stocks", "Activity", "mint"),
+    ("results_calendar", "market_pulse", "Which companies report results this week?", "Declared results with AI summaries, management commentary and source filings", "NotepadText", "indigo"),
+    ("event_intelligence", "market_pulse", "Any order wins this week?", "Order wins, M&A, ownership, bulk and block deals from the exchange filings", "Activity", "mint"),
+    ("breakouts", "opportunities", "Which breakouts are confirmed?", "Entry zone, volume confirmation, invalidation", "Rocket", "indigo"),
+    ("unusual_volume", "opportunities", "Which stocks have unusual volume?", "Relative volume, price change, delivery data", "BarChart3", "indigo"),
+    ("expected_move", "fno", "What is the expected move in Nifty?", "Options-implied move and relevant levels", "Target", "amber"),
+    ("avoid_today", "risk", "What should I avoid today?", "Event risks, weak setups, overexposure", "AlertTriangle", "rose"),
+)
+
+
+def _trader_prompts() -> Dict[str, Any]:
+    """The Trader mode's prompts: the Daily Trader Copilot's own questions, never the advisor's client-book list or the
+    investor's portfolio-health list. No figure is computed here, so no badge is shown (nothing personal is invented)."""
+    prompts: List[Dict[str, Any]] = []
+    for i, (qid, category, query, outcome, icon, color) in enumerate(_TRADER_QUESTIONS):
+        prompts.append({
+            "id": f"trader_{qid}", "tier": "primary" if i == 0 else "secondary" if i < 4 else "advanced", "bucket": "trader",
+            "intent_category": category, "personas": None, "label": query, "outcome": outcome, "query": query,
+            "icon": icon, "color": color, "badge": None, "score": 100 - i, "viz": None,
+        })
+    return {
+        "mode": "trader",
+        "prompts": prompts,
+        "primary": prompts[:1],
+        "secondary": [p for p in prompts if p["tier"] == "secondary"],
+        "advanced": [p for p in prompts if p["tier"] == "advanced"],
+        "journey": "trader",
+        "persona": "trader",
+        "context_summary": {},
+    }
+
+
 def _investor_prompts_curated() -> List[Dict[str, Any]]:
     """Always-on investor prompts as a base layer. Returned alongside the
     portfolio-context-driven scored prompts so a brand-new individual user
@@ -754,6 +812,7 @@ async def suggested_prompts(
     request: Request,
     persona: Optional[str] = Query(default=None, description="Persona override (PersonaType.value). Defaults to user's stored persona."),
     category: Optional[str] = Query(default=None, description="Filter to one of: portfolio_health|performance|risk_diversification|tax|goal_planning"),
+    mode: Optional[str] = Query(default=None, description="The app's mode: investor | trader | advisor. The client-book prompts are for advisor mode only (or no mode, for older clients); trader mode gets the Daily Trader questions."),
 ) -> Dict[str, Any]:
     """Return the top 5 most relevant prompts for this user right now,
     grouped into 3 tiers: primary (1) · secondary (2-3) · advanced (collapsed).
@@ -767,8 +826,15 @@ async def suggested_prompts(
     """
     user = await get_current_user(request)
     session_uid = user.get("_session_user_id") or user["user_id"]
-    if await _is_advisor_mode(session_uid, user.get("_active_profile_id")):
+    app_mode = (mode or "").strip().lower()
+    if app_mode not in _APP_MODES:
+        app_mode = ""
+    # An account that owns an advisory workspace is an advisor only in Advisor mode: in Investor or Trader mode it works
+    # on its own holdings and positions (owner, 14 Oct), as chat already does.
+    if app_mode in ("", "advisor") and await _is_advisor_mode(session_uid, user.get("_active_profile_id")):
         return _advisor_prompts()
+    if app_mode == "trader":
+        return _trader_prompts()
 
     # Validate category param early — silently ignore unknowns so the UI can
     # send anything without breaking the response.

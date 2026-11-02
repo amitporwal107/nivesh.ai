@@ -1,0 +1,82 @@
+# Production NIDP stack on the CloudPe prod VM: TimescaleDB + DaaS API in Docker.
+# The Query API (systemd), the cron feeds and the host nginx are set up by
+# deploy/cloudpe-prod/bootstrap.sh and deploy-nidp.sh.
+#
+# Derived from backend/nidp/deploy/vm/docker-compose.prod.yml and the staging pair
+# (docker-compose.staging.yml + deploy/cloudpe/nidp/docker-compose.cloudpe.yml), as one
+# standalone file. Ports follow the prod map in docs/DEVOPS_ENVIRONMENTS.md:
+# Postgres 5433, DaaS 8083, Query API 8090 — all loopback; only the host nginx is public.
+#
+#   docker compose --env-file /opt/nidp/nidp.env --env-file /opt/nidp/cloudpe.env \
+#     -f deploy/cloudpe-prod/nidp/docker-compose.yml <cmd>
+#
+# The TimescaleDB image is PINNED (NIDP_TSDB_TAG in cloudpe.env) to the version the
+# data was dumped from: restoring into another extension version can corrupt the
+# hypertable catalogs.
+
+name: nidp-prod
+
+services:
+  postgres:
+    image: timescale/timescaledb:${NIDP_TSDB_TAG:?set NIDP_TSDB_TAG in /opt/nidp/cloudpe.env}
+    container_name: nidp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${NIDP_PG_USER:-nidp}
+      POSTGRES_PASSWORD: ${NIDP_PG_PASSWORD}
+      POSTGRES_DB:       ${NIDP_PG_DB:-nidp}
+      TZ:                Asia/Kolkata
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - /opt/nidp/data/postgres:/var/lib/postgresql/data
+      # Lets restore load a dump file with a parallel pg_restore.
+      - /opt/nidp/dumps:/dumps:ro
+    networks: [nidp-prod]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NIDP_PG_USER:-nidp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  daas-api:
+    image: python:3.11-slim
+    container_name: nidp-daas-api
+    restart: unless-stopped
+    working_dir: /app/backend
+    env_file: /opt/nidp/nidp.env
+    environment:
+      PORT:       "8083"
+      LOG_LEVEL:  info
+      PYTHONPATH: /app/backend:/opt/nidp/venv/lib/python3.11/site-packages
+      ROOT_PATH:  /daas
+      # env_file values do not expand inside environment:, so the URL is built here
+      # from the --env-file values.
+      NIDP_POSTGRES_URL: postgresql://${NIDP_PG_USER:-nidp}:${NIDP_PG_PASSWORD}@nidp-postgres:5432/${NIDP_PG_DB:-nidp}
+    ports:
+      - "127.0.0.1:8083:8083"
+    volumes:
+      # Code from the shared checkout (read-only); recreating the container picks up new code.
+      - /opt/nidp/repo/backend:/app/backend:ro
+      # Dependencies from the host venv (python:3.11-slim matches the venv's 3.11).
+      - /opt/nidp/venv:/opt/nidp/venv:ro
+    command: >
+      python3 -m uvicorn nidp.services.daas_api.app:app
+      --host 0.0.0.0
+      --port 8083
+      --proxy-headers
+      --forwarded-allow-ips "*"
+      --root-path /daas
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [nidp-prod]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8083/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+networks:
+  nidp-prod:
+    name: nidp-prod

@@ -23,7 +23,7 @@ import logging
 import os
 from typing import Any, Dict, List
 
-from .base import AccessToken, Broker, Funds, Holding, Position
+from .base import AccessToken, Broker, BrokerTrade, Funds, Holding, Position
 from . import registry
 
 logger = logging.getLogger(__name__)
@@ -196,6 +196,33 @@ async def fetch_funds(token: AccessToken) -> Funds:
     )
 
 
+def _iso(v: Any) -> str | None:
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    return str(v) if v else None
+
+
+async def fetch_trades(token: AccessToken) -> List[BrokerTrade]:
+    """Kite's `/trades`: every fill of the CURRENT day (Kite keeps no older ones here), one row per fill. Read-only (`kc.trades`
+    is a GET; nothing here can place, modify or cancel). Kite's fill row has no contract fields: the symbol encodes them."""
+    kc = _kite(token.token)
+    import asyncio
+    raw: List[Dict[str, Any]] = await asyncio.get_event_loop().run_in_executor(None, kc.trades)
+    out: List[BrokerTrade] = []
+    for t in raw or []:
+        side = str(t.get("transaction_type") or "").strip().lower()
+        qty, px = float(t.get("quantity") or 0), float(t.get("average_price") or t.get("price") or 0)
+        sym = str(t.get("tradingsymbol") or "").strip().upper()
+        if side not in ("buy", "sell") or not sym or qty <= 0 or px <= 0:
+            continue
+        out.append(BrokerTrade(
+            symbol=sym, exchange=str(t.get("exchange") or "").strip().upper(), side=side, quantity=qty, price=px,
+            traded_at=_iso(t.get("fill_timestamp") or t.get("exchange_timestamp") or t.get("order_timestamp")),
+            trade_id=str(t.get("trade_id") or "") or None, order_id=str(t.get("order_id") or "") or None,
+            product_raw=str(t.get("product") or "") or None))
+    return out
+
+
 # ── Self-registration ────────────────────────────────────────────────────
 class _Module:
     SLUG = SLUG
@@ -206,6 +233,7 @@ class _Module:
     fetch_holdings = staticmethod(fetch_holdings)
     fetch_positions = staticmethod(fetch_positions)
     fetch_funds = staticmethod(fetch_funds)
+    fetch_trades = staticmethod(fetch_trades)
 
 
 registry.register(_Module())

@@ -31,7 +31,9 @@ Style:
 - Section: **Fundamental** — PE/PB vs sector, ROE, debt/equity, PAT growth
 - Section: **Quarterly Trend** — revenue/PAT trajectory + margin direction
 - Section: **Smart Money** — FII/DII flows + promoter pledge if non-zero
-- Section: **Verdict** — BULLISH / BEARISH / NEUTRAL with one key reason
+- Section: **Trend** — up / down / sideways with one key reason
+- Never write the words bullish or bearish (the compliance filter removes them): say up, down or
+  sideways for a trend, and long or short for a trade's side.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If asked about price targets, analyst estimates or future guidance, say plainly
@@ -55,7 +57,7 @@ desk's own rule-based plan for this stock, built from end-of-day data):
   reasons it lists, and what would have to change.
 - A conditional setup is not a signal: never say "buy now" or call it a
   confirmed signal. Do not use "recommend", "pick" or "suggested trade".
-- The **Verdict** section stays about the analysis; the trade idea lives only
+- The **Trend** section stays about the analysis; the trade idea lives only
   in its own section."""
 
 

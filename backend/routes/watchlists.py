@@ -11,6 +11,7 @@ Endpoints (all under /api):
     PATCH  /watchlists/{id}                    — rename                 {name}
     DELETE /watchlists/{id}                    — delete the list
     POST   /watchlists/{id}/symbols            — add a stock            {symbol}
+    POST   /watchlists/{id}/symbols/bulk       — add up to 100 stocks   {symbols: [...]}   (the Screener's "Add to a list")
     DELETE /watchlists/{id}/symbols/{symbol}   — remove a stock
 
 Store:
@@ -89,8 +90,27 @@ class SymbolBody(BaseModel):
     symbol: str = Field(max_length=80)
 
 
+class BulkSymbolsBody(BaseModel):
+    # One request may carry as many stocks as a list can hold. Each item is checked on its own (a bad one is
+    # refused by name), so the length of one is capped here only to keep a request small.
+    symbols: List[str] = Field(min_length=1, max_length=100)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _no_client_writes(user: Dict[str, Any]) -> None:
+    """Refuse a write while an advisor is looking at a client's account.
+
+    `get_current_user` puts the CLIENT's id in user["user_id"] then, so a list write would land in the client's
+    account unasked (the starter list already refuses for this reason). Reads are unchanged.
+    """
+    if user.get("_active_profile_id"):
+        raise HTTPException(
+            status_code=403,
+            detail="You are viewing a client's account, so their lists cannot be changed from here. Switch back to your own account to change your lists.",
+        )
 
 
 async def _ensure_indexes() -> None:
@@ -351,6 +371,7 @@ async def list_watchlists(request: Request) -> Dict[str, Any]:
 @router.post("/watchlists")
 async def create_watchlist(request: Request, payload: NameBody) -> Dict[str, Any]:
     user = await get_current_user(request)
+    _no_client_writes(user)
     uid = user["user_id"]
     name = _clean_name(payload.name)
     await _ensure_indexes()
@@ -441,6 +462,7 @@ async def get_watchlist(request: Request, watchlist_id: str) -> Dict[str, Any]:
 @router.patch("/watchlists/{watchlist_id}")
 async def rename_watchlist(request: Request, watchlist_id: str, payload: NameBody) -> Dict[str, Any]:
     user = await get_current_user(request)
+    _no_client_writes(user)
     uid = user["user_id"]
     name = _clean_name(payload.name)
     await _owned(uid, watchlist_id)
@@ -463,6 +485,7 @@ async def rename_watchlist(request: Request, watchlist_id: str, payload: NameBod
 @router.delete("/watchlists/{watchlist_id}")
 async def delete_watchlist(request: Request, watchlist_id: str) -> Dict[str, str]:
     user = await get_current_user(request)
+    _no_client_writes(user)
     res = await db.user_watchlists.delete_one({"watchlist_id": watchlist_id, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="List not found")
@@ -472,6 +495,7 @@ async def delete_watchlist(request: Request, watchlist_id: str) -> Dict[str, str
 @router.post("/watchlists/{watchlist_id}/symbols")
 async def add_symbol(request: Request, watchlist_id: str, payload: SymbolBody) -> Dict[str, Any]:
     user = await get_current_user(request)
+    _no_client_writes(user)
     uid = user["user_id"]
     symbol = _clean_symbol(payload.symbol)
     doc = await _owned(uid, watchlist_id)
@@ -506,9 +530,104 @@ async def add_symbol(request: Request, watchlist_id: str, payload: SymbolBody) -
     return {"added": True, "reason": None, "stock": entry, "watchlist": _summary(doc)}
 
 
+async def _names_for(symbols: List[str]) -> Tuple[Dict[str, Optional[str]], List[str]]:
+    """(company name by symbol for the ones the instrument list knows, the symbols it does not know).
+
+    Look-ups run `_STORED_CONCURRENCY` at a time. When the instrument list cannot be checked at all (503) the whole
+    call stops: a symbol is never added unchecked.
+    """
+    gate = asyncio.Semaphore(_STORED_CONCURRENCY)
+
+    async def one(symbol: str) -> Optional[str]:
+        async with gate:
+            return await _company_name(symbol)
+
+    results = await asyncio.gather(*(one(s) for s in symbols), return_exceptions=True)
+    known: Dict[str, Optional[str]] = {}
+    unknown: List[str] = []
+    for symbol, result in zip(symbols, results):
+        if isinstance(result, HTTPException):
+            if result.status_code == 422:
+                unknown.append(symbol)
+                continue
+            raise result
+        if isinstance(result, BaseException):
+            raise result
+        known[symbol] = result
+    return known, unknown
+
+
+@router.post("/watchlists/{watchlist_id}/symbols/bulk")
+async def add_symbols_bulk(request: Request, watchlist_id: str, payload: BulkSymbolsBody) -> Dict[str, Any]:
+    """Add many stocks to one of the user's lists in one write.
+
+    Idempotent (a stock already there is reported in `already`, not an error), owner-scoped (another user's list is a
+    404), bounded (what does not fit is refused as `list_full`, never silently dropped), and checked against the
+    instrument list a few at a time. The write itself is one `$push $each` that carries its own guards, so a second
+    request racing this one cannot break the 100-stock limit or add a stock twice.
+
+    Answer: {added: [{symbol, company_name}], already: [symbol], refused: [{symbol, code, detail}], watchlist}.
+    """
+    user = await get_current_user(request)
+    _no_client_writes(user)
+    uid = user["user_id"]
+
+    wanted: List[str] = []
+    refused: List[Dict[str, str]] = []
+    for raw in payload.symbols:
+        symbol = (raw or "").strip().upper()
+        if not _SYMBOL_RE.match(symbol):
+            refused.append({"symbol": (raw or "").strip()[:24], "code": "invalid_symbol", "detail": "That is not a stock symbol."})
+        elif symbol not in wanted:
+            wanted.append(symbol)
+
+    doc = await _owned(uid, watchlist_id)
+    have = {e.get("symbol") for e in doc.get("symbols") or []}
+    names, unknown = await _names_for([s for s in wanted if s not in have])
+    refused += [{"symbol": s, "code": "not_in_instrument_list", "detail": f"“{s}” is not a stock in the instrument list."} for s in unknown]
+
+    # The guarded write can lose a race (another request added one of these, or filled the list): read again and redo, a few times.
+    for _attempt in range(3):
+        have = {e.get("symbol") for e in doc.get("symbols") or []}
+        fresh = [s for s in wanted if s in names and s not in have]
+        room = max(0, MAX_SYMBOLS - len(have))
+        to_add, overflow = fresh[:room], fresh[room:]
+        if not to_add:
+            break
+        added_at = _now()
+        entries = [{"symbol": s, "company_name": names[s], "added_at": added_at} for s in to_add]
+        res = await db.user_watchlists.update_one(
+            {
+                "watchlist_id": watchlist_id,
+                "user_id": uid,
+                "symbols.symbol": {"$nin": to_add},
+                f"symbols.{MAX_SYMBOLS - len(to_add)}": {"$exists": False},
+            },
+            {"$push": {"symbols": {"$each": entries}}, "$set": {"updated_at": added_at}},
+        )
+        if res.matched_count:
+            doc = await _owned(uid, watchlist_id)
+            return _bulk_answer(doc, entries, [s for s in wanted if s in have], refused, overflow)
+        doc = await _owned(uid, watchlist_id)
+    else:
+        raise HTTPException(status_code=409, detail="The list changed while the stocks were being added. Nothing was lost; please try again.")
+    return _bulk_answer(doc, [], [s for s in wanted if s in have], refused, overflow)
+
+
+def _bulk_answer(doc: Dict[str, Any], added: List[Dict[str, Any]], already: List[str], refused: List[Dict[str, str]], overflow: List[str]) -> Dict[str, Any]:
+    full = [{"symbol": s, "code": "list_full", "detail": f"A list holds up to {MAX_SYMBOLS} stocks."} for s in overflow]
+    return {
+        "added": [{"symbol": e["symbol"], "company_name": e["company_name"]} for e in added],
+        "already": already,
+        "refused": refused + full,
+        "watchlist": _summary(doc),
+    }
+
+
 @router.delete("/watchlists/{watchlist_id}/symbols/{symbol}")
 async def remove_symbol(request: Request, watchlist_id: str, symbol: str) -> Dict[str, Any]:
     user = await get_current_user(request)
+    _no_client_writes(user)
     uid = user["user_id"]
     symbol = _clean_symbol(symbol)
     doc = await _owned(uid, watchlist_id)

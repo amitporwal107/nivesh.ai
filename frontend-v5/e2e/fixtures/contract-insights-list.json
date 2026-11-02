@@ -1,0 +1,132 @@
+[
+  {
+    "insight_id": "ins_288474cb22e5",
+    "user_id": "u1",
+    "title": "Reduce Flexi Cap sector exposure",
+    "description": "Flexi Cap is 65.2% of your ₹13.8L portfolio, above the ideal ceiling of 25%. Trim roughly ₹555,000 and redirect to underweight sectors.",
+    "type": "warning",
+    "priority": "high",
+    "impact": "high",
+    "effort": "medium",
+    "category": "risk",
+    "severity": "critical",
+    "theme": "other",
+    "theme_label": "Other",
+    "theme_order": 99,
+    "current_value": "65.2%",
+    "target_value": "25%",
+    "affected_funds": [
+      "HDFC Flexi Cap Fund - Regular Plan - Growth"
+    ],
+    "action": "Reduce Flexi Cap exposure by ₹555,000",
+    "benefit": {
+      "fee_savings_annual_rs": 0.0,
+      "optimizable_rs": 0.0,
+      "tax_savings_rs": 0.0,
+      "funds_removed": 0,
+      "health_score_delta": 8,
+      "simplicity_delta_pct": 0.0,
+      "summary": "+8 health score"
+    },
+    "progress": 0,
+    "created_at": "2026-10-30T12:00:00+00:00"
+  },
+  {
+    "insight_id": "ins_803d88a37f1a",
+    "user_id": "u1",
+    "title": "Reduce HDFC AMC concentration",
+    "description": "100.0% of your portfolio sits with HDFC — above the 40% per-AMC guardrail. Diversify about ₹828,000 to other AMCs to lower single-house risk.",
+    "type": "warning",
+    "priority": "medium",
+    "impact": "medium",
+    "effort": "medium",
+    "category": "risk",
+    "severity": "important",
+    "theme": "amc_concentration",
+    "theme_label": "AMC Concentration",
+    "theme_order": 3,
+    "current_value": "100.0%",
+    "target_value": "40%",
+    "affected_funds": [
+      "HDFC Flexi Cap Fund - Regular Plan - Growth",
+      "HDFC Mid-Cap Opportunities Fund - Regular Plan - Growth",
+      "HDFC Small Cap Fund - Regular Plan - Growth"
+    ],
+    "action": "Reduce HDFC AMC exposure by ₹828,000",
+    "benefit": {
+      "fee_savings_annual_rs": 0.0,
+      "optimizable_rs": 0.0,
+      "tax_savings_rs": 0.0,
+      "funds_removed": 0,
+      "health_score_delta": 4,
+      "simplicity_delta_pct": 0.0,
+      "summary": "+4 health score"
+    },
+    "progress": 0,
+    "created_at": "2026-10-30T12:00:00+00:00"
+  },
+  {
+    "insight_id": "ins_15920a3dd547",
+    "user_id": "u1",
+    "title": "Switch to Direct plans",
+    "description": "You hold ₹1,380,000 in 3 Regular-plan funds. Switching to Direct plans saves ~₹13,800/yr in expense ratio.",
+    "type": "opportunity",
+    "priority": "high",
+    "impact": "high",
+    "effort": "low",
+    "category": "cost",
+    "severity": "important",
+    "theme": "cost",
+    "theme_label": "Cost Leakage",
+    "theme_order": 8,
+    "current_value": "₹1,380,000 in Regular",
+    "target_value": "Direct plans",
+    "affected_funds": [
+      "HDFC Flexi Cap Fund - Regular Plan - Growth",
+      "HDFC Mid-Cap Opportunities Fund - Regular Plan - Growth",
+      "HDFC Small Cap Fund - Regular Plan - Growth"
+    ],
+    "action": "Switch Regular → Direct to save ₹13,800/yr",
+    "benefit": {
+      "fee_savings_annual_rs": 13800.0,
+      "optimizable_rs": 1380000.0,
+      "tax_savings_rs": 0.0,
+      "funds_removed": 0,
+      "health_score_delta": 4,
+      "simplicity_delta_pct": 0.0,
+      "summary": "Save ₹13,800/yr in fees · +4 health score"
+    },
+    "progress": 0,
+    "created_at": "2026-10-30T12:00:00+00:00"
+  },
+  {
+    "insight_id": "ins_08fac8f16ae9",
+    "user_id": "u1",
+    "title": "Add debt allocation",
+    "description": "Debt is only 0.0% of your portfolio — below the 10% floor. Add ~₹138,000 to a high-quality debt fund to cushion drawdowns.",
+    "type": "opportunity",
+    "priority": "medium",
+    "impact": "medium",
+    "effort": "low",
+    "category": "allocation",
+    "severity": "optimization",
+    "theme": "allocation_gap",
+    "theme_label": "Allocation Gaps",
+    "theme_order": 7,
+    "current_value": "0.0%",
+    "target_value": "≥10%",
+    "affected_funds": [],
+    "action": "Invest ₹138,000 in a debt fund",
+    "benefit": {
+      "fee_savings_annual_rs": 0.0,
+      "optimizable_rs": 0.0,
+      "tax_savings_rs": 0.0,
+      "funds_removed": 0,
+      "health_score_delta": 2,
+      "simplicity_delta_pct": 0.0,
+      "summary": "+2 health score"
+    },
+    "progress": 0,
+    "created_at": "2026-10-30T12:00:00+00:00"
+  }
+]

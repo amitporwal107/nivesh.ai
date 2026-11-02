@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import AppLayout from "./components/layout/AppLayout";
 import LiteLayout from "./components/layout/LiteLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
@@ -69,8 +70,10 @@ import WatchlistPage from "./pages/Watchlist";
 export function AppRoutes() {
   return (
     <Routes>
-      {/* Public landing — full-bleed, no sidebar */}
-      <Route index element={<HomepagePage />} />
+      {/* Public landing — full-bleed, no sidebar. The mobile app opens on the
+          one-screen Copilot instead; RequireAuth on /app sends a signed-out
+          user to /login. */}
+      <Route index element={Capacitor.isNativePlatform() ? <Navigate to="/app" replace /> : <HomepagePage />} />
 
       {/* Public marketing pages — full-bleed, no sidebar */}
       <Route path="/product" element={<ProductPage />} />
