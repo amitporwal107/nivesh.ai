@@ -1,0 +1,20 @@
+# /etc/cron.d/nidp-staging-truedata-macro — nightly refresh of the TrueData TD_* macro series in nidp.fred_macro.
+#
+# NOT INSTALLED by the PR that adds it. A separate file so it never overwrites /etc/cron.d/nidp-staging or
+# /etc/cron.d/nidp-staging-truedata. Install (root, on the NIDP VM), after migration 191 is applied and a manual
+# `run_service.sh truedata_macro --dry-run` looks right:
+#   install -m 644 /opt/nidp/dev-repo/nivesh.ai/deploy/cloudpe/nidp/nidp-staging-truedata-macro.cron /etc/cron.d/nidp-staging-truedata-macro
+#
+# Obeys backend/config/market_data_source.json: at `current` it records a SKIPPED run (SWITCHED_OFF) and calls
+# nothing. Runs for real in `shadow` / `truedata` with TRUEDATA_USERNAME / TRUEDATA_PASSWORD in nidp.env.
+# 00:15 IST every day, for the previous day: after MCX's close (23:30-23:55 IST), so yesterday's MCX bar is final and
+# today's is never fetched; away from the 22:45 IST truedata_crosscheck slot (the TrueData account is shared). Daily,
+# not weekdays only: a Saturday or Muhurat session is picked up the next night (the job fetches every day since the
+# last stored one). About 24 calls, ~30 s.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+NIDP_HOME=/opt/nidp-staging
+
+15 0 * * *  nidp-staging  /opt/nidp-staging/run_service.sh truedata_macro
