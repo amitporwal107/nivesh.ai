@@ -173,10 +173,13 @@ _PORTFOLIO_HEDGE = re.compile(
     r"\b(type|kind)s?\s+of\s+hedge\b|\b(cheapest|best)\s+(protection|hedge)\b|\bhow\s+much\s+protection\b|\bprotection\s+(options?|ideas?)\b|"
     r"\b(don'?t|do\s+not)\s+want\s+to\s+lose\s+more\s+than\b|"
     r"\bwhat\s+(happens|would\s+happen|if)\b.{0,30}\b(nifty|market|sensex)\b.{0,20}\b(fall|falls|drop|drops|crash\w*|declin\w+|correct\w+)\b", re.I)
+# "If Nifty goes down 5%, what happens to my portfolio?": a market fall AND a word about the user's own money (a bare "will Nifty fall?" is not ours)
+_NIFTY_FALL = re.compile(r"\b(nifty|sensex|(the\s+)?market)\b.{0,25}\b(goes?\s+down|go(ing)?\s+down|falls?|falling|drops?|dropping|declin\w+|crash\w*|correct\w+|dips?|slips?|tanks?)\b", re.I)
+_OWN_MONEY = re.compile(r"\b(portfolio|holdings?|investments?|impact|affect\w*|hurt|lose|loss(es)?|my\s+money)\b", re.I)
 _HEDGE_NOT = re.compile(r"\bhedge\s+funds?\b|\bstop[- ]?loss\b|\bexit\b", re.I)
 _HEDGE_FALL = re.compile(
     r"(\d{1,2}(?:\.\d+)?)\s*%\s*(?:fall|drop|crash|correction|decline|dip|down)|"
-    r"(?:fall|falls|drop|drops|crash|correction|decline|dip)\w*\s*(?:of|by|to|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%|"
+    r"(?:fall|falls|drop|drops|crash|correction|decline|dip|down)\w*\s*(?:of|by|to|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%|"
     r"against\s+an?\s+(\d{1,2}(?:\.\d+)?)\s*%", re.I)
 _HEDGE_LOSE_PCT = re.compile(
     r"(?:lose|loss|losing|tolerate|accept|afford)\w*\s*(?:more\s+than|over|above|beyond|up\s+to|at\s+most|of|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I)
@@ -480,7 +483,8 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
                    last_symbol: Optional[str] = None) -> Optional[Intent]:
     """The Release-1 intent of a Copilot question, or None (the chat's usual path)."""
     msg = (message or "").strip()
-    if msg and len(msg) <= 400 and _PORTFOLIO_HEDGE.search(msg) and not _HEDGE_NOT.search(msg) and stock_in(msg) is None:
+    if (msg and len(msg) <= 400 and (_PORTFOLIO_HEDGE.search(msg) or (_NIFTY_FALL.search(msg) and _OWN_MONEY.search(msg)))
+            and not _HEDGE_NOT.search(msg) and stock_in(msg) is None):
         return Intent("portfolio_hedge", params=hedge_params(msg))
     if not msg or len(msg) > 400 or _NOT_OURS.search(msg):
         return None

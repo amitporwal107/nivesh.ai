@@ -1,5 +1,6 @@
 """Quick Hedge inputs (services/quick_hedge/inputs.py, costs.py): holding classification, beta coverage, fit to Nifty, expiry choice,
 traded puts, charges. Expected values are worked by hand; return series are seeded random walks, not market data."""
+import asyncio
 import random
 from datetime import date, timedelta
 
@@ -190,3 +191,73 @@ def test_a_short_leg_is_bought_back_at_intrinsic():
     assert entry == pytest.approx(card.order_side("options", "BUY", 7_800.0)["total"] + card.order_side("options", "SELL", 1_950.0)["total"])
     at18k = costs.make_charges()(legs, 18_000.0)
     assert at18k == pytest.approx(card.order_side("options", "SELL", 3_850.0 * 65)["total"] + card.order_side("options", "BUY", 1_550.0 * 65)["total"])
+
+
+# ── where the holdings come from ───────────────────────────────────────────────────────────────────────────────
+def _rows(n_cas, n_broker):
+    return ([{"source": "cas", "uploaded_at": "2026-11-01T06:30:19", "name": "SECRET NAME", "quantity": 10, "current_price": 5.0}] * n_cas
+            + [{"source": "broker_native", "uploaded_at": "2026-10-31T06:34:21"}] * n_broker)
+
+
+def test_a_stale_cas_and_two_ended_broker_sessions_need_attention():
+    info = inputs.summarise_sources(_rows(119, 5), {"cas_statement_date": "31-Aug-2026", "cas_statement_period": "Aug/2026"},
+                                    [{"broker": "zerodha", "status": "expired"}, {"broker": "icicidirect", "status": "expired"}], today=date(2026, 11, 1))
+    assert [(h["source"], h["rows"], h["last_updated"]) for h in info["holdings"]] == [("cas", 119, "2026-11-01"), ("broker_native", 5, "2026-10-31")]
+    assert info["cas"]["statement_date_iso"] == "2026-08-31" and info["cas"]["age_days"] == 62 and info["cas"]["older_than_a_month"] is True
+    assert [(b["label"], b["state"]) for b in info["brokers"]] == [("Zerodha", "ended"), ("ICICI Direct", "ended")]
+    assert info["needs_attention"] is True
+    assert "SECRET NAME" not in repr(info)                       # counts and dates only, never a holding
+
+
+def test_a_fresh_cas_and_an_active_broker_need_nothing():
+    info = inputs.summarise_sources(_rows(40, 3), {"cas_statement_date": "2026-10-25"}, [{"broker": "zerodha", "status": "active"}], today=date(2026, 11, 1))
+    assert info["cas"]["age_days"] == 7 and info["cas"]["older_than_a_month"] is False
+    assert info["brokers"][0]["state"] == "active" and info["needs_attention"] is False
+
+
+@pytest.mark.parametrize("raw,iso", [("31-Aug-2026", "2026-08-31"), ("2026-08-31", "2026-08-31"), ("31/08/2026", "2026-08-31"), ("31 Aug 2026", "2026-08-31"), ("not a date", None), (None, None)])
+def test_statement_dates_are_parsed_or_left_alone(raw, iso):
+    info = inputs.summarise_sources(_rows(1, 0), {"cas_statement_date": raw, "cas_statement_period": "Aug/2026"}, [], today=date(2026, 11, 1))
+    assert (info["cas"] or {}).get("statement_date_iso") == iso
+
+
+def test_no_holdings_at_all_needs_attention_and_no_cas_means_no_claim_about_it():
+    info = inputs.summarise_sources([], {}, [], today=date(2026, 11, 1))
+    assert info["holdings"] == [] and info["cas"] is None and info["brokers"] == [] and info["needs_attention"] is True
+
+
+class _Cur:
+    def __init__(self, rows): self.rows = rows
+    async def to_list(self, n): return self.rows
+
+
+class _Coll:
+    def __init__(self, log, name, rows, boom=False): self.log, self.name, self.rows, self.boom = log, name, rows, boom
+    async def find_one(self, q, proj=None):
+        self.log.append((self.name, dict(proj or {})))
+        if self.boom: raise RuntimeError("down")
+        return self.rows[0] if self.rows else None
+    def find(self, q, proj=None):
+        self.log.append((self.name, dict(proj or {})))
+        if self.boom: raise RuntimeError("down")
+        return _Cur(self.rows)
+
+
+class _Db:
+    def __init__(self, boom=False):
+        self.log = []
+        self.user_profiles = _Coll(self.log, "user_profiles", [{"cas_statement_date": "31-Aug-2026", "cas_statement_period": "Aug/2026"}], boom)
+        self.broker_accounts = _Coll(self.log, "broker_accounts", [{"broker": "zerodha", "status": "expired"}], boom)
+
+
+def test_the_profile_read_never_asks_for_the_cas_password():
+    db = _Db()
+    info = asyncio.run(inputs.load_sources(db, "u1", _rows(2, 0)))
+    asked = {name: set(proj) for name, proj in db.log}
+    assert asked["user_profiles"] == {"_id", "cas_statement_date", "cas_statement_period"}       # the same document holds the CAS PDF password
+    assert asked["broker_accounts"] == {"_id", "broker", "status"}
+    assert info["brokers"][0]["state"] == "ended"
+
+
+def test_an_unreadable_sources_summary_is_none_not_a_failure():
+    assert asyncio.run(inputs.load_sources(_Db(boom=True), "u1", _rows(1, 0))) is None

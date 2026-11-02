@@ -9,6 +9,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
+import { fmtNum } from "../../../../components/ui";
 import { num } from "../../desk-data";
 
 type Raw = Record<string, unknown>;
@@ -46,6 +47,12 @@ export interface HedgeMode {
   breakEven: number | null; premiumRs: number | null; chargesRs: number | null; totalCostRs: number | null; costPct: number | null;
   rows: HedgeRow[]; notes: HedgeReason[];
 }
+export interface HoldingsSources {
+  holdings: { source: string; label: string; rows: number; lastUpdated: string | null }[];
+  cas: { statementDate: string | null; ageDays: number | null; olderThanAMonth: boolean } | null;
+  brokers: { broker: string; label: string; state: "active" | "ended" | "other" }[];
+  needsAttention: boolean;
+}
 export interface HedgeResult {
   status: "ok" | "not_hedgeable" | "no_hedge_needed" | "incomplete";
   reasons: HedgeReason[];
@@ -54,9 +61,21 @@ export interface HedgeResult {
   modes: HedgeMode[];
   disclosures: string[];
   expiry: string | null;
-  portfolio: { valueRs: number | null; hedgeableRs: number | null; beta: number | null; betaCoverage: number | null; excludedRs: number; asOf: string | null };
+  portfolio: { valueRs: number | null; hedgeableRs: number | null; beta: number | null; betaCoverage: number | null; excludedRs: number; asOf: string | null; sources: HoldingsSources | null };
   market: { asOf: string | null; expiry: string | null; putsTraded: number | null };
   fit: { r2: number | null; windowEnd: string | null; observations: number | null; seriesUsed: number | null };
+}
+
+function readSources(v: unknown): HoldingsSources | null {
+  const d = rec(v);
+  if (!Array.isArray(d.holdings)) return null;
+  const cas = d.cas ? rec(d.cas) : null;
+  return {
+    holdings: list(d.holdings).map((x) => ({ source: str(x.source) ?? "", label: str(x.label) ?? "Another source", rows: num(x.rows) ?? 0, lastUpdated: str(x.last_updated) })),
+    cas: cas ? { statementDate: str(cas.statement_date), ageDays: num(cas.age_days), olderThanAMonth: cas.older_than_a_month === true } : null,
+    brokers: list(d.brokers).map((b) => ({ broker: str(b.broker) ?? "", label: str(b.label) ?? "Your broker", state: b.state === "active" ? "active" : b.state === "ended" ? "ended" : "other" })),
+    needsAttention: d.needs_attention === true,
+  };
 }
 
 const reasons = (v: unknown): HedgeReason[] => list(v).flatMap((r) => (str(r.message) ? [{ code: str(r.code) ?? "", message: str(r.message) as string }] : []));
@@ -105,7 +124,7 @@ export function readQuickHedge(body: unknown): HedgeResult {
     expiry: str(d.expiry),
     portfolio: {
       valueRs: num(pf.portfolio_value_rs), hedgeableRs: num(pf.hedgeable_value_rs), beta: num(pf.beta), betaCoverage: num(pf.beta_coverage),
-      excludedRs: Object.values(rec(pf.excluded_rs)).reduce<number>((a, v) => a + (num(v) ?? 0), 0), asOf: str(pf.as_of),
+      excludedRs: Object.values(rec(pf.excluded_rs)).reduce<number>((a, v) => a + (num(v) ?? 0), 0), asOf: str(pf.as_of), sources: readSources(pf.sources),
     },
     market: { asOf: str(mk.as_of), expiry: str(mk.expiry), putsTraded: num(mk.puts_traded) },
     fit: { r2: num(fit.r2), windowEnd: str(fit.window_end), observations: num(fit.observations), seriesUsed: num(fit.series_used) },
@@ -117,6 +136,17 @@ export function toBody(r: HedgeRequest): Record<string, unknown> {
     expected_fall_pct: r.expectedFallPct, tenor: r.tenor,
     ...(r.tolerance.kind === "pct" ? { tolerance_pct: r.tolerance.value } : { tolerance_rs: r.tolerance.value }),
   };
+}
+
+/** "Buy 2 lots of the 21,300 put" / "Buy 2 lots of the 21,300 put, sell the 20,850 put", from the legs the server sent. */
+export function describeStructure(m: HedgeMode, lot: number | null): string {
+  const a = m.legs[0], b = m.legs[1];
+  if (!a || a.strike == null) return "—";
+  const lots = a.qty != null && lot ? Math.round(a.qty / lot) : null;
+  const units = lots == null ? "" : `${lots} ${lots === 1 ? "lot" : "lots"} of the `;
+  return m.structure === "put_spread" && b?.strike != null
+    ? `Buy ${units}${fmtNum(a.strike)} put, sell the ${fmtNum(b.strike)} put`
+    : `Buy ${units}${fmtNum(a.strike)} put`;
 }
 
 /** The sentence a failed call is shown as. A 403 is the flag being off for this account; a 422 is an input the route refused. */

@@ -116,6 +116,18 @@ test.describe("MOCK — not real data: the Daily Trader home", () => {
     expect(sel).toBe("this stock");
   });
 
+  test("DT-3b Manage risk lists the Nifty-fall impact and hedge questions after its lead question", async ({ page }) => {
+    await setup(page, "trader");
+    await page.getByTestId("daily-tile-risk").click();
+    await expect(page.getByTestId("daily-question")).toHaveValue("How much should I risk?");                 // the lead question is unchanged
+    const more = page.getByTestId("daily-more");
+    await expect(more.getByTestId("daily-more-q")).toHaveText([
+      "What happens to my portfolio if Nifty falls 5%?", "How can I hedge my portfolio against a 5% fall?",
+      "What should I avoid today?", "How much of my daily loss limit have I used?"]);
+    await more.getByTestId("daily-more-q").filter({ hasText: "What happens to my portfolio if Nifty falls 5%?" }).click();
+    await expect(page.getByTestId("daily-question")).toHaveValue("What happens to my portfolio if Nifty falls 5%?");
+  });
+
   test("DT-4 a typed name completes to the ticker (Tab), as in every ask box", async ({ page }) => {
     await setup(page, "trader");
     await page.getByTestId("daily-tile-opportunities").click();

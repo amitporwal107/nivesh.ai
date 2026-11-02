@@ -43,7 +43,7 @@ async def run(db, user_id: str, *, expected_fall_pct: float, tenor: str = "1m", 
     res["data"] = {
         "portfolio": {"portfolio_value_rs": pf["portfolio_value_rs"], "hedgeable_value_rs": pf["hedgeable_value_rs"],
                       "excluded_rs": pf["excluded_rs"], "beta": pf["beta"], "beta_coverage": pf["beta_coverage"],
-                      "holdings_counted": len(pf["holdings"]), "as_of": pf.get("as_of")},
+                      "holdings_counted": len(pf["holdings"]), "as_of": pf.get("as_of"), "sources": pf.get("sources")},
         "market": {"as_of": market.get("as_of"), "expiry": market.get("expiry"), "days_to_expiry": market.get("days_to_expiry"),
                    "expiries": market.get("expiries") or [], "puts_traded": len(market.get("puts") or {}),
                    "source": market.get("source")},
