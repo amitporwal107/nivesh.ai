@@ -130,6 +130,10 @@ def test_r4_thread_stock_for_a_company_question_that_names_none():
     assert resolve_intent("What is the current ratio?", None, None) is None
     assert wants_thread_symbol("What is the current ratio?") and wants_thread_symbol("Has FII ownership increased?")
     assert not wants_thread_symbol("What is the market view today?")
+    # the market-wide event feed's wording keeps going to the feed, even with a stock in the thread
+    assert resolve_intent("Show promoter holding changes", None, None, last_symbol="TCS").name == "event_intelligence"
+    assert resolve_intent("Any promoter pledge this week?", None, None, last_symbol="TCS").name == "event_intelligence"
+    assert resolve_intent("Show FII ownership changes over 4 quarters.", None, None, last_symbol="TCS").name == "ownership_trend"
     # the trade answers keep the thread's stock as before
     assert resolve_intent("Should I book profits?", "trader", None, last_symbol="INFY").name == "exit_options"
     assert resolve_intent("Is this trade still valid?", "trader", None, last_symbol="TVSMOTOR").name == "trade_validity"
@@ -436,6 +440,15 @@ def test_b3_a_change_across_unchecked_sources_says_so(src):
     assert "have no quarter in common to check them" in blk(p, "crossed")["text"]
 
 
+def test_b3_an_unusually_large_one_quarter_move_is_named(src):
+    """The ICICIBANK case (real: screener.in FIIs 43.87% → 34.48% in one quarter)."""
+    rows = shareholding()
+    rows[4]["fii_pct"] = 12.0                                                          # MOCK: Mar 26 12.0 → Jun 26 19.5
+    src.v["shareholding"] = rows
+    p = build("ownership_trend")
+    assert "FIIs +7.50 pp (Mar 26 to Jun 26)" in blk(p, "jumps")["text"]
+
+
 def test_b3_short_history_says_so(src):
     src.v["shareholding"] = shareholding()[:2]
     p = build("ownership_trend")
@@ -503,6 +516,32 @@ def test_b5_every_check_states_its_rule(src):
     assert blk(p, "cash")["rows"][0]["cells"] == {"fy": "FY26", "cfo": "420", "pat": "600", "ratio": "0.70×", "capex": "−500", "fcf": "−80", "src": "TrueData"}
     assert blk(p, "balance")["rows"][0]["cells"]["src"] == "TrueData balance sheet"
     assert len(blk(p, "cannot")["items"]) == 4
+
+
+def test_b5_debt_growth_from_a_tiny_base_is_not_flagged(src):
+    """The ITC case (real: debt ₹91 Cr to ₹2,186 Cr, +2,296%, at 0.03× equity): immaterial debt is not a flag."""
+    q = quarters()
+    q[0]["long_term_debt_cr"], q[0]["short_term_debt_cr"] = 50.0, 50.0             # MOCK: 0.05× of ₹2,000 Cr equity
+    q[5]["long_term_debt_cr"], q[5]["short_term_debt_cr"] = 1.0, 1.0
+    src.v["quarterly"] = q
+    c = checks_of(build("company_risks"))["Debt growth vs profit growth"]
+    assert c["result"] == "Within the rule" and c["value"].startswith("debt +4900.0% to ₹100 Cr (0.05× equity)")
+
+
+def test_b5_march_balance_sheet_uses_the_fiscal_year_revenue(src):
+    src.v["quarterly"] = [r for r in quarters() if r["period_end"] not in ("2026-09-30", "2026-06-30")]
+    c = checks_of(build("company_risks"))
+    # Mar 26 vs Mar 25: receivables 500 vs 380 (+31.6%) against FY26 vs FY25 revenue 4,000 vs 3,600 (+11.1%)
+    assert c["Receivables vs revenue growth"]["value"] == "receivables +31.6%, revenue (12 months) +11.1%"
+    assert c["Receivables vs revenue growth"]["result"] == "Flagged" and c["Receivables vs revenue growth"]["when"] == "Mar 25 to Mar 26"
+
+
+def test_b5_no_source_column_when_no_row_states_one(src):
+    src.v["quarterly"] = [{k: v for k, v in r.items() if k != "source"} for r in quarters()]
+    src.v["annual"] = [{k: v for k, v in r.items() if k != "source"} for r in annuals()]
+    p = build("financial_trend")
+    assert "src" not in {c["key"] for c in blk(p, "quarters")["columns"]} and blk(p, "providers") is None
+    assert "src" not in {c["key"] for c in blk(p, "years")["columns"]}
 
 
 def test_b5_cashflow_route_not_served_shows_no_cash_figure(src):
@@ -659,3 +698,22 @@ def test_d1_financials_route_serves_the_balance_sheet_columns_and_cashflow():
     assert out["symbol"] == "ACME" and out["data"][0]["period_end"] == "2026-03-31" and out["count"] == 1
     paths = {getattr(r, "path", None) for r in fin.router.routes}
     assert {"/financials/{symbol}", "/financials/{symbol}/cashflow"} <= paths
+
+
+# ═════ C-2 (research): the REAL staging capture matches the contract ════════════════════════════════════════════════
+
+CAPTURE = Path(__file__).parent / "fixtures" / "research_visual_capture.json"
+
+
+def test_c2_research_real_capture_matches_the_contract():
+    """tests/test_copilot_visual.py::test_c2 checks the shared capture for every other intent; the research answers' real staging
+    capture is kept here (3 Nov 2026, TC-S1/TC-S2 of test_reports/research_answers_w1_TESTCASES.md)."""
+    doc = json.loads(CAPTURE.read_text(encoding="utf-8"))
+    assert "REAL staging capture" in doc["about"]
+    assert {p["intent"] for p in doc["payloads"].values()} == set(RESEARCH_INTENTS)
+    for key, p in doc["payloads"].items():
+        assert p["intent"] == key.split(":")[0] and validate(p) == [], (key, validate(p))
+        assert [t for t in texts(p) if LINT.search(t)] == [], key
+    risks = doc["payloads"]["company_risks:route_sql"]
+    assert any(r["cells"]["check"] == "Current ratio" and r["cells"]["value"] for r in blk(risks, "checks")["rows"])
+    assert any("does not serve cash-flow statements yet" in m for m in doc["payloads"]["company_risks"]["data_quality"]["missing"])

@@ -218,6 +218,20 @@ def _ttm(rows: List[Dict[str, Any]], end: Any, key: str) -> Optional[float]:
     return float(sum(vals))
 
 
+def _rev12(qs: List[Dict[str, Any]], ys: List[Dict[str, Any]], end1: Any, end0: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Revenue for the twelve months to two balance-sheet dates, on ONE basis for both (a sum of quarters and a filed fiscal year
+    are never mixed in one growth rate): the four quarters ending at each date, else the fiscal years ending there, else none."""
+    t1, t0 = _ttm(qs, end1, "revenue_from_ops_cr"), _ttm(qs, end0, "revenue_from_ops_cr")
+    if t1 is not None and t0 is not None:
+        return t1, t0
+
+    def fy(end: Any) -> Optional[float]:
+        y = next((y for y in ys if iso_day(y["period_end"]) == iso_day(end)), None)
+        return num((y or {}).get("revenue_from_ops_cr"))
+    f1, f0 = fy(end1), fy(end0)
+    return (f1, f0) if f1 is not None and f0 is not None else (None, None)
+
+
 def _filed_note(r: Dict[str, Any], basis: Optional[bool]) -> str:
     bits = ["consolidated" if basis else "standalone"]
     if iso_day(r.get("broadcast_at")):
@@ -316,7 +330,9 @@ async def financial_trend(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
         if not lender:
             cols += [{"key": "ebitda", "label": "EBITDA ₹Cr", "format": "text"}, {"key": "ebitda_m", "label": "EBITDA margin", "format": "text"}]
         cols += [{"key": "pat", "label": "PAT ₹Cr", "format": "text"}, {"key": "pat_yoy", "label": "PAT YoY", "format": "pct"},
-                 {"key": "pat_m", "label": "PAT margin", "format": "text"}, {"key": "src", "label": "Source", "format": "text"}]
+                 {"key": "pat_m", "label": "PAT margin", "format": "text"}]
+        if any(r.get("source") for r in shown_q):
+            cols.append({"key": "src", "label": "Source", "format": "text"})
         rows = []
         for r in shown_q:
             ya, pq = _year_ago(qs, r), _prev_q(qs, r)
@@ -331,7 +347,7 @@ async def financial_trend(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
         blocks.append(block("ranked", "quarters", "Quarter by quarter",
                             "YoY compares the same quarter a year earlier and is blank when that quarter is not in our data or its "
                             "base was a loss. Figures are as filed, in ₹ crore.", columns=cols, rows=rows))
-        providers = sorted({_provider(r.get("source")) for r in shown_q})
+        providers = sorted({_provider(r.get("source")) for r in shown_q if r.get("source")})
         if len(providers) > 1:
             blocks.append(notice(f"These quarters come from more than one provider ({', '.join(providers)}). Providers can define "
                                  "EBITDA differently, so a jump between quarters from different providers may be a definition change.",
@@ -348,7 +364,9 @@ async def financial_trend(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
                 {"key": "pat_yoy", "label": "PAT YoY", "format": "pct"}]
         if not lender:
             cols.append({"key": "ebitda_m", "label": "EBITDA margin", "format": "text"})
-        cols += [{"key": "roe", "label": "ROE (computed)", "format": "text"}, {"key": "src", "label": "Source", "format": "text"}]
+        cols.append({"key": "roe", "label": "ROE (computed)", "format": "text"})
+        if any(r.get("source") for r in shown_y):
+            cols.append({"key": "src", "label": "Source", "format": "text"})
         rows = []
         for r in shown_y:
             prev = _year_ago(ys, r)
@@ -538,6 +556,7 @@ class Holdings:
     pledged-of-promoter): 1,149 NSE rows carry a pledge with no promoter holding (HDFCBANK 17.53%, ITC 100%)."""
 
     TOL = 0.5
+    JUMP = 5.0
 
     def __init__(self, rows: Optional[List[Dict[str, Any]]]):
         by: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -616,6 +635,17 @@ class Holdings:
         if self.crossed:
             out.append(notice("Some quarter-on-quarter changes compare NSE's filing (the latest quarter) with screener.in (earlier quarters); "
                               f"for {sym} the two sources have no quarter in common to check them against each other.", "info", "crossed"))
+        jumps = []
+        for i, r in enumerate(self.recs):
+            prev = self.ago(r, 1)
+            for f, label in (("promoter_pct", "promoters"), ("fii_pct", "FIIs"), ("dii_pct", "DIIs")):
+                if prev and r.get(f) is not None and prev.get(f) is not None and r["src_of"].get(f) == prev["src_of"].get(f) \
+                        and abs(r[f] - prev[f]) > self.JUMP:
+                    jumps.append(f"{label} {_pp(r[f] - prev[f])} ({_q_label(prev['period_end'])} to {_q_label(r['period_end'])})")
+        if jumps:
+            out.append(notice(f"Unusually large one-quarter changes for {sym}: {'; '.join(jumps[:4])}. A move of more than {self.JUMP:g} "
+                              "points can be real, or a change in how the source classifies holders; check the company's shareholding "
+                              "filings for those quarters.", "warn", "jumps"))
         if self.pledge_dropped:
             out.append(notice(f"NSE's filing carries a pledge figure for {sym} ({', '.join(_q_label(d) for d in self.pledge_dropped[:3])}) that "
                               "does not agree with the promoter holding (or no promoter group is reported), so it is not shown.",
@@ -926,6 +956,7 @@ def _extremes(syms: List[str], feats: Dict[str, Any], qm: Dict[str, Any], lender
 # ═════ company_risks ═════════════════════════════════════════════════════════════════════════════════════════════════
 
 FLAG, OK, NODATA, NA = "Flagged", "Within the rule", "Not in our data", "Not applicable"
+DEBT_RULE = "debt up over 20%, faster than PAT, and at least 0.1× equity"
 BS_COLS = ("current_assets_cr", "current_liabilities_cr", "trade_receivables_cr", "inventory_cr")
 CANNOT_CHECK = ["Related-party transactions (only in the annual report's notes)",
                 "When the debt matures (only in the annual report's notes)",
@@ -1040,6 +1071,9 @@ async def company_risks(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     elif ran:
         head = (f"None of the {len(ran)} {'check' if len(ran) == 1 else 'checks'} that could run is flagged for {sym}"
                 + (f"; {len(nodata)} could not run for lack of data." if nodata else "."))
+    elif lender:
+        head = (f"For a bank or lender like {sym}, these checks mostly do not apply, and the ones that do (asset quality, capital "
+                "adequacy) are not in our data.")
     else:
         head = f"No check could run for {sym}: the figures they need are not in our data."
     as_of = _newest(*(r.get("as_of") for r in src.rows))
@@ -1067,20 +1101,23 @@ def _run_checks(sym: str, lender: bool, qs, ys, bs, cfs, hold: Holdings, feat, s
 
     # 2. Debt growth against profit growth (fiscal years)
     if lender:
-        out.append(_check("Debt growth vs profit growth", None, "debt up over 20% and faster than PAT", NA, None))
+        out.append(_check("Debt growth vs profit growth", None, DEBT_RULE, NA, None))
     else:
         d1, d0 = _debt(last_bs), _debt(bs_year_ago)
         fy, fy0 = (ys[0], _year_ago(ys, ys[0])) if ys else (None, None)
         pat_g = _growth((fy or {}).get("pat_cr"), (fy0 or {}).get("pat_cr"))
+        eq1 = num((last_bs or {}).get("total_equity_cr"))
         if d1 is None or d0 is None:
-            out.append(_check("Debt growth vs profit growth", None, "debt up over 20% and faster than PAT", NODATA, bs_when))
+            out.append(_check("Debt growth vs profit growth", None, DEBT_RULE, NODATA, bs_when))
         elif d0 == 0 and d1 == 0:
-            out.append(_check("Debt growth vs profit growth", "no debt at either date", "debt up over 20% and faster than PAT", OK, bs_when))
+            out.append(_check("Debt growth vs profit growth", "no debt at either date", DEBT_RULE, OK, bs_when))
         else:
             dg = _growth(d1, d0)
-            val = f"debt {_signed(dg) if dg is not None else 'from zero'}; PAT {_signed(pat_g) if pat_g is not None else 'n/a'} ({_fy_label(fy['period_end']) if fy else 'n/a'})"
-            flag = (dg is None and d1 > 0) or (dg is not None and dg > 20 and (pat_g is None or dg > pat_g))
-            out.append(_check("Debt growth vs profit growth", val, "debt up over 20% and faster than PAT", FLAG if flag else OK,
+            material = eq1 is not None and eq1 > 0 and d1 >= 0.1 * eq1
+            val = (f"debt {_signed(dg) if dg is not None else 'from zero'} to {_cr(d1)} ({_times(d1 / eq1, 2) if eq1 else 'n/a'} equity); "
+                   f"PAT {_signed(pat_g) if pat_g is not None else 'n/a'} ({_fy_label(fy['period_end']) if fy else 'n/a'})")
+            flag = material and ((dg is None and d1 > 0) or (dg is not None and dg > 20 and (pat_g is None or dg > pat_g)))
+            out.append(_check("Debt growth vs profit growth", val, DEBT_RULE, FLAG if flag else OK,
                               f"{_q_label(bs_year_ago['period_end'])} to {bs_when}"))
 
     # 3. Interest cover (latest fiscal year): (PBT + finance costs) ÷ finance costs
@@ -1143,8 +1180,7 @@ def _run_checks(sym: str, lender: bool, qs, ys, bs, cfs, hold: Holdings, feat, s
 
     # 8. Receivables growth against revenue growth (twelve months to each balance sheet)
     rec1, rec0 = num((last_bs or {}).get("trade_receivables_cr")), num((bs_year_ago or {}).get("trade_receivables_cr"))
-    rev1 = _ttm(qs, last_bs["period_end"], "revenue_from_ops_cr") if last_bs else None
-    rev0 = _ttm(qs, bs_year_ago["period_end"], "revenue_from_ops_cr") if bs_year_ago else None
+    rev1, rev0 = _rev12(qs, ys, last_bs["period_end"], bs_year_ago["period_end"]) if last_bs and bs_year_ago else (None, None)
     rule = "receivables growth over 15 points above revenue growth"
     if lender:
         out.append(_check("Receivables vs revenue growth", None, rule, NA, None))

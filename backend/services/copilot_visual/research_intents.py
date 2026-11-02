@@ -61,6 +61,12 @@ _MARKET_WIDE = re.compile(
     r"\b(stocks?|companies|shares)\s+(with|where|that|having|whose)\b|\bacross\s+(the\s+)?(market|sectors?|industries)\b|"
     r"\b(the\s+)?(market|nifty|sensex|bank\s*nifty|economy|gdp)\b", re.I)
 
+# Feed wording ("Show promoter holding changes", "any pledge this week?") is the market-wide event feed's, unless the question
+# points at the company or asks for a trend window ("this company", "over 4 quarters").
+_FEED = re.compile(r"\b(today|tonight|this\s+week|last\s+week|this\s+month)\b|\b(changes|updates|disclosures|filings|announcements)\b", re.I)
+_DEICTIC = re.compile(r"\b(this|that|the)\s+(company|stock|share|counter|scrip|business|firm)\b|\b(it|its|it's)\b", re.I)
+_WINDOW = re.compile(r"\bover\s+(time|the\s+(last|past)|\d+|two|three|four|five|eight)\b|\b\d+\s+quarters?\b|\bquarter[- ]on[- ]quarter\b", re.I)
+
 # ── the five answers ─────────────────────────────────────────────────────────
 _PEER_NOUN = re.compile(
     r"\bpeers?\b|\bpeer\s+group\b|\bcompetitors?\b|\bcompetition\b|\brivals?\b|\bcompeting\s+(companies|firms|players)\b|"
@@ -186,7 +192,7 @@ def research_intent(message: str, symbols: List[str], from_thread: bool = False)
     msg = (message or "").strip()
     if not msg or not symbols or is_research_thesis(msg) or _NOT_COMPANY.search(msg):
         return None
-    if from_thread and _MARKET_WIDE.search(msg):
+    if from_thread and (_MARKET_WIDE.search(msg) or (_FEED.search(msg) and not (_DEICTIC.search(msg) or _WINDOW.search(msg)))):
         return None
     if _CAUSAL.search(msg) and not _CAUSAL_KEEP.search(msg):
         return None
