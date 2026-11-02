@@ -891,7 +891,7 @@ def test_b11_the_explanation_request_names_advice_words_only_to_forbid_them(src,
         told = q + "\n\n" + wrap_external_data(va_facts, source="visual_answer")
         asyncio.run(node.stock_node(_stock_state(told)))
         system, user = seen[-1][0]["content"], seen[-1][1]["content"]
-        body = [ln for ln in user.splitlines()[1:] if not ln.startswith("VISUAL_ANSWER") and WORDING_RULE not in ln]
+        body = [ln for ln in user.splitlines()[1:] if "VISUAL_ANSWER for ACME" not in ln and WORDING_RULE not in ln]
         assert advice_words(body) == [], (name, advice_words(body))
         own = node._RESEARCH_SYSTEM.replace(ANTI_HALLUCINATION_RULES, "")
         bullet = own[own.index("- Follow the WORDING RULE"):]
@@ -909,6 +909,11 @@ def test_b11_an_ordinary_stock_question_keeps_the_usual_path(monkeypatch):
         return []
     monkeypatch.setattr(node, "_fetch_stock_data", tools)
     monkeypatch.setattr(node, "make_chat_llm", lambda *a, **k: _FakeLLM(seen))
+    from services.copilot_tools import instrument_research
+
+    async def no_research(symbol):                                                 # MOCK: the research card read is not under test
+        return None
+    monkeypatch.setattr(instrument_research, "get_stock_research", no_research)
     for msg in ("Analyse TCS", "Is TCS expensive or cheap?", "What is the trade plan for TCS?"):
         asyncio.run(node.stock_node(_stock_state(msg)))
         system = seen[-1][0]["content"]
