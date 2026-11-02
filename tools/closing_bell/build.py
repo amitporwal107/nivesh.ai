@@ -158,7 +158,7 @@ def card_spans(seg, tl):
 
 def montage_sources(tl):
     """Cold-open footage under the title and headline cards: borrowed from the segments each headline is about."""
-    pref = {"title": ("s3", 3.0), "h1": ("s1", 2.0), "h2": ("s5", 4.0), "h3": ("s2", 8.0), "h4": ("s3", 12.0)}
+    pref = {"title": ("s3", 3.0), "h1": ("s1", 2.0), "h2": ("s5", 4.0), "h3": ("s6", 6.0), "h4": ("s2", 8.0)}
     return {k: (src if src in tl else "s1", min(off, max(0.0, tl.get(src, tl["s1"])["len"] - 8))) for k, (src, off) in pref.items()}
 
 

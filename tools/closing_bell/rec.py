@@ -370,12 +370,28 @@ async def act_s6(s):
                         await s.scroll_to('[data-first-fno="1"]', off=140, dur=1.6); await s.hover('[data-first-fno="1"]', 0.8, scroll=False)
                 except Exception as e:
                     s.note(f'fno row: {e}')
+        elif f.get('fno_syms'):
+            # the F&O list is already showing (the 'fno' beat switched to it): point at each instrument in turn
+            per = max(1.5, (s.end_of(i) - s.B[i] - 0.6) / max(1, len(f['fno_syms'])))
+            for k, sym in enumerate(f['fno_syms']):
+                await s.until(s.B[i] + 0.3 + k * per)
+                loc = s.pg.locator('[data-testid="desk-top10"]').get_by_text(sym, exact=True).first
+                try:
+                    if await loc.count():
+                        await s.pg.evaluate("(e) => { document.querySelectorAll('[data-fno-focus]').forEach(x => x.removeAttribute('data-fno-focus')); e.setAttribute('data-fno-focus','1'); }", await loc.element_handle())
+                        await s.scroll_to('[data-fno-focus="1"]', off=160, dur=0.8)
+                        await s.hover('[data-fno-focus="1"]', 0.7, scroll=False)
+                    else:
+                        s.note(f'fno row not visible {sym}')
+                except Exception as e:
+                    s.note(f'fno row: {e}')
         else:
             syms = f.get('syms') or []
             per = max(0.9, (s.end_of(i) - s.B[i] - 0.6) / max(1, len(syms)))
             for k, sym in enumerate(syms):
                 await s.until(s.B[i] + 0.2 + k * per)
-                await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', min(0.8, per * 0.5), dx=0.2, dy=0.15)
+                await s.scroll_to(f'[data-testid="desk-top10-stock-{css(sym)}"]', off=140, dur=0.8)
+                await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', min(0.9, per * 0.5), dx=0.2, dy=0.15, scroll=False)
 
 
 async def act_s7(s):
