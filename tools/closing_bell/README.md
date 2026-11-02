@@ -65,7 +65,9 @@ unset.
 
 ## Steps (`pipeline.py`)
 
-1. **Preflight.** Requires 8 GB free on `/`, because deploys need 6 GB. Builds the tools image
+1. **Preflight.** Requires 8 GB free on `/`, because deploys need 6 GB (`CB_MIN_FREE_GB` lowers it, never below 7:
+   a build peaks at about 1 GB). After publishing, `trim_work` keeps only the work folder's JSON, captions and
+   transcripts; the published copies are the record. Builds the tools image
    (`Dockerfile`) if it is missing. Fetches the music once and checks its pinned sha256.
 2. **Bot session.** `backend/scripts/closing_bell.py` sets up the bot. The bot is a read-only `user`-role
    account, `closing-bell-bot`. The job creates a 75-minute session for it and revokes the session at the
