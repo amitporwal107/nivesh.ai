@@ -20,8 +20,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
+from nidp.shared import deploy_env
 from nidp.shared.storage.pg import get_pool
 
 from .plan import CASHFLOW, INSERT_SOURCE, Q_COLUMNS, QUARTERLY, Action, Plan, Row, build_plan, offer_keys
@@ -136,7 +137,7 @@ _CF_INSERT = (
     "ON CONFLICT ON CONSTRAINT uq_cashflow DO NOTHING "
     "RETURNING symbol, period_end, consolidated")
 _PROV_INSERT = (
-    f"INSERT INTO {PROVENANCE} (run_id, kind, table_written, symbol, period_end, consolidated, period_type, row_source, "
+    f"INSERT INTO {PROVENANCE} (run_id, kind, target_table, symbol, period_end, consolidated, period_type, row_source, "
     "td_filing_id, unit, unit_how, columns_filled, values_written, inserted) "
     "VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13::jsonb, $14)")
 
@@ -197,6 +198,12 @@ async def apply_plan(conn, plan: Plan, run_id: str) -> Dict[str, int]:
 class Warehouse:
     """The job's database side; the service talks only to this (tests pass a fake)."""
 
+    async def load_gate(self, env: Optional[Mapping[str, str]] = None) -> deploy_env.EnvVerdict:
+        """Staging or not, from the database this job would write to (nidp.shared.deploy_env)."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            return await deploy_env.truedata_load_gate(conn, env)
+
     async def references(self, symbols: Optional[Sequence[str]] = None) -> References:
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -246,7 +253,7 @@ async def rollback_run(conn, run_id: str) -> Dict[str, Any]:
             f"SELECT * FROM {PROVENANCE} WHERE run_id = $1::uuid AND rolled_back_at IS NULL ORDER BY id FOR UPDATE",
             str(run_id))
         for p in prov:
-            table = p["table_written"]
+            table = p["target_table"]
             if table not in _ALLOWED:
                 raise RuntimeError(f"unknown table {table!r} in provenance")
             if p["inserted"]:
