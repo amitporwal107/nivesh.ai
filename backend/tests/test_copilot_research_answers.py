@@ -607,11 +607,43 @@ def test_b6_thread_stock_is_named(src):
 
 
 # ═════ TC-B7: SEBI wording lint ═════════════════════════════════════════════════════════════════════════════════════
+# Owner, 3 Nov 2026: "Please check compliance and do not use words like buy, stop loss, target". Applied to every string the
+# answers can show: block titles, notes, KPI labels and values, table cells, notices, headline, follow-up chips, caveat, the facts
+# lines the explanation reads, and the suggestion templates. Routing regexes that RECOGNISE these words in a question are not
+# output and are not linted.
+LINT = re.compile(r"\b(buy\w*|sell\w*|hold|holds|target\w*|price\s+target\w*|recommend\w*|pick|picks|picked|cheap\w*|expensive|"
+                  r"undervalued|overvalued|stop[- ]?loss\w*|entry|entries|exit\w*|accumulat\w*|book(ing)?\s+profits?|upside|downside|"
+                  r"multibagger\w*|should\s+invest)\b", re.I)
+LINT_CASED = re.compile(r"\bSL\b")
 
-LINT = re.compile(r"\b(buy|sell|hold|target|targets|recommend\w*|pick|picks|cheap|expensive|undervalued|overvalued)\b", re.I)
+
+def advice_words(strings) -> List[str]:
+    return [t for t in strings if LINT.search(t) or LINT_CASED.search(t)]
 
 
-@pytest.mark.parametrize("variant", ["full", "lender", "failure", "cash404"])
+def facts_lines(p, sym="ACME") -> List[str]:
+    """The facts the explanation reads, without its fixed instruction header (which names words only to forbid them)."""
+    return facts(p, subject=sym).splitlines()[1:]
+
+
+TD_BS = ("total_equity_cr", "long_term_debt_cr", "short_term_debt_cr", "cash_and_equiv_cr", "current_assets_cr",
+         "current_liabilities_cr", "trade_receivables_cr", "inventory_cr", "trade_payables_cr")
+
+
+def production_data(src):
+    """Production (owner, 3 Nov 2026: TrueData figures only on staging; "on prod please use our snapshot data"): no TrueData job runs
+    there, so nidp.nse_financials_cashflow is empty and the TrueData-filled balance-sheet columns are null. The DaaS still serves
+    the columns (this branch), with null values."""
+    src.v["cashflow"] = []
+    for k in ("quarterly", "annual"):
+        src.v[k] = [{**r, **{c: None for c in TD_BS}, "bs_truedata": False} for r in src.v[k]]
+
+
+ALL_ANSWERS = (("financial_trend", {}), ("valuation_view", {"growth": [15.0]}), ("ownership_trend", {}),
+               ("peer_compare", {"symbols": ["ACME"]}), ("peer_compare", {"symbols": ["ACME", "PEERA"]}), ("company_risks", {}))
+
+
+@pytest.mark.parametrize("variant", ["full", "lender", "failure", "cash404", "production", "thread"])
 def test_b7_no_advice_words_in_any_answer(src, variant):
     if variant == "lender":
         src.v["features"] = {**FEAT, "sector": "BANKING"}
@@ -619,11 +651,61 @@ def test_b7_no_advice_words_in_any_answer(src, variant):
         src.fail.update({"financials", "cashflow", "shareholding", "features_latest", "pe_history", "amc", "universe", "features_on"})
     if variant == "cash404":
         src.fail.add("cashflow_404")
-    for name, params in (("financial_trend", {}), ("valuation_view", {"growth": [15.0]}), ("ownership_trend", {}),
-                         ("peer_compare", {"symbols": ["ACME"]}), ("peer_compare", {"symbols": ["ACME", "PEERA"]}), ("company_risks", {})):
-        p = build(name, **params)
-        hits = [t for t in texts(p) if LINT.search(t)]
-        assert hits == [], (name, variant, hits)
+    if variant == "production":
+        production_data(src)
+    for name, params in ALL_ANSWERS:
+        p = build(name, symbol_from_thread=variant == "thread", **params)
+        assert advice_words(texts(p)) == [], (name, variant, advice_words(texts(p)))
+        assert advice_words(facts_lines(p)) == [], (name, variant, advice_words(facts_lines(p)))
+
+
+def test_b7_the_lint_catches_the_owner_words():
+    for bad in ("Buy on dips", "stop loss at 820", "stop-loss", "SL 820", "target 900", "price target", "entry near 800", "exit above",
+                "accumulate", "book profits", "upside of 10%", "downside", "a multibagger", "you should invest",
+                "Which FIIs entered or exited"):
+        assert advice_words([bad]), bad
+    for ok in ("Promoter holding", "shareholding", "Fund houses holding", "threshold", "Schemes that added", "held"):
+        assert not advice_words([ok]), ok
+
+
+def test_b7_the_research_suggestion_templates_are_clean():
+    from services.suggestions import catalog
+    research = [t for t in catalog.QUERY_TEMPLATES if t["intent"] in RESEARCH_INTENTS]
+    assert {t["intent"] for t in research} == set(RESEARCH_INTENTS)
+    assert advice_words([t[k] for t in research for k in ("label", "query")]) == []
+
+
+# ═════ TC-P: production data (no TrueData: cash flow empty, balance-sheet columns null) ══════════════════════════════
+
+def test_p1_company_risks_on_production_data_says_not_in_our_data(src):
+    production_data(src)
+    p = build("company_risks")
+    c = checks_of(p)
+    for name in ("Debt to equity", "Debt growth vs profit growth", "Current ratio", "Cash from operations ÷ PAT",
+                 "PAT growth vs cash-flow growth", "Free cash flow", "Receivables vs revenue growth", "Working capital days"):
+        assert c[name]["result"] == "Not in our data", (name, c[name])
+        assert c[name]["value"] in (None, "not served by the data platform yet") or "not" in c[name]["value"], (name, c[name])
+    assert c["Interest cover"]["value"] == "17.0×"                                    # from the P&L, which prod has
+    assert kpi(p, "summary", "Flagged")["value"] == "3 of 5" and kpi(p, "summary", "No data")["value"] == "8"
+    assert kpi(p, "summary", "Latest balance sheet")["value"] == "not in our data"
+    assert kpi(p, "summary", "Latest cash-flow year")["value"] == "not in our data"
+    assert "Cash-flow statements for ACME are not in our data yet" in blk(p, "nocf")["text"]
+    assert blk(p, "cash") is None and blk(p, "cfo_pat") is None and blk(p, "balance") is None
+    flat = " ".join(texts(p))
+    for figure in ("420", "480", "1.50×", "0.25×", "35 days"):                       # nothing from the absent statements
+        assert figure not in flat, figure
+    assert p["data_quality"]["missing"] == []                                       # absent data is a gap in the data, not a failed read
+
+
+def test_p2_the_other_answers_on_production_data(src):
+    production_data(src)
+    for name, params in ALL_ANSWERS:
+        p = build(name, **params)                                                    # validate() == [] inside build
+        assert p["blocks"], name
+    years = blk(build("financial_trend"), "years")["rows"]
+    assert all(r["cells"]["roe"] is None for r in years)                             # ROE needs filed equity: blank, not estimated
+    assert kpi(build("valuation_view"), "now", "P/E (trailing")["value"] == "20.0×"   # features, not TrueData
+    assert kpi(build("ownership_trend"), "latest", "Promoters")["value"] == "50.00%"
 
 
 # ═════ TC-B8: registration, facts subject ═══════════════════════════════════════════════════════════════════════════
@@ -641,6 +723,8 @@ def test_b8_prepare_names_the_stock_as_the_facts_subject(src, monkeypatch):
     va = asyncio.run(cv.prepare(None, {"user_id": "u1"}, "What is the current ratio of TCS?", None, None, None, None))
     assert va is not None and va.intent.name == "company_risks" and va.agent == "stock_analyst"
     assert va.facts.startswith("VISUAL_ANSWER for TCS (company_risks)")
+    from services.copilot_visual.research_intents import WORDING_RULE
+    assert va.facts.endswith(WORDING_RULE) and "stop loss" in WORDING_RULE and "price target" in WORDING_RULE
     assert va.widget["widget_type"] == "visual_answer" and va.trade_idea is None
 
 
@@ -713,7 +797,7 @@ def test_c2_research_real_capture_matches_the_contract():
     assert {p["intent"] for p in doc["payloads"].values()} == set(RESEARCH_INTENTS)
     for key, p in doc["payloads"].items():
         assert p["intent"] == key.split(":")[0] and validate(p) == [], (key, validate(p))
-        assert [t for t in texts(p) if LINT.search(t)] == [], key
+        assert advice_words(texts(p)) == [], (key, advice_words(texts(p)))
     risks = doc["payloads"]["company_risks:route_sql"]
     assert any(r["cells"]["check"] == "Current ratio" and r["cells"]["value"] for r in blk(risks, "checks")["rows"])
     assert any("does not serve cash-flow statements yet" in m for m in doc["payloads"]["company_risks"]["data_quality"]["missing"])

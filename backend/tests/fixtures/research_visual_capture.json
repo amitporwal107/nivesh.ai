@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 3 Nov 2026 (data of the 2 Nov 2026 session and the filings in the warehouse that night): the Research Copilot W1 answers built by this branch's backend/services/copilot_visual, copied to a scratch path inside nivesh-staging-app-backend and run in-process against the real staging DaaS and NIDP warehouse, read-only, no restart. Plain keys: every read through the live DaaS as deployed (the cash-flow route and the new balance-sheet columns are not live there yet, so company_risks shows them as not served). ':route_sql': financials and cash flow answered by this branch's new DaaS route SQL, run read-only on the warehouse via nidp-psql (real rows; the route itself goes live only after a daas-api restart); every other read live.",
+ "about": "REAL staging capture, 3 Nov 2026 (data of the 2 Nov 2026 session and the filings in the warehouse that night): the Research Copilot W1 answers built by this branch's backend/services/copilot_visual, copied to a scratch path inside nivesh-staging-app-backend and run in-process against the real staging DaaS and NIDP warehouse, read-only, no restart. Plain keys: every read through the live DaaS as deployed (the cash-flow route and the new balance-sheet columns are not live there yet, so company_risks shows them as not served). ':route_sql': financials and cash flow answered by this branch's new DaaS route SQL, run read-only on the warehouse via nidp-psql (real rows; the route goes live only after a daas-api restart). ':production': the same real rows with the TrueData-fillable balance-sheet columns set to null and no cash-flow rows, the shape production has (no TrueData job there; owner 3 Nov 2026). Every other read live.",
  "questions": {
   "financial_trend": {
    "question": "How has revenue grown over the last 5 years for TCS?",
@@ -9,7 +9,7 @@
    "params": {
     "years": 5
    },
-   "build_secs": 3.06
+   "build_secs": 3.3
   },
   "valuation_view": {
    "question": "What happens if TCS earnings grow by 15%, 20%, or 25%?",
@@ -23,7 +23,7 @@
      25.0
     ]
    },
-   "build_secs": 0.09
+   "build_secs": 0.1
   },
   "ownership_trend": {
    "question": "Has promoter holding of ICICIBANK increased?",
@@ -31,7 +31,7 @@
    "intent": "ownership_trend",
    "symbol": "ICICIBANK",
    "params": {},
-   "build_secs": 0.05
+   "build_secs": 0.07
   },
   "peer_compare": {
    "question": "Compare TCS with its peers",
@@ -43,7 +43,7 @@
      "TCS"
     ]
    },
-   "build_secs": 1.29
+   "build_secs": 1.53
   },
   "company_risks": {
    "question": "What are the biggest risks for TCS?",
@@ -51,7 +51,7 @@
    "intent": "company_risks",
    "symbol": "TCS",
    "params": {},
-   "build_secs": 0.15
+   "build_secs": 0.13
   },
   "peer_compare:named_banks": {
    "question": "Compare HDFC Bank, ICICI Bank and Axis Bank across fundamentals, valuation, growth, profitability, asset quality and institutional ownership.",
@@ -65,7 +65,7 @@
      "AXISBANK"
     ]
    },
-   "build_secs": 0.14
+   "build_secs": 0.13
   },
   "company_risks:route_sql": {
    "question": "What are the biggest risks for ADANIPORTS?",
@@ -73,7 +73,15 @@
    "intent": "company_risks",
    "symbol": "ADANIPORTS",
    "params": {},
-   "build_secs": 0.08
+   "build_secs": 0.07
+  },
+  "company_risks:production": {
+   "question": "What are the biggest risks for TCS?",
+   "mode": "P",
+   "intent": "company_risks",
+   "symbol": "TCS",
+   "params": {},
+   "build_secs": 0.05
   },
   "company_risks:no_data": {
    "question": "What are the biggest risks for TIMEX?",
@@ -81,7 +89,7 @@
    "intent": "company_risks",
    "symbol": "TIMEX",
    "params": {},
-   "build_secs": 0.11
+   "build_secs": 0.1
   }
  },
  "payloads": {
@@ -90,7 +98,7 @@
    "intent": "financial_trend",
    "title": "TCS · Financial trend",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:30+05:30",
+   "generated_at": "2026-11-03T04:09:06+05:30",
    "mode": "eod",
    "headline": {
     "text": "TCS reported revenue of ₹73,188 Cr (+11.2% year on year) and PAT of ₹13,934 Cr (+15.4%) for the Sep 26 quarter. Year-on-year revenue growth was slower than the Jun 26 quarter's (+13.9%).",
@@ -649,7 +657,7 @@
    "intent": "valuation_view",
    "title": "TCS · Valuation",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:37+05:30",
+   "generated_at": "2026-11-03T04:09:14+05:30",
    "mode": "eod",
    "headline": {
     "text": "TCS trades at 17.5× trailing earnings (2 Nov 2026), 26.6% below the median P/E of its sector label (23.9×); its P/E was lower on 68% of the 208 sessions since 29 Dec 2025.",
@@ -854,7 +862,7 @@
    "intent": "ownership_trend",
    "title": "ICICIBANK · Ownership",
    "as_of": "2026-09-30",
-   "generated_at": "2026-11-03T00:15:36+05:30",
+   "generated_at": "2026-11-03T04:09:13+05:30",
    "mode": "eod",
    "headline": {
     "text": "ICICIBANK at Sep 26, percent of shares: FIIs 34.68% (+0.89 pp); DIIs 41.78% (−0.54 pp) (change from Jun 26 in brackets).",
@@ -1143,7 +1151,7 @@
        "text": "Promoter trades one by one: the insider-trading table is empty; the exchange filings (ask for ownership filings) list SAST and pledge disclosures"
       },
       {
-       "text": "Which FIIs entered or exited: FII holdings are reported only as a category total"
+       "text": "Which FIIs started or ended a holding: FII holdings are reported only as a category total"
       },
       {
        "text": "Mutual-fund holdings before September 2025"
@@ -1197,7 +1205,7 @@
    "intent": "peer_compare",
    "title": "TCS · Peer comparison",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:32+05:30",
+   "generated_at": "2026-11-03T04:09:08+05:30",
    "mode": "eod",
    "headline": {
     "text": "8 companies compared on their latest filed quarter and the platform's latest ratios; TCS's P/E is 17.5× against a median of 22.5× for the set.",
@@ -1645,7 +1653,7 @@
    "intent": "company_risks",
    "title": "TCS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:32+05:30",
+   "generated_at": "2026-11-03T04:09:08+05:30",
    "mode": "eod",
    "headline": {
     "text": "None of the 7 checks that could run is flagged for TCS; 6 could not run for lack of data.",
@@ -2036,7 +2044,7 @@
    "intent": "peer_compare",
    "title": "HDFCBANK vs ICICIBANK vs AXISBANK · Comparison",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:37+05:30",
+   "generated_at": "2026-11-03T04:09:14+05:30",
    "mode": "eod",
    "headline": {
     "text": "3 companies compared on their latest filed quarter and the platform's latest ratios; HDFCBANK's P/E is 13.8× against a median of 13.6× for the set.",
@@ -2319,7 +2327,7 @@
    "intent": "company_risks",
    "title": "ADANIPORTS · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:38+05:30",
+   "generated_at": "2026-11-03T04:09:15+05:30",
    "mode": "eod",
    "headline": {
     "text": "1 of the 13 checks that could run is flagged for ADANIPORTS: Current ratio.",
@@ -2802,12 +2810,312 @@
    ],
    "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
   },
+  "company_risks:production": {
+   "schema": "visual-answer-v1",
+   "intent": "company_risks",
+   "title": "TCS · Financial health and risk checks",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T04:09:15+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "None of the 5 checks that could run is flagged for TCS; 8 could not run for lack of data.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "nocf",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Cash-flow statements for TCS are not in our data yet, so the cash checks show no figure."
+    },
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The checks",
+     "note": "A flag is a prompt to read further, not a verdict on the company.",
+     "items": [
+      {
+       "label": "Flagged",
+       "value": "0 of 5",
+       "sub": "checks that could run",
+       "tone": null
+      },
+      {
+       "label": "No data",
+       "value": "8",
+       "sub": "checks without the figures they need"
+      },
+      {
+       "label": "Latest balance sheet",
+       "value": "not in our data",
+       "sub": null
+      },
+      {
+       "label": "Latest cash-flow year",
+       "value": "not in our data",
+       "sub": null
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "checks",
+     "title": "Checks, in a fixed order",
+     "note": "Each rule is printed beside its result.",
+     "columns": [
+      {
+       "key": "check",
+       "label": "Check",
+       "format": "text"
+      },
+      {
+       "key": "value",
+       "label": "Value",
+       "format": "text"
+      },
+      {
+       "key": "rule",
+       "label": "Rule",
+       "format": "text"
+      },
+      {
+       "key": "result",
+       "label": "Result",
+       "format": "text"
+      },
+      {
+       "key": "when",
+       "label": "Period",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt to equity",
+        "value": null,
+        "rule": "above 1.0×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt growth vs profit growth",
+        "value": null,
+        "rule": "debt up over 20%, faster than PAT, and at least 0.1× equity",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Interest cover",
+        "value": "54.4×",
+        "rule": "below 3×",
+        "result": "Within the rule",
+        "when": "FY26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Current ratio",
+        "value": null,
+        "rule": "below 1.0×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Cash from operations ÷ PAT",
+        "value": null,
+        "rule": "below 0.8×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "PAT growth vs cash-flow growth",
+        "value": null,
+        "rule": "PAT growth over 20 points above CFO growth",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Free cash flow",
+        "value": null,
+        "rule": "negative",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Receivables vs revenue growth",
+        "value": null,
+        "rule": "receivables growth over 15 points above revenue growth",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Working capital days",
+        "value": null,
+        "rule": "up more than 15 days of revenue in a year",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter pledge",
+        "value": "0.68% of promoter shares",
+        "rule": "above 10% of promoter shares",
+        "result": "Within the rule",
+        "when": "Jun 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter holding change",
+        "value": "±0.00 pp to 71.77%",
+        "rule": "down more than 2 points in four quarters",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "EBITDA margin trend",
+        "value": "25.7% vs 27.3%",
+        "rule": "down more than 3 points",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Piotroski F-score",
+        "value": "4 of 9 (Trendlyne)",
+        "rule": "3 or below (of 9)",
+        "result": "Within the rule",
+        "when": "12 Oct 2026"
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "cannot",
+     "title": "Cannot be checked here",
+     "note": null,
+     "items": [
+      {
+       "text": "Related-party transactions (only in the annual report's notes)"
+      },
+      {
+       "text": "When the debt matures (only in the annual report's notes)"
+      },
+      {
+       "text": "Auditor remarks and contingent liabilities (only in the annual report)"
+      },
+      {
+       "text": "A ranking of risks by potential impact: there is no stated method for it, so the checks are listed in a fixed order"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Quarterly results (nidp.nse_financials_quarterly)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "consolidated, filed 8 Oct 2026"
+     },
+     {
+      "name": "Annual results (nidp.nse_financials_quarterly, annual rows)",
+      "as_of": "2026-03-31",
+      "status": "fresh",
+      "note": "consolidated"
+     },
+     {
+      "name": "Shareholding pattern (nidp.shareholding_pattern)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "NSE filing and screener.in, field by field"
+     },
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine on 2 Nov 2026; ROE, ROCE, D/E, P/B and market cap from Trendlyne as of 12 Oct 2026"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the financial trend of TCS?",
+     "query": "What is the financial trend of TCS?"
+    },
+    {
+     "label": "Has promoter holding of TCS changed over time?",
+     "query": "Has promoter holding of TCS changed over time?"
+    },
+    {
+     "label": "What is the valuation of TCS?",
+     "query": "What is the valuation of TCS?"
+    },
+    {
+     "label": "Any ownership filings for TCS?",
+     "query": "Any ownership filings for TCS?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
   "company_risks:no_data": {
    "schema": "visual-answer-v1",
    "intent": "company_risks",
    "title": "TIMEX · Financial health and risk checks",
    "as_of": "2026-11-02",
-   "generated_at": "2026-11-03T00:15:37+05:30",
+   "generated_at": "2026-11-03T04:09:13+05:30",
    "mode": "eod",
    "headline": {
     "text": "No check could run for TIMEX: the figures they need are not in our data.",
