@@ -11,6 +11,9 @@ migration 090's own text; the provenance table from migration 190. With no netwo
         -e NIDP_TDF_PG_DSN=postgresql://postgres:test@localhost:5432/postgres nivesh/backend:staging \\
         python -m pytest nidp/tests/services/test_truedata_fundamentals_pg.py -q -p no:cacheprovider
     docker stop tdf-pgtest
+
+Staging's nse_financials_quarterly is a TimescaleDB hypertable (2.26.4, PG16, 24 uncompressed chunks on 2 Nov 2026).
+To run the same tests on one: start timescale/timescaledb:2.26.4-pg16 instead and add -e NIDP_TDF_TIMESCALE=1.
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ from nidp.services.truedata_fundamentals import loader as L
 from nidp.services.truedata_fundamentals import transform as T
 
 DSN = os.environ.get("NIDP_TDF_PG_DSN")
+TIMESCALE = os.environ.get("NIDP_TDF_TIMESCALE") == "1"     # run against timescale/timescaledb with a hypertable
 pytestmark = pytest.mark.skipif(not DSN, reason="NIDP_TDF_PG_DSN not set (needs a throwaway Postgres)")
 
 MIG = Path(__file__).resolve().parents[2] / "migrations"
@@ -71,6 +75,10 @@ async def fresh_db():
     conn = await asyncpg.connect(DSN)
     await conn.execute("DROP SCHEMA IF EXISTS nidp CASCADE; CREATE SCHEMA nidp;")
     await conn.execute(QUARTERLY_DDL)
+    if TIMESCALE:                                               # staging's table is a hypertable
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
+        await conn.execute("SELECT create_hypertable('nidp.nse_financials_quarterly', 'period_end', "
+                           "chunk_time_interval => interval '1 year')")
     await conn.execute(_cashflow_ddl())
     mig = (MIG / "190_truedata_fundamentals_fills.sql").read_text()
     await conn.execute(mig)
@@ -230,6 +238,7 @@ def test_tc23_dry_run_writes_nothing_and_matches_the_real_run(monkeypatch):
             real = await L.Warehouse().load(ALL, str(uuid.uuid4()), dry_run=False)
             assert dry["would_write_rows"] == real["rows_written"] == 8
             for k in ("balance_sheet_fill_rows", "balance_sheet_insert_rows", "cash_flow_fill_rows",
+                      "balance_sheet_columns_written", "cash_flow_columns_written", "finance_costs_columns_written",
                       "cash_flow_insert_rows", "finance_costs_fill_rows", "balance_sheet_half_year_no_row",
                       "finance_costs_already_set", "finance_costs_no_quarterly_row"):
                 assert dry.get(k) == real.get(k), k

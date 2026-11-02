@@ -57,9 +57,9 @@ class Plan:
 
     def summary(self) -> Dict[str, Any]:
         c = Counter()
-        for a in self.actions:
+        for a in self.actions:                     # the same keys loader.apply_plan reports after writing
             c[f"{a.kind}_{a.op}_rows"] += 1
-            c[f"{a.kind}_columns_filled"] += len(a.values) if a.op == "fill" else 0
+            c[f"{a.kind}_columns_written"] += len(a.values)
         return {**dict(sorted(c.items())), **{k: v for k, v in sorted(self.counts.items())}}
 
 

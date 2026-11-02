@@ -8,7 +8,8 @@ nothing is written except a SKIPPED job_log row.
   --anchor-days N    also make sure N days of result lists are cached, for the fiscal-year P&L that fixes each
                      company's unit (default 400; old days are fetched once)
   --symbols A,B      only these NSE symbols
-  --dry-run          read the warehouse, plan, print counts; write nothing (no job_log row)
+  --dry-run          read the warehouse, plan, print counts; write nothing to the warehouse (no job_log row).
+                     It still fetches missing raw answers into the raw cache unless --offline is given.
   --offline          no TrueData call: use the raw cache only (still obeys the switch)
   --no-finance-costs skip the quarter-only P&L pass
   --max-minutes M    stop fetching after M minutes and load what is cached (default 75)

@@ -20,7 +20,8 @@
 
 Status: OK; PARTIAL when fetching stopped early (deadline, rate limit, repeated failures) — what was cached is still
 loaded and the next run carries on; FAILED when TrueData refuses the login or the load raises (nothing is written);
-SKIPPED when the switch is off. `--dry-run` reads the warehouse and writes nothing at all (no job_log row either).
+SKIPPED when the switch is off. `--dry-run` reads the warehouse and writes nothing to it (no job_log row either);
+it still fills the raw cache from TrueData unless `--offline`.
 """
 from __future__ import annotations
 
