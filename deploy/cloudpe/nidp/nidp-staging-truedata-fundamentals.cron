@@ -1,0 +1,27 @@
+# /etc/cron.d/nidp-staging-truedata-fundamentals — TrueData company financial statements → staging warehouse.
+#
+# NOT installed by this PR. A separate file so it never overwrites /etc/cron.d/nidp-staging or
+# /etc/cron.d/nidp-staging-truedata. Install (root, on the NIDP VM), after migration 190 is applied:
+#   install -m 644 /opt/nidp/dev-repo/nivesh.ai/deploy/cloudpe/nidp/nidp-staging-truedata-fundamentals.cron \
+#       /etc/cron.d/nidp-staging-truedata-fundamentals
+#
+# What it does (backend/nidp/services/truedata_fundamentals): result lists of the last 10 days (and, once, 400 days of
+# lists for the fiscal-year P&L that fixes each company's unit), then balance sheets, fiscal-year cash flows and
+# quarterly finance costs of those filings; fill-only into nidp.nse_financials_quarterly / nse_financials_cashflow,
+# every write recorded in nidp.truedata_fundamentals_fills. Undo a run: run_service.sh truedata_fundamentals --rollback RUN_ID
+#
+# The job obeys backend/config/market_data_source.json: at `current` it records a SKIPPED run and calls nothing.
+# Needs TRUEDATA_USERNAME / TRUEDATA_PASSWORD in nidp.env (the same TrueData account as the 22:45 cross-check).
+#
+# Timing (IST, weekdays): 21:15 start, --max-minutes 75 stops fetching by 22:30 at the latest, so it never shares
+# TrueData's rate limit (1/s, 60/min, 3600/h per account) with the 22:45 cross-check, and its rows are in place before
+# the 23:05 fundamental_engine rebuilds stock_features_daily (current_ratio, cfo_pat_ratio, interest_coverage).
+# NIDP_MAX_ATTEMPTS=1: run_service.sh must not retry a run that stopped on TrueData's quota or its own deadline; the
+# next night carries on from the raw cache.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+NIDP_HOME=/opt/nidp-staging
+
+15 21 * * 1-5  nidp-staging  NIDP_MAX_ATTEMPTS=1 /opt/nidp-staging/run_service.sh truedata_fundamentals --days 10 --max-minutes 75

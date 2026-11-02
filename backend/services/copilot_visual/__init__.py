@@ -19,8 +19,13 @@ Which node explains each answer (the pin):
                                               rules, so they stay off the stock analyst too.
     stock_decision, trade_validity, exit_options
                                               stock_analyst — it has the TRADE_PLAN rules ("How to trade it, an idea").
+    results_calendar, event_intelligence      market_analyst — it explains the calendar / filing cards it is handed (stored AI summaries
+                                              of the filings, never advice); the Filings analyst answered "I have no results calendar".
     daily_review                              market_analyst — the account's own record of closed trades and risk
                                               checks; it explains the figures it is handed and gives no advice.
+    screen_stocks                             market_analyst — it explains the matches it is handed ("stocks that match your
+                                              filters", never picks); the recommendation node would run its own, different
+                                              screen beside it.
 
 stock_decision builds the desk's plan ONCE (services/copilot_trade_idea.build, which stores its TradePlans as the
 trade-idea pre-step always has). The dashboard carries the plan as a `trade_plan` block, so the separate trade_plan card
@@ -43,6 +48,7 @@ from . import readers
 from .builders import BUILDERS, build
 from .intents import INTENTS, Intent, last_symbol_from, resolve_intent, stock_in, wants_thread_symbol
 from .payload import facts, validate
+from .research_intents import RESEARCH_INTENTS
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +59,12 @@ AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "
              "top_opportunities": "market_analyst", "breakouts": "market_analyst", "unusual_volume": "market_analyst",
              "stock_decision": "stock_analyst", "open_trades": "market_analyst", "fno_setups": "market_analyst",
              "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst",
-             "daily_review": "market_analyst"}
+             "daily_review": "market_analyst", "sector_rotation": "market_analyst",
+             "results_calendar": "market_analyst", "event_intelligence": "market_analyst",
+             "portfolio_hedge": "portfolio_analyst", "screen_stocks": "market_analyst",
+             # Research Copilot W1: a company's own figures, explained by the stock analyst (research_builders.py).
+             "financial_trend": "stock_analyst", "valuation_view": "stock_analyst", "ownership_trend": "stock_analyst",
+             "peer_compare": "stock_analyst", "company_risks": "stock_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 
@@ -99,6 +110,8 @@ async def prepare(request: Any, user: Dict[str, Any], message: str, persona: Opt
         return None
     if intent is None:
         return None
+    if intent.name == "portfolio_hedge" and not await readers.hedge_enabled(user):
+        return None                                   # flag off for this person: the question takes the usual chat path
     agent = AGENT_FOR[intent.name]
     idea = None
     try:
@@ -113,5 +126,5 @@ async def prepare(request: Any, user: Dict[str, Any], message: str, persona: Opt
     except Exception as e:  # noqa: BLE001 — the question then takes the usual path (with the plan, if one was built)
         logger.warning("copilot visual: %s answer not built: %s", intent.name, type(e).__name__, exc_info=True)
         return VisualAnswer(intent, agent, None, None, idea) if idea is not None else None
-    subject = intent.symbol if intent.name == "stock_decision" else None
+    subject = intent.symbol if intent.name == "stock_decision" or intent.name in RESEARCH_INTENTS else None
     return VisualAnswer(intent, agent, widget_for(payload, agent), facts(payload, subject=subject), idea)

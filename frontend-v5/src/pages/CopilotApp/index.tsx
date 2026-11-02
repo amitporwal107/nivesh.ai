@@ -195,7 +195,7 @@ export default function CopilotAppPage() {
           <button type="button" aria-label="Close menu" data-testid="rail-scrim" onClick={() => setNavOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 29, border: 0, padding: 0, cursor: "default" }} />
         )}
         {(!compact || navOpen) && (
-          <Rail mode={mode} view={view} drawer={compact} isAdmin={isAdmin} onGo={go} onNewQuestion={newQuestion} onToggleMode={toggleMode} />
+          <Rail mode={mode} view={view} search={location.search} drawer={compact} isAdmin={isAdmin} onGo={go} onNewQuestion={newQuestion} onToggleMode={toggleMode} />
         )}
 
         <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0, position: "relative" }}>

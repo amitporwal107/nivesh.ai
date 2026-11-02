@@ -71,7 +71,7 @@ export default function ProductPage() {
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "56px 18px 32px" : "80px 56px 40px", textAlign: "center" as const }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 8px", borderRadius: 999, border: "1px solid var(--line-2)", background: "var(--bg-1)", marginBottom: 28 }}>
           <span style={{ background: "var(--mint-soft)", color: "var(--mint)", fontSize: 10, fontFamily: "var(--mono)", letterSpacing: ".1em", padding: "3px 8px", borderRadius: 999, textTransform: "uppercase" as const }}>PRODUCT</span>
-          <span style={{ fontSize: 13, color: "var(--ink-2)" }}>Read-only · SEBI-aligned</span>
+          <span style={{ fontSize: 13, color: "var(--ink-2)" }}>Read-only</span>
         </div>
         <h1 className="nv-serif" style={{ fontSize: isMobile ? 40 : 72, lineHeight: 0.98, letterSpacing: "-0.035em", margin: 0 }}>
           One copilot for your<br />
@@ -151,7 +151,6 @@ export default function ProductPage() {
           {[
             { t: "Read-only access", d: "We never place trades or move money." },
             { t: "Encrypted · never stored", d: "Statements are parsed in memory, not warehoused." },
-            { t: "SEBI-aligned", d: "Analysis follows the IPS and risk-disclosure framework." },
             { t: "No card needed", d: "Check your portfolio health for free." },
           ].map((t) => (
             <div key={t.t} style={{ flex: "1 1 200px" }}>

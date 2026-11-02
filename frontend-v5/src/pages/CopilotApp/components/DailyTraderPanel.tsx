@@ -48,6 +48,8 @@ export const DAILY_TILES: DailyTile[] = [
   ] },
   { key: "risk", label: "Manage risk", icon: ShieldCheck, questions: [
     "How much should I risk?",
+    "What happens to my portfolio if Nifty falls 5%?",
+    "How can I hedge my portfolio against a 5% fall?",
     "What should I avoid today?",
     "How much of my daily loss limit have I used?",
   ] },

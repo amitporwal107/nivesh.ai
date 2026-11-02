@@ -1,4 +1,14 @@
-"""Quarterly financials + shareholding pattern (NSE XBRL)."""
+"""Quarterly financials + shareholding pattern (NSE XBRL), and annual cash-flow statements.
+
+    GET /v1/financials/{symbol}            quarterly and annual rows of nidp.nse_financials_quarterly
+    GET /v1/financials/{symbol}/cashflow   annual cash-flow rows of nidp.nse_financials_cashflow (Research Copilot W1)
+    GET /v1/shareholding/{symbol}          nidp.shareholding_pattern
+
+The balance-sheet columns (current assets and liabilities, receivables, inventory, payables) are filled on the March and
+September rows by the TrueData load; `bs_truedata` says whether a row carries that load's provenance tag
+(raw_data.truedata_balance_sheet). The tag can be lost when another loader replaces raw_data, so a filled column without
+the tag is still a filed figure, only of untagged origin.
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
@@ -11,6 +21,45 @@ from nidp.services.daas_api.responses import envelope, normalise_symbol, page_pa
 
 
 router = APIRouter(prefix="", tags=["fundamentals"], dependencies=[Depends(require_api_key)])
+
+# $1 symbol, $2 consolidated (NULL = both), $3/$4 period_end range, $5 limit, $6 offset, $7 period_type (NULL = both).
+FINANCIALS_SQL = """
+SELECT symbol, period_end, period_start, period_type,
+       consolidated, audited, source,
+       revenue_from_ops_cr, other_income_cr, total_income_cr,
+       total_expenses_cr, ebitda_cr,
+       finance_costs_cr, depreciation_cr,
+       pbt_before_exc_cr, exceptional_items_cr, pbt_cr,
+       tax_expense_cr, pat_cr, pat_attrib_owners_cr,
+       eps_basic, eps_diluted, face_value,
+       total_equity_cr, long_term_debt_cr, short_term_debt_cr,
+       cash_and_equiv_cr,
+       current_assets_cr, current_liabilities_cr,
+       trade_receivables_cr, inventory_cr, trade_payables_cr,
+       COALESCE(raw_data ? 'truedata_balance_sheet', FALSE) AS bs_truedata,
+       interest_earned_cr, interest_expended_cr, nim_pct,
+       filing_id, broadcast_at
+  FROM nidp.nse_financials_quarterly
+ WHERE symbol = $1
+   AND ($2::boolean IS NULL OR consolidated = $2)
+   AND ($3::date IS NULL OR period_end >= $3)
+   AND ($4::date IS NULL OR period_end <= $4)
+   AND ($7::text IS NULL OR lower(period_type) = $7)
+ ORDER BY period_end DESC, consolidated DESC, period_type DESC
+ LIMIT $5 OFFSET $6
+"""
+
+# $1 symbol, $2 consolidated (NULL = both), $3 limit, $4 offset.
+CASHFLOW_SQL = """
+SELECT symbol, period_end, consolidated,
+       cfo_cr, cfi_cr, cff_cr, capex_cr, net_change_cash_cr,
+       source, ingested_at
+  FROM nidp.nse_financials_cashflow
+ WHERE symbol = $1
+   AND ($2::boolean IS NULL OR consolidated = $2)
+ ORDER BY period_end DESC, consolidated DESC
+ LIMIT $3 OFFSET $4
+"""
 
 
 @router.get("/financials/{symbol}", summary="Quarterly financials (revenue/PAT/EPS/etc.)")
@@ -32,30 +81,25 @@ async def financials(
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """
-            SELECT symbol, period_end, period_start, period_type,
-                   consolidated, audited,
-                   revenue_from_ops_cr, other_income_cr, total_income_cr,
-                   total_expenses_cr, ebitda_cr,
-                   finance_costs_cr, depreciation_cr,
-                   pbt_before_exc_cr, exceptional_items_cr, pbt_cr,
-                   tax_expense_cr, pat_cr, pat_attrib_owners_cr,
-                   eps_basic, eps_diluted, face_value,
-                   total_equity_cr, long_term_debt_cr, short_term_debt_cr,
-                   cash_and_equiv_cr,
-                   interest_earned_cr, interest_expended_cr, nim_pct,
-                   filing_id, broadcast_at
-              FROM nidp.nse_financials_quarterly
-             WHERE symbol = $1
-               AND ($2::boolean IS NULL OR consolidated = $2)
-               AND ($3::date IS NULL OR period_end >= $3)
-               AND ($4::date IS NULL OR period_end <= $4)
-               AND ($7::text IS NULL OR lower(period_type) = $7)
-             ORDER BY period_end DESC, consolidated DESC, period_type DESC
-             LIMIT $5 OFFSET $6
-            """,
+            FINANCIALS_SQL,
             sym, consolidated, p_from, p_to, page["limit"], page["offset"], period_type,
         )
+    return envelope([row_to_dict(r) for r in rows], **page, extra={"symbol": sym})
+
+
+@router.get("/financials/{symbol}/cashflow", summary="Annual cash-flow statements (CFO / CFI / CFF / capex)")
+async def cashflow(
+    symbol: str = Path(...),
+    consolidated: Optional[bool] = Query(None, description="True = consolidated; False = standalone; omit for both"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Fiscal-year cash-flow rows, newest first. capex_cr is negative for an outflow (as filed). The table has no
+    filing timestamp, so a historical study cannot date these rows by when the market knew them: `ingested_at` is the
+    load time, not the filing time."""
+    sym = normalise_symbol(symbol)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(CASHFLOW_SQL, sym, consolidated, page["limit"], page["offset"])
     return envelope([row_to_dict(r) for r in rows], **page, extra={"symbol": sym})
 
 

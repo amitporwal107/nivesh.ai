@@ -1,0 +1,937 @@
+{
+ "about": "Research Copilot W1 routing fixture (FR-RC-01 for categories 2, 3, 6, 7, 8, 13, 14 and the thesis bug). source_text is the owner's question verbatim from docs/research_copilot/RESEARCH_COPILOT_QUESTIONNAIRE_SOURCE.md; question is the same question with a company placed in it ({company}, {company2}). expected: the visual intent, null = no visual answer (the LangGraph path), 'not_w1' = anything except the five W1 intents. thread_expected: source_text asked with no company while the thread's last stock is TCS.",
+ "fillers": [
+  [
+   "TCS",
+   "Infosys"
+  ],
+  [
+   "HDFC Bank",
+   "ICICI Bank"
+  ],
+  [
+   "Reliance",
+   "Asian Paints"
+  ]
+ ],
+ "filler_symbols": {
+  "TCS": "TCS",
+  "Infosys": "INFY",
+  "HDFC Bank": "HDFCBANK",
+  "ICICI Bank": "ICICIBANK",
+  "Reliance": "RELIANCE",
+  "Asian Paints": "ASIANPAINT"
+ },
+ "thread_symbol": "TCS",
+ "cases": [
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "How has revenue grown over the last 5 years?",
+   "question": "How has {company}'s revenue grown over the last 5 years?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "Show quarterly revenue growth.",
+   "question": "Show quarterly revenue growth for {company}.",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "Compare QoQ and YoY revenue growth.",
+   "question": "Compare QoQ and YoY revenue growth for {company}.",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "Is revenue growth accelerating or slowing?",
+   "question": "Is {company}'s revenue growth accelerating or slowing?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "What caused the latest revenue growth?",
+   "question": "What caused {company}'s latest revenue growth?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Causal or segment question: the answer needs the filings' text, not a numbers card, so no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "Which segment contributed most to growth?",
+   "question": "Which segment contributed most to {company}'s growth?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Causal or segment question: the answer needs the filings' text, not a numbers card, so no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Revenue & Growth",
+   "source_text": "Is growth organic or acquisition-driven?",
+   "question": "Is {company}'s growth organic or acquisition-driven?",
+   "expected": "event_intelligence",
+   "thread_expected": "event_intelligence",
+   "note": "The acquisition word reaches the event feed's M&A chip (filings), which is the evidence for it; a numbers card cannot tell organic from acquired growth."
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "How has EBITDA changed over time?",
+   "question": "How has {company}'s EBITDA changed over time?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "How are operating margins trending?",
+   "question": "How are {company}'s operating margins trending?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "Why did margins improve?",
+   "question": "Why did {company}'s margins improve?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Causal or segment question: the answer needs the filings' text, not a numbers card, so no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "Why did margins decline?",
+   "question": "Why did {company}'s margins decline?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Causal or segment question: the answer needs the filings' text, not a numbers card, so no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "Compare EBITDA margins with peers.",
+   "question": "Compare {company}'s EBITDA margins with peers.",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "Is PAT growth sustainable?",
+   "question": "Is {company}'s PAT growth sustainable?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": "The card shows the PAT record; whether it is sustainable is the reader's judgement."
+  },
+  {
+   "category": 2,
+   "section": "Profitability",
+   "source_text": "What is driving profit growth?",
+   "question": "What is driving {company}'s profit growth?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Causal or segment question: the answer needs the filings' text, not a numbers card, so no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Returns",
+   "source_text": "What is the company's ROE?",
+   "question": "What is {company}'s ROE?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Returns",
+   "source_text": "What is the ROCE trend?",
+   "question": "What is the ROCE trend for {company}?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": "ROCE history is not in our data; the card says so and shows the latest value."
+  },
+  {
+   "category": 2,
+   "section": "Returns",
+   "source_text": "Is ROCE improving?",
+   "question": "Is ROCE improving for {company}?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Returns",
+   "source_text": "Compare ROE and ROCE with competitors.",
+   "question": "Compare {company}'s ROE and ROCE with competitors.",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Returns",
+   "source_text": "Why is ROE high/low?",
+   "question": "Why is {company}'s ROE high/low?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Causal or segment question: the answer needs the filings' text, not a numbers card, so no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Returns",
+   "source_text": "Is the company creating shareholder value?",
+   "question": "Is {company} creating shareholder value?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "A judgement with no stated measure: no visual (LangGraph path)."
+  },
+  {
+   "category": 2,
+   "section": "Cash Flow",
+   "source_text": "Is the company generating free cash flow?",
+   "question": "Is {company} generating free cash flow?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Cash Flow",
+   "source_text": "Compare PAT versus operating cash flow.",
+   "question": "Compare {company}'s PAT versus operating cash flow.",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Cash Flow",
+   "source_text": "Is profit converting into cash?",
+   "question": "Is {company}'s profit converting into cash?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Cash Flow",
+   "source_text": "Show free cash flow trends.",
+   "question": "Show {company}'s free cash flow trends.",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Cash Flow",
+   "source_text": "Is there a cash-flow quality concern?",
+   "question": "Is there a cash-flow quality concern at {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 2,
+   "section": "Cash Flow",
+   "source_text": "Is working capital increasing?",
+   "question": "Is {company}'s working capital increasing?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Debt",
+   "source_text": "How much debt does the company have?",
+   "question": "How much debt does {company} have?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Debt",
+   "source_text": "Is debt increasing?",
+   "question": "Is {company}'s debt increasing?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Debt",
+   "source_text": "What is the debt-to-equity ratio?",
+   "question": "What is {company}'s debt-to-equity ratio?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Debt",
+   "source_text": "Can the company comfortably service its debt?",
+   "question": "Can {company} comfortably service its debt?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Debt",
+   "source_text": "What is the interest coverage ratio?",
+   "question": "What is {company}'s interest coverage ratio?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Debt",
+   "source_text": "When does the debt mature?",
+   "question": "When does {company}'s debt mature?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": "Debt maturity is listed under 'Cannot be checked here'."
+  },
+  {
+   "category": 3,
+   "section": "Liquidity",
+   "source_text": "What is the current ratio?",
+   "question": "What is {company}'s current ratio?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Liquidity",
+   "source_text": "Does the company have sufficient liquidity?",
+   "question": "Does {company} have sufficient liquidity?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Liquidity",
+   "source_text": "How much cash does it have?",
+   "question": "How much cash does {company} have?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Liquidity",
+   "source_text": "Is there a liquidity risk?",
+   "question": "Is there a liquidity risk at {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 3,
+   "section": "Capital Allocation",
+   "source_text": "How does management allocate capital?",
+   "question": "How does {company}'s management allocate capital?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Capital-allocation questions are answered from filings text (LangGraph path)."
+  },
+  {
+   "category": 3,
+   "section": "Capital Allocation",
+   "source_text": "Is the company investing efficiently?",
+   "question": "Is {company} investing efficiently?",
+   "expected": null,
+   "thread_expected": null,
+   "note": "A judgement with no stated measure."
+  },
+  {
+   "category": 3,
+   "section": "Capital Allocation",
+   "source_text": "Has management made good acquisitions?",
+   "question": "Has {company}'s management made good acquisitions?",
+   "expected": "event_intelligence",
+   "thread_expected": "event_intelligence",
+   "note": "M&A filings chip."
+  },
+  {
+   "category": 3,
+   "section": "Capital Allocation",
+   "source_text": "How much capital expenditure is planned?",
+   "question": "How much capital expenditure is {company} planning?",
+   "expected": "event_intelligence",
+   "thread_expected": "event_intelligence",
+   "note": "Capex announcements chip."
+  },
+  {
+   "category": 3,
+   "section": "Capital Allocation",
+   "source_text": "Are buybacks or dividends expected?",
+   "question": "Are buybacks or dividends expected from {company}?",
+   "expected": "event_intelligence",
+   "thread_expected": "event_intelligence",
+   "note": "M&A and corporate actions chip."
+  },
+  {
+   "category": 6,
+   "section": "Basic valuation",
+   "source_text": "Is [Company] expensive or cheap?",
+   "question": "Is {company} expensive or cheap?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": "Answered with multiples and their history; no verdict (SEBI wording)."
+  },
+  {
+   "category": 6,
+   "section": "Basic valuation",
+   "source_text": "What is its current P/E?",
+   "question": "What is {company}'s current P/E?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Basic valuation",
+   "source_text": "What is its historical P/E range?",
+   "question": "What is {company}'s historical P/E range?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Basic valuation",
+   "source_text": "What is its P/B ratio?",
+   "question": "What is {company}'s P/B ratio?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Basic valuation",
+   "source_text": "What is its EV/EBITDA?",
+   "question": "What is {company}'s EV/EBITDA?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": "EV/EBITDA is 'not in our data' for every stock."
+  },
+  {
+   "category": 6,
+   "section": "Comparative valuation",
+   "source_text": "Compare valuation with peers.",
+   "question": "Compare {company}'s valuation with peers.",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Comparative valuation",
+   "source_text": "Why does this company trade at a premium?",
+   "question": "Why does {company} trade at a premium?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": "The premium itself is a number (P/E vs the sector median); the cause is not claimed."
+  },
+  {
+   "category": 6,
+   "section": "Comparative valuation",
+   "source_text": "Why is this company trading at a discount?",
+   "question": "Why is {company} trading at a discount?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Comparative valuation",
+   "source_text": "Compare current valuation with its historical average.",
+   "question": "Compare {company}'s current valuation with its historical average.",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Valuation scenarios",
+   "source_text": "What assumptions justify the current valuation?",
+   "question": "What assumptions justify {company}'s current valuation?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 6,
+   "section": "Valuation scenarios",
+   "source_text": "What growth is the market pricing in?",
+   "question": "What growth is the market pricing in for {company}?",
+   "expected": "valuation_view",
+   "thread_expected": null,
+   "note": "Without a company the word 'market' reads as market-wide, so the thread's stock is not used."
+  },
+  {
+   "category": 6,
+   "section": "Valuation scenarios",
+   "source_text": "What happens if earnings grow by 15%, 20%, or 25%?",
+   "question": "What happens if {company}'s earnings grow by 15%, 20%, or 25%?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": "Scenario arithmetic: P/E at today's price after each growth rate, labelled 'not a forecast'."
+  },
+  {
+   "category": 6,
+   "section": "Valuation scenarios",
+   "source_text": "What are the major valuation risks?",
+   "question": "What are the major valuation risks for {company}?",
+   "expected": "valuation_view",
+   "thread_expected": "valuation_view",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Compare Company A vs Company B.",
+   "question": "Compare {company} vs {company2}.",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which company has better growth?",
+   "question": "Which company has better growth, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which has better margins?",
+   "question": "Which has better margins, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which has better ROE/ROCE?",
+   "question": "Which has better ROE/ROCE, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which has lower debt?",
+   "question": "Which has lower debt, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which has better valuation?",
+   "question": "Which has better valuation, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which has stronger institutional ownership?",
+   "question": "Which has stronger institutional ownership, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Peer comparison",
+   "source_text": "Which has better earnings momentum?",
+   "question": "Which has better earnings momentum, {company} or {company2}?",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": ""
+  },
+  {
+   "category": 7,
+   "section": "Full comparison",
+   "source_text": "Compare HDFC Bank, ICICI Bank and Axis Bank across fundamentals, valuation, growth, profitability, asset quality and institutional ownership.",
+   "question": "Compare HDFC Bank, ICICI Bank and Axis Bank across fundamentals, valuation, growth, profitability, asset quality and institutional ownership.",
+   "expected": "peer_compare",
+   "thread_expected": "peer_compare",
+   "note": "Names its own companies; expected symbols HDFCBANK, ICICIBANK, AXISBANK. Asset quality is stated as not in our data."
+  },
+  {
+   "category": 8,
+   "section": "Promoters",
+   "source_text": "Has promoter holding increased?",
+   "question": "Has promoter holding of {company} increased?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "Promoters",
+   "source_text": "Has promoter holding decreased?",
+   "question": "Has promoter holding of {company} decreased?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "Promoters",
+   "source_text": "Has promoter pledging increased?",
+   "question": "Has promoter pledging increased at {company}?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": "A pledge LEVEL trend (shareholding pattern); 'pledge change' / disclosures stay with the event feed's Ownership chip."
+  },
+  {
+   "category": 8,
+   "section": "Promoters",
+   "source_text": "Show promoter holding over time.",
+   "question": "Show {company}'s promoter holding over time.",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "Promoters",
+   "source_text": "Are promoters buying or selling?",
+   "question": "Are {company}'s promoters buying or selling?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": "Answered as the quarterly change; trade-by-trade is not in our data (insider table empty) and the card says so."
+  },
+  {
+   "category": 8,
+   "section": "FII",
+   "source_text": "Has FII ownership increased?",
+   "question": "Has FII ownership in {company} increased?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "FII",
+   "source_text": "Which stocks are FIIs accumulating?",
+   "question": "Which stocks are FIIs accumulating?",
+   "expected": "smart_money",
+   "thread_expected": "smart_money",
+   "note": "Market-wide screen, not a company question: stays with the built smart-money answer or the usual path, never a W1 company answer."
+  },
+  {
+   "category": 8,
+   "section": "FII",
+   "source_text": "Which stocks are FIIs selling?",
+   "question": "Which stocks are FIIs selling?",
+   "expected": "smart_money",
+   "thread_expected": "smart_money",
+   "note": "Market-wide screen, not a company question: stays with the built smart-money answer or the usual path, never a W1 company answer."
+  },
+  {
+   "category": 8,
+   "section": "FII",
+   "source_text": "Show FII ownership changes over 4 quarters.",
+   "question": "Show {company}'s FII ownership changes over 4 quarters.",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "DII / Mutual Funds",
+   "source_text": "Which stocks are mutual funds accumulating?",
+   "question": "Which stocks are mutual funds accumulating?",
+   "expected": "not_w1",
+   "thread_expected": "not_w1",
+   "note": "Market-wide screen, not a company question: stays with the built smart-money answer or the usual path, never a W1 company answer."
+  },
+  {
+   "category": 8,
+   "section": "DII / Mutual Funds",
+   "source_text": "Which DIIs are increasing exposure?",
+   "question": "Which DIIs are increasing exposure?",
+   "expected": "smart_money",
+   "thread_expected": "smart_money",
+   "note": "Market-wide screen, not a company question: stays with the built smart-money answer or the usual path, never a W1 company answer."
+  },
+  {
+   "category": 8,
+   "section": "DII / Mutual Funds",
+   "source_text": "Which funds recently entered this company?",
+   "question": "Which funds recently entered {company}?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "DII / Mutual Funds",
+   "source_text": "Which institutions recently exited?",
+   "question": "Which institutions recently exited {company}?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "Smart Money",
+   "source_text": "Is smart money accumulating this stock?",
+   "question": "Is smart money accumulating {company}?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "Smart Money",
+   "source_text": "Is institutional buying supporting the price?",
+   "question": "Is institutional buying supporting {company}'s price?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 8,
+   "section": "Smart Money",
+   "source_text": "Find stocks with increasing FII and DII ownership.",
+   "question": "Find stocks with increasing FII and DII ownership.",
+   "expected": "not_w1",
+   "thread_expected": "not_w1",
+   "note": "Market-wide screen, not a company question: stays with the built smart-money answer or the usual path, never a W1 company answer."
+  },
+  {
+   "category": 8,
+   "section": "Smart Money",
+   "source_text": "Find stocks where institutions are accumulating despite price weakness.",
+   "question": "Find stocks where institutions are accumulating despite price weakness.",
+   "expected": "not_w1",
+   "thread_expected": "not_w1",
+   "note": "Market-wide screen, not a company question: stays with the built smart-money answer or the usual path, never a W1 company answer."
+  },
+  {
+   "category": 13,
+   "section": "Company risk",
+   "source_text": "What are the biggest risks?",
+   "question": "What are the biggest risks for {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Company risk",
+   "source_text": "What could go wrong?",
+   "question": "What could go wrong for {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Company risk",
+   "source_text": "What are the red flags?",
+   "question": "What are the red flags in {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Financial risk",
+   "source_text": "Is debt a concern?",
+   "question": "Is debt a concern for {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Financial risk",
+   "source_text": "Is cash flow weak?",
+   "question": "Is {company}'s cash flow weak?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Financial risk",
+   "source_text": "Is working capital increasing?",
+   "question": "Is working capital increasing at {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Governance risk",
+   "source_text": "Has promoter pledging increased?",
+   "question": "Has promoter pledging increased for {company}?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": "Pledge level trend; company_risks also checks pledge."
+  },
+  {
+   "category": 13,
+   "section": "Governance risk",
+   "source_text": "Are there related-party concerns?",
+   "question": "Are there related-party concerns at {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": "Related-party data is listed under 'Cannot be checked here'."
+  },
+  {
+   "category": 13,
+   "section": "Governance risk",
+   "source_text": "Are there governance red flags?",
+   "question": "Are there governance red flags at {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 13,
+   "section": "Research question",
+   "source_text": "Give me the top 10 risks ranked by potential impact.",
+   "question": "Give me the top 10 risks for {company} ranked by potential impact.",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": "No ranking by impact (no stated method); the checks are listed in a fixed order and the card says why."
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Are there any financial red flags?",
+   "question": "Are there any financial red flags in {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Are profits growing faster than cash flow?",
+   "question": "Are {company}'s profits growing faster than cash flow?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Is receivables growth unusually high?",
+   "question": "Is {company}'s receivables growth unusually high?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Is debt increasing despite profit growth?",
+   "question": "Is {company}'s debt increasing despite profit growth?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Has promoter pledging increased?",
+   "question": "Has promoter pledging increased at {company}?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Is promoter ownership declining?",
+   "question": "Is promoter ownership of {company} declining?",
+   "expected": "ownership_trend",
+   "thread_expected": "ownership_trend",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Are margins deteriorating?",
+   "question": "Are {company}'s margins deteriorating?",
+   "expected": "financial_trend",
+   "thread_expected": "financial_trend",
+   "note": "The margin trend; company_risks also checks the margin against a year earlier."
+  },
+  {
+   "category": 14,
+   "section": "Red flags",
+   "source_text": "Are there unusual related-party transactions?",
+   "question": "Are there unusual related-party transactions at {company}?",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 14,
+   "section": "AI command",
+   "source_text": "Perform a complete forensic analysis of this company and identify potential red flags.",
+   "question": "Perform a complete forensic analysis of {company} and identify potential red flags.",
+   "expected": "company_risks",
+   "thread_expected": "company_risks",
+   "note": ""
+  },
+  {
+   "category": 15,
+   "section": "Thesis",
+   "source_text": "Build a complete research thesis for [Company].",
+   "question": "Build a complete research thesis for {company}.",
+   "expected": null,
+   "thread_expected": null,
+   "note": "Thesis builder is not built (W1): no visual, never trade_validity."
+  },
+  {
+   "category": 15,
+   "section": "Thesis",
+   "source_text": "Build a research thesis for TCS (lead's probe)",
+   "question": "Build a research thesis for {company}",
+   "expected": null,
+   "thread_expected": null,
+   "note": ""
+  }
+ ]
+}

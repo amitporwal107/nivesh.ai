@@ -3,6 +3,8 @@ underlying, with payoff, Greeks, scenarios, distance to the user's stop, and war
 no route here places, modifies or cancels an order. See services/positions/service.py for sources and prices.
 
     GET    /api/positions                       the whole book (sources, summary, groups)
+    GET    /api/positions/book/live             the Copilot's open-trades blocks again, from the cached broker book and Kite's live
+                                                share prices (services/copilot_visual/open_book.live); the page asks every 5 s
     GET    /api/positions/{key}/scenario        one group's scenario table (?moves=-5,-2,0,2,5&iv_shift=3&days_forward=1)
     PUT    /api/positions/{underlying}/levels   the user's stop / target / trailing stop for a broker underlying
     DELETE /api/positions/{underlying}/levels   remove them
@@ -36,6 +38,21 @@ MAX_DAYS_FORWARD = 60
 async def get_positions(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     return service.public(await service.build(request, db, user))
+
+
+@router.get("/book/live")
+async def get_book_live(request: Request) -> Dict[str, Any]:
+    """The live blocks of the open-trades answer. Never calls a broker more often than services/positions/book.BOOK_TTL_S per
+    account (the newest stored read is the cache), however many tabs ask; the user's own accounts only."""
+    user = await get_current_user(request)
+    from services.copilot_visual import open_book
+    try:
+        return await open_book.live(request, user)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 — the page keeps its last blocks and says the feed was lost
+        logger.warning("open book live: not built (%s)", type(e).__name__, exc_info=True)
+        raise HTTPException(status_code=502, detail="book_unavailable")
 
 
 def _moves(raw: str) -> List[float]:

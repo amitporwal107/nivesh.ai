@@ -1,0 +1,224 @@
+{
+ "date": "2026-11-03",
+ "lang": "hi",
+ "sections": [
+  {
+   "tag": "मुख्य खबरें",
+   "title": "आज की सुर्खियाँ",
+   "start": "0:00",
+   "cues": [
+    {
+     "t": "0:03",
+     "text": "सुप्रभात, निवेश डेस्क से ओपनिंग बेल में आपका स्वागत है।",
+     "sup": "Opening Bell · Tuesday, 3 November 2026"
+    },
+    {
+     "t": "0:08",
+     "text": "आज के सत्र की मुख्य बातें।",
+     "sup": "Opening Bell · Tuesday, 3 November 2026"
+    },
+    {
+     "t": "0:11",
+     "text": "प्री-ओपन ऊँची शुरुआत का संकेत दे रहा है, निफ्टी 23,637 के आसपास संकेतित है।",
+     "sup": "Nifty indicated near 23,637 (+0.84%) · F&O 152 up · 45 down · NSE pre-open 09:09 IST"
+    },
+    {
+     "t": "0:18",
+     "text": "इंडिया VIX के हिसाब से आज निफ्टी में दोनों तरफ़ करीब 190 अंकों की सामान्य चाल: 23,251 से 23,631।",
+     "sup": "India VIX 15.50 · about ±190 pts · OI support 23,000 · resistance 24,000"
+    },
+    {
+     "t": "0:29",
+     "text": "डेस्क की AI लिस्ट में आज के टॉप 10 आइडिया में Petronet LNG और Punjab National Bank सबसे आगे हैं।",
+     "sup": "AI Top 10 · #1 Petronet LNG · #2 Punjab National Bank · #3 Anand Rathi Wealth"
+    },
+    {
+     "t": "0:37",
+     "text": "और आज निफ्टी की एक्सपायरी है। आज के नतीजों के कैलेंडर में: State Bank, Bajaj Finserv और Solar Industries।",
+     "sup": "Nifty expiry today · 23,450 straddle 179.45 pts · Results: State Bank · Bajaj Finserv · Solar Industries · Lupin"
+    }
+   ]
+  },
+  {
+   "tag": "पिछला सत्र",
+   "title": "पिछला बंद और रात की हलचल",
+   "start": "0:46",
+   "cues": [
+    {
+     "t": "0:48",
+     "text": "पहले, पिछले सत्र का हाल। सोमवार को निफ्टी 50 387.70 अंक यानी 1.68 प्रतिशत चढ़कर 23,440.80 पर बंद हुआ।",
+     "sup": "2 Nov close: Nifty 50 23,440.80 · +387.70 pts (+1.68%)"
+    },
+    {
+     "t": "1:01",
+     "text": "बैंक निफ्टी 0.58 प्रतिशत चढ़ा, मिडकैप 150 1.25 प्रतिशत चढ़ा और स्मॉलकैप 250 1.35 प्रतिशत चढ़ा।",
+     "sup": "Bank Nifty +0.58% · Midcap 150 +1.25% · Smallcap 250 +1.35%"
+    },
+    {
+     "t": "1:13",
+     "text": "अब पैसे का प्रवाह। प्रोविज़नल आंकड़ों के मुताबिक 2 नवंबर को FII ने कैश में 3,115 करोड़ रुपये की शुद्ध खरीदारी की। DII ने 392 करोड़ रुपये की बिकवाली की।",
+     "sup": "2 Nov (provisional): FII +₹3,115 Cr · DII −₹392 Cr"
+    },
+    {
+     "t": "1:26",
+     "text": "MCX पर कल रात कच्चा तेल 8.7 प्रतिशत गिरकर 9,071 रुपये प्रति बैरल पर बंद हुआ, और सोना 1.2 प्रतिशत चढ़कर 1,40,201 रुपये प्रति दस ग्राम पर।",
+     "sup": "MCX 2 Nov: crude ₹9,071/bbl (−8.7%) · gold ₹1,40,201/10 g (+1.2%)"
+    }
+   ]
+  },
+  {
+   "tag": "प्री-ओपन",
+   "title": "प्री-ओपन क्या कहता है",
+   "start": "1:40",
+   "cues": [
+    {
+     "t": "1:42",
+     "text": "प्री-ओपन के भाव आ गए हैं। इसके शेयरों के भाव के आधार पर निफ्टी 23,637 के आसपास संकेतित है, यानी सोमवार के बंद भाव से करीब 0.84 प्रतिशत ऊपर।",
+     "sup": "Indicated Nifty 23,637 (+0.84%) · 50 of 50 constituents priced · NSE pre-open 09:09 IST"
+    },
+    {
+     "t": "1:55",
+     "text": "एफ़ एंड ओ शेयरों में 152 ऊपर और 45 नीचे संकेतित हैं।",
+     "sup": "F&O pre-open: 152 up · 45 down · 21 unchanged"
+    },
+    {
+     "t": "2:02",
+     "text": "सबसे ज़्यादा ऊपर खुलने के संकेत: Reliance 5.4 प्रतिशत ऊपर, GE Vernova T एंड D 4.7 प्रतिशत ऊपर और Delhivery 3.6 प्रतिशत ऊपर।",
+     "sup": "Gap-ups: Reliance +5.4% · GE Vernova T&D +4.7% · Delhivery +3.6%"
+    },
+    {
+     "t": "2:13",
+     "text": "और सबसे ज़्यादा नीचे खुलने के संकेत: Phoenix Mills 2.9 प्रतिशत नीचे, Muthoot Finance 1.8 प्रतिशत नीचे और Manappuram Finance 1.4 प्रतिशत नीचे।",
+     "sup": "Gap-downs: Phoenix Mills −2.9% · Muthoot Finance −1.8% · Manappuram Finance −1.4%"
+    },
+    {
+     "t": "2:25",
+     "text": "सोमवार के बंद होने के बाद आए नतीजों पर प्रतिक्रिया: Petronet LNG 0.1 प्रतिशत ऊपर।",
+     "sup": "After the bell: Petronet LNG +0.1%"
+    },
+    {
+     "t": "2:32",
+     "text": "डेस्क की AI लिस्ट में: Petronet LNG 0.1 प्रतिशत ऊपर, Punjab National Bank 0.3 प्रतिशत नीचे, Anand Rathi Wealth 0.3 प्रतिशत ऊपर और Persistent 0.8 प्रतिशत नीचे।",
+     "sup": "AI list in the pre-open: #1 Petronet LNG +0.1% · #2 Punjab National Bank −0.3% · #3 Anand Rathi Wealth +0.3% · #4 Persistent −0.8%"
+    },
+    {
+     "t": "2:47",
+     "text": "सामान्य कारोबार सुबह 9:15 बजे शुरू होने के बाद प्री-ओपन के भाव बदल सकते हैं।",
+     "sup": "Indicative until the 09:15 IST open"
+    }
+   ]
+  },
+  {
+   "tag": "रेंज और लेवल",
+   "title": "ऑप्शंस बाज़ार से रेंज और लेवल",
+   "start": "2:55",
+   "cues": [
+    {
+     "t": "2:56",
+     "text": "अब, रेंज। इंडिया VIX 15.50 पर बंद हुआ। इसके हिसाब से निफ्टी में एक दिन की सामान्य चाल दोनों तरफ़ करीब 190 अंकों की है: सोमवार के बंद भाव से 23,251 से 23,631 तक।",
+     "sup": "India VIX 15.50 → about ±190 Nifty points · 23,251 to 23,631"
+    },
+    {
+     "t": "3:13",
+     "text": "निफ्टी की सबसे नज़दीकी एक्सपायरी के ऑप्शंस में सबसे ज़्यादा पुट ओपन इंटरेस्ट 23,000 पर है, और सबसे ज़्यादा कॉल ओपन इंटरेस्ट 24,000 पर। ट्रेडर अक्सर इन्हें सपोर्ट और रेज़िस्टेंस मानते हैं।",
+     "sup": "Nifty 3 Nov expiry · largest put OI 23,000 · largest call OI 24,000"
+    },
+    {
+     "t": "3:27",
+     "text": "पुट-कॉल रेशियो 1.67 है, और मैक्स पेन, यानी वह स्तर जहाँ एक्सपायरी पर ऑप्शन ख़रीदारों को कुल मिलाकर सबसे ज़्यादा नुकसान होगा, 23,250 पर है।",
+     "sup": "Put-call ratio 1.67 · max pain 23,250"
+    },
+    {
+     "t": "3:39",
+     "text": "आज एक्सपायरी का दिन है। 23,450 का स्ट्रैडल 179.45 अंकों पर बंद हुआ, यानी इंडेक्स का करीब 0.8 प्रतिशत: आज के लिए ऑप्शंस बाज़ार इतनी चाल का भाव लगा रहा है।",
+     "sup": "23,450 straddle 179.45 pts ≈ ±0.8% · expiring today"
+    },
+    {
+     "t": "3:55",
+     "text": "आज नतीजे देने वाली कंपनियों के लिए ऑप्शंस, नतीजों समेत, 23 नवंबर की एक्सपायरी तक इतनी चाल का भाव लगा रहे हैं: State Bank दोनों तरफ़ करीब 5.0 प्रतिशत, Bajaj Finserv दोनों तरफ़ करीब 5.2 प्रतिशत और Solar Industries दोनों तरफ़ करीब 7.6 प्रतिशत।",
+     "sup": "Implied to 23 Nov (ATM straddle): State Bank ±5.0% · Bajaj Finserv ±5.2% · Solar Industries ±7.6%"
+    },
+    {
+     "t": "4:13",
+     "text": "ये ऑप्शंस बाज़ार की आंकी गई रेंज हैं, पूर्वानुमान नहीं।",
+     "sup": "Ranges priced by the options market, not forecasts"
+    }
+   ]
+  },
+  {
+   "tag": "टॉप 10 AI आइडिया",
+   "title": "डेस्क की AI लिस्ट, एक-एक करके",
+   "start": "4:18",
+   "cues": [
+    {
+     "t": "4:20",
+     "text": "अब, आज के लिए डेस्क के AI स्कैनर की लिस्ट। ये समीक्षा के लिए आइडिया हैं, सिफ़ारिशें नहीं, और डेस्क के अपने स्कोरकार्ड में अभी रैंकिंग की कोई मापने योग्य क्षमता नहीं दिखी है।",
+     "sup": "Ideas for review, not recommendations · no measurable ranking skill yet"
+    },
+    {
+     "t": "4:32",
+     "text": "Petronet LNG का ट्रेंड बरकरार है, गिरावट के बाद अपने शॉर्ट-टर्म एवरेज से 3.3 प्रतिशत ऊपर। Punjab National Bank मज़बूत अपट्रेंड में है, अपने प्रमुख मूविंग एवरेज से ऊपर।",
+     "sup": "#1 Petronet LNG — trend intact, 3.3% above short-term average · #2 Punjab National Bank — strong uptrend"
+    },
+    {
+     "t": "4:45",
+     "text": "Anand Rathi Wealth मज़बूत अपट्रेंड में है, अपने प्रमुख मूविंग एवरेज से ऊपर। Persistent मज़बूत अपट्रेंड में है, अपने प्रमुख मूविंग एवरेज से ऊपर।",
+     "sup": "#3 Anand Rathi Wealth — strong uptrend · #4 Persistent — strong uptrend"
+    },
+    {
+     "t": "4:55",
+     "text": "IIFL Capital Services 349.95 के रेज़िस्टेंस से 0.6 प्रतिशत नीचे है, औसत से 3.7 गुना वॉल्यूम के साथ। GAIL (India) 177.40 के रेज़िस्टेंस से 0.2 प्रतिशत नीचे है, औसत से 1.4 गुना वॉल्यूम के साथ।",
+     "sup": "#5 IIFL Capital Services — 0.6% below ₹349.95 resistance · #6 GAIL (India) — 0.2% below ₹177.40 resistance"
+    },
+    {
+     "t": "5:16",
+     "text": "Union Bank का ट्रेंड बरकरार है, गिरावट के बाद अपने शॉर्ट-टर्म एवरेज से 3.3 प्रतिशत ऊपर। Indegene मज़बूत अपट्रेंड में है, अपने प्रमुख मूविंग एवरेज से ऊपर।",
+     "sup": "#7 Union Bank — trend intact, 3.3% above short-term average · #8 Indegene — strong uptrend"
+    },
+    {
+     "t": "5:28",
+     "text": "Indian Bank भी इस लिस्ट में है। Leela Palaces 683.00 के रेज़िस्टेंस से 1.8 प्रतिशत नीचे है, औसत से 1.7 गुना वॉल्यूम के साथ।",
+     "sup": "#9 Indian Bank · #10 Leela Palaces — 1.8% below ₹683.00 resistance"
+    },
+    {
+     "t": "5:41",
+     "text": "एफ़ एंड ओ बोर्ड तेज़ी का रेजीम और ऊपर की ओर रुझान दिखा रहा है, इसलिए यह सीमित जोखिम वाली रणनीतियाँ सुझाता है, जैसे 3 नवंबर एक्सपायरी का Nifty bull call spread 23450 से 23600।",
+     "sup": "F&O board: regime Bullish · trend up · NIFTY Bull call spread 23450/23600, 3 Nov expiry"
+    },
+    {
+     "t": "5:55",
+     "text": "एफ़ एंड ओ लिस्ट में: Indian Bank — 23 नवंबर एक्सपायरी का bull call spread 870 से 900, रिवॉर्ड-टू-रिस्क 1.8, Kotakbank — 23 नवंबर एक्सपायरी का bull call spread 460 से 470, रिवॉर्ड-टू-रिस्क 1.6 और GAIL (India) — 23 नवंबर एक्सपायरी का bull call spread 177.5 से 180, रिवॉर्ड-टू-रिस्क 1.4।",
+     "sup": "F&O list: INDIANB Bull call spread 870/900 R:R 1.8 · KOTAKBANK Bull call spread 460/470 R:R 1.6 · GAIL Bull call spread 177.5/180 R:R 1.4"
+    },
+    {
+     "t": "6:21",
+     "text": "इनमें से हर एक शोध के लिए एक सेटअप है, ख़रीदने या बेचने की सलाह नहीं।",
+     "sup": "Setups to research, not buy or sell calls"
+    }
+   ]
+  },
+  {
+   "tag": "आज",
+   "title": "3 नवंबर",
+   "start": "6:28",
+   "cues": [
+    {
+     "t": "6:29",
+     "text": "एफ़ एंड ओ लिस्ट से आज इनके नतीजे: State Bank, Bajaj Finserv, Solar Industries और Lupin।",
+     "sup": "Results due today (F&O): State Bank · Bajaj Finserv · Solar Industries · Lupin"
+    },
+    {
+     "t": "6:36",
+     "text": "निवेश डेस्क से ओपनिंग बेल में बस इतना ही। कारोबार सुबह 9:15 बजे शुरू होगा।",
+     "sup": "Sources: NSE pre-open and end-of-day data, NIDP option chain, MCX via TrueData · read on the Nivesh Smart Trading Desk"
+    },
+    {
+     "t": "6:44",
+     "text": "यह बाज़ार की जानकारी और शिक्षा है, निवेश सलाह नहीं। आपका दिन शुभ हो।",
+     "sup": "Market information and education, not investment advice"
+    }
+   ]
+  }
+ ],
+ "cue_count": 35
+}

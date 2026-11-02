@@ -27,6 +27,8 @@ Never `--no-verify`.
 > Nothing is "done" until the relevant command ran AND its real output is shown (CONTEXT §1, §1b).
 
 ## CI/CD split (TECHNICAL_ARCHITECTURE §12, §17)
+- **GitHub Actions** deploy production (push to `main`) and staging (push to `dev`) over SSH to the CloudPe VMs — see
+  `deploy/cloudpe-prod/README.md` and `deploy/cloudpe/README.md`. The Jenkins line below is the GCP-era setup.
 - **Jenkins** (on GitHub push, path-aware): Nivesh app (frontend+backend) + NIDP VM services (DaaS/Query API + cron). Health-checks `/api/health` (200) + NIDP `/health` after deploy.
 - **GCP Cloud Build**: 28 NIDP ingester Cloud Run jobs + DaaS Cloud Run service + DB migrations (per-path triggers).
 
@@ -39,27 +41,30 @@ ssh -i ~/.ssh/google_compute_engine aporwal107_gmail_com@34.47.250.214 \
 ```
 Steps: git reset --hard origin/dev → docker compose up → wait healthy → reload nginx → smoke `{"status":"ok"}`.
 
-### Production (run on nivesh-app-vm, run as sudo)
+### Production (CloudPe prod VM; app and NIDP on one host — `deploy/cloudpe-prod/README.md`)
 ```bash
-bash deploy/nivesh-app/redeploy.sh                 # full
-bash deploy/nivesh-app/redeploy.sh --frontend-only # CSS/JS
-bash deploy/nivesh-app/redeploy.sh --backend-only  # Python, no new deps
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-app.sh main                  # full
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-app.sh main --frontend-only  # CSS/JS
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-app.sh main --backend-only   # Python, no new deps
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-nidp.sh main [--migrate]     # NIDP stack
 ```
-Steps: `git reset --hard origin/main` → docker build → `docker compose up -d --remove-orphans` → health-check `/api/health`.
+Steps (app): `git reset --hard origin/main` → docker build → `docker compose up -d` → wait healthy → reload nginx →
+smoke `/api/healthz`, `/api/readyz`, `/v2/`, `/v5/` through the host nginx on loopback.
+Steps (NIDP): fetch+reset → pip deps → optional `nidp.cli migrate` → TimescaleDB, DaaS container, Query API unit →
+smoke `/daas/health` + `/query/health` → sync `/etc/cron.d/nidp`.
+GitHub Actions deploy on push to `main` via `deploy/cloudpe-prod/ci-deploy.sh` (main only).
 
-### NIDP VM
+### NIDP staging VM
 ```bash
-sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=main   # prod
-sudo -u nidp /opt/nidp/repo/backend/nidp/deploy/vm/deploy.sh --branch=dev    # staging
+sudo bash /opt/nidp/dev-repo/nivesh.ai/deploy/cloudpe/nidp/deploy.sh dev [--migrate]   # staging
 ```
-Steps: git fetch+reset → pip deps → SQL migrations → restart `nidp-daas-api nidp-query-api` → smoke `/daas/health` + `/query/health`.
 
 ## Environments & health
 | Env | App health | NIDP health |
 |---|---|---|
 | Local | `localhost:8001/api/health` | `localhost:8083/health`, `localhost:8090/health` |
 | Staging | `https://staging.niveshcopilot.com/api/healthz` | (NIDP staging CNAME not yet live) |
-| Prod | `https://niveshcopilot.com/api/health` | `https://data.niveshcopilot.com/daas/health` + `/query/health` |
+| Prod | `https://niveshcopilot.com/api/healthz` | `https://data.niveshcopilot.com/daas/health` + `/query/health` |
 
 ## Rollback (TECHNICAL_ARCHITECTURE §14.6)
 ```bash
