@@ -446,21 +446,34 @@ async def act_o2(s):
         k, t = k + 1, t + 6.5
 
 
+NEAREST_STRIKE_JS = """(k) => { const rows=[...document.querySelectorAll('[data-testid="desk-fno-oibar-row"]')]; if(!rows.length) return null;
+  rows.forEach(r=>r.removeAttribute('data-o3-focus')); let best=rows[0], d=1e18;
+  for (const r of rows) { const v=Math.abs(parseFloat(r.dataset.strike)-k); if (v<d) { d=v; best=r; } }
+  best.setAttribute('data-o3-focus','1'); return parseFloat(best.dataset.strike); }"""
+
+
 async def act_o3(s):
-    """Ranges & levels: the NIFTY index card, then the open-interest bars, pointing at the strikes the script names."""
+    """Ranges & levels: the F&O lab's NIFTY workspace (far down the Smart Money page), then its open-interest bars,
+    pointing at the shown strike nearest each level the script names (the panel lists strikes near the money)."""
     await s.pg.evaluate(MARK_JS)
+    await s.scroll_to('[data-testid="desk-fno-indices"]', off=90, dur=0)
     for i, b in enumerate(s.beats):
         f = b.get('focus') or {}
         await s.at(i, 0.4)
         if f.get('desk') == 'fno':
-            await s.hover('[data-testid="desk-fno-indices"]', 1.2, dx=0.3, dy=0.2)
+            await s.move(420, 260, 1.2)
             await s.until(s.B[i] + 3.5)
-            await s.scroll_to('[data-testid="desk-fno-oibar-row"]', off=220, dur=1.6)
+            await s.scroll_to('[data-testid="desk-fno-oibar-row"]', off=300, dur=1.6)
         for k, strike in enumerate(f.get('strikes') or []):
-            sel = f'[data-testid="desk-fno-oibar-row"][data-strike="{int(strike) if float(strike).is_integer() else strike}"]'
             await s.until(s.B[i] + 0.4 + 2.2 * k)
-            if await s.scroll_to(sel, off=300, dur=0.9) is not None:
-                await s.hover(sel, 0.8, dx=0.5, scroll=False)
+            shown = await s.pg.evaluate(NEAREST_STRIKE_JS, float(strike))
+            if shown is None:
+                s.note('oi bars: no rows')
+                continue
+            if shown != float(strike):
+                s.note(f'oi bars: {strike} not shown, pointing at {shown}')
+            await s.scroll_to('[data-o3-focus="1"]', off=300, dur=0.9)
+            await s.hover('[data-o3-focus="1"]', 0.8, dx=0.5, scroll=False)
 
 
 SCENES = {'s1': (warm_overview, act_s1), 's2': (warm_rw, act_s2), 's3': (warm_sectors, act_s3), 's4': (warm_sectors, act_s4),

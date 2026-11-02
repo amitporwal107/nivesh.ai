@@ -37,3 +37,19 @@ segment.
 
 ## Evidence
 (added below as each case runs)
+
+### OB-1 / OB-3 data cross-check against the desk (staging, 2 Nov 2026 21:50 IST)
+`cards_open.chain_levels()` on the live NIDP DaaS chain `/fno/NIFTY/chain` (as_of 2026-11-02, expiry 2026-11-03),
+command `python3 -c "... cards_open.chain_levels(chain) ..."`, real output:
+```
+{"spot": 23440.8, "expiry": "2026-11-03", "as_of": "2026-11-02", "sup": 23000.0, "sup_oi": 14450085.0, "res": 24000.0, "res_oi": 12449840.0, "pcr": 1.67, "max_pain": 23250.0, "atm": 23450.0, "straddle": 179.45, "straddle_pct": 0.8}
+```
+The desk's own NIFTY card (F&O lab › NIFTY & BANKNIFTY, recorded as the bot in the same minute) reads: "Spot sits between
+the 23,000 put wall and the 24,000 call wall", Put-call ratio · OI 1.67, Max pain 23,250, "expected move … ±179.45".
+All five figures agree (support, resistance, PCR, max pain, ATM straddle). **PASS** (independent implementations agree).
+
+### Recorder: levels scene on the live desk (o3)
+`rec.py o3` as the bot (15-min session, revoked: `{"revoked": 1}`): first run missed (F&O lab is far down the Smart
+Money page; the OI panel lists strikes near the money only). Fixed: jump to `desk-fno-indices`, point at the shown
+strike nearest each level (logged when not exact). Second run: `o3: 397 frames, misses 0`; frames show the NIFTY card,
+then the OI bars. **PASS**

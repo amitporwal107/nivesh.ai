@@ -15,7 +15,7 @@ from i18n import LANGS
 from script_gen import Facts, IX, L_, M, ai_lists_beats, make_beat as beat, pick_i, sgn_txt, updown
 
 ORDER = ["s0", "o1", "o2", "o3", "o4", "o5"]
-O2_PLACEHOLDER_LEN = 80.0       # seconds of desk footage recorded in phase A for the pre-open segment
+O2_PLACEHOLDER_LEN = 95.0       # seconds of desk footage recorded in phase A for the pre-open segment
 
 
 def build(cards: Dict[str, Any]) -> Dict[str, Any]:

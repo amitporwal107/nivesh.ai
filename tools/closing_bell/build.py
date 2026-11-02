@@ -372,6 +372,8 @@ def transcript(work, assets):
     """captions_<lang>.vtt + transcript_<lang>.json for every language (captions.vtt / transcript.json = English), and an English .md."""
     import i18n
     script, tl, cards = load(work, "script.json"), load(work, "timeline.json"), load(work, "cards.json")
+    if script.get("kind") == "opening":
+        import i18n_open  # noqa: F401 — the morning section titles
     langs = langs_of(work)
     mm = lambda t: f"{int(t // 60)}:{int(t % 60):02d}"
     vt = lambda t: f"{int(t // 3600):02d}:{int(t % 3600 // 60):02d}:{t % 60:06.3f}"
