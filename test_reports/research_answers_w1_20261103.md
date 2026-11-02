@@ -44,7 +44,7 @@ Round 1 (#458) added five deterministic visual answers: `financial_trend`, `valu
 | TC-D1 | DaaS | Round 1's route: SQL columns, cash-flow handler | unit | as stated | **PASS**; and now live (below) |
 | TC-CI | CI | The workflow's own allowlist, branch vs untouched origin/dev, same image | unit | identical pre-existing failures | **PASS**: 3 = 3 |
 | TC-S1…S4 | real data | Live DaaS, route SQL, production shape; warehouse spot checks; gap honesty | api (in-process) + data | valid, matching | **PASS** |
-| TC-S5 | live chat | The five questions asked as a signed-in user in staging chat | e2e | real answers | **BLOCKED**: staging runs round 1; round 2 needs merge + deploy, and a signed-in session is needed |
+| TC-S5 | live chat | The five questions asked as a signed-in user in staging chat | e2e | real answers | **Round 1 (deployed): RUN.** 5/5 reach their card and stock_analyst. Found live: the false fund-house 404 and "exited" (both fixed in #460), and "undervalued" in one explanation (from the analyst's own data). **Round 2: BLOCKED** until #460 is merged and deployed |
 
 ## API / Endpoint Tests (staging)
 
@@ -137,6 +137,33 @@ The failures are identical and pre-existing (`diff` of the sorted `FAILED` lines
 
 The +585 passing tests on the branch are exactly this branch's test file. The same comparison on the earlier dev tip 1beb5c92 gave 3 = 3 as well (8,112 vs 8,705). UNVERIFIED: GitHub's runner failure list (logs unreadable); the local run uses the staging image's dependency set, not a fresh `uv pip install`.
 
+**Another measurement of dev's allowlist.** The PR #455 agent counted 6 pre-existing failures on dev: MS-11, SW-7, `test_cas_api_client` ×2, `test_move_odds_filing_analysis` TC-10/11 and `test_nidp_stamp_broadcast_at`. In the `nivesh/backend:staging` image used here, dev has 3 (MS-11, SW-7, TC-10/11). The other three pass in this image, so they depend on the environment (the dependency set or env). Either way, this branch adds no failure in the same environment: 3 = 3 here. Not re-run in a fresh `uv` install, because the VM disk is at 3 GB free and no new image was built.
+
+## Live staging chat (round 1 as deployed), 3 Nov 2026
+
+The five questions were asked through `POST /api/chat/stream` on staging.niveshcopilot.com, as the token owner, in a new chat session created for the check. Persona: investor. The token was read in-process and never printed.
+
+- Cloudflare refuses Python's default User-Agent (error 1010), so a browser User-Agent was sent.
+- Staging runs **round 1** (#458; backend restarted 22:46 UTC), so this is TC-S5 for round 1.
+- Round 2 (#460) still needs merge and deploy before it can be asked live.
+
+| Question | Card (intent · agent) | Missing sources | Compliance lint, card | Lint, explanation |
+|---|---|---|---|---|
+| Has promoter holding of TCS increased? | ownership_trend · stock_analyst | "…does not serve the fund-house view yet (HTTP 404)" (**false: the round-1 path bug, fixed in #460**) | `exited` ("Which FIIs entered or exited", **fixed in #460**) | none |
+| What are the biggest risks for TCS? | company_risks · stock_analyst; "None of the 13 checks that could run is flagged for TCS." | none | none | `undervalued` (see below) |
+| Is TCS expensive or cheap? | valuation_view · stock_analyst; "TCS trades at 17.5× trailing earnings …" | none | none | no explanation: "I'm having trouble connecting right now" (LLM gateway; card shown) |
+| Compare TCS with its peers | peer_compare · stock_analyst; "8 companies compared …" | none | none | none |
+| How has revenue grown over the last 5 years for TCS? | financial_trend · stock_analyst; revenue FY22–FY26 | none | none | none |
+
+**From the saved assistant messages** (`GET /api/chat/messages`, read-only):
+- The `company_risks` explanation says: The company is described as "undervalued valuation". That is the stock analyst's own research data (the features `valuation_signal`), which it fetches beside the card; it is not text from the research card.
+- The existing compliance filter turned "bullish" into "[factual data only — no recommendation]".
+- Every explanation ends with the compliance node's standard disclaimer, which names buy / sell / hold advice and price targets in order to say Copilot does not give them.
+
+**Round 2 sends `WORDING_RULE` (no undervalued / target / … words) with these answers' facts.** That instructs the model; it does not guarantee the output. **Decision for the owner:**
+- A deterministic word filter on these answers' explanation (in the compliance node, outside this PR) would make the rule hold every time.
+- The disclaimer's wording itself uses the owner's listed words.
+
 ## UI / Playwright Tests
 
 No frontend source changed. UNVERIFIED: no Playwright run renders the research payloads. The real capture is ready for a spec.
@@ -173,4 +200,4 @@ The live DaaS cash-flow rows equal the warehouse rows (52,094 / −4,078 for FY2
 
 ## Verdict: BLOCKED
 
-TC-S5 (live chat as a signed-in user) cannot run before this follow-up PR is merged and deployed, and it needs a signed-in session. Every other test case, including the owner's 3 Nov compliance, production-data and CI cases, passed with the real outputs above.
+TC-S5 for round 2 (this PR) cannot run before #460 is merged and deployed. TC-S5 for round 1 ran live on staging (section above), and every other test case passed with the real outputs above, including the owner's 3 Nov compliance, production-data and CI cases.
