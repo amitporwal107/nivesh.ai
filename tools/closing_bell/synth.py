@@ -6,6 +6,8 @@ language's base rate. The slot is the English length, widened only when another 
 more than 20% faster to fit. Pass 2 re-speaks any language longer than the slot at the rate that fits (at most
 +20% over its base).
 usage: python synth.py            env: CB_LANGS (default en,hi,ta,mr,gu)
+                                       CB_SEGS  (Opening Bell 9:08 rebuild: only these segments, e.g. s0,o2;
+                                                 the other beats keep their clips and fit.json entries)
 """
 import asyncio
 import json
@@ -18,6 +20,9 @@ from i18n import BASE_RATE, LANGS, VOICES
 
 ONLY = [l for l in os.environ.get("CB_LANGS", ",".join(LANGS)).split(",") if l in LANGS]
 SEGS = json.load(open("/w/script.json"))["segments"]
+PART = [x for x in os.environ.get("CB_SEGS", "").split(",") if x]
+if PART:
+    SEGS = [s for s in SEGS if s["id"] in PART]
 MAX_SPEEDUP = 1.20
 
 
@@ -67,6 +72,10 @@ async def main():
                            for l, sid, i, b, rate in redo])
     for sid, i, _ in beats:
         fit[f"{sid}_{i}"]["final"] = {l: round(dur(f"/w/tts/{l}/{sid}_{i}.mp3"), 2) for l in ONLY}
+    if PART and os.path.exists("/w/tts/fit.json"):
+        prev = json.load(open("/w/tts/fit.json"))
+        kept = {k: v for k, v in prev["beats"].items() if k.rsplit("_", 1)[0] not in PART}
+        fit = {**kept, **fit}
     json.dump({"langs": ONLY, "beats": fit}, open("/w/tts/fit.json", "w"), indent=1)
     tot = {l: round(sum(v["final"][l] for v in fit.values()), 1) for l in ONLY}
     print("synthesised", len(beats), "beats x", len(ONLY), "languages; spoken seconds", tot, "; re-spoken", len(redo), flush=True)

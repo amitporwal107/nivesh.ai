@@ -3,7 +3,9 @@
  *
  * The mobile build ships only the one-screen Copilot, so finishLogin() in
  * src/pages/Login/index.tsx sends a NATIVE sign-in to /app instead of
- * /dashboard. Web routing, the login screen and the homepage must be untouched.
+ * /dashboard, and the native app opens on /app instead of the marketing
+ * homepage (src/routes.tsx). Web routing, the web homepage and the login
+ * screen must be untouched.
  *
  * Capacitor 6 resolves the platform from `window.androidBridge`, so defining it
  * before the bundle loads is what makes isNativePlatform() true in a desktop
@@ -85,8 +87,24 @@ test("TC-6 login screen is unchanged in the native build", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Send code/i })).toBeEnabled();
 });
 
-test("TC-7 homepage still renders at / in the native build", async ({ page }) => {
+test("TC-7 the native app opens on /app, not the marketing homepage", async ({ page }) => {
   await asNative(page);
+  await mockAuth(page);
+  await page.goto("/v5/");
+  await expect(page).toHaveURL(/\/v5\/app$/);
+  await expect(page.locator(".nvx-mark")).toHaveCount(0);
+});
+
+test("TC-8 a signed-out native launch goes to the login screen", async ({ page }) => {
+  await asNative(page);
+  await mockAuth(page);
+  await page.route("**/api/auth/me", (r) => r.fulfill({ status: 401, json: { detail: "Not authenticated" } }));
+  await page.goto("/v5/");
+  await expect(page).toHaveURL(/\/v5\/login$/);
+  await expect(page.getByPlaceholder(/you@company/i)).toBeVisible();
+});
+
+test("TC-9 the web homepage still renders at /", async ({ page }) => {
   await mockAuth(page);
   await page.goto("/v5/");
   await expect(page.locator(".nvx-mark").first()).toBeVisible();

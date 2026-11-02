@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { StockHit } from "@/hooks/use-instrument-search";
 import { SCREEN_TEMPLATES, type BuilderCondition, type ScreenTemplate } from "@/components/chat/screenerPrimitives";
 import { SafeWidget } from "@/components/shared/SafeWidget";
@@ -15,8 +16,10 @@ import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts"
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
 import { StrategyScreens } from "./markets/StrategyScreens";
 import { FUND_KEYS, PAGE_BY_KEY, PAGE_GROUPS, chatSentence, screenInWords } from "./screener/catalog";
-import { ResultsTable } from "./screener/ResultsTable";
+import { AddToList } from "./screener/AddToList";
+import { ResultsTable, type RowSelect } from "./screener/ResultsTable";
 import { StockPanel } from "./screener/StockPanel";
+import { BULK_MAX } from "./workspace/personal-lists";
 import { OpenWatchlist, SaveAsWatchlist } from "./workspace/SaveAsWatchlist";
 
 type Bucket = ScreenBucket;
@@ -41,6 +44,30 @@ function newRule(key = "roe", value = ""): BuilderCondition {
 
 function asBucket(b: string | undefined): Bucket {
   return b === "large" || b === "mid" || b === "small" ? b : "";
+}
+
+/**
+ * The rules the Copilot's "Open in Screener" puts in the address: `r=roe:over:20,de:under:0.5&b=large&s=IT`
+ * (services/copilot_visual/screen_spec.query_string writes it). `known` are the rules this page can load; `complete` is false when
+ * any rule was not one of them or not well-formed, so the page does not run a screen that differs from the one the Copilot described.
+ */
+export function rulesFromAddress(params: URLSearchParams): { rules: { key: string; op: "over" | "under"; value: string }[]; bucket: Bucket; sector: string; complete: boolean } | null {
+  const r = params.get("r");
+  const b = params.get("b");
+  const s = params.get("s");
+  if (!r && !b && !s) return null;
+  const rules: { key: string; op: "over" | "under"; value: string }[] = [];
+  let complete = true;
+  for (const part of (r ?? "").split(",").filter(Boolean).slice(0, 50)) {
+    const [key, op, value] = part.split(":");
+    if (key && PAGE_BY_KEY[key] && !PAGE_BY_KEY[key].bucket && (op === "over" || op === "under") && value !== undefined && Number.isFinite(Number(value))) {
+      rules.push({ key, op, value });
+    } else {
+      complete = false;
+    }
+  }
+  const sector = (s ?? "").replace(/_/g, " ").slice(0, 30);
+  return { rules, bucket: asBucket(b ?? ""), sector, complete };
 }
 
 /** The rules that have a number, in the shape /api/screeners/run takes. Null when there is nothing to run. */
@@ -105,6 +132,9 @@ function ScreenResults({ ran, fetching, error, data, onRetry, onAsk, onOpenStock
   // Kite's live price and day change join the table as two extra columns while the feed is LIVE; nothing else in the rows changes.
   const liveRows = data?.ok ? data.widget.universe : [];
   const live = useLiveOverlays(liveRows.map((r) => String(r.ticker ?? r.symbol ?? "")), data?.ok ? data.as_of_date : null);
+  // The stocks ticked for "Add to a list". A new run starts with none ticked; at most one list's worth (100) can be.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => { setTicked(new Set()); }, [ran?.seq]);
   // The source not answering (ok:false) is a failure, not an empty result.
   const failed = !fetching && (!!error || (!!data && !data.ok));
   const answered = !fetching && !failed && data?.ok ? data : undefined;
@@ -204,15 +234,40 @@ function ScreenResults({ ran, fetching, error, data, onRetry, onAsk, onOpenStock
       ...(answered.universe_complete ? [] : [{ key: "partial", text: `Only the first ${fmtNum(dayTotal)} stocks of the day were screened`, gap: true }]),
     ];
 
+    // The run's own order (largest market cap first) is what "the first 100" means, however the table is sorted.
+    const runOrder = answered.widget.universe.map((r) => String(r.ticker ?? r.symbol ?? ""));
+    const firstBatch = runOrder.slice(0, BULK_MAX);
+    const select: RowSelect = {
+      selected: ticked,
+      max: BULK_MAX,
+      allSelected: firstBatch.length > 0 && firstBatch.every((sym) => ticked.has(sym)),
+      onToggle: (sym) => setTicked((prev) => {
+        const next = new Set(prev);
+        if (next.has(sym)) next.delete(sym);
+        else if (next.size < BULK_MAX) next.add(sym);
+        return next;
+      }),
+      onToggleAll: () => setTicked((prev) => (firstBatch.every((sym) => prev.has(sym)) ? new Set() : new Set(firstBatch))),
+    };
+
     body = (
       <>
         <span data-testid="screener-results-count" aria-live="polite" style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1.2 }}>{countText}</span>
         {why ?? (
           <div data-testid="screener-results-widget" className="min-w-0">
             <SafeWidget name="Screener results">
-              <ResultsTable key={ran?.seq ?? 0} rows={answered.widget.universe} live={live} onOpen={onOpenStock} />
+              <ResultsTable key={ran?.seq ?? 0} rows={answered.widget.universe} live={live} onOpen={onOpenStock} select={select} />
             </SafeWidget>
           </div>
+        )}
+        {!why && (
+          <AddToList
+            selected={runOrder.filter((sym) => ticked.has(sym))}
+            matches={matched}
+            query={ran?.query ?? ""}
+            asOf={answered.as_of_date ?? null}
+            onDone={() => setTicked(new Set())}
+          />
         )}
         <p data-testid="screener-results-coverage" className="m-0" style={{ fontSize: 12, lineHeight: 1.6, color: "var(--cp-ink-3)" }}>
           {notes.map((n, i) => (
@@ -257,6 +312,8 @@ function KeepAsWatchlist({ ran, request }: { ran: RanScreen; request: ScreenRunR
   return (
     <SaveAsWatchlist
       idPrefix="screener-watchlist"
+      prompt="Keep this screen: the rules are saved and re-run each day, so it lists whatever passes it then. To keep today’s stocks instead, use Add to a list above."
+      buttonLabel="Keep this screen (re-runs daily)"
       pending={create.isPending}
       error={create.error}
       savedName={create.data?.name ?? null}
@@ -294,6 +351,31 @@ export default function ScreenerScreen() {
   const updateScreen = useUpdateScreener();
   const deleteScreen = useDeleteScreener();
   const run = useScreenRun(ran?.request ?? null, ran?.seq ?? 0);
+
+  // "Open in Screener" from a Copilot answer: the rules arrive in the address. Fill them in and run them once, then take them out of the
+  // address so a refresh or the back button does not run them again. If any rule could not be loaded the screen is NOT run.
+  const [params, setParams] = useSearchParams();
+  const preloaded = useRef(false);
+  useEffect(() => {
+    if (preloaded.current) return;
+    const got = rulesFromAddress(params);
+    if (!got) return;
+    preloaded.current = true;
+    setRules(got.rules.length ? got.rules.map((c) => ({ ...newRule(c.key, c.value), op: c.op })) : [newRule()]);
+    setBucket(got.bucket);
+    setPreset(null);
+    const base = toRunRequest(got.rules, got.bucket);
+    if (got.complete && base) {
+      const request = got.sector ? { ...base, sector: got.sector } : base;
+      runScreen("", request, `${requestInWords(request)}${got.sector ? ` · sector contains “${got.sector}”` : ""}`);
+    }
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const k of ["r", "b", "s"]) next.delete(k);
+      return next;
+    }, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, []);
 
   const query = screenInWords(rules, bucket || undefined);
   const canRun = query.length > 0;

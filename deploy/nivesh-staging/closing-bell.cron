@@ -27,3 +27,14 @@ MAILTO=""
 
 */10 22,23 * * 1-5  root  /usr/bin/flock -n -E 4 /run/lock/nivesh-staging-closing-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py >> /opt/nivesh-staging/logs/closing-bell.log 2>&1
 0-50/10 0 * * 2-6   root  /usr/bin/flock -n -E 4 /run/lock/nivesh-staging-closing-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py >> /opt/nivesh-staging/logs/closing-bell.log 2>&1
+
+# ---- Opening Bell (the morning edition, owner 2 Nov 2026: publish about 9:10 IST after the pre-open) ----------
+# Phase A, every 10 minutes 06:30-08:50 Mon-Fri: builds everything from the previous session's data (exits at once
+# when already built, not a trading day, or the data is not in yet; "missed" + alert if not ready by 08:50).
+# Phase B, once at 09:08: NSE pre-open (polled until 09:12), re-renders the cold open and the pre-open segment,
+# checks, publishes to /opt/nivesh-staging/downloads/opening-bell/<date>/ (served at /downloads/opening-bell/).
+# State: /opt/nivesh-staging/closing-bell/opening/state/<date>.{phase_a,published,held,failed,missed,no_session}.
+# Phase B waits up to 4 minutes for a phase A run still holding the lock.
+30-50/10 6 * * 1-5  root  /usr/bin/flock -n -E 4 /run/lock/nivesh-staging-opening-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py --kind opening --phase A >> /opt/nivesh-staging/logs/opening-bell.log 2>&1
+*/10 7,8 * * 1-5    root  /usr/bin/flock -n -E 4 /run/lock/nivesh-staging-opening-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py --kind opening --phase A >> /opt/nivesh-staging/logs/opening-bell.log 2>&1
+8 9 * * 1-5         root  /usr/bin/flock -w 240 -E 4 /run/lock/nivesh-staging-opening-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py --kind opening --phase B >> /opt/nivesh-staging/logs/opening-bell.log 2>&1

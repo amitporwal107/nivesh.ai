@@ -214,8 +214,9 @@ function PayoffBody({ ask, plan, today, data, errorText, pending, retry }: {
   );
 }
 
-/** Width of an observed box, or null until it is measured (as ChartTab.tsx measures its chart). */
-function useBoxWidth(box: HTMLElement | null): number | null {
+/** Width of an observed box, or null until it is measured (as ChartTab.tsx measures its chart). Also the Copilot's
+ *  visual answer's charts (components/chat/visual), which draw at their real width the same way. */
+export function useBoxWidth(box: HTMLElement | null): number | null {
   const [w, setW] = useState<number | null>(null);
   useEffect(() => {
     if (!box || typeof ResizeObserver === "undefined") return;

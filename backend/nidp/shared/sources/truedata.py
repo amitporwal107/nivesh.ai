@@ -1,5 +1,6 @@
 """TrueData REST client: history bars and ticks, bhavcopy, symbol master, corporate actions, symbol changes, option chain
-with Greeks. Standard library only, so the NIDP jobs and the app backend can both use it.
+with Greeks, and company financial results (corporate host). Standard library only, so the NIDP jobs and the app backend
+can both use it.
 
 TrueData was chosen by the owner (29 Oct 2026). Every behaviour below was checked against TrueData's documentation AND
 real calls on the trial account the same day (see the PR's report):
@@ -13,6 +14,10 @@ real calls on the trial account the same day (see the PR's report):
     design); that URL is never logged and never put in an error.
   * the documents give different rate limits (10, 3 and 1 request/s); a per-host gate keeps at least `min_interval`
     seconds between calls (default 1.1 s, env TRUEDATA_MIN_INTERVAL_S).
+  * financial results (corporate.truedata.in, checked with real calls 2 Nov 2026) answer JSON. Failures come with
+    HTTP 200 and a JSON status such as {"status": "There is no row at position 0.", "Records": ""} or
+    {"status": "Invalid Period, should be Yearly or Quarterly", ...}; they are classified like the one-line answers
+    (classify_json_status). Corporate limit: 1 call/s, 60/min, 3600/h, shared by every job on the account.
 
 Credentials: TRUEDATA_USERNAME / TRUEDATA_PASSWORD from the environment, or a KEY=VALUE file named by TRUEDATA_CRED_FILE
 (local and research runs). Nothing here prints, logs or returns a password or a token.
@@ -39,6 +44,7 @@ AUTH_URL = "https://auth.truedata.in/token"
 HISTORY = "https://history.truedata.in"
 API = "https://api.truedata.in"
 GREEKS = "https://greeks.truedata.in/api"
+CORPORATE = "https://corporate.truedata.in"
 PROVIDER_ID = "truedata"
 CLIENT_VERSION = "truedata-rest-v1"
 
@@ -172,6 +178,30 @@ def classify_message(text: str) -> Optional[Tuple[str, str]]:
     if low.startswith("invalid"):
         return INVALID_REQUEST, head[:200]
     return None
+
+
+def classify_json_status(payload: Any) -> Optional[Tuple[str, str]]:
+    """The corporate host's JSON failure answers (sent with HTTP 200) → (code, message). None for a data body.
+
+    Lists succeed with {"status": "Success", "Records": [...]}; statements succeed with the statement itself (no
+    "status" key). Seen on 2 Nov 2026: "There is no row at position 0." (no such statement, e.g. a balance sheet for a
+    first-quarter filing), "Invalid Period, should be Yearly or Quarterly", "Invalid Type" (a P&L the company format
+    does not offer)."""
+    if not isinstance(payload, dict) or "status" not in payload:
+        return None
+    status = str(payload.get("status") or "").strip()
+    low = status.lower()
+    if low == "success":
+        return None
+    if "no row at position" in low or low.startswith("no data") or low.startswith("no record"):
+        return EMPTY_RESPONSE, status[:200]
+    if "quota exceeded" in low:
+        return RATE_LIMITED, status[:200]
+    if "not subscribed" in low or "authorization has been denied" in low:
+        return NOT_CONFIGURED, status[:200]
+    if low.startswith("invalid"):
+        return INVALID_REQUEST, status[:200]
+    return PROVIDER_ERROR, (status or "empty status")[:200]
 
 
 # Columns that are names or dates, never numbers (a symbol such as "NAN" or a code such as "500325" stays text).
@@ -389,6 +419,57 @@ class TrueDataClient:
         return parse_csv(self._get(GREEKS, "getOptionChainwithGreeks", {"symbol": symbol,
                                                                          "expiry": f"{expiry:%d-%m-%Y}",
                                                                          "response": "csv"}))
+
+    # ── financial results (corporate host) ──
+    def _get_json(self, path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        text = self._get(CORPORATE, path, params)
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            raise TrueDataError(INVALID_PAYLOAD, f"TrueData {path}: not JSON") from None
+        failure = classify_json_status(payload)
+        if failure:
+            code, msg = failure
+            raise TrueDataError(code, f"TrueData {path}: {msg}")
+        if not isinstance(payload, dict):
+            raise TrueDataError(TOOL_SCHEMA_CHANGED, f"TrueData {path}: expected a JSON object")
+        return payload
+
+    def _statement(self, path: str, filing_id: int, cumulative: Optional[bool] = None) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"id": int(filing_id), "response": "json"}
+        if cumulative is not None:
+            params["cumulative"] = "true" if cumulative else "false"
+        payload = self._get_json(path, params)
+        if not isinstance(payload.get("GeneralInfo"), dict):
+            raise TrueDataError(TOOL_SCHEMA_CHANGED, f"TrueData {path}: no GeneralInfo in the statement")
+        return payload
+
+    def result_list(self, day: date) -> List[Dict[str, Any]]:
+        """Results filed on `day` (NSE and BSE): id, file_time, scripcode (BSE), Symbol (NSE; often None, "NOTLISTED"
+        or HTML-escaped), ReportingQuarter, company, Audited, Nature. No period end: it is in each statement's header.
+        One filing is often listed under 2-4 ids (see services/truedata_fundamentals/transform.dedupe)."""
+        payload = self._get_json("getResultList", {"date": f"{day:%Y-%m-%d}", "response": "json"})
+        records = payload.get("Records")
+        if records in (None, ""):
+            return []
+        if not isinstance(records, list):
+            raise TrueDataError(TOOL_SCHEMA_CHANGED, "TrueData getResultList: Records is not a list")
+        return [r for r in records if isinstance(r, dict)]
+
+    def balance_sheet(self, filing_id: int) -> Dict[str, Any]:
+        """Statement of assets and liabilities of one filing (half-year and fiscal-year filings only), in the filing's
+        reporting unit (LevelOfRoundingUsedInFinancialStatements is usually blank)."""
+        return self._statement("getResultALById", filing_id)
+
+    def cash_flow(self, filing_id: int, cumulative: bool = True) -> Dict[str, Any]:
+        """Cash-flow statement of one filing. CashFlowSummary values are strings; a fiscal-year filing's header can say
+        01-Jan..31-Mar while its values are for the full year."""
+        return self._statement("getCashFlowDetailById", filing_id, cumulative)
+
+    def pnl(self, filing_id: int, cumulative: bool = True) -> Dict[str, Any]:
+        """Profit and loss of one filing. cumulative=False gives the quarter alone (a fiscal-year filing → its fourth
+        quarter); cumulative=True the period to date. Bank-format P&Ls have GeneralInfo.Type 'Banking'."""
+        return self._statement("getPnLById", filing_id, cumulative)
 
     def symbol_master(self, segment: str, search: Optional[str] = None,
                       limit: Optional[int] = None) -> List[Dict[str, Any]]:

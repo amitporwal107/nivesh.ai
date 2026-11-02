@@ -8,6 +8,8 @@
  *   PATCH  /api/watchlists/{id}          {name}    rename
  *   DELETE /api/watchlists/{id}
  *   POST   /api/watchlists/{id}/symbols  {symbol}  add a stock (already there → `added: false`, not an error)
+ *   POST   /api/watchlists/{id}/symbols/bulk {symbols[≤100]}  add many (the Screener's "Add to a list"): one write; what was added,
+ *                                                  what was already there, and what was refused, each by name
  *   DELETE /api/watchlists/{id}/symbols/{symbol}   remove a stock
  *   GET    /api/filings/companies/search           the stock search behind "Add a stock": the symbol master
  *                                                  the add route checks a symbol against
@@ -93,6 +95,17 @@ const AddC = z.object({
 });
 export type AddAnswer = z.infer<typeof AddC>;
 
+/** Why a stock in a bulk add was not added: "invalid_symbol" | "not_in_instrument_list" | "list_full". */
+const BulkC = z.object({
+  added: z.array(z.object({ symbol: z.string(), company_name: z.string().nullable() })),
+  already: z.array(z.string()),
+  refused: z.array(z.object({ symbol: z.string(), code: z.string(), detail: z.string() })),
+  watchlist: SummaryC,
+});
+export type BulkAddAnswer = z.infer<typeof BulkC>;
+/** The most stocks one bulk add may carry (and one list may hold: `limits.max_symbols`). */
+export const BULK_MAX = 100;
+
 const RemoveC = z.object({ removed: z.boolean(), symbol: z.string(), watchlist: SummaryC });
 export type RemoveAnswer = z.infer<typeof RemoveC>;
 
@@ -104,9 +117,11 @@ const readRetry = (count: number, error: unknown) =>
  * What to show for a failed write. The watchlist routes word their own refusals
  * (a name already used, a full list, an unknown symbol) in plain sentences, and
  * for "could not be checked just now" (503) that sentence is the useful part.
+ * So is a 403's: while an advisor views a client's account the routes refuse every
+ * list write and say why, which "this account does not have access" would hide.
  */
 export function writeFailure(error: unknown): unknown {
-  return error instanceof ApiError && error.status === 503 && error.detail ? error.detail : error;
+  return error instanceof ApiError && (error.status === 503 || error.status === 403) && error.detail ? error.detail : error;
 }
 
 // ── reads ────────────────────────────────────────────────────────────────
@@ -194,6 +209,16 @@ export function useAddStock() {
   return useMutation({
     mutationFn: async ({ id, symbol }: { id: string; symbol: string }): Promise<AddAnswer> =>
       AddC.parse((await http({ method: "POST", path: `${BASE}/${encodeURIComponent(id)}/symbols`, body: { symbol }, noRetry: true })).data),
+    onSuccess: (_answer, { id }) => Promise.all([rereadIndex(qc), rereadList(qc, id)]),
+  });
+}
+
+/** Add many stocks to one list in one write. Nothing is drawn ahead of the server: the lists are read again after it answers. */
+export function useAddStocks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, symbols }: { id: string; symbols: string[] }): Promise<BulkAddAnswer> =>
+      BulkC.parse((await http({ method: "POST", path: `${BASE}/${encodeURIComponent(id)}/symbols/bulk`, body: { symbols }, noRetry: true })).data),
     onSuccess: (_answer, { id }) => Promise.all([rereadIndex(qc), rereadList(qc, id)]),
   });
 }

@@ -1,0 +1,3096 @@
+{
+ "about": "REAL staging capture, 3 Nov 2026 (data of the 2 Nov 2026 session and the filings in the warehouse that night): the Research Copilot W1 answers built by this branch's backend/services/copilot_visual, copied to a scratch path inside nivesh-staging-app-backend and run in-process against the real staging DaaS and NIDP warehouse, read-only, no restart. Plain keys: every read through the live DaaS as deployed (the cash-flow route and the new balance-sheet columns are not live there yet, so company_risks shows them as not served). ':route_sql': financials and cash flow answered by this branch's new DaaS route SQL, run read-only on the warehouse via nidp-psql (real rows; the route itself goes live only after a daas-api restart); every other read live.",
+ "questions": {
+  "financial_trend": {
+   "question": "How has revenue grown over the last 5 years for TCS?",
+   "mode": "S1",
+   "intent": "financial_trend",
+   "symbol": "TCS",
+   "params": {
+    "years": 5
+   },
+   "build_secs": 3.06
+  },
+  "valuation_view": {
+   "question": "What happens if TCS earnings grow by 15%, 20%, or 25%?",
+   "mode": "S1",
+   "intent": "valuation_view",
+   "symbol": "TCS",
+   "params": {
+    "growth": [
+     15.0,
+     20.0,
+     25.0
+    ]
+   },
+   "build_secs": 0.09
+  },
+  "ownership_trend": {
+   "question": "Has promoter holding of ICICIBANK increased?",
+   "mode": "S1",
+   "intent": "ownership_trend",
+   "symbol": "ICICIBANK",
+   "params": {},
+   "build_secs": 0.05
+  },
+  "peer_compare": {
+   "question": "Compare TCS with its peers",
+   "mode": "S1",
+   "intent": "peer_compare",
+   "symbol": "TCS",
+   "params": {
+    "symbols": [
+     "TCS"
+    ]
+   },
+   "build_secs": 1.29
+  },
+  "company_risks": {
+   "question": "What are the biggest risks for TCS?",
+   "mode": "S1",
+   "intent": "company_risks",
+   "symbol": "TCS",
+   "params": {},
+   "build_secs": 0.15
+  },
+  "peer_compare:named_banks": {
+   "question": "Compare HDFC Bank, ICICI Bank and Axis Bank across fundamentals, valuation, growth, profitability, asset quality and institutional ownership.",
+   "mode": "S1",
+   "intent": "peer_compare",
+   "symbol": "HDFCBANK",
+   "params": {
+    "symbols": [
+     "HDFCBANK",
+     "ICICIBANK",
+     "AXISBANK"
+    ]
+   },
+   "build_secs": 0.14
+  },
+  "company_risks:route_sql": {
+   "question": "What are the biggest risks for ADANIPORTS?",
+   "mode": "S2",
+   "intent": "company_risks",
+   "symbol": "ADANIPORTS",
+   "params": {},
+   "build_secs": 0.08
+  },
+  "company_risks:no_data": {
+   "question": "What are the biggest risks for TIMEX?",
+   "mode": "S1",
+   "intent": "company_risks",
+   "symbol": "TIMEX",
+   "params": {},
+   "build_secs": 0.11
+  }
+ },
+ "payloads": {
+  "financial_trend": {
+   "schema": "visual-answer-v1",
+   "intent": "financial_trend",
+   "title": "TCS · Financial trend",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:30+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "TCS reported revenue of ₹73,188 Cr (+11.2% year on year) and PAT of ₹13,934 Cr (+15.4%) for the Sep 26 quarter. Year-on-year revenue growth was slower than the Jun 26 quarter's (+13.9%).",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "latest",
+     "title": "Latest quarter",
+     "note": null,
+     "items": [
+      {
+       "label": "Revenue · Sep 26 quarter",
+       "value": "₹73,188 Cr",
+       "sub": "+11.2% YoY · +1.3% QoQ"
+      },
+      {
+       "label": "PAT · Sep 26 quarter",
+       "value": "₹13,934 Cr",
+       "sub": "+15.4% YoY"
+      },
+      {
+       "label": "EBITDA margin",
+       "value": "25.7%",
+       "sub": "−1.61 pp vs Sep 25"
+      },
+      {
+       "label": "ROE (latest)",
+       "value": "45.9%",
+       "sub": "Trendlyne, 12 Oct 2026"
+      },
+      {
+       "label": "ROCE (latest)",
+       "value": "58.6%",
+       "sub": "Trendlyne, 12 Oct 2026"
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "revenue",
+     "title": "Revenue by quarter",
+     "note": "₹ crore, consolidated, as filed.",
+     "unit": "₹ Cr",
+     "orientation": "v",
+     "items": [
+      {
+       "label": "Dec 24",
+       "value": 63973.0,
+       "sub": null
+      },
+      {
+       "label": "Mar 25",
+       "value": 64479.0,
+       "sub": null
+      },
+      {
+       "label": "Jun 25",
+       "value": 63437.0,
+       "sub": null
+      },
+      {
+       "label": "Sep 25",
+       "value": 65799.0,
+       "sub": null
+      },
+      {
+       "label": "Dec 25",
+       "value": 67087.0,
+       "sub": "+4.9% YoY"
+      },
+      {
+       "label": "Mar 26",
+       "value": 70698.0,
+       "sub": "+9.7% YoY"
+      },
+      {
+       "label": "Jun 26",
+       "value": 72275.0,
+       "sub": "+13.9% YoY"
+      },
+      {
+       "label": "Sep 26",
+       "value": 73188.0,
+       "sub": "+11.2% YoY"
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "pat",
+     "title": "PAT by quarter",
+     "note": "Profit after tax, ₹ crore, as filed.",
+     "unit": "₹ Cr",
+     "orientation": "v",
+     "items": [
+      {
+       "label": "Dec 24",
+       "value": 12380.0
+      },
+      {
+       "label": "Mar 25",
+       "value": 12224.0
+      },
+      {
+       "label": "Jun 25",
+       "value": 12760.0
+      },
+      {
+       "label": "Sep 25",
+       "value": 12075.0
+      },
+      {
+       "label": "Dec 25",
+       "value": 10657.0
+      },
+      {
+       "label": "Mar 26",
+       "value": 13718.0
+      },
+      {
+       "label": "Jun 26",
+       "value": 13349.0
+      },
+      {
+       "label": "Sep 26",
+       "value": 13934.0
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "margin",
+     "title": "EBITDA margin by quarter",
+     "note": "EBITDA ÷ revenue from operations.",
+     "unit": "%",
+     "orientation": "v",
+     "items": [
+      {
+       "label": "Dec 24",
+       "value": null
+      },
+      {
+       "label": "Mar 25",
+       "value": null
+      },
+      {
+       "label": "Jun 25",
+       "value": null
+      },
+      {
+       "label": "Sep 25",
+       "value": 27.32
+      },
+      {
+       "label": "Dec 25",
+       "value": 27.23
+      },
+      {
+       "label": "Mar 26",
+       "value": 27.27
+      },
+      {
+       "label": "Jun 26",
+       "value": 25.67
+      },
+      {
+       "label": "Sep 26",
+       "value": 25.71
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "quarters",
+     "title": "Quarter by quarter",
+     "note": "YoY compares the same quarter a year earlier and is blank when that quarter is not in our data or its base was a loss. Figures are as filed, in ₹ crore.",
+     "columns": [
+      {
+       "key": "q",
+       "label": "Quarter",
+       "format": "text"
+      },
+      {
+       "key": "rev",
+       "label": "Revenue ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "rev_yoy",
+       "label": "YoY",
+       "format": "pct"
+      },
+      {
+       "key": "rev_qoq",
+       "label": "QoQ",
+       "format": "pct"
+      },
+      {
+       "key": "ebitda",
+       "label": "EBITDA ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "ebitda_m",
+       "label": "EBITDA margin",
+       "format": "text"
+      },
+      {
+       "key": "pat",
+       "label": "PAT ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "pat_yoy",
+       "label": "PAT YoY",
+       "format": "pct"
+      },
+      {
+       "key": "pat_m",
+       "label": "PAT margin",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Sep 26",
+        "rev": "73,188",
+        "rev_yoy": 11.23,
+        "rev_qoq": 1.26,
+        "pat": "13,934",
+        "pat_yoy": 15.4,
+        "pat_m": "19.0%",
+        "src": "not stated",
+        "ebitda": "18,815",
+        "ebitda_m": "25.7%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Jun 26",
+        "rev": "72,275",
+        "rev_yoy": 13.93,
+        "rev_qoq": 2.23,
+        "pat": "13,349",
+        "pat_yoy": 4.62,
+        "pat_m": "18.5%",
+        "src": "not stated",
+        "ebitda": "18,556",
+        "ebitda_m": "25.7%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Mar 26",
+        "rev": "70,698",
+        "rev_yoy": 9.65,
+        "rev_qoq": 5.38,
+        "pat": "13,718",
+        "pat_yoy": 12.22,
+        "pat_m": "19.4%",
+        "src": "not stated",
+        "ebitda": "19,276",
+        "ebitda_m": "27.3%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Dec 25",
+        "rev": "67,087",
+        "rev_yoy": 4.87,
+        "rev_qoq": 1.96,
+        "pat": "10,657",
+        "pat_yoy": -13.92,
+        "pat_m": "15.9%",
+        "src": "not stated",
+        "ebitda": "18,269",
+        "ebitda_m": "27.2%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Sep 25",
+        "rev": "65,799",
+        "rev_yoy": null,
+        "rev_qoq": 3.72,
+        "pat": "12,075",
+        "pat_yoy": null,
+        "pat_m": "18.4%",
+        "src": "not stated",
+        "ebitda": "17,978",
+        "ebitda_m": "27.3%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Jun 25",
+        "rev": "63,437",
+        "rev_yoy": null,
+        "rev_qoq": -1.62,
+        "pat": "12,760",
+        "pat_yoy": null,
+        "pat_m": "20.1%",
+        "src": "not stated",
+        "ebitda": null,
+        "ebitda_m": null
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Mar 25",
+        "rev": "64,479",
+        "rev_yoy": null,
+        "rev_qoq": 0.79,
+        "pat": "12,224",
+        "pat_yoy": null,
+        "pat_m": "19.0%",
+        "src": "not stated",
+        "ebitda": null,
+        "ebitda_m": null
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Dec 24",
+        "rev": "63,973",
+        "rev_yoy": null,
+        "rev_qoq": null,
+        "pat": "12,380",
+        "pat_yoy": null,
+        "pat_m": "19.4%",
+        "src": "not stated",
+        "ebitda": null,
+        "ebitda_m": null
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "noebitda",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "EBITDA is not in our data for 3 of the 8 quarters shown."
+    },
+    {
+     "type": "ranked",
+     "id": "years",
+     "title": "Fiscal years",
+     "note": "ROE (computed) = PAT ÷ the average of the opening and closing equity, from filed balance sheets; blank when either balance sheet is not in our data.",
+     "columns": [
+      {
+       "key": "fy",
+       "label": "Year",
+       "format": "text"
+      },
+      {
+       "key": "rev",
+       "label": "Revenue ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "rev_yoy",
+       "label": "Revenue YoY",
+       "format": "pct"
+      },
+      {
+       "key": "pat",
+       "label": "PAT ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "pat_yoy",
+       "label": "PAT YoY",
+       "format": "pct"
+      },
+      {
+       "key": "ebitda_m",
+       "label": "EBITDA margin",
+       "format": "text"
+      },
+      {
+       "key": "roe",
+       "label": "ROE (computed)",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY26",
+        "rev": "2,67,021",
+        "rev_yoy": 4.58,
+        "pat": "49,454",
+        "pat_yoy": 1.35,
+        "roe": "48.4%",
+        "src": "not stated",
+        "ebitda_m": "27.1%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY25",
+        "rev": "2,55,324",
+        "rev_yoy": 5.99,
+        "pat": "48,797",
+        "pat_yoy": 5.85,
+        "roe": null,
+        "src": "not stated",
+        "ebitda_m": "26.4%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY24",
+        "rev": "2,40,893",
+        "rev_yoy": 6.85,
+        "pat": "46,099",
+        "pat_yoy": 8.97,
+        "roe": null,
+        "src": "not stated",
+        "ebitda_m": "26.7%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY23",
+        "rev": "2,25,458",
+        "rev_yoy": 17.58,
+        "pat": "42,303",
+        "pat_yoy": 10.02,
+        "roe": null,
+        "src": "not stated",
+        "ebitda_m": "26.3%"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY22",
+        "rev": "1,91,754",
+        "rev_yoy": 16.8,
+        "pat": "38,449",
+        "pat_yoy": 18.08,
+        "roe": null,
+        "src": "not stated",
+        "ebitda_m": "27.7%"
+       }
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "cagr",
+     "title": "Growth across the years shown",
+     "note": "Compound annual growth, first to last year shown.",
+     "items": [
+      {
+       "label": "Revenue CAGR",
+       "value": "+8.6%",
+       "sub": "FY22 to FY26, 4 years"
+      },
+      {
+       "label": "PAT CAGR",
+       "value": "+6.5%",
+       "sub": "FY22 to FY26, 4 years"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "depth",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Our data has 8 quarters (Dec 24 to Sep 26) and 12 fiscal years (FY15 to FY26) for TCS."
+    },
+    {
+     "type": "list",
+     "id": "gaps",
+     "title": "Not in our data",
+     "note": null,
+     "items": [
+      {
+       "text": "Segment revenue and profit (only in the company's filings and presentations)"
+      },
+      {
+       "text": "ROE and ROCE history: the platform keeps only the latest provider value; ROE above is computed from filed statements"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Quarterly results (nidp.nse_financials_quarterly)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "consolidated, filed 8 Oct 2026"
+     },
+     {
+      "name": "Annual results (nidp.nse_financials_quarterly, annual rows)",
+      "as_of": "2026-03-31",
+      "status": "fresh",
+      "note": "consolidated"
+     },
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine on 2 Nov 2026; ROE, ROCE, D/E, P/B and market cap from Trendlyne as of 12 Oct 2026"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the valuation of TCS?",
+     "query": "What is the valuation of TCS?"
+    },
+    {
+     "label": "What are the biggest risks for TCS?",
+     "query": "What are the biggest risks for TCS?"
+    },
+    {
+     "label": "Compare TCS with its peers",
+     "query": "Compare TCS with its peers"
+    },
+    {
+     "label": "How were TCS results?",
+     "query": "How were TCS results?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "valuation_view": {
+   "schema": "visual-answer-v1",
+   "intent": "valuation_view",
+   "title": "TCS · Valuation",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:37+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "TCS trades at 17.5× trailing earnings (2 Nov 2026), 26.6% below the median P/E of its sector label (23.9×); its P/E was lower on 68% of the 208 sessions since 29 Dec 2025.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "now",
+     "title": "Valuation now",
+     "note": null,
+     "items": [
+      {
+       "label": "P/E (trailing 12 months)",
+       "value": "17.5×",
+       "sub": "feature engine, 2 Nov 2026"
+      },
+      {
+       "label": "Sector median P/E",
+       "value": "23.9×",
+       "sub": "stocks under the sector label “IT”"
+      },
+      {
+       "label": "P/E vs sector median",
+       "value": "−26.6%",
+       "sub": "P/E ÷ sector median − 1"
+      },
+      {
+       "label": "P/B",
+       "value": "6.37×",
+       "sub": "Trendlyne, 12 Oct 2026"
+      },
+      {
+       "label": "Market cap",
+       "value": "₹7,68,844 Cr",
+       "sub": null
+      },
+      {
+       "label": "EV/EBITDA",
+       "value": "not in our data",
+       "sub": "no enterprise-value series is filled for any stock"
+      },
+      {
+       "label": "Dividend yield",
+       "value": "2.64%",
+       "sub": null
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "pe_range",
+     "title": "P/E since 29 Dec 2025",
+     "note": "The daily P/E the platform stored over 208 sessions, 29 Dec 2025 to 2 Nov 2026. The stored history starts there; an older range is not in our data.",
+     "unit": "×",
+     "orientation": "h",
+     "items": [
+      {
+       "label": "Lowest",
+       "value": 13.9,
+       "sub": "1 Jul 2026"
+      },
+      {
+       "label": "Median",
+       "value": 16.76
+      },
+      {
+       "label": "Highest",
+       "value": 23.1,
+       "sub": "7 Jan 2026"
+      },
+      {
+       "label": "Now",
+       "value": 17.54,
+       "sub": "2 Nov 2026",
+       "tone": "neutral"
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "pctile",
+     "title": "Today's P/E against its own history",
+     "note": null,
+     "items": [
+      {
+       "label": "Sessions with a lower P/E",
+       "value": "68%",
+       "sub": "142 of 208 sessions"
+      },
+      {
+       "label": "Average P/E",
+       "value": "17.2×",
+       "sub": "since 29 Dec 2025"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "scenarios",
+     "title": "Growth scenarios (arithmetic, not a forecast)",
+     "note": "If trailing earnings grew by each rate and the price stayed at the 2 Nov 2026 close, the P/E would be today's P/E ÷ (1 + growth). A scenario under stated assumptions; no price is projected.",
+     "columns": [
+      {
+       "key": "g",
+       "label": "Earnings growth",
+       "format": "text"
+      },
+      {
+       "key": "pe",
+       "label": "P/E at today's price",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "g": "15%",
+        "pe": "15.3×"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "g": "20%",
+        "pe": "14.6×"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "g": "25%",
+        "pe": "14.0×"
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "gaps",
+     "title": "Not in our data",
+     "note": null,
+     "items": [
+      {
+       "text": "EV/EBITDA: no enterprise-value series is filled for any stock"
+      },
+      {
+       "text": "P/E before 29 Dec 2025: the stored daily history starts there"
+      },
+      {
+       "text": "The growth a price implies (a valuation model with a discount rate) is not run here"
+      },
+      {
+       "text": "Forward P/E: no analyst consensus estimates are in our data"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine on 2 Nov 2026; ROE, ROCE, D/E, P/B and market cap from Trendlyne as of 12 Oct 2026"
+     },
+     {
+      "name": "Daily P/E history (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "208 sessions from 29 Dec 2025"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Compare TCS with its peers",
+     "query": "Compare TCS with its peers"
+    },
+    {
+     "label": "What is the financial trend of TCS?",
+     "query": "What is the financial trend of TCS?"
+    },
+    {
+     "label": "What are the biggest risks for TCS?",
+     "query": "What are the biggest risks for TCS?"
+    },
+    {
+     "label": "Has promoter holding of TCS changed over time?",
+     "query": "Has promoter holding of TCS changed over time?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "ownership_trend": {
+   "schema": "visual-answer-v1",
+   "intent": "ownership_trend",
+   "title": "ICICIBANK · Ownership",
+   "as_of": "2026-09-30",
+   "generated_at": "2026-11-03T00:15:36+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "ICICIBANK at Sep 26, percent of shares: FIIs 34.68% (+0.89 pp); DIIs 41.78% (−0.54 pp) (change from Jun 26 in brackets).",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "missing-0",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Mutual-fund holdings by fund house (nidp.mf_holdings_deltas) is not available (the data platform does not serve the fund-house view yet (HTTP 404)), so its figures are left out."
+    },
+    {
+     "type": "kpis",
+     "id": "latest",
+     "title": "Shareholding · Sep 26",
+     "note": null,
+     "items": [
+      {
+       "label": "Promoters · Sep 26",
+       "value": "not reported",
+       "sub": null
+      },
+      {
+       "label": "FIIs · Sep 26",
+       "value": "34.68%",
+       "sub": "+0.89 pp vs Jun 26 · −10.88 pp vs Sep 25"
+      },
+      {
+       "label": "DIIs · Sep 26",
+       "value": "41.78%",
+       "sub": "−0.54 pp vs Jun 26 · −3.28 pp vs Sep 25"
+      },
+      {
+       "label": "Mutual funds · Sep 26",
+       "value": "29.39%",
+       "sub": "no earlier quarter to compare"
+      },
+      {
+       "label": "Pledged (of promoter shares)",
+       "value": "not reported",
+       "sub": "NSE's filing reports pledge; a blank is not reported, not zero"
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "change",
+     "title": "Change from Dec 24 to Sep 26",
+     "note": "Percentage points of the company's shares.",
+     "unit": "pp",
+     "orientation": "h",
+     "items": [
+      {
+       "label": "FIIs",
+       "value": -11.02
+      },
+      {
+       "label": "DIIs",
+       "value": -3.17
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "quarters",
+     "title": "Quarter by quarter",
+     "note": "Percent of the company's shares. Δ is the change from the previous quarter in percentage points. A blank is not reported for that quarter, not zero.",
+     "columns": [
+      {
+       "key": "q",
+       "label": "Quarter",
+       "format": "text"
+      },
+      {
+       "key": "prom",
+       "label": "Promoters",
+       "format": "text"
+      },
+      {
+       "key": "d_prom",
+       "label": "Δ",
+       "format": "text"
+      },
+      {
+       "key": "fii",
+       "label": "FIIs",
+       "format": "text"
+      },
+      {
+       "key": "d_fii",
+       "label": "Δ",
+       "format": "text"
+      },
+      {
+       "key": "dii",
+       "label": "DIIs",
+       "format": "text"
+      },
+      {
+       "key": "d_dii",
+       "label": "Δ",
+       "format": "text"
+      },
+      {
+       "key": "mf",
+       "label": "MFs",
+       "format": "text"
+      },
+      {
+       "key": "pledge",
+       "label": "Pledged (of promoter)",
+       "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Sep 26",
+        "prom": null,
+        "d_prom": null,
+        "fii": "34.68%",
+        "d_fii": "+0.89 pp",
+        "dii": "41.78%",
+        "d_dii": "−0.54 pp",
+        "mf": "29.39%",
+        "pledge": null,
+        "src": "NSE filing + screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Jun 26",
+        "prom": null,
+        "d_prom": null,
+        "fii": "33.79%",
+        "d_fii": "−0.69 pp",
+        "dii": "42.32%",
+        "d_dii": "+2.38 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Mar 26",
+        "prom": null,
+        "d_prom": null,
+        "fii": "34.48%",
+        "d_fii": "−9.39 pp",
+        "dii": "39.94%",
+        "d_dii": "−6.80 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Dec 25",
+        "prom": null,
+        "d_prom": null,
+        "fii": "43.87%",
+        "d_fii": "−1.69 pp",
+        "dii": "46.74%",
+        "d_dii": "+1.68 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Sep 25",
+        "prom": null,
+        "d_prom": null,
+        "fii": "45.56%",
+        "d_fii": "−1.21 pp",
+        "dii": "45.06%",
+        "d_dii": "+1.15 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Jun 25",
+        "prom": null,
+        "d_prom": null,
+        "fii": "46.77%",
+        "d_fii": "+0.94 pp",
+        "dii": "43.91%",
+        "d_dii": "−0.86 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Mar 25",
+        "prom": null,
+        "d_prom": null,
+        "fii": "45.83%",
+        "d_fii": "+0.13 pp",
+        "dii": "44.77%",
+        "d_dii": "−0.18 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "q": "Dec 24",
+        "prom": null,
+        "d_prom": null,
+        "fii": "45.70%",
+        "d_fii": "−0.52 pp",
+        "dii": "44.95%",
+        "d_dii": "+0.78 pp",
+        "mf": null,
+        "pledge": null,
+        "src": "screener.in"
+       }
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "depth",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Our data has 12 quarters of shareholding for ICICIBANK (Dec 23 to Sep 26)."
+    },
+    {
+     "type": "notice",
+     "id": "conflict-fii_pct",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "For Sep 26, NSE's filing puts ICICIBANK's FII holding at 50.44% and screener.in at 34.68%: the two sources define it differently for this company. The series uses screener.in, which carries the earlier quarters, and no change is computed across the two sources."
+    },
+    {
+     "type": "notice",
+     "id": "jumps",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Unusually large one-quarter changes for ICICIBANK: FIIs −9.39 pp (Dec 25 to Mar 26); DIIs −6.80 pp (Dec 25 to Mar 26). A move of more than 5 points can be real, or a change in how the source classifies holders; check the company's shareholding filings for those quarters."
+    },
+    {
+     "type": "notice",
+     "id": "pledge-dropped",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "NSE's filing carries a pledge figure for ICICIBANK (Jun 26) that does not agree with the promoter holding (or no promoter group is reported), so it is not shown."
+    },
+    {
+     "type": "list",
+     "id": "gaps",
+     "title": "Not in our data",
+     "note": null,
+     "items": [
+      {
+       "text": "Promoter trades one by one: the insider-trading table is empty; the exchange filings (ask for ownership filings) list SAST and pledge disclosures"
+      },
+      {
+       "text": "Which FIIs entered or exited: FII holdings are reported only as a category total"
+      },
+      {
+       "text": "Mutual-fund holdings before September 2025"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Shareholding pattern (nidp.shareholding_pattern)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "12 quarters; NSE filing and screener.in, field by field"
+     },
+     {
+      "name": "Mutual-fund holdings by fund house (nidp.mf_holdings_deltas)",
+      "as_of": null,
+      "status": "missing",
+      "note": "the data platform does not serve the fund-house view yet (HTTP 404)"
+     }
+    ],
+    "stale": false,
+    "missing": [
+     "Mutual-fund holdings by fund house (nidp.mf_holdings_deltas): the data platform does not serve the fund-house view yet (HTTP 404)"
+    ]
+   },
+   "follow_ups": [
+    {
+     "label": "Any ownership filings for ICICIBANK?",
+     "query": "Any ownership filings for ICICIBANK?"
+    },
+    {
+     "label": "What are the biggest risks for ICICIBANK?",
+     "query": "What are the biggest risks for ICICIBANK?"
+    },
+    {
+     "label": "What is the valuation of ICICIBANK?",
+     "query": "What is the valuation of ICICIBANK?"
+    },
+    {
+     "label": "Compare ICICIBANK with its peers",
+     "query": "Compare ICICIBANK with its peers"
+    }
+   ],
+   "caveat": "Data up to 30 Sep 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "peer_compare": {
+   "schema": "visual-answer-v1",
+   "intent": "peer_compare",
+   "title": "TCS · Peer comparison",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:32+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "8 companies compared on their latest filed quarter and the platform's latest ratios; TCS's P/E is 17.5× against a median of 22.5× for the set.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "peers",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Peers are the largest stocks our data files under the same sector label (“IT”), by market cap. The sector map covers 545 of 2,488 stocks, so a listed peer outside it is missing here."
+    },
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The comparison",
+     "note": null,
+     "items": [
+      {
+       "label": "Companies compared",
+       "value": "8",
+       "sub": "sector label “IT”"
+      },
+      {
+       "label": "Median P/E of the set",
+       "value": "22.5×",
+       "sub": "8 with a positive P/E"
+      },
+      {
+       "label": "TCS P/E vs the set's median",
+       "value": "−22.0%",
+       "sub": "P/E ÷ median − 1"
+      },
+      {
+       "label": "Median ROE of the set",
+       "value": "23.0%",
+       "sub": "8 with an ROE"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "growth",
+     "title": "Growth, margins and returns",
+     "note": "Growth and margin from each company's latest filed quarter against the same quarter a year earlier (the quarter is shown per row). ROE, ROCE and debt / equity are the provider's latest values.",
+     "columns": [
+      {
+       "key": "co",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "q",
+       "label": "Latest quarter",
+       "format": "text"
+      },
+      {
+       "key": "rev_yoy",
+       "label": "Revenue YoY",
+       "format": "pct"
+      },
+      {
+       "key": "pat_yoy",
+       "label": "PAT YoY",
+       "format": "pct"
+      },
+      {
+       "key": "ebitda_m",
+       "label": "EBITDA margin",
+       "format": "text"
+      },
+      {
+       "key": "roe",
+       "label": "ROE",
+       "format": "text"
+      },
+      {
+       "key": "roce",
+       "label": "ROCE",
+       "format": "text"
+      },
+      {
+       "key": "de",
+       "label": "Debt / equity",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "TCS",
+       "badge": "This company",
+       "ask": "What is the financial trend of TCS?",
+       "cells": {
+        "co": "TCS",
+        "q": "Sep 26",
+        "rev_yoy": 11.23,
+        "pat_yoy": 15.4,
+        "roe": "45.9%",
+        "roce": "58.6%",
+        "de": "0.00×",
+        "ebitda_m": "25.7%"
+       }
+      },
+      {
+       "symbol": "INFY",
+       "badge": null,
+       "ask": "What is the financial trend of INFY?",
+       "cells": {
+        "co": "INFY",
+        "q": "Sep 26",
+        "rev_yoy": 10.69,
+        "pat_yoy": 6.44,
+        "roe": "31.7%",
+        "roce": "40.2%",
+        "de": "0.00×",
+        "ebitda_m": "23.7%"
+       }
+      },
+      {
+       "symbol": "HCLTECH",
+       "badge": null,
+       "ask": "What is the financial trend of HCLTECH?",
+       "cells": {
+        "co": "HCLTECH",
+        "q": "Sep 26",
+        "rev_yoy": 11.51,
+        "pat_yoy": 21.18,
+        "roe": "22.1%",
+        "roce": "28.3%",
+        "de": "0.00×",
+        "ebitda_m": "21.0%"
+       }
+      },
+      {
+       "symbol": "WIPRO",
+       "badge": null,
+       "ask": "What is the financial trend of WIPRO?",
+       "cells": {
+        "co": "WIPRO",
+        "q": "Sep 26",
+        "rev_yoy": 9.06,
+        "pat_yoy": -1.42,
+        "roe": "15.0%",
+        "roce": "18.6%",
+        "de": "0.19×",
+        "ebitda_m": "19.6%"
+       }
+      },
+      {
+       "symbol": "TECHM",
+       "badge": null,
+       "ask": "What is the financial trend of TECHM?",
+       "cells": {
+        "co": "TECHM",
+        "q": "Sep 26",
+        "rev_yoy": 15.61,
+        "pat_yoy": 34.78,
+        "roe": "16.2%",
+        "roce": "20.6%",
+        "de": "0.00×",
+        "ebitda_m": "17.8%"
+       }
+      },
+      {
+       "symbol": "LTM",
+       "badge": null,
+       "ask": "What is the financial trend of LTM?",
+       "cells": {
+        "co": "LTM",
+        "q": "Sep 26",
+        "rev_yoy": 13.6,
+        "pat_yoy": -1.51,
+        "roe": "20.9%",
+        "roce": "27.7%",
+        "de": "0.00×",
+        "ebitda_m": "17.7%"
+       }
+      },
+      {
+       "symbol": "PERSISTENT",
+       "badge": null,
+       "ask": "What is the financial trend of PERSISTENT?",
+       "cells": {
+        "co": "PERSISTENT",
+        "q": "Sep 26",
+        "rev_yoy": 30.25,
+        "pat_yoy": -25.34,
+        "roe": "23.8%",
+        "roce": "30.4%",
+        "de": "0.00×",
+        "ebitda_m": "13.6%"
+       }
+      },
+      {
+       "symbol": "OFSS",
+       "badge": null,
+       "ask": "What is the financial trend of OFSS?",
+       "cells": {
+        "co": "OFSS",
+        "q": "Sep 26",
+        "rev_yoy": 6.61,
+        "pat_yoy": 28.55,
+        "roe": "33.7%",
+        "roce": "43.2%",
+        "de": "0.00×",
+        "ebitda_m": "48.6%"
+       }
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "value",
+     "title": "Valuation and ownership",
+     "note": "P/E is trailing twelve months; holdings are percent of shares at the latest quarter the provider reports.",
+     "columns": [
+      {
+       "key": "co",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "mcap",
+       "label": "Mkt cap ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "pe",
+       "label": "P/E",
+       "format": "text"
+      },
+      {
+       "key": "pb",
+       "label": "P/B",
+       "format": "text"
+      },
+      {
+       "key": "prom",
+       "label": "Promoters",
+       "format": "text"
+      },
+      {
+       "key": "fii",
+       "label": "FIIs",
+       "format": "text"
+      },
+      {
+       "key": "dii",
+       "label": "DIIs",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "TCS",
+       "badge": "This company",
+       "ask": "What is the valuation of TCS?",
+       "cells": {
+        "co": "TCS",
+        "mcap": "7,68,844",
+        "pe": "17.5×",
+        "pb": "6.37×",
+        "prom": "71.77%",
+        "fii": "9.01%",
+        "dii": "13.57%"
+       }
+      },
+      {
+       "symbol": "INFY",
+       "badge": null,
+       "ask": "What is the valuation of INFY?",
+       "cells": {
+        "co": "INFY",
+        "mcap": "4,13,944",
+        "pe": "15.4×",
+        "pb": "4.11×",
+        "prom": "13.90%",
+        "fii": "27.44%",
+        "dii": "42.66%"
+       }
+      },
+      {
+       "symbol": "HCLTECH",
+       "badge": null,
+       "ask": "What is the valuation of HCLTECH?",
+       "cells": {
+        "co": "HCLTECH",
+        "mcap": "3,31,881",
+        "pe": "21.2×",
+        "pb": "4.16×",
+        "prom": "60.88%",
+        "fii": "15.33%",
+        "dii": "18.94%"
+       }
+      },
+      {
+       "symbol": "WIPRO",
+       "badge": null,
+       "ask": "What is the valuation of WIPRO?",
+       "cells": {
+        "co": "WIPRO",
+        "mcap": "1,60,268",
+        "pe": "15.4×",
+        "pb": "1.76×",
+        "prom": "72.57%",
+        "fii": "9.46%",
+        "dii": "5.14%"
+       }
+      },
+      {
+       "symbol": "TECHM",
+       "badge": null,
+       "ask": "What is the valuation of TECHM?",
+       "cells": {
+        "co": "TECHM",
+        "mcap": "1,44,181",
+        "pe": "29.5×",
+        "pb": "4.63×",
+        "prom": "34.96%",
+        "fii": "20.77%",
+        "dii": "35.68%"
+       }
+      },
+      {
+       "symbol": "LTM",
+       "badge": null,
+       "ask": "What is the valuation of LTM?",
+       "cells": {
+        "co": "LTM",
+        "mcap": "1,19,209",
+        "pe": "24.0×",
+        "pb": "4.68×",
+        "prom": "69.01%",
+        "fii": "6.15%",
+        "dii": "16.84%"
+       }
+      },
+      {
+       "symbol": "PERSISTENT",
+       "badge": null,
+       "ask": "What is the valuation of PERSISTENT?",
+       "cells": {
+        "co": "PERSISTENT",
+        "mcap": "90,740",
+        "pe": "52.6×",
+        "pb": "10.91×",
+        "prom": "30.29%",
+        "fii": "20.79%",
+        "dii": "31.96%"
+       }
+      },
+      {
+       "symbol": "OFSS",
+       "badge": null,
+       "ask": "What is the valuation of OFSS?",
+       "cells": {
+        "co": "OFSS",
+        "mcap": "90,238",
+        "pe": "23.8×",
+        "pb": "9.76×",
+        "prom": "72.39%",
+        "fii": "11.43%",
+        "dii": "7.76%"
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "extremes",
+     "title": "Highest and lowest in this set",
+     "note": "A position in this set, not a ranking of the companies.",
+     "items": [
+      {
+       "text": "Revenue growth YoY: highest PERSISTENT (+30.2%), lowest OFSS (+6.6%); 8 of 8 have it."
+      },
+      {
+       "text": "EBITDA margin: highest OFSS (48.6%), lowest PERSISTENT (13.6%); 8 of 8 have it."
+      },
+      {
+       "text": "ROE: highest TCS (45.9%), lowest WIPRO (15.0%); 8 of 8 have it."
+      },
+      {
+       "text": "Debt / equity: highest WIPRO (0.19×), lowest TCS (0.00×); 8 of 8 have it."
+      },
+      {
+       "text": "P/E: highest PERSISTENT (52.6×), lowest INFY (15.4×); 8 of 8 have it."
+      },
+      {
+       "text": "FII holding: highest INFY (27.44%), lowest LTM (6.15%); 8 of 8 have it."
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Sector map (nidp.stock_features_daily sector label; nidp.index_constituents industry)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "545 of 2,488 stocks carry a sector label"
+     },
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine; ROE, ROCE, D/E, P/B, market cap and holdings from the provider row of each stock"
+     },
+     {
+      "name": "Quarterly results (nidp.nse_financials_quarterly)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "each company's latest quarter, shown per row"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the valuation of TCS?",
+     "query": "What is the valuation of TCS?"
+    },
+    {
+     "label": "What is the financial trend of TCS?",
+     "query": "What is the financial trend of TCS?"
+    },
+    {
+     "label": "What are the biggest risks for TCS?",
+     "query": "What are the biggest risks for TCS?"
+    },
+    {
+     "label": "Has promoter holding of TCS changed over time?",
+     "query": "Has promoter holding of TCS changed over time?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "company_risks": {
+   "schema": "visual-answer-v1",
+   "intent": "company_risks",
+   "title": "TCS · Financial health and risk checks",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:32+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "None of the 7 checks that could run is flagged for TCS; 6 could not run for lack of data.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "missing-0",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Cash-flow statements (nidp.nse_financials_cashflow) is not available (the data platform does not serve cash-flow statements yet (HTTP 404)), so its figures are left out."
+    },
+    {
+     "type": "notice",
+     "id": "bs_not_served",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Current assets and liabilities, receivables and inventory are not served by the data platform yet, so the liquidity, receivables and working-capital checks show no figure."
+    },
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The checks",
+     "note": "A flag is a prompt to read further, not a verdict on the company.",
+     "items": [
+      {
+       "label": "Flagged",
+       "value": "0 of 7",
+       "sub": "checks that could run",
+       "tone": null
+      },
+      {
+       "label": "No data",
+       "value": "6",
+       "sub": "checks without the figures they need"
+      },
+      {
+       "label": "Latest balance sheet",
+       "value": "Sep 26",
+       "sub": "filed 8 Oct 2026"
+      },
+      {
+       "label": "Latest cash-flow year",
+       "value": "not in our data",
+       "sub": null
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "checks",
+     "title": "Checks, in a fixed order",
+     "note": "Each rule is printed beside its result.",
+     "columns": [
+      {
+       "key": "check",
+       "label": "Check",
+       "format": "text"
+      },
+      {
+       "key": "value",
+       "label": "Value",
+       "format": "text"
+      },
+      {
+       "key": "rule",
+       "label": "Rule",
+       "format": "text"
+      },
+      {
+       "key": "result",
+       "label": "Result",
+       "format": "text"
+      },
+      {
+       "key": "when",
+       "label": "Period",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt to equity",
+        "value": "0.00× (₹0 Cr debt)",
+        "rule": "above 1.0×",
+        "result": "Within the rule",
+        "when": "Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt growth vs profit growth",
+        "value": "no debt at either date",
+        "rule": "debt up over 20%, faster than PAT, and at least 0.1× equity",
+        "result": "Within the rule",
+        "when": "Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Interest cover",
+        "value": "54.4×",
+        "rule": "below 3×",
+        "result": "Within the rule",
+        "when": "FY26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Current ratio",
+        "value": "not served by the data platform yet",
+        "rule": "below 1.0×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Cash from operations ÷ PAT",
+        "value": "not served by the data platform yet",
+        "rule": "below 0.8×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "PAT growth vs cash-flow growth",
+        "value": "not served by the data platform yet",
+        "rule": "PAT growth over 20 points above CFO growth",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Free cash flow",
+        "value": "not served by the data platform yet",
+        "rule": "negative",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Receivables vs revenue growth",
+        "value": "not served by the data platform yet",
+        "rule": "receivables growth over 15 points above revenue growth",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Working capital days",
+        "value": "not served by the data platform yet",
+        "rule": "up more than 15 days of revenue in a year",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter pledge",
+        "value": "0.68% of promoter shares",
+        "rule": "above 10% of promoter shares",
+        "result": "Within the rule",
+        "when": "Jun 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter holding change",
+        "value": "±0.00 pp to 71.77%",
+        "rule": "down more than 2 points in four quarters",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "EBITDA margin trend",
+        "value": "25.7% vs 27.3%",
+        "rule": "down more than 3 points",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Piotroski F-score",
+        "value": "4 of 9 (Trendlyne)",
+        "rule": "3 or below (of 9)",
+        "result": "Within the rule",
+        "when": "12 Oct 2026"
+       }
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "balance",
+     "title": "Balance sheets (filed half-yearly)",
+     "note": "Debt = long-term + short-term borrowings. A blank is not in our data, not zero.",
+     "columns": [
+      {
+       "key": "p",
+       "label": "Balance sheet",
+       "format": "text"
+      },
+      {
+       "key": "eq",
+       "label": "Equity ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "debt",
+       "label": "Debt ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "cash",
+       "label": "Cash ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Sep 26",
+        "eq": "1,19,994",
+        "debt": "0",
+        "cash": "5,106",
+        "src": "filed (not stated row)"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Mar 26",
+        "eq": "1,08,478",
+        "debt": "0",
+        "cash": "6,417",
+        "src": "filed (not stated row)"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Sep 25",
+        "eq": "1,07,461",
+        "debt": "0",
+        "cash": "6,358",
+        "src": "filed (not stated row)"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Mar 25",
+        "eq": "95,771",
+        "debt": "0",
+        "cash": "8,342",
+        "src": "filed (not stated row)"
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "cannot",
+     "title": "Cannot be checked here",
+     "note": null,
+     "items": [
+      {
+       "text": "Related-party transactions (only in the annual report's notes)"
+      },
+      {
+       "text": "When the debt matures (only in the annual report's notes)"
+      },
+      {
+       "text": "Auditor remarks and contingent liabilities (only in the annual report)"
+      },
+      {
+       "text": "A ranking of risks by potential impact: there is no stated method for it, so the checks are listed in a fixed order"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Quarterly results (nidp.nse_financials_quarterly)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "consolidated, filed 8 Oct 2026"
+     },
+     {
+      "name": "Annual results (nidp.nse_financials_quarterly, annual rows)",
+      "as_of": "2026-03-31",
+      "status": "fresh",
+      "note": "consolidated"
+     },
+     {
+      "name": "Cash-flow statements (nidp.nse_financials_cashflow)",
+      "as_of": null,
+      "status": "missing",
+      "note": "the data platform does not serve cash-flow statements yet (HTTP 404)"
+     },
+     {
+      "name": "Shareholding pattern (nidp.shareholding_pattern)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "NSE filing and screener.in, field by field"
+     },
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine on 2 Nov 2026; ROE, ROCE, D/E, P/B and market cap from Trendlyne as of 12 Oct 2026"
+     }
+    ],
+    "stale": false,
+    "missing": [
+     "Cash-flow statements (nidp.nse_financials_cashflow): the data platform does not serve cash-flow statements yet (HTTP 404)"
+    ]
+   },
+   "follow_ups": [
+    {
+     "label": "What is the financial trend of TCS?",
+     "query": "What is the financial trend of TCS?"
+    },
+    {
+     "label": "Has promoter holding of TCS changed over time?",
+     "query": "Has promoter holding of TCS changed over time?"
+    },
+    {
+     "label": "What is the valuation of TCS?",
+     "query": "What is the valuation of TCS?"
+    },
+    {
+     "label": "Any ownership filings for TCS?",
+     "query": "Any ownership filings for TCS?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "peer_compare:named_banks": {
+   "schema": "visual-answer-v1",
+   "intent": "peer_compare",
+   "title": "HDFCBANK vs ICICIBANK vs AXISBANK · Comparison",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:37+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "3 companies compared on their latest filed quarter and the platform's latest ratios; HDFCBANK's P/E is 13.8× against a median of 13.6× for the set.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The comparison",
+     "note": null,
+     "items": [
+      {
+       "label": "Companies compared",
+       "value": "3",
+       "sub": "as named"
+      },
+      {
+       "label": "Median P/E of the set",
+       "value": "13.6×",
+       "sub": "2 with a positive P/E"
+      },
+      {
+       "label": "HDFCBANK P/E vs the set's median",
+       "value": "+1.2%",
+       "sub": "P/E ÷ median − 1"
+      },
+      {
+       "label": "Median ROE of the set",
+       "value": "13.0%",
+       "sub": "3 with an ROE"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "growth",
+     "title": "Growth, margins and returns",
+     "note": "Growth and margin from each company's latest filed quarter against the same quarter a year earlier (the quarter is shown per row). ROE, ROCE and debt / equity are the provider's latest values.",
+     "columns": [
+      {
+       "key": "co",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "q",
+       "label": "Latest quarter",
+       "format": "text"
+      },
+      {
+       "key": "rev_yoy",
+       "label": "Revenue YoY",
+       "format": "pct"
+      },
+      {
+       "key": "pat_yoy",
+       "label": "PAT YoY",
+       "format": "pct"
+      },
+      {
+       "key": "roe",
+       "label": "ROE",
+       "format": "text"
+      },
+      {
+       "key": "roce",
+       "label": "ROCE",
+       "format": "text"
+      },
+      {
+       "key": "de",
+       "label": "Debt / equity",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "HDFCBANK",
+       "badge": null,
+       "ask": "What is the financial trend of HDFCBANK?",
+       "cells": {
+        "co": "HDFCBANK",
+        "q": "Sep 26",
+        "rev_yoy": 3.67,
+        "pat_yoy": 18.37,
+        "roe": "13.0%",
+        "roce": "6.8%",
+        "de": "1.00×"
+       }
+      },
+      {
+       "symbol": "ICICIBANK",
+       "badge": null,
+       "ask": "What is the financial trend of ICICIBANK?",
+       "cells": {
+        "co": "ICICIBANK",
+        "q": "Sep 26",
+        "rev_yoy": null,
+        "pat_yoy": null,
+        "roe": "15.1%",
+        "roce": "6.3%",
+        "de": "0.61×"
+       }
+      },
+      {
+       "symbol": "AXISBANK",
+       "badge": null,
+       "ask": "What is the financial trend of AXISBANK?",
+       "cells": {
+        "co": "AXISBANK",
+        "q": "Sep 26",
+        "rev_yoy": null,
+        "pat_yoy": 22.78,
+        "roe": "12.3%",
+        "roce": "6.6%",
+        "de": "1.30×"
+       }
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "value",
+     "title": "Valuation and ownership",
+     "note": "P/E is trailing twelve months; holdings are percent of shares at the latest quarter the provider reports.",
+     "columns": [
+      {
+       "key": "co",
+       "label": "Company",
+       "format": "text"
+      },
+      {
+       "key": "mcap",
+       "label": "Mkt cap ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "pe",
+       "label": "P/E",
+       "format": "text"
+      },
+      {
+       "key": "pb",
+       "label": "P/B",
+       "format": "text"
+      },
+      {
+       "key": "prom",
+       "label": "Promoters",
+       "format": "text"
+      },
+      {
+       "key": "fii",
+       "label": "FIIs",
+       "format": "text"
+      },
+      {
+       "key": "dii",
+       "label": "DIIs",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "HDFCBANK",
+       "badge": null,
+       "ask": "What is the valuation of HDFCBANK?",
+       "cells": {
+        "co": "HDFCBANK",
+        "mcap": "10,86,857",
+        "pe": "13.8×",
+        "pb": "1.81×",
+        "prom": null,
+        "fii": "39.40%",
+        "dii": "43.63%"
+       }
+      },
+      {
+       "symbol": "ICICIBANK",
+       "badge": null,
+       "ask": "What is the valuation of ICICIBANK?",
+       "cells": {
+        "co": "ICICIBANK",
+        "mcap": "9,61,990",
+        "pe": null,
+        "pb": "2.55×",
+        "prom": null,
+        "fii": "34.68%",
+        "dii": "41.77%"
+       }
+      },
+      {
+       "symbol": "AXISBANK",
+       "badge": null,
+       "ask": "What is the valuation of AXISBANK?",
+       "cells": {
+        "co": "AXISBANK",
+        "mcap": "3,90,156",
+        "pe": "13.5×",
+        "pb": "1.76×",
+        "prom": "7.86%",
+        "fii": "38.05%",
+        "dii": "44.54%"
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "extremes",
+     "title": "Highest and lowest in this set",
+     "note": "A position in this set, not a ranking of the companies.",
+     "items": [
+      {
+       "text": "ROE: highest ICICIBANK (15.1%), lowest AXISBANK (12.3%); 3 of 3 have it."
+      },
+      {
+       "text": "Debt / equity: highest AXISBANK (1.30×), lowest ICICIBANK (0.61×); 3 of 3 have it."
+      },
+      {
+       "text": "P/E: highest HDFCBANK (13.8×), lowest AXISBANK (13.5×); 2 of 3 have it."
+      },
+      {
+       "text": "FII holding: highest HDFCBANK (39.40%), lowest ICICIBANK (34.68%); 3 of 3 have it."
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "lender",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Asset quality (GNPA, NNPA), CASA and capital adequacy are not in our data, so a bank comparison here covers growth, returns, valuation and ownership only. EBITDA margin is left out: it is not a measure for a lender."
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine; ROE, ROCE, D/E, P/B, market cap and holdings from the provider row of each stock"
+     },
+     {
+      "name": "Quarterly results (nidp.nse_financials_quarterly)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "each company's latest quarter, shown per row"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the valuation of HDFCBANK?",
+     "query": "What is the valuation of HDFCBANK?"
+    },
+    {
+     "label": "What is the financial trend of HDFCBANK?",
+     "query": "What is the financial trend of HDFCBANK?"
+    },
+    {
+     "label": "What are the biggest risks for HDFCBANK?",
+     "query": "What are the biggest risks for HDFCBANK?"
+    },
+    {
+     "label": "Has promoter holding of HDFCBANK changed over time?",
+     "query": "Has promoter holding of HDFCBANK changed over time?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "company_risks:route_sql": {
+   "schema": "visual-answer-v1",
+   "intent": "company_risks",
+   "title": "ADANIPORTS · Financial health and risk checks",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:38+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "1 of the 13 checks that could run is flagged for ADANIPORTS: Current ratio.",
+    "tone": "warn"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The checks",
+     "note": "A flag is a prompt to read further, not a verdict on the company.",
+     "items": [
+      {
+       "label": "Flagged",
+       "value": "1 of 13",
+       "sub": "checks that could run",
+       "tone": "warn"
+      },
+      {
+       "label": "No data",
+       "value": "0",
+       "sub": "checks without the figures they need"
+      },
+      {
+       "label": "Latest balance sheet",
+       "value": "Sep 26",
+       "sub": "filed 28 Oct 2026"
+      },
+      {
+       "label": "Latest cash-flow year",
+       "value": "FY26",
+       "sub": null
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "checks",
+     "title": "Checks, in a fixed order",
+     "note": "Each rule is printed beside its result.",
+     "columns": [
+      {
+       "key": "check",
+       "label": "Check",
+       "format": "text"
+      },
+      {
+       "key": "value",
+       "label": "Value",
+       "format": "text"
+      },
+      {
+       "key": "rule",
+       "label": "Rule",
+       "format": "text"
+      },
+      {
+       "key": "result",
+       "label": "Result",
+       "format": "text"
+      },
+      {
+       "key": "when",
+       "label": "Period",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt to equity",
+        "value": "0.55× (₹57,717 Cr debt)",
+        "rule": "above 1.0×",
+        "result": "Within the rule",
+        "when": "Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt growth vs profit growth",
+        "value": "debt +13.0% to ₹57,717 Cr (0.55× equity); PAT +15.6% (FY26)",
+        "rule": "debt up over 20%, faster than PAT, and at least 0.1× equity",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Interest cover",
+        "value": "4.2×",
+        "rule": "below 3×",
+        "result": "Within the rule",
+        "when": "FY26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": "warn",
+       "cells": {
+        "check": "Current ratio",
+        "value": "0.78×",
+        "rule": "below 1.0×",
+        "result": "Flagged",
+        "when": "Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Cash from operations ÷ PAT",
+        "value": "1.59× (₹20,356 Cr ÷ ₹12,782 Cr)",
+        "rule": "below 0.8×",
+        "result": "Within the rule",
+        "when": "FY26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "PAT growth vs cash-flow growth",
+        "value": "PAT +15.6%, CFO +18.2%",
+        "rule": "PAT growth over 20 points above CFO growth",
+        "result": "Within the rule",
+        "when": "FY25 to FY26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Free cash flow",
+        "value": "₹5,036 Cr (CFO ₹20,356 Cr, capex −₹15,320 Cr)",
+        "rule": "negative",
+        "result": "Within the rule",
+        "when": "FY26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Receivables vs revenue growth",
+        "value": "receivables +23.6%, revenue (12 months) +22.6%",
+        "rule": "receivables growth over 15 points above revenue growth",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Working capital days",
+        "value": "−96 days (a year earlier −11)",
+        "rule": "up more than 15 days of revenue in a year",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter pledge",
+        "value": "1.14% of promoter shares",
+        "rule": "above 10% of promoter shares",
+        "result": "Within the rule",
+        "when": "Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter holding change",
+        "value": "+0.14 pp to 66.03%",
+        "rule": "down more than 2 points in four quarters",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "EBITDA margin trend",
+        "value": "60.0% vs 60.5%",
+        "rule": "down more than 3 points",
+        "result": "Within the rule",
+        "when": "Sep 25 to Sep 26"
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Piotroski F-score",
+        "value": "6 of 9 (Trendlyne)",
+        "rule": "3 or below (of 9)",
+        "result": "Within the rule",
+        "when": "12 Oct 2026"
+       }
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "cash",
+     "title": "Cash flow by fiscal year",
+     "note": "₹ crore as filed. Free cash flow = cash from operations + capex (capex is filed as a negative outflow).",
+     "columns": [
+      {
+       "key": "fy",
+       "label": "Year",
+       "format": "text"
+      },
+      {
+       "key": "cfo",
+       "label": "CFO ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "pat",
+       "label": "PAT ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "ratio",
+       "label": "CFO ÷ PAT",
+       "format": "text"
+      },
+      {
+       "key": "capex",
+       "label": "Capex ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "fcf",
+       "label": "Free cash flow ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY26",
+        "cfo": "20,356",
+        "pat": "12,782",
+        "ratio": "1.59×",
+        "capex": "−15,320",
+        "fcf": "5,036",
+        "src": "TrueData"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "fy": "FY25",
+        "cfo": "17,226",
+        "pat": "11,061",
+        "ratio": "1.56×",
+        "capex": "−8,049",
+        "fcf": "9,177",
+        "src": "TrueData"
+       }
+      }
+     ]
+    },
+    {
+     "type": "bars",
+     "id": "cfo_pat",
+     "title": "Cash from operations ÷ PAT",
+     "note": "1× (dashed) = every rupee of profit arrived as operating cash.",
+     "unit": "×",
+     "orientation": "v",
+     "baseline": 1.0,
+     "items": [
+      {
+       "label": "FY25",
+       "value": 1.56
+      },
+      {
+       "label": "FY26",
+       "value": 1.59
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "balance",
+     "title": "Balance sheets (filed half-yearly)",
+     "note": "Debt = long-term + short-term borrowings. A blank is not in our data, not zero.",
+     "columns": [
+      {
+       "key": "p",
+       "label": "Balance sheet",
+       "format": "text"
+      },
+      {
+       "key": "eq",
+       "label": "Equity ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "debt",
+       "label": "Debt ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "cash",
+       "label": "Cash ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "cr",
+       "label": "Current ratio",
+       "format": "text"
+      },
+      {
+       "key": "rec",
+       "label": "Receivables ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "inv",
+       "label": "Inventory ₹Cr",
+       "format": "text"
+      },
+      {
+       "key": "src",
+       "label": "Source",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Sep 26",
+        "eq": "1,05,322",
+        "debt": "57,717",
+        "cash": "5,074",
+        "src": "TrueData balance sheet",
+        "cr": "0.78×",
+        "rec": "6,894",
+        "inv": "789"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Mar 26",
+        "eq": "98,981",
+        "debt": "55,103",
+        "cash": "5,162",
+        "src": "TrueData balance sheet",
+        "cr": "1.39×",
+        "rec": "6,383",
+        "inv": "685"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Sep 25",
+        "eq": "69,707",
+        "debt": "51,082",
+        "cash": "3,378",
+        "src": "TrueData balance sheet",
+        "cr": "1.11×",
+        "rec": "5,577",
+        "inv": "541"
+       }
+      },
+      {
+       "symbol": null,
+       "cells": {
+        "p": "Mar 25",
+        "eq": "64,973",
+        "debt": "45,810",
+        "cash": "3,406",
+        "src": "TrueData balance sheet",
+        "cr": "0.89×",
+        "rec": "4,432",
+        "inv": "522"
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "cannot",
+     "title": "Cannot be checked here",
+     "note": null,
+     "items": [
+      {
+       "text": "Related-party transactions (only in the annual report's notes)"
+      },
+      {
+       "text": "When the debt matures (only in the annual report's notes)"
+      },
+      {
+       "text": "Auditor remarks and contingent liabilities (only in the annual report)"
+      },
+      {
+       "text": "A ranking of risks by potential impact: there is no stated method for it, so the checks are listed in a fixed order"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Quarterly results (nidp.nse_financials_quarterly)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "consolidated, filed 28 Oct 2026"
+     },
+     {
+      "name": "Annual results (nidp.nse_financials_quarterly, annual rows)",
+      "as_of": "2026-03-31",
+      "status": "fresh",
+      "note": "consolidated"
+     },
+     {
+      "name": "Cash-flow statements (nidp.nse_financials_cashflow)",
+      "as_of": "2026-03-31",
+      "status": "fresh",
+      "note": "consolidated, provider TrueData"
+     },
+     {
+      "name": "Shareholding pattern (nidp.shareholding_pattern)",
+      "as_of": "2026-09-30",
+      "status": "fresh",
+      "note": "NSE filing and screener.in, field by field"
+     },
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine on 2 Nov 2026; ROE, ROCE, D/E, P/B and market cap from Trendlyne as of 12 Oct 2026"
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the financial trend of ADANIPORTS?",
+     "query": "What is the financial trend of ADANIPORTS?"
+    },
+    {
+     "label": "Has promoter holding of ADANIPORTS changed over time?",
+     "query": "Has promoter holding of ADANIPORTS changed over time?"
+    },
+    {
+     "label": "What is the valuation of ADANIPORTS?",
+     "query": "What is the valuation of ADANIPORTS?"
+    },
+    {
+     "label": "Any ownership filings for ADANIPORTS?",
+     "query": "Any ownership filings for ADANIPORTS?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  },
+  "company_risks:no_data": {
+   "schema": "visual-answer-v1",
+   "intent": "company_risks",
+   "title": "TIMEX · Financial health and risk checks",
+   "as_of": "2026-11-02",
+   "generated_at": "2026-11-03T00:15:37+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "No check could run for TIMEX: the figures they need are not in our data.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "missing-0",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Cash-flow statements (nidp.nse_financials_cashflow) is not available (the data platform does not serve cash-flow statements yet (HTTP 404)), so its figures are left out."
+    },
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "The checks",
+     "note": "A flag is a prompt to read further, not a verdict on the company.",
+     "items": [
+      {
+       "label": "Flagged",
+       "value": "0 of 0",
+       "sub": "checks that could run",
+       "tone": null
+      },
+      {
+       "label": "No data",
+       "value": "13",
+       "sub": "checks without the figures they need"
+      },
+      {
+       "label": "Latest balance sheet",
+       "value": "not in our data",
+       "sub": null
+      },
+      {
+       "label": "Latest cash-flow year",
+       "value": "not in our data",
+       "sub": null
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "checks",
+     "title": "Checks, in a fixed order",
+     "note": "Each rule is printed beside its result.",
+     "columns": [
+      {
+       "key": "check",
+       "label": "Check",
+       "format": "text"
+      },
+      {
+       "key": "value",
+       "label": "Value",
+       "format": "text"
+      },
+      {
+       "key": "rule",
+       "label": "Rule",
+       "format": "text"
+      },
+      {
+       "key": "result",
+       "label": "Result",
+       "format": "text"
+      },
+      {
+       "key": "when",
+       "label": "Period",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt to equity",
+        "value": null,
+        "rule": "above 1.0×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Debt growth vs profit growth",
+        "value": null,
+        "rule": "debt up over 20%, faster than PAT, and at least 0.1× equity",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Interest cover",
+        "value": null,
+        "rule": "below 3×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Current ratio",
+        "value": "not served by the data platform yet",
+        "rule": "below 1.0×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Cash from operations ÷ PAT",
+        "value": "not served by the data platform yet",
+        "rule": "below 0.8×",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "PAT growth vs cash-flow growth",
+        "value": "not served by the data platform yet",
+        "rule": "PAT growth over 20 points above CFO growth",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Free cash flow",
+        "value": "not served by the data platform yet",
+        "rule": "negative",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Receivables vs revenue growth",
+        "value": "not served by the data platform yet",
+        "rule": "receivables growth over 15 points above revenue growth",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Working capital days",
+        "value": "not served by the data platform yet",
+        "rule": "up more than 15 days of revenue in a year",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter pledge",
+        "value": "not reported",
+        "rule": "above 10% of promoter shares",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Promoter holding change",
+        "value": null,
+        "rule": "down more than 2 points in four quarters",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "EBITDA margin trend",
+        "value": null,
+        "rule": "down more than 3 points",
+        "result": "Not in our data",
+        "when": null
+       }
+      },
+      {
+       "symbol": null,
+       "tone": null,
+       "cells": {
+        "check": "Piotroski F-score",
+        "value": null,
+        "rule": "3 or below (of 9)",
+        "result": "Not in our data",
+        "when": null
+       }
+      }
+     ]
+    },
+    {
+     "type": "list",
+     "id": "cannot",
+     "title": "Cannot be checked here",
+     "note": null,
+     "items": [
+      {
+       "text": "Related-party transactions (only in the annual report's notes)"
+      },
+      {
+       "text": "When the debt matures (only in the annual report's notes)"
+      },
+      {
+       "text": "Auditor remarks and contingent liabilities (only in the annual report)"
+      },
+      {
+       "text": "A ranking of risks by potential impact: there is no stated method for it, so the checks are listed in a fixed order"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Cash-flow statements (nidp.nse_financials_cashflow)",
+      "as_of": null,
+      "status": "missing",
+      "note": "the data platform does not serve cash-flow statements yet (HTTP 404)"
+     },
+     {
+      "name": "Stock features (nidp.stock_features_daily)",
+      "as_of": "2026-11-02",
+      "status": "fresh",
+      "note": "P/E from the feature engine on 2 Nov 2026; ROE, ROCE, D/E, P/B and market cap from Trendlyne as of 13 Oct 2026"
+     }
+    ],
+    "stale": false,
+    "missing": [
+     "Cash-flow statements (nidp.nse_financials_cashflow): the data platform does not serve cash-flow statements yet (HTTP 404)"
+    ]
+   },
+   "follow_ups": [
+    {
+     "label": "What is the financial trend of TIMEX?",
+     "query": "What is the financial trend of TIMEX?"
+    },
+    {
+     "label": "Has promoter holding of TIMEX changed over time?",
+     "query": "Has promoter holding of TIMEX changed over time?"
+    },
+    {
+     "label": "What is the valuation of TIMEX?",
+     "query": "What is the valuation of TIMEX?"
+    },
+    {
+     "label": "Any ownership filings for TIMEX?",
+     "query": "Any ownership filings for TIMEX?"
+    }
+   ],
+   "caveat": "Data up to 2 Nov 2026. Evidence for your own research, from filed statements and the platform's end-of-day data. It is not investment advice and carries no rating."
+  }
+ }
+}
