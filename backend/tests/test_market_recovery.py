@@ -377,3 +377,36 @@ def test_tc_r1_typed_503(client, exc, code):
     r = c.get("/api/market-recovery", headers={"X-Test-User": "owner"})
     body = r.json()
     assert r.status_code == 503 and body["code"] == code and body["detail"]["code"] == code and body["message"]
+
+
+# ── wording: every string the API returns passes the 3 Nov lint, except the owner's plan words (this page only) ──────
+
+PLAN_WORDS = __import__("re").compile(r"\b(?:entry zone|stop loss|target 1|target 2)\b", __import__("re").I)
+
+
+def _strings(x):
+    if isinstance(x, str):
+        yield x
+    elif isinstance(x, dict):
+        for v in x.values():
+            yield from _strings(v)
+    elif isinstance(x, list):
+        for v in x:
+            yield from _strings(v)
+
+
+def test_wording_lint_outside_the_owner_plan_words():
+    from tests.test_compliance_wording_lint import hits
+    out = E.compute(_market(), today=date(2026, 11, 3))
+    trap_reasons = [E.find_trap({"close": 90.0, "sma50": 100.0, "sma50_10ago": 104.0, "sma200": 120.0, "r5": 6.5}, None),
+                    E.find_trap({"close": 100.0, "ema20": 98.0}, {"price_chg": 2.0, "oi_chg": -4.0}),
+                    E.find_trap({"close": 100.0, "ema20": 98.0}, {"price_chg": 0.6, "oi_chg": -1.2, "prev_price_chg": 0.4,
+                                                                   "prev_oi_chg": -1.5}),
+                    E.find_trap({"close": 112.0, "ema20": 100.0}, None)]
+    setups = [E.classify_setup(BASE | c) for c, _ in [({}, 0), ({"volume": 1.2e6, "closes_prev5": [98, 102, 103, 103, 104]}, 0),
+                                                       ({"volume": 1.2e6}, 0), ({"volume": 1.2e6, "rs_change": -1.0}, 0),
+                                                       ({"volume": 1.2e6, "rs_change": -1.0, "deliv_ratio": 0.9}, 0)]]
+    low_base = E.score_stock(_strong() | {"vol_base50": 4e5, "vol_avg250": 1e6, "vol_ratio": 3.0}, FULL_F, {"financial": False})
+    bad = [(s, hits(PLAN_WORDS.sub(" ", s))) for s in _strings([out, trap_reasons, setups, low_base, E.NOTES, E.REGIME_LABEL,
+                                                                 E.SECTOR_LABEL, E.SETUP_LABEL, E.TRAP_LABEL])]
+    assert [b for b in bad if b[1]] == []

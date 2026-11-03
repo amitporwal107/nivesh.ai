@@ -603,12 +603,12 @@ def find_trap(s: Dict[str, Any], fno: Optional[Dict[str, Num]]) -> Optional[Dict
         two_days = None not in (p, o, pp, po) and p > 0 and o <= -1.0 and pp > 0 and po <= -1.0
         if one_day:
             return {"trap": "short_covering", "label": TRAP_LABEL["short_covering"],
-                    "reason": f"Futures price {p:+.1f}% with open interest {o:+.1f}% on the latest F&O session: shorts closing, "
-                              f"not fresh buying."}
+                    "reason": f"Futures price {p:+.1f}% with open interest {o:+.1f}% on the latest F&O session: shorts closing "
+                              f"rather than new positions opening."}
         if two_days:
             return {"trap": "short_covering", "label": TRAP_LABEL["short_covering"],
                     "reason": f"Futures price up with open interest down on both of the last two F&O sessions ({pp:+.1f}% / "
-                              f"{po:+.1f}%, then {p:+.1f}% / {o:+.1f}%): shorts closing, not fresh buying."}
+                              f"{po:+.1f}%, then {p:+.1f}% / {o:+.1f}%): shorts closing rather than new positions opening."}
     e20 = s.get("ema20")
     if c is not None and e20 and c > 1.10 * e20:
         return {"trap": "extended", "label": TRAP_LABEL["extended"],
