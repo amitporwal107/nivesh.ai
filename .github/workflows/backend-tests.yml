@@ -307,6 +307,7 @@ jobs:
           tests/test_rs63_readiness.py
           tests/test_scan_builder_data.py
           tests/test_scan_builder_daytrade.py
+          tests/test_scan_builder_early_movers.py
           tests/test_scan_builder_engine.py
           tests/test_scan_builder_fno_indices.py
           tests/test_scan_builder_indicators.py
@@ -314,6 +315,7 @@ jobs:
           tests/test_scan_builder_market_dashboard.py
           tests/test_scan_builder_results.py
           tests/test_scan_builder_routes.py
+          tests/test_scan_builder_signals.py
           tests/test_scan_builder_strategy_ideas.py
           tests/test_scan_builder_tick_flow.py
           tests/test_scan_rules_v2.py

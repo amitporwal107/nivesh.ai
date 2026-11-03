@@ -288,3 +288,40 @@ latest 15-minute volume > SMA(volume, 20). While the tab is open, the 218 F&O st
 the §8 widget's rule. Renamed for the wording rule: RSI VWAP INTRADAY BUY → RSI VWAP intraday; Swing trade breakout strategy
 10-20% gains → Swing trade breakout; Copy - Strong stocks → Strong stocks.
 A list cut at the 500-row limit says how many stocks passed (both tabs).
+
+## 10. Early signals, alerts and trading plans (owner 3 Nov evening: "The whole idea is to give early alerts and signals and trading plan for those stocks")
+Owner choices (AskUserQuestion, same time): alerts **in-app + browser**; plan words **Entry · Stop loss · Target 1 · Target 2**
+(an explicit exception to the 3 Nov wording rule, for this screen's plans only); plan basis **live rules + the strategy
+builder's options idea** beside it.
+
+**Signal** = a stock entering a widget's list (symbol widgets with status ok or partial) during the session, recorded once
+per (day, widget, stock) with the time first seen and the live price then. Recorded only while the market is open and the
+basis is Kite live. Stored in Redis (`nivesh:sb:signals:<day>:…`, TTL 3 days, first writer wins across workers). So that
+alerts are early even when nobody has the page open, one worker (Redis lock) computes the dashboard every 15 s from
+09:15 to 15:30 on staging (`APP_ENV=staging`; `SCAN_SIGNALS_ENABLED=0` turns it off, `=1` turns it on elsewhere).
+Signals from the session's first computation carry `at_open: true`.
+
+**Plan** (rules `scan-plan-v2`, frozen at the moment of the signal; owner 3 Nov ~20:50 IST after the early-signals study, whose
+flags were followed by a median further rise of ~1.0–1.5 % and a dip of ~0.6 %): Entry = the live price when first seen;
+Stop loss = Entry − 1 %; Target 1 = Entry + 1.5 %; Target 2 = Entry + 3 % (reward : risk 1.5 and 3.0). A falling F&O stock in
+"Open interest" / "Open interest 7" gets the short mirror. (v1 — ATR / 2R / 3R — was replaced the same evening: its targets sat
+4–12 % away, beyond what the study saw after a flag; a first v2 wording with "the lower of today's low and Entry − 0.5 × ATR"
+was impossible for early movers, which are ≥ 2 % over the open, and was corrected before it was built.)
+
+**Early movers** (tab `early`, services/scan_builder/early_movers.py): the study's top early indicator as a list — volume so
+far ≥ 5 × its usual by now (20-session average daily volume × the share of a day's volume usually traded by then, from the
+study's 20 training sessions) and price ≥ 2 % over today's open; NSE stocks with a 20-session average volume ≥ 50,000 and price
+≥ 20; from 09:30 (the study's first step). Its entries raise signals like every other list. The background loop computes
+every tab.
+
+API: GET /api/scan-builder/market-dashboard adds
+```
+signals: [ { id, widget_id, widget_title, symbol, first_seen (ISO, IST), at_open, direction: long|short, entry, stop_loss,
+             target_1, target_2, risk_per_share, rr_1, rr_2, stop_basis, target_1_basis, plan_ok, plan_note,
+             price_now, move_since_pct } ]        today's, newest first, at most 300
+signals_meta: { day, count, recording, rules, caveat }
+```
+UI: a "New signals" feed above the widgets (newest first: time, stock, scan, Entry / Stop loss / Target 1 / Target 2, R:R,
+the options idea when one exists, price now and move since); an "Enable browser alerts" button (Notification API) that, while the
+page is open, notifies each signal newer than the last one this browser saw (grouped when several arrive at once); stock rows
+with a signal today carry a "New hh:mm" badge.
