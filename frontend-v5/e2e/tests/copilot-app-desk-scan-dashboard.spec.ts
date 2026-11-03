@@ -1,7 +1,7 @@
 /**
  * One-screen Copilot app (/v5/app) — Smart trading desk, Market Desk › Screener › Scan dashboard
  * (screens/tradingdesk/tabs/market-desk/scan-dashboard/; contract docs/scan_builder/DESIGN.md §8). Cases TC-DE1 … TC-DE7 of
- * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard.
+ * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard; TC-DE10 the strategy idea column (3 Nov).
  *
  * MOCK — not real data. Every /api/scan-builder/market-dashboard answer below is hand-written to the contract: invented
  * symbols (ALPHA, BETA, GAMMA, DELTA), invented prices, invented index levels. Nothing here is market data; the expected text is
@@ -33,9 +33,21 @@ const STD_COLS = [
   { key: "volume", label: "Volume", format: "volume" },
 ];
 
-function dashboard(o: { open?: boolean; bump?: number; warnings?: string[] } = {}) {
+// MOCK — not real data: strategy ideas for the invented symbols. ALPHA and DELTA have one, BETA has none with a favorable
+// reward : risk (null), GAMMA is still being built (no key).
+const IDEAS = {
+  ALPHA: { structure: "Bull call spread", family: "debit_spread", horizon: "1–3 weeks", reward_risk: 2.1, max_loss_inr: 12500,
+           capital_at_risk_inr: 12500, legs_text: "NOV 820 CE / 860 CE", data_as_of: "2026-11-02" },
+  BETA: null,
+  DELTA: { structure: "Cash", family: "cash", horizon: "2–6 weeks", reward_risk: 1.6, max_loss_inr: 4100,
+           capital_at_risk_inr: 41025, legs_text: "Cash, 100 shares", data_as_of: "2026-11-02" },
+};
+const IDEAS_META = { built: 3, pending: 1, note: "MOCK note: net reward : risk under the desk's rules.", source: "MOCK strategy builder", as_of: "2026-11-03T04:45:00Z" };
+
+function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; ideas?: boolean } = {}) {
   const bump = o.bump ?? 0;
   return {
+    ...(o.ideas === false ? {} : { ideas: IDEAS, ideas_meta: IDEAS_META }),
     ok: true,
     run_at: "2026-11-03T04:45:30Z",                      // 10:15:30 IST
     elapsed_ms: 640,
@@ -376,13 +388,63 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     await expect(page.getByTestId("sd-refresh-problem")).toHaveCount(0);
   });
 
-  test("TC-DE7 the dashboard never says buy, sell, target, stop loss or picks", async ({ page }) => {
+  test("TC-DE7 the dashboard never says buy, sell, target, stop loss, picks, recommended, entry or exit (ideas included)", async ({ page }) => {
     await desk(page);
     await openDashboard(page);
     await page.getByTestId("sd-sources").locator("summary").click();
-    const banned = /\b(buy|buying|sell|selling|target|targets|stop[ -]?loss|picks?|recommend\w*)\b/i;
-    const texts = [await page.getByTestId("md-head").innerText(), await page.getByTestId("desk-panel-scandashboard").innerText()];
+    await expect(page.getByTestId("sd-idea").first()).toBeVisible();
+    const banned = /\b(buy\w*|sell\w*|target\w*|stop[ -]?loss|picks?|recommend\w*|entry|exit)\b/i;
+    const panel = page.getByTestId("desk-panel-scandashboard");
+    const titles = await panel.locator("[title]").evaluateAll((els) => els.map((e) => e.getAttribute("title") ?? ""));
+    const texts = [await page.getByTestId("md-head").innerText(), await panel.innerText(), ...titles];
+    expect(titles.some((t) => t.includes("max loss"))).toBe(true);           // the idea tooltips are among the checked strings
     for (const t of texts) expect(t).not.toMatch(banned);
+  });
+
+  test("TC-DE10 stock tables end with a Strategy idea column: an idea, none favorable, or still being built; group and index tables do not", async ({ page }) => {
+    await desk(page);
+    await openDashboard(page);
+    // the header line from ideas_meta, with the fixed caveat
+    await expect(page.getByTestId("sd-ideas-count")).toHaveText("Strategy ideas: 3 of 4 stocks checked");
+    await expect(page.getByTestId("sd-ideas-note")).toHaveText("· MOCK note: net reward : risk under the desk's rules.");
+    await expect(page.getByTestId("sd-ideas-caveat")).toHaveText("Rules-based fits from the strategy builder, not investment advice.");
+    // a stock table: Chartink's columns unchanged, the idea column appended last
+    const n50 = widget(page, "n50_gainers");
+    await expect(n50.locator("thead th")).toHaveText(["Symbol", "% Change", "Price", "Volume", "Strategy idea"]);
+    const idea = (sym: string) => n50.locator(`[data-testid="sd-row"][data-key="${sym}"] [data-testid="sd-idea"]`);
+    await expect(idea("ALPHA")).toHaveAttribute("data-state", "idea");
+    await expect(idea("ALPHA")).toHaveText("Bull call spread · R:R 2.10");
+    await expect(idea("ALPHA")).toHaveAttribute("title", "NOV 820 CE / 860 CE · max loss ₹12,500 · capital at risk ₹12,500 · 1–3 weeks · data 2026-11-02");
+    await expect(idea("BETA")).toHaveAttribute("data-state", "none");
+    await expect(idea("BETA")).toHaveText("–");
+    await expect(idea("BETA")).toHaveAttribute("title", "No structure with a favorable reward : risk");
+    await expect(idea("GAMMA")).toHaveAttribute("data-state", "building");
+    await expect(idea("GAMMA")).toHaveText("…");
+    await expect(idea("GAMMA")).toHaveAttribute("title", "Being built");
+    const oi = widget(page, "oi_any");
+    await expect(oi.locator('[data-testid="sd-row"][data-key="DELTA"] [data-testid="sd-idea"]')).toHaveText("Cash · R:R 1.60");
+    // group and index tables: no idea column
+    for (const id of ["mcap_ad", "index_stats"]) {
+      await expect(widget(page, id).getByTestId("sd-idea")).toHaveCount(0);
+      await expect(widget(page, id).getByTestId("sd-sort-idea")).toHaveCount(0);
+    }
+    // sorting by the idea's reward : risk: stocks without a number stay last either way
+    const rows = n50.getByTestId("sd-row");
+    await n50.getByTestId("sd-sort-idea").click();
+    await expect(n50.locator("th", { has: page.getByTestId("sd-sort-idea") })).toHaveAttribute("aria-sort", "descending");
+    await expect(rows.nth(0)).toHaveAttribute("data-key", "ALPHA");
+    await n50.getByTestId("sd-sort-idea").click();
+    await expect(n50.locator("th", { has: page.getByTestId("sd-sort-idea") })).toHaveAttribute("aria-sort", "ascending");
+    await expect(rows.nth(0)).toHaveAttribute("data-key", "ALPHA");
+    await expect(n50.getByTestId("sd-sort-idea")).toHaveText("Strategy idea ↑");
+  });
+
+  test("TC-DE10b an answer without ideas (an older backend) shows no idea column and no ideas line", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ ideas: false }) }) });
+    await openDashboard(page);
+    await expect(widget(page, "n50_gainers").locator("thead th")).toHaveText(["Symbol", "% Change", "Price", "Volume"]);
+    await expect(page.getByTestId("sd-idea")).toHaveCount(0);
+    await expect(page.getByTestId("sd-ideas-line")).toHaveCount(0);
   });
 });
 

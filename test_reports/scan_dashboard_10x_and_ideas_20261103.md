@@ -35,3 +35,39 @@ the existing strategy builder (owner's compliance wording rules of 25 Oct and 3 
 
 ## Results
 (filled in as each step runs)
+- **TC-V1…V5, TC-T1, TC-I1, TC-I2** (12:55–13:00): backend scan-builder suite `228 passed`; touched files
+  (market_dashboard, tick_flow, intraday) `54 passed` — staging image, --network none.
+- **TC-K1** (12:49, staging backend container, Kite live): MONEYVIEW first 5-minute candle volume 1,805,375 = Kite's own
+  5-minute candle; 1,000-candle mean before the latest 1,078,054 (ours) vs 1,077,908 (Kite, read ~1 min later). Of the 90
+  highest-volume of 252 daily-part stocks, 21 passed the 10× test (ITI 81×, TRIVENI 72×, KITEX 70×, VRLLOG 63×, MARICO 54× …).
+- **TC-T2** (fork T, 12:51–12:53): SBIN 09:15–12:50, 7,645 TrueData rows; tick_flow 4,293 at the ask / 2,912 at the bid /
+  0 unclassified = an independent recount on the same rows; 3 auction rows and 439 volume ≤ 1 rows skipped.
+- **TC-L1** (12:55–12:58 IST, staging backend container, the branch's modules, process-local caches): the 10x widget end to
+  end — 258–262 stocks in the daily part; 5-minute candles filled in 202 s (263 Kite calls); TrueData asked only for the
+  5-minute survivors (85 calls); final at "Kite live 12:58:23 IST · 5-minute candles to 12:55 · ticks to 12:58:31 IST":
+  status ok, every criterion applied, 10 stocks — GRSE (ask 4,116 / bid 3,348 prints), WELSPUNLIV (5,890 / 4,771),
+  ASIANPAINT (3,829 / 2,738), IOC (2,441 / 1,928), JAINREC (742 / 699), ZEEL (1,583 / 835), ITI (4,326 / 3,369),
+  SYRMA (4,089 / 2,508), NATIONALUM (2,180 / 910), KEC (4,368 / 2,428).
+- **Infrastructure note:** right after 12:58 the app VM stalled (load average ~150 on 4 cores, 1.2 GB free memory; other
+  sessions' Playwright/tsc/OCR runs): Redis, Mongo and Kite calls timed out in the backend container for ~2 h; staging
+  containers stayed up (backend healthy). Not caused by this change; noted because it delayed the remaining checks.
+- **TC-I3** (fork S): `tests/test_scan_builder_strategy_ideas.py` 14 passed; full scan-builder backend suite with it: `242 passed`.
+- **TC-I4** (fork S, 16:46 IST, staging backend container, read-only, process-local cache): 8 stocks built in 21.8 s at
+  concurrency 3, 216 data-platform calls, 0 failures; HDFCBANK long futures (net R:R 8.1), IOC covered call (R:R 1.5, max loss
+  ₹8,374); MARICO, ITI, RELIANCE, VRLLOG, COALINDIA, KITEX no favorable structure (builder verdicts wait / no_trade with reasons).
+- **TC-I4 through the route function** (16:53 IST, Kite close, the branch's modules): dashboard rows of two widgets (17 stocks)
+  then attach_ideas with the real builder: built 3 → 17 in 30 s; TATACONSUM bull call spread (debit) R:R 1.92 max loss ₹7,397.50
+  "Long 1 lot 1030 CE + Short 1 lot 1070 CE, 23 Nov"; HDFCBANK long futures R:R 8.1; DRREDDY covered call R:R 3.41; INDHOTEL bull
+  call spread R:R 1.57; the other 13 "–"; data 2026-11-02 (T-1, end of day); payload 6,241 bytes.
+- **TC-E1, TC-E2** (16:50 IST): `tsc exit: 0`, `build exit: 0` (NODE_OPTIONS=--max-old-space-size=2560; an unlimited build was
+  OOM-killed while the VM was loaded), Playwright dashboard + scan builder + screener `45 passed (1.2m)` — mocked API, MOCK.
+
+## Owner decisions surfaced (not blocking)
+1. Ideas are end-of-day (the builder's inputs: bhavcopy chains, futures, scanner, filings), rebuilt every 3 h — not real time.
+2. One bullish, positional view for every stock (as the desk's AI-scanner ideas); a bearish view per widget is possible later.
+3. Not sized per user (the builder's defaults: one lot / unsized); ~300 dashboard stocks take ~10 min and ~8,000 DaaS calls to fill.
+
+## Not verified
+- TC-S1: after merge + deploy, the route with `ideas` over HTTP and the page in a browser (needs the owner's staging session token).
+
+## Verdict: IN PROGRESS — verified up to deployment; staging HTTP/browser check pending merge and the owner's session token

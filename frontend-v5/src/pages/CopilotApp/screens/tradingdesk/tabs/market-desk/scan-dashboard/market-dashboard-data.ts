@@ -3,7 +3,9 @@
  *
  *   useMarketDashboard()   GET /api/scan-builder/market-dashboard   the 17 widgets of Chartink dashboard 247498 computed on our
  *                                                                   own data (definitions only; no Chartink data), each with
- *                                                                   its criteria, its table and its status
+ *                                                                   its criteria, its table and its status; optionally
+ *                                                                   `ideas` (a strategy idea per stock, from the strategy
+ *                                                                   builder) and `ideas_meta`
  *
  * Real time: while the answer says the market is open it is asked again every `market.refresh_seconds` (10 s); a hidden tab
  * does not ask (React Query's refetchIntervalInBackground: false); after the close it is asked once. The previous answer stays
@@ -53,6 +55,31 @@ const WidgetC = z.object({
   as_of: Str,
 }).passthrough();
 
+// Strategy ideas (owner 3 Nov: "the best strategies for each of the stocks wherever the risk reward are favorable"): one per
+// symbol from the strategy builder, attached by the route. In `ideas`, a key that is absent means the idea is still being
+// built; null means no structure with a favorable reward : risk. Both fields are optional: an older backend has neither, and a
+// malformed entry is read as null rather than failing the whole dashboard.
+const NumN = z.number().nullable().optional().catch(null);
+
+const IdeaC = z.object({
+  structure: z.string().catch("Strategy idea"),
+  family: Str.catch(null),
+  horizon: Str.catch(null),
+  reward_risk: NumN,
+  max_loss_inr: NumN,
+  capital_at_risk_inr: NumN,
+  legs_text: Str.catch(null),
+  data_as_of: Str.catch(null),
+}).passthrough();
+
+const IdeasMetaC = z.object({
+  built: z.number().catch(0).default(0),
+  pending: z.number().catch(0).default(0),
+  note: z.string().catch("").default(""),
+  source: z.string().catch("").default(""),
+  as_of: Str.catch(null),
+}).passthrough();
+
 export const MarketDashboardC = z.object({
   ok: z.boolean().default(true),
   run_at: Str,
@@ -73,9 +100,14 @@ export const MarketDashboardC = z.object({
   sources: z.record(z.unknown()).default({}),
   warnings: z.array(z.string()).default([]),
   widgets: z.array(WidgetC).default([]),
+  ideas: z.record(z.union([IdeaC, z.null()]).catch(null)).nullable().optional().catch(null),
+  ideas_meta: IdeasMetaC.nullable().optional().catch(null),
 }).passthrough();
 
 export type MarketDashboard = z.infer<typeof MarketDashboardC>;
+export type DashboardIdea = z.infer<typeof IdeaC>;
+export type DashboardIdeas = Record<string, DashboardIdea | null>;
+export type IdeasMeta = z.infer<typeof IdeasMetaC>;
 export type DashboardWidget = z.infer<typeof WidgetC>;
 export type DashboardCriterion = z.infer<typeof CriterionC>;
 export type DashboardColumn = z.infer<typeof ColumnC>;

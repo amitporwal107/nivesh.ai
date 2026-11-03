@@ -8,6 +8,11 @@
  * list is never mistaken for the full scan. Widgets the server marks pending or not computed show its note instead of a table.
  * Behind the `scan_builder` flag: with it off nothing is asked of the server. Reads GET /api/scan-builder/market-dashboard
  * only. Wording: scans and stocks that pass them; never buy / sell / target / stop loss / picks.
+ *
+ * Strategy ideas (owner 3 Nov): when the answer carries `ideas`, every stock table gets a last column "Strategy idea" —
+ * "{structure} · R:R x.xx" with legs, max loss, capital at risk, horizon and data date in its tooltip; "–" where no structure
+ * has a favorable reward : risk; "…" while it is being built. They are rules-based fits from the strategy builder, shown with
+ * that caveat; never "recommended".
  */
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { useHref, useLocation } from "react-router-dom";
@@ -17,11 +22,46 @@ import { useCopilotShell } from "../../../../../lib/shell-context";
 import { useDesk } from "../../../context";
 import { scanProblem, type ScanProblem } from "../scan-builder/scan-builder-data";
 import {
-  useMarketDashboard, type DashboardCell, type DashboardColumn, type DashboardCriterion, type DashboardWidget, type MarketDashboard,
+  useMarketDashboard, type DashboardCell, type DashboardColumn, type DashboardCriterion, type DashboardIdea, type DashboardIdeas,
+  type DashboardWidget, type IdeasMeta, type MarketDashboard,
 } from "./market-dashboard-data";
 
 const DASH = "–";
 const fmt2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// ── strategy ideas (one per stock, from the strategy builder; the route attaches them) ──────────────────────────────
+
+export const IDEAS_CAVEAT = "Rules-based fits from the strategy builder, not investment advice.";
+const inr = (v: number | null | undefined): string | null =>
+  typeof v === "number" && Number.isFinite(v) ? `₹${Math.round(v).toLocaleString("en-IN")}` : null;
+
+type IdeaState = { state: "idea"; idea: DashboardIdea } | { state: "none" } | { state: "building" };
+
+/** A stock's idea: absent key = still being built; null = no structure with a favorable reward : risk. */
+function ideaOf(ideas: DashboardIdeas, sym: string | null): IdeaState {
+  if (!sym || !Object.prototype.hasOwnProperty.call(ideas, sym)) return { state: "building" };
+  const i = ideas[sym];
+  return i ? { state: "idea", idea: i } : { state: "none" };
+}
+
+/** The idea's reward : risk, or null (sorting puts it last). */
+function ideaRR(ideas: DashboardIdeas, sym: string | null): number | null {
+  const s = ideaOf(ideas, sym);
+  return s.state === "idea" && typeof s.idea.reward_risk === "number" && Number.isFinite(s.idea.reward_risk) ? s.idea.reward_risk : null;
+}
+
+/** Cell text and tooltip: "{structure} · R:R 2.10" / "–" / "…". */
+export function ideaTexts(s: IdeaState): { text: string; title: string } {
+  if (s.state === "building") return { text: "…", title: "Being built" };
+  if (s.state === "none") return { text: DASH, title: "No structure with a favorable reward : risk" };
+  const i = s.idea;
+  const rr = typeof i.reward_risk === "number" && Number.isFinite(i.reward_risk) ? ` · R:R ${fmt2.format(i.reward_risk)}` : "";
+  const loss = inr(i.max_loss_inr);
+  const car = inr(i.capital_at_risk_inr);
+  const title = [i.legs_text, loss ? `max loss ${loss}` : null, car ? `capital at risk ${car}` : null, i.horizon,
+    i.data_as_of ? `data ${i.data_as_of}` : null].filter(Boolean).join(" · ");
+  return { text: `${i.structure}${rr}`, title: title || i.structure };
+}
 
 function useVisible(): boolean {
   const [v, setV] = useState(() => typeof document === "undefined" || document.visibilityState === "visible");
@@ -120,7 +160,7 @@ function DashboardOn() {
       <DashHeader d={d} visible={visible} refreshing={q.isFetching} problem={refreshProblem} onRetry={() => { void q.refetch(); }} />
       <div data-testid="sd-grid" style={{ display: "grid", gridTemplateColumns: mobile ? "minmax(0, 1fr)" : "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, alignItems: "start" }}>
         {d.widgets.map((w) => (
-          <WidgetCard key={w.id} w={w} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+          <WidgetCard key={w.id} w={w} ideas={d.ideas ?? null} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
         ))}
       </div>
       {d.widgets.length === 0 && (
@@ -171,6 +211,7 @@ function DashHeader({ d, visible, refreshing, problem, onRetry }: {
       </div>
       <p data-testid="sd-basis" className="m-0" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>{d.basis.text}</p>
       {parts.length > 0 && <p data-testid="sd-counts" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>{parts.join(" · ")}</p>}
+      {d.ideas_meta && <IdeasLine meta={d.ideas_meta} />}
       {problem && (
         <p data-testid="sd-refresh-problem" data-code={problem.code} role="status" className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
           The last refresh failed ({problem.message}); the answer of {updated ?? "earlier"} is still shown.{" "}
@@ -199,6 +240,18 @@ function DashHeader({ d, visible, refreshing, problem, onRetry }: {
         </details>
       )}
     </header>
+  );
+}
+
+/** "Strategy ideas: 40 of 120 stocks checked · {note}" and the fixed caveat, small and muted. */
+function IdeasLine({ meta }: { meta: IdeasMeta }) {
+  const total = meta.built + meta.pending;
+  return (
+    <p data-testid="sd-ideas-line" className="m-0" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+      <span data-testid="sd-ideas-count">Strategy ideas: {meta.built.toLocaleString("en-IN")} of {total.toLocaleString("en-IN")} stocks checked</span>
+      {meta.note ? <span data-testid="sd-ideas-note"> · {meta.note}</span> : null}
+      {" "}<span data-testid="sd-ideas-caveat">{IDEAS_CAVEAT}</span>
+    </p>
   );
 }
 
@@ -238,20 +291,30 @@ function compareCells(a: DashboardCell | undefined, b: DashboardCell | undefined
   return String(a).localeCompare(String(b));
 }
 
-function WidgetCard({ w, chartHref, onOpenSymbol }: { w: DashboardWidget; chartHref: (s: string) => string; onOpenSymbol: (s: string) => void }) {
+/** The appended "Strategy idea" column's sort key (the table's own columns are 0 … n−1). */
+const IDEA_COL = -1;
+
+function WidgetCard({ w, ideas, chartHref, onOpenSymbol }: {
+  w: DashboardWidget; ideas: DashboardIdeas | null; chartHref: (s: string) => string; onOpenSymbol: (s: string) => void;
+}) {
   const [sort, setSort] = useState<Sort>(null);
+  const symbols = w.row_kind === "symbol";
+  // Stock tables get the idea column appended after Chartink's own columns; group and index tables never do, nor does an
+  // answer without `ideas` (an older backend).
+  const showIdeas = symbols && ideas != null;
   const rows = useMemo(() => {
     if (!sort) return w.rows;
     const sign = sort.dir === "asc" ? 1 : -1;
+    const cell = (r: DashboardCell[]): DashboardCell | undefined =>
+      sort.col === IDEA_COL ? (ideas ? ideaRR(ideas, typeof r[0] === "string" ? r[0] : null) : null) : r[sort.col];
     return [...w.rows].sort((x, y) => {
-      const a = x[sort.col], b = y[sort.col];
+      const a = cell(x), b = cell(y);
       const missA = a === null || a === undefined || a === "", missB = b === null || b === undefined || b === "";
       if (missA || missB) return compareCells(a, b);          // missing last, either direction
       return sign * compareCells(a, b);
     });
-  }, [w.rows, sort]);
+  }, [w.rows, sort, ideas]);
   const firstPct = w.columns.findIndex((c) => c.format === "pct");
-  const symbols = w.row_kind === "symbol";
   const count = typeof w.count === "number" ? w.count : w.rows.length;
   // A widget that could not be computed shows why, never an empty table that would read as "nothing passes".
   const tableless = w.status === "pending" || w.status === "not_computed" || w.status === "error";
@@ -306,6 +369,18 @@ function WidgetCard({ w, chartHref, onOpenSymbol }: { w: DashboardWidget; chartH
                     </th>
                   );
                 })}
+                {showIdeas && (() => {
+                  const on = sort?.col === IDEA_COL;
+                  return (
+                    <th scope="col" aria-sort={on ? (sort!.dir === "asc" ? "ascending" : "descending") : "none"} style={{ ...th, textAlign: "left" }}>
+                      <button type="button" data-testid="sd-sort-idea" title="Sort by the idea's reward : risk"
+                        onClick={() => setSort((s) => (s?.col === IDEA_COL ? { col: IDEA_COL, dir: s.dir === "desc" ? "asc" : "desc" } : { col: IDEA_COL, dir: "desc" }))}
+                        style={{ border: 0, background: "none", padding: 0, cursor: "pointer", font: "inherit", letterSpacing: "inherit", textTransform: "inherit", color: on ? "var(--cp-ink)" : "inherit" }}>
+                        Strategy idea{on ? (sort!.dir === "asc" ? " ↑" : " ↓") : ""}
+                      </button>
+                    </th>
+                  );
+                })()}
               </tr>
             </thead>
             <tbody>
@@ -336,6 +411,16 @@ function WidgetCard({ w, chartHref, onOpenSymbol }: { w: DashboardWidget; chartH
                       const tone = i === firstPct && typeof v === "number" && Number.isFinite(v) ? (v < 0 ? "var(--cp-danger)" : "var(--mint)") : "var(--cp-ink)";
                       return <td key={col.key} className="cp-num" style={{ ...td, textAlign: "right", color: tone }}>{cellText(v, col.format)}</td>;
                     })}
+                    {showIdeas && (() => {
+                      const s = ideaOf(ideas!, sym);
+                      const { text, title } = ideaTexts(s);
+                      return (
+                        <td data-testid="sd-idea" data-state={s.state} title={title}
+                          style={{ ...td, textAlign: "left", color: s.state === "idea" ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>
+                          {text}
+                        </td>
+                      );
+                    })()}
                   </tr>
                 );
               })}
