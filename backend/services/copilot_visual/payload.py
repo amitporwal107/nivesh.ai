@@ -468,8 +468,8 @@ def facts(p: Dict[str, Any], subject: Optional[str] = None) -> str:
         head + ": a visual dashboard built from the platform's own end-of-day data is shown above this answer. These "
         "figures are the tool data for this question. Explain what the dashboard shows in a few short lines: quote only "
         "figures below with their dates, do not invent or compute new levels, say plainly what is missing or stale, and "
-        "follow the WORDING RULE of the system prompt (long / short, reference price, risk level, reward level; these are "
-        "ideas to review, never a call).",
+        "never say anything that reads as a call: follow the WORDING RULE (long / short, reference price, risk level, "
+        "reward level); these are ideas to review.",
         f"Title: {p.get('title')} · as of {p.get('as_of') or 'unknown'} · mode {p.get('mode')}",
     ]
     if p.get("headline"):

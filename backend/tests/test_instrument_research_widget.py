@@ -182,7 +182,7 @@ def test_recommendation_long_and_short_term():
     assert rec["long_term"]["stance"] == "Buy" and rec["long_term"]["tone"] == "pos"
     assert rec["short_term"]["stance"] == "Sell" and rec["short_term"]["tone"] == "neg"
     assert "fundamentals" in rec["long_term"]["rationale"].lower()
-    assert "technicals" in rec["short_term"]["rationale"].lower()
+    assert "technical" in rec["short_term"]["rationale"].lower()
 
 
 def test_shareholding_expansion():

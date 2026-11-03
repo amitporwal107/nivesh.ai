@@ -250,7 +250,7 @@ def test_a_scanner_pick_without_a_bucket_is_read_by_its_stage_and_says_so():
     snap = scanner_snapshot("RELIANCE", None, None, pick, ASOF, "v")
     assert snap["data"]["bucket"] is None and snap["data"]["pick_stage"] == "BREAKOUT" and snap["data"]["item"]["stop_price"] == 1160.0
     c = cand(build(world(scanner_bucket=snap), instrument="cash", **BIG), "cash:breakout_continuation")
-    assert c["status"] == "candidate" and any("scanner pick (stage BREAKOUT)" in w for w in c["why_qualifies"])
+    assert c["status"] == "candidate" and any("scanner idea (stage BREAKOUT)" in w for w in c["why_qualifies"])
     early = scanner_snapshot("RELIANCE", None, None, dict(pick, stage="EARLY_BREAKOUT"), ASOF, "v")
     assert cand(build(world(scanner_bucket=early), instrument="cash", **BIG), "cash:breakout_watch")["status"] == "wait"
     # a pick that is also in the watchlist: the bucket stays, the pick's stop wins

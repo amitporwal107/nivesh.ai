@@ -353,7 +353,7 @@ def test_tc44_the_greek_review_is_a_flag_and_an_event_never_an_exit(no_account):
     sim = strat.simulate_strategy(t, [tb(d1, 1105, 1110, 1095, 1100)], [[row(d1, 2.2)], [row(d1, 0.6)]])
     assert sim["exit"] is None
     [flag] = [f for f in sim["flags"] if f["code"] == "greek_review"]
-    assert flag["price"] < 0.12 and "not an exit" in flag["text"]
+    assert flag["price"] < 0.12 and "not a close" in flag["text"]
     d = strat.net_delta_per_unit(t["legs"], sim["legs"], 1100.0, d1, 250)
     assert 0 < d < 0.12
 

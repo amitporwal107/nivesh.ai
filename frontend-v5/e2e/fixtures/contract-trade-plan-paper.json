@@ -586,7 +586,7 @@
      "strategies": [
       {
        "id": "cash:breakout_continuation",
-       "trade_plan_id": "tp_39cd8ebe53cc3a40",
+       "trade_plan_id": "tp_219b48e5aaa9c06a",
        "segment": "cash",
        "family": "breakout_continuation",
        "label": "Breakout continuation (long)",
@@ -594,7 +594,7 @@
        "reasons": [],
        "legs_text": "Buy 1 shares ICICIBANK",
        "max_loss": -91.02,
-       "max_loss_basis": "loss at the risk level (net); gaps can exceed it",
+       "max_loss_basis": "loss at the stop (net); gaps can exceed it",
        "capital_at_risk": 1249.23,
        "max_profit": null,
        "profit_unbounded": true,
@@ -623,13 +623,11 @@
         "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 share.",
         "Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible)."
        ],
-       "actionable": true,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": false
+       "actionable": true
       },
       {
        "id": "futures:long_buildup_continuation",
-       "trade_plan_id": "tp_a061e31a0a96dd3b",
+       "trade_plan_id": "tp_807244b6954569b4",
        "segment": "futures",
        "family": "long_buildup_continuation",
        "label": "Long futures: build-up with cash confirmation",
@@ -642,7 +640,7 @@
        ],
        "legs_text": "Buy 1 lot ICICIBANK future, 27 Oct",
        "max_loss": -13754.49,
-       "max_loss_basis": "loss at the risk level (net); gaps can exceed it; futures losses can exceed margin",
+       "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
        "capital_at_risk": 300960.44,
        "max_profit": null,
        "profit_unbounded": true,
@@ -672,13 +670,11 @@
         "Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap.",
         "Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible)."
        ],
-       "actionable": false,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": null
+       "actionable": false
       },
       {
        "id": "options:long_call",
-       "trade_plan_id": "tp_5fe395b94dad09c4",
+       "trade_plan_id": "tp_fb53d8cd46adcdac",
        "segment": "options",
        "family": "long_call",
        "label": "Long call",
@@ -720,13 +716,11 @@
         "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
         "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot."
        ],
-       "actionable": false,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": null
+       "actionable": false
       },
       {
        "id": "options:bull_call_spread",
-       "trade_plan_id": "tp_be6cdb97bad36892",
+       "trade_plan_id": "tp_b44a271b6cdc7af8",
        "segment": "options",
        "family": "bull_call_spread",
        "label": "Bull call spread (debit)",
@@ -763,21 +757,19 @@
         "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
         "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot."
        ],
-       "actionable": true,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": true
+       "actionable": true
       },
       {
        "id": "combination:covered_call",
-       "trade_plan_id": "tp_548f41d4435b80e5",
+       "trade_plan_id": "tp_71a7651b616489b1",
        "segment": "combination",
        "family": "covered_call",
        "label": "Covered call (shares + short call)",
        "status": "candidate",
        "reasons": [],
        "legs_text": "Buy 250 shares ICICIBANK + Sell 1 lot ICICIBANK 1250 call, 24 Nov",
-       "max_loss": -1545.86,
-       "max_loss_basis": "loss at the risk level (net), where the plan closes; gaps can exceed it, and below the risk level nothing limits the loss (held to expiry, 290,500.00 gross if the price falls to zero)",
+       "max_loss": -290500.0,
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
        "capital_at_risk": 291123.62,
        "max_profit": 22000.0,
        "profit_unbounded": false,
@@ -801,64 +793,13 @@
         ]
        },
        "liquidity_flags": [],
-       "why": "Bullish-to-neutral view: short the 1250 call (the call wall) against 250 shares to collect 38 a share; the gain is capped at that strike.",
+       "why": "Bullish-to-neutral view: sell the 1250 call (the call wall) against 250 shares to collect 38 a share; the upside is capped at that strike.",
        "flags": [
         "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
         "No pre-expiry estimate for combination structures in this release: the expiry payoff applies.",
         "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot."
        ],
-       "actionable": true,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": true,
-       "account_size": {
-        "version": "plan-sizing-v1",
-        "policy_version": "universal-risk-v2",
-        "estimate_version": "est-risk-v1",
-        "basis": "The universal risk service's own sizing (the same check a submission runs, on the same data), on your account with no open positions: per-trade budget, position and liquidity caps, the VIX / BEAR factors and the share / lot rounding. Not a decision: the decision is made when the paper trade is submitted.",
-        "portfolio_note": "May be reduced by portfolio limits at submission (open risk, exposure, sector, open positions, funds).",
-        "unit": "lots per leg",
-        "as_of": "2026-10-20T05:00:00+00:00",
-        "equity_rs": 1000000.0,
-        "limits_version": "rp-1-258b9566",
-        "profile": "custom",
-        "per_trade_budget_rs": 50000.0,
-        "factors": [],
-        "binding": [],
-        "status": "not_sizable",
-        "quantity": null,
-        "lots": null,
-        "blocking": [
-         {
-          "code": "last_close_unknown",
-          "check": "inputs",
-          "severity": "block",
-          "message": "The last close of ICICIBANK is not usable: no value could be read."
-         },
-         {
-          "code": "lot_size_unverified",
-          "check": "lot_size",
-          "severity": "block",
-          "message": "Leg 2: the exchange lot for the 2026-11-24 expiry could not be confirmed (no source could be read)."
-         },
-         {
-          "code": "min_lot_exceeds_budget",
-          "check": "per_trade_risk",
-          "severity": "block",
-          "message": "The smallest valid size (one lot per leg) exceeds the per-trade budget."
-         }
-        ],
-        "estimated_risk_rs": {
-         "gross": 290500.0,
-         "costs": 623.62,
-         "gap_stress": 0.0,
-         "stop_based": 291123.62,
-         "total": 291123.62,
-         "max_loss_at_expiry": 290500.0,
-         "basis": "options: maximum loss at expiry from the payoff + round-trip costs; no gap stress (the maximum loss already bounds any gap)",
-         "gap_stress_pct": 0.0,
-         "version": "est-risk-v1"
-        }
-       }
+       "actionable": true
       },
       {
        "id": "combination:protective_put",
@@ -875,7 +816,7 @@
        ],
        "legs_text": "",
        "max_loss": null,
-       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike",
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
        "capital_at_risk": null,
        "max_profit": null,
        "profit_unbounded": false,
@@ -896,9 +837,7 @@
        "liquidity_flags": [],
        "why": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
        "flags": [],
-       "actionable": false,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": null
+       "actionable": false
       },
       {
        "id": "combination:collar",
@@ -915,7 +854,7 @@
        ],
        "legs_text": "",
        "max_loss": null,
-       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike",
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
        "capital_at_risk": null,
        "max_profit": null,
        "profit_unbounded": false,
@@ -936,9 +875,7 @@
        "liquidity_flags": [],
        "why": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
        "flags": [],
-       "actionable": false,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": null
+       "actionable": false
       },
       {
        "id": "combination:futures_protective_put",
@@ -955,7 +892,7 @@
        ],
        "legs_text": "",
        "max_loss": null,
-       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike",
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
        "capital_at_risk": null,
        "max_profit": null,
        "profit_unbounded": false,
@@ -976,9 +913,7 @@
        "liquidity_flags": [],
        "why": "Futures + protective put (synthetic long call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason. The plain long future carries the idea.",
        "flags": [],
-       "actionable": false,
-       "min_reward_risk": 1.5,
-       "meets_min_reward_risk": null
+       "actionable": false
       }
      ],
      "data_as_of": {
@@ -994,10 +929,10 @@
       "direction": "bullish",
       "instrument": "all"
      },
-     "build_ms": 314
+     "build_ms": 200
     }
    ],
-   "elapsed_ms": 327,
+   "elapsed_ms": 205,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",

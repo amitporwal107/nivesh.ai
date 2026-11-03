@@ -60,7 +60,7 @@ def test_fm2_federalbnk_at_once_far_below_the_last_range_is_refused_with_the_ran
     assert r.status_code == 422 and _detail_code(r) == "entry_not_tradable"
     message = r.json()["detail"]["message"]
     assert "₹316.89 is below the last completed session's range (2026-10-26: ₹337.20–₹344.80)" in message
-    assert 'entry rule "pull back to"' in message
+    assert 'the rule "pull back to"' in message
     assert world.db.trades.docs == [] and world.db.cols[acct.ACCOUNTS].docs == []
     (row,) = world.db.cols[rc.DECISIONS].docs                         # the refusal is recorded (desk_paper_safety A-1)
     assert (row["reasons"][0]["code"], row["symbol"], row["path"]) == ("entry_not_tradable", "FEDERALBNK", "desk_paper_trade")

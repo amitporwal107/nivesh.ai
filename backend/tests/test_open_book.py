@@ -600,7 +600,7 @@ def test_ob19_the_commentary_reaches_the_model_and_nothing_is_cut(w):
     p = w.build()
     f = facts(p)
     assert "[facts cut]" not in f and len(f) < FACTS_MAX
-    assert "Checks against your stops and plans" in f and "EXIDEIND:" in f
+    assert "Checks against your risk levels and plans" in f and "EXIDEIND:" in f
     for it in blk(p, "commentary")["items"]:
         assert it["text"] in f
     said = " ".join(i["text"] for i in blk(p, "commentary")["items"]).lower()
