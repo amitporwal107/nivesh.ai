@@ -281,6 +281,24 @@ def test_tc29_offline_uses_cache_only(tmp_path):
     assert rep["status"] == "OK" and rep["fetch"]["calls"] == 0 and len(wh.loads[0][0]) == 2
 
 
+def test_uf06_job_hands_the_warehouse_nothing_for_an_anchorless_millions_company(tmp_path):
+    from .test_truedata_fundamentals_transform import anchorless_store
+    (fy, h1), store = anchorless_store(symbol="NOAN")
+    lists = {date(2026, 5, 20): [{"id": fy.id, "file_time": fy.file_time, "scripcode": "9", "Symbol": "NOAN",
+                                  "ReportingQuarter": "Yearly", "Nature": "Consolidated"}],
+             date(2026, 10, 28): [{"id": h1.id, "file_time": h1.file_time, "scripcode": "9", "Symbol": "NOAN",
+                                   "ReportingQuarter": "Second quarter", "Nature": "Consolidated"}]}
+    wh = FakeWarehouse(known=("NOAN",))                  # our revenue is AAAA's only, no shares: no anchor for NOAN
+    rep = run_job(tmp_path, FakeClient(lists, store), wh)
+    assert rep["status"] == "OK", rep
+    assert wh.loads[0][0] == [] and rep["transform"]["offers"] == {} and rep["transform"]["units"] == {}
+    assert [(r["kind"], r["period_end"], r["why"]) for r in rep["rejected"]] == [
+        ("balance_sheet", "2026-09-30",
+         "unit unknown (no revenue or share-capital anchor (filing rounding text 'Millions' is not trusted))"),
+        ("finance_costs", "2026-09-30", "unit unknown (no revenue or share-capital anchor)")]
+    assert FakeJob.instances[0].rows_inserted == 0
+
+
 def test_tc29_cache_reads_legacy_failure_files_as_empty(tmp_path):
     cache = RawCache(tmp_path)
     cache.write("pl", 7, {"status": "Invalid Type", "Records": ""})              # as the 2 Nov fetch stored it

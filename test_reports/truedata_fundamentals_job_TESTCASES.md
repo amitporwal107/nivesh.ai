@@ -26,7 +26,7 @@ Database tests run on a throwaway `postgres:16-alpine` container with `--network
 | TC-09 | transform | period end: Yearly → FY end; Second quarter (Apr FY) → 30 Sep; Dec-FY H1 → 30 Jun; SME Half yearly ≤120 d → H1 end else FY end; DateOfEndOfReportingPeriod wins | unit | dates exact |
 | TC-10 | transform | unit, TCS-like (ratio 1.000) → crore; lakh company (ratio 100) → lakh | unit | unit + how |
 | TC-11 | transform | RADICO-like ratio 3.475 → revenue anchor refuses → share-capital anchor → crore; ratio within 1.5x boundary | unit | crore via share capital; 1.5x is the limit |
-| TC-12 | transform | no anchor, rounding text "Lakhs" → lakh; no anchor, blank text → row REFUSED ("unit unknown") | unit | refuse, never guess |
+| TC-12 | transform | no anchor → row REFUSED ("unit unknown"), whatever the filing's rounding text says ("Lakhs", "Millions", blank). *Changed 3 Nov 2026 (fix/truedata-unit-no-rounding-fallback): the rounding text was a unit source here; it is wrong on real filings — see truedata_unit_fallback_fix_TESTCASES.md* | unit | refuse, never guess |
 | TC-13 | transform | CurrentLiabilities 0 → Liabilities − NoncurrentLiabilities | unit | derived CL |
 | TC-14 | transform | bank-format balance sheet (OtherAssetsGroup.Advances > 0) → no balance-sheet offer | unit | skipped, counted |
 | TC-15 | transform | identity: assets ≠ equity+liabilities (>1 %), CA > TA, receivables > CA, CFO+CFI+CFF ≠ net before FX → reject with reason | unit | rejected rows listed |
