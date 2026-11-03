@@ -47,6 +47,9 @@ LABELS = {
 
 
 def label_of(sig: str, titles: Dict[str, str]) -> str:
+    if sig.startswith("k>="):
+        n = sig[3:]
+        return "Any dashboard widget" if n == "1" else f"{n} or more dashboard widgets at the same step"
     kind, _, name = sig.partition(":")
     if kind == "w":
         return f"Widget · {titles.get(name, name)}"
@@ -186,11 +189,18 @@ def render(out: Dict[str, Any], titles: Dict[str, str], min_support: int) -> str
     pairs = [s for s in tr if s.startswith("p:") and (tr[s].get("eligible") or 0) >= min_support]
     pairs.sort(key=lambda s: -(tr[s].get("lift") or 0))
     L += ["", "## Pairs of shortlisted signals firing at the same step", "", HEAD]
-    L += [_row(s, tr, te, titles) for s in pairs[:15]] or ["| (none with enough flags) |"]
+    # pairs with identical flags (one signal implies the other's threshold) are one row
+    seen_pairs, uniq = set(), []
+    for s_ in pairs:
+        key = tuple((tr[s_].get(k), (te.get(s_) or {}).get(k)) for k in ("eligible", "hits"))
+        if key not in seen_pairs:
+            seen_pairs.add(key)
+            uniq.append(s_)
+    L += [_row(s, tr, te, titles) for s in uniq[:12]] or ["| (none with enough flags) |"]
     L += ["", "## Dashboard widgets, and several widgets at once", "", HEAD]
     ws = [s for s in tr if s.startswith("w:") or s.startswith("k>=")]
     ws.sort(key=lambda s: -(tr[s].get("lift") or 0))
-    L += [_row(s, tr, te, titles) if not s.startswith("k>=") else _row(s, tr, te, titles).replace(f"| {s} |", f"| {s[3:]} or more widgets at the same step |") for s in ws]
+    L += [_row(s, tr, te, titles) for s in ws]
     L += ["", "## Every candidate indicator", "", HEAD]
     ins = [s for s in tr if s.startswith("i:")]
     ins.sort(key=lambda s: -(tr[s].get("lift") or 0))
