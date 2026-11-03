@@ -8,7 +8,9 @@
   **Nothing was migrated, loaded, deployed, scheduled or restarted on staging or prod.**
 - **Changed areas:** backend NIDP services/migration/DaaS router: yes · frontend src: no
 - **Test cases:** `test_reports/truedata_price_history_TESTCASES.md` (written before the code; TC-08b added after the
-  first real-data run, reason stated there)
+  first real-data run; TC-21 … TC-24 added for the 3 Nov owner rules before the gate code, reasons stated there)
+- **PRs:** #455 (merged into dev on 3 Nov, head fa9a7e8a, WITHOUT the staging-only gate) and the follow-up PR with the
+  gate (commit 77ea7508 + this report). dev → main (prod) has not happened for either.
 
 ## Summary
 
@@ -26,6 +28,60 @@ Research Copilot category 20 (correlation & sensitivity) needs stock prices befo
 - DaaS `GET /v1/prices/research-long/{symbol}` reading the view.
 Both jobs ask the market-data switch first: at `current` nothing calls TrueData and nothing is written (the macro job
 records a SKIPPED run, like `truedata_crosscheck`); rollback works at any position.
+
+## Follow-up, 3 Nov — owner rules (staging only, CI, wording)
+
+**1. Staging only** (owner: "keep on staging.. on prod please use our snapshot data"). New `nidp.shared.deploy_env`,
+using the repo's existing split rather than a new flag:
+- **Deciding signal:** the database being written to. `nidp_staging` is staging (read-only on staging just now:
+  `current_database() = nidp_staging`, `current_user = nidp_staging`). `nidp` is production (`deploy/cloudpe-prod`:
+  `NIDP_PG_DB` defaults to `nidp`; its README notes that tools hardcoding `nidp_staging` do not work on prod).
+- **Any production signal refuses:** database `nidp`, `NIDP_HOME=/opt/nidp` (the prod `run_service.sh` and the prod
+  cron, which `deploy-nidp.sh` generates from `nidp-staging.cron` by rewriting the paths), or `NIDP_ENV`/`APP_ENV` =
+  prod/production.
+- **Fails closed:** anything else is refused (unknown database, odd `NIDP_HOME`, conflicting signals, a failing
+  query). `NIDP_ENV=staging` alone never allows, because prod's `nidp.env` was generated from staging's.
+
+`truedata_history` and `truedata_macro` ask the gate after the switch and before any TrueData client, fetch or write.
+When refused, the verdict is `NOT_STAGING`, there are 0 TrueData calls and 0 data rows, and a real run records a
+SKIPPED `job_log` row (`NOT_STAGING`); a dry run writes nothing. Rollbacks are not gated. The cron file is documented as
+staging-only: prod's cron is built from `nidp-staging.cron` alone, so it never reaches prod. The DaaS route stays; on
+prod the history table is simply empty and the view and route still answer (TC-22).
+
+**2. CI "Backend unit tests (allowlist)".** GitHub records this check as **failure** on #449, #450, #455, #456 and
+#457 alike (API conclusions; logs not readable). The workflow's exact allowlist (`.github/workflows/backend-tests.yml`,
+296 files on dev; 298 on the branch, which adds this work's two suites) was run in the same image
+(`nivesh/backend:staging`, `--network none`, the workflow's env), on full-tree archives
+(backend, deploy, docs, scripts, tools, .github, frontend-v5/e2e/fixtures, research):
+
+| Tree | Allowlist | Result |
+|---|---|---|
+| origin/dev 5142f906 (base of #455's check) | dev's 296 | `6 failed, 8109 passed, 34 skipped` |
+| 5142f906 + this branch (merge tree 94836b32) | branch's 298 | `6 failed, 8152 passed, 42 skipped` |
+| origin/dev 19d8d974 (now: #455, #456, #457 merged) | dev's 296 | `6 failed, 8148 passed, 34 skipped` |
+| 19d8d974 + this follow-up (merge tree 460449e6) | branch's 298 | `6 failed, 8191 passed, 42 skipped` |
+
+The failure sets are **identical** on both sides of both pairs (`comm` of the sorted FAILED lists: 0 only-PR,
+0 only-dev, 6 common). The +43 passed / +8 skipped are exactly the two added suites (43 unit tests; 8 PostgreSQL
+tests that skip without `PG_TEST_DSN`). The 6 failures already exist on dev:
+- `nidp/tests/shared/test_market_data_source.py::test_ms11_committed_file_is_current` and
+  `nidp/tests/shared/test_truedata_client.py::test_sw7_shipped_switch_keeps_truedata_off`: they assert the committed
+  switch file says `current`, but dev's says `shadow` since 30 Oct (`AssertionError: assert ('shadow' == 'current'`).
+  These fail on any runner, which is why every PR fails the check.
+- `tests/test_cas_api_client.py` ×2: `Sandbox call failed — check network / keys`.
+- `tests/test_move_odds_filing_analysis.py::test_tc10_tc11_route_gate_validation_and_payload`: `IndexError`.
+- `tests/test_nidp_stamp_broadcast_at.py::test_run_commits_in_batches`: tries to reach www.nseindia.com.
+
+This branch adds no failure. The check will stay red until MS-11 / SW-7 are updated for the `shadow` switch, which
+belongs to the switch owner and is outside this PR.
+
+**3. Wording** (owner: "do not use words like buy, stop loss, target"). Every line the branch adds (2,574 lines vs
+the merge-base, plus `deploy_env.py`) and both PR bodies were scanned for buy / sell / stop loss / target / entry / exit
+/ accumulate / upside / downside / recommend / tips / bullish / bearish / outperform / advice. There are no
+user-visible hits. The only matches were process exit codes in CLI docstrings (renamed "Exit codes:"), a Python
+variable `entry` (renamed `info`), and the owner's quoted rule and the scan's own word list inside the test-case file.
+User-visible strings are the 24 series names (e.g. "MCX crude oil, near-month continuous future, close", caveat "use
+weekly returns") and the route note ("RESEARCH ONLY (returns, correlation, sensitivity) … not quoted prices").
 
 ## Test Cases
 
@@ -52,13 +108,20 @@ records a SKIPPED run, like `truedata_crosscheck`); rollback works at any positi
 | TC-18 | 50 real symbols stitched against staging's first warehouse days | real data, read-only | PASS |
 | TC-19 | no credential printed / written | check | PASS |
 | TC-20 | regression: full `nidp/tests` tree vs origin/dev | unit | PASS (no new failure) |
+| TC-21 | staging-only gate: matrix (12 cases) + both jobs refuse off staging (0 calls, 0 rows, SKIPPED NOT_STAGING), also on real databases named `nidp` / `nidp_unknown_env`; staging runs | unit + PG container | PASS |
+| TC-22 | empty history table on a prod-named database: view + route answer 200 (`[]` / our prices only) | PG container | PASS |
+| TC-23 | CI allowlist side-by-side, same image | unit | PASS (identical 6 pre-existing failures) |
+| TC-24 | wording scan of every added line and both PR bodies | check | PASS (none user-visible) |
 
 ## API / Endpoint and pytest evidence (real output)
 
 - New suites, unit + real PostgreSQL 16 (`postgres:16-alpine --network none`, backend image joined with
   `--network container:tdh-pg`, `PG_TEST_DSN` set):
   - Command: `python -m pytest nidp/tests/services/test_truedata_history.py nidp/tests/services/test_truedata_history_pg.py -q -p no:cacheprovider`
-  - Output: `28 passed, 2 warnings in 3.91s`
+  - Output (3 Nov follow-up, with the gate): `51 passed, 2 warnings in 6.11s` (43 unit + 8 PostgreSQL; the PG tests
+    run on databases named `nidp_staging`, `nidp` and `nidp_unknown_env`). Before the gate: `28 passed`.
+  - Mutation check: with `truedata_load_gate` forced to allow, the unit file gives `6 failed, 37 passed` (every
+    off-staging job case fails), so the tests catch a missing gate.
   - Verbose run (before the last TC-17 robustness edit) listed all 23 unit + 5 PG cases `PASSED`, e.g.
     `test_tc14_tc15_loader_batches_runs_skips_replaces_and_rolls_back_exactly PASSED`,
     `test_tc16_macro_inserts_only_new_days_never_rewrites_and_rolls_back_exactly PASSED`,
@@ -168,6 +231,11 @@ have no bar), no conflicting or unfinished dates. The 10 index series (last stor
 outputs). Credentials were only read inside processes, never printed.
 
 ## UNVERIFIED (out of scope by rule: staging read-only, no deploy)
+- **#455 is merged into dev without the gate.** Until the follow-up PR merges, dev's jobs have only the switch. Both
+  must be in place before any dev → main release. Nothing is scheduled or loaded today.
+- The gate on the real VMs: staging's database name is verified (`nidp_staging`). Prod's `nidp` comes from the prod
+  deploy files and runbook; it was not queried, because there was no prod access in this task. Since any of four
+  production signals refuses and unknown also refuses, a different prod name still refuses.
 - Migration 191 is not applied on staging or prod; the view's plan on the staging hypertable (31+ chunks) is not
   measured (on PG16: grouped join, symbol filter pushed into the aggregate, 4.9 ms for ITC).
 - No backfill run against staging; the 1,188-symbol load (~2.8 M rows, ~471 MB, ~25 min of TD calls) needs disk

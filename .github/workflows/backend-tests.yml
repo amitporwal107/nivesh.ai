@@ -355,3 +355,5 @@ jobs:
           tests/test_watchlists.py
           nidp/tests/shared/test_dq_foundation_unit.py
           nidp/tests/shared/test_dq_foundation_pg.py
+          nidp/tests/services/test_truedata_history.py
+          nidp/tests/services/test_truedata_history_pg.py

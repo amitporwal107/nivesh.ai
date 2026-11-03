@@ -1,8 +1,10 @@
 """TrueData long price history + TD_* macro refresh on a REAL PostgreSQL — TC-13 … TC-17 from
 test_reports/truedata_price_history_TESTCASES.md.
 
-Runs only when PG_TEST_DSN points at a THROWAWAY database (it drops and recreates schema nidp). The recipe used for the
-PR: `postgres:16-alpine` with `--network none`, and the backend image joined to its network namespace:
+Runs only when PG_TEST_DSN points at a THROWAWAY server: the tests create (if missing) and use databases named like the
+real ones — `nidp_staging` (staging: the TrueData jobs run), `nidp` (production: they refuse) and `nidp_unknown_env` (they
+refuse, fail closed) — and drop / recreate schema nidp in each. The recipe used for the PR: `postgres:16-alpine` with
+`--network none`, and the backend image joined to its network namespace:
     docker run -d --rm --name tdh-pg --network none -e POSTGRES_PASSWORD=pgtest -e POSTGRES_DB=nidp_test postgres:16-alpine
     docker run --rm --network container:tdh-pg -v <worktree>:/work:ro -w /work/backend \
         -e PG_TEST_DSN=postgresql://postgres:pgtest@localhost:5432/nidp_test ... python -m pytest <this file>
@@ -26,6 +28,22 @@ import pytest
 
 DSN = os.environ.get("PG_TEST_DSN")
 pytestmark = pytest.mark.skipif(not DSN, reason="PG_TEST_DSN not set: needs a throwaway PostgreSQL")
+DB = {"dsn": None}                                    # the database the current test works in
+
+
+def _dsn_for(name: str) -> str:
+    from urllib.parse import urlsplit, urlunsplit
+    return urlunsplit(urlsplit(DSN)._replace(path="/" + name))
+
+
+async def _ensure_db(name: str) -> None:
+    import asyncpg
+    conn = await asyncpg.connect(DSN)
+    try:
+        if not await conn.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name):
+            await conn.execute(f'CREATE DATABASE "{name}"')
+    finally:
+        await conn.close()
 
 MIG = Path(__file__).resolve().parents[2] / "migrations"
 READY = {"TRUEDATA_USERNAME": "u", "TRUEDATA_PASSWORD": "p"}
@@ -61,7 +79,7 @@ def write(dirpath: Path, sym, rows):
 
 async def _fresh_schema():
     import asyncpg
-    conn = await asyncpg.connect(DSN)
+    conn = await asyncpg.connect(DB["dsn"])
     try:
         await conn.execute("DROP SCHEMA IF EXISTS nidp CASCADE")
         for f in ("001_nidp_base.sql", "003_nidp_flows_events.sql", "008_nidp_fred_macro.sql",
@@ -84,19 +102,29 @@ async def _seed_prices(conn, sym, days, closes):
         [(sym, d, c, run) for d, c in zip(days, closes)])
 
 
-@pytest.fixture
-def pg(monkeypatch):
-    monkeypatch.setenv("NIDP_POSTGRES_URL", DSN)
+def _use_db(monkeypatch, name: str):
+    """Point the code (NIDP_POSTGRES_URL) and the helpers at database `name`, with a fresh schema."""
+    for k in ("NIDP_HOME", "NIDP_ENV", "APP_ENV"):                 # the staging gate reads these
+        monkeypatch.delenv(k, raising=False)
+    asyncio.run(_ensure_db(name))
+    DB["dsn"] = _dsn_for(name)
+    monkeypatch.setenv("NIDP_POSTGRES_URL", DB["dsn"])
     from nidp.shared.storage import pg as pgmod
     monkeypatch.setattr(pgmod, "_pool", None)
     asyncio.run(_fresh_schema())
+    return pgmod
+
+
+@pytest.fixture
+def pg(monkeypatch):
+    pgmod = _use_db(monkeypatch, "nidp_staging")                     # staging: the TrueData jobs may run
     yield pgmod
     pgmod._pool = None
 
 
 async def _q(sql, *a):
     import asyncpg
-    conn = await asyncpg.connect(DSN)
+    conn = await asyncpg.connect(DB["dsn"])
     try:
         return await conn.fetch(sql, *a)
     finally:
@@ -117,7 +145,7 @@ def test_tc13_migration_is_rerunnable_constrained_and_the_view_prefers_our_price
 
     async def run():
         import asyncpg
-        conn = await asyncpg.connect(DSN)
+        conn = await asyncpg.connect(DB["dsn"])
         try:
             rid = uuid.uuid4()
             with pytest.raises(asyncpg.CheckViolationError):
@@ -179,7 +207,7 @@ def test_tc14_tc15_loader_batches_runs_skips_replaces_and_rolls_back_exactly(pg,
 
     async def seed():
         import asyncpg
-        conn = await asyncpg.connect(DSN)
+        conn = await asyncpg.connect(DB["dsn"])
         try:
             await _seed_loader(conn)
         finally:
@@ -251,7 +279,7 @@ def test_tc14_a_failure_inside_a_batch_leaves_nothing_of_that_batch(pg):
 
     async def run():
         import asyncpg
-        conn = await asyncpg.connect(DSN, server_settings={"search_path": "nidp,public"})
+        conn = await asyncpg.connect(DB["dsn"], server_settings={"search_path": "nidp,public"})
         try:
             with pytest.raises(asyncpg.CheckViolationError):
                 await H.write_batch(conn, uuid.uuid4(), [good, bad])
@@ -290,7 +318,7 @@ def test_tc16_macro_inserts_only_new_days_never_rewrites_and_rolls_back_exactly(
 
     async def seed():
         import asyncpg
-        conn = await asyncpg.connect(DSN)
+        conn = await asyncpg.connect(DB["dsn"])
         try:
             await conn.execute(
                 "INSERT INTO nidp.fred_macro (as_of_date, series_id, series_name, value, units, frequency, source, "
@@ -346,7 +374,7 @@ def test_tc17_route_reads_the_real_view(pg, monkeypatch):
 
     async def seed():
         import asyncpg
-        conn = await asyncpg.connect(DSN)
+        conn = await asyncpg.connect(DB["dsn"])
         try:
             await _seed_prices(conn, "RRR", WH[:2], [210, 211])
             await conn.execute("INSERT INTO nidp.prices_eod_history (symbol, as_of_date, adj_close, stitch_factor, "
@@ -380,3 +408,109 @@ def test_tc17_route_reads_the_real_view(pg, monkeypatch):
     assert body["pagination"]["next_offset"] == 2
     assert [(d["as_of_date"], d["stitch_factor"], d["basis_source"]) for d in older["data"]] == [
         ("2024-03-28", 1.06, "truedata_history")]
+
+
+# ── TC-21 staging only, on real databases named like production / unknown ────────────────────────────────────────────
+
+class _Forbidden:
+    calls = 0
+
+    def __call__(self, *a, **k):
+        _Forbidden.calls += 1
+        raise AssertionError("TrueData must not be called off staging")
+
+
+@pytest.mark.parametrize("dbname, environment", [("nidp", "production"), ("nidp_unknown_env", "unknown")])
+def test_tc21_off_staging_nothing_is_called_or_written_and_a_skipped_run_is_recorded(monkeypatch, tmp_path, dbname,
+                                                                                      environment):
+    from nidp.shared.sources import truedata as td
+    from nidp.services.truedata_history import service as H
+    from nidp.services.truedata_macro import service as M
+    pgmod = _use_db(monkeypatch, dbname)
+    raw, ov = _files(tmp_path)
+
+    async def seed():
+        import asyncpg
+        conn = await asyncpg.connect(DB["dsn"])
+        try:
+            await _seed_loader(conn)
+            await conn.execute("INSERT INTO nidp.fred_macro (as_of_date, series_id, value, source, source_run_id) "
+                               "VALUES ('2026-10-30', 'TD_MCX_CRUDEOIL_1M', 5000, 'truedata', $1)", uuid.uuid4())
+        finally:
+            await conn.close()
+    asyncio.run(seed())
+    assert q("SELECT current_database() db")[0]["db"] == dbname
+    forbidden = _Forbidden()
+    cl = td.TrueDataClient(td.Credentials("u", "p"), transport=forbidden, min_interval=0)
+
+    async def both():
+        try:
+            a = await H.load(None, raw_dir=raw, overlap_dir=ov, switch=_shadow)
+            b = await H.load(["AAA"], client=cl, switch=_shadow)                         # would fetch from TrueData
+            c = await M.refresh(client=cl, switch=_shadow, now_ist=datetime(2026, 11, 3, 0, 15))
+            return a, b, c
+        finally:
+            await pgmod.close_pool()
+    a, b, c = asyncio.run(both())
+    for rep in (a, b, c):
+        assert rep["verdict"] == "NOT_STAGING" and rep["environment"] == environment and rep["job_status"] == "SKIPPED"
+    assert _Forbidden.calls == 0
+    assert counts()[:2] == (0, 0)
+    assert [(r["series_id"], float(r["value"])) for r in q("SELECT series_id, value FROM nidp.fred_macro")] == [
+        ("TD_MCX_CRUDEOIL_1M", 5000.0)]
+    jobs = q("SELECT ingester, status, error_class FROM nidp.job_log ORDER BY started_at")
+    assert [(j["ingester"], j["status"], j["error_class"]) for j in jobs] == [
+        ("truedata_history", "SKIPPED", "NOT_STAGING"), ("truedata_history", "SKIPPED", "NOT_STAGING"),
+        ("truedata_macro", "SKIPPED", "NOT_STAGING")]
+    pgmod._pool = None
+
+
+# ── TC-22 production: the table stays empty, the view and the route still answer ──────────────────────────────────────
+
+def test_tc22_empty_history_table_view_and_route_answer_with_our_prices_only(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from nidp.services.daas_api import auth, keys, ratelimit
+    from nidp.services.daas_api.routers import prices
+    pgmod = _use_db(monkeypatch, "nidp")                                 # named like production
+    rec = keys.KeyRecord(key_id="00000000-0000-0000-0000-000000000009", key_prefix="nvd_t", name="t",
+                         owner_email="t@nivesh", plan="internal", rate_limit_rpm=1500, daily_quota=None,
+                         status="active", expires_at=None)
+
+    async def _resolve(_t):
+        return rec
+
+    async def _consume(key_id, *, limit_rpm, daily_quota):
+        return ratelimit.LimitDecision(allowed=True, limit_rpm=limit_rpm, remaining_rpm=limit_rpm - 1, reset_seconds=60,
+                                       daily_quota=daily_quota, daily_used=1, daily_remaining=None, reason=None)
+    monkeypatch.setattr(auth, "_resolve", _resolve)
+    monkeypatch.setattr(ratelimit, "consume", _consume)
+    monkeypatch.setattr(prices, "get_pool", pgmod.get_pool)
+    app = FastAPI()
+    app.include_router(prices.router, prefix="/v1")
+    h = {"X-API-Key": "nvd_t_x"}
+    with TestClient(app) as c:
+        empty = c.get("/v1/prices/research-long/rrr", headers=h)               # every table empty
+    pgmod._pool = None
+
+    async def seed():
+        import asyncpg
+        conn = await asyncpg.connect(DB["dsn"])
+        try:
+            await _seed_prices(conn, "RRR", WH[:2], [210, 211])
+        finally:
+            await conn.close()
+    asyncio.run(seed())
+    with TestClient(app) as c:
+        ours = c.get("/v1/prices/research-long/rrr", headers=h, params={"start": "2010-01-01"})
+        none = c.get("/v1/prices/research-long/nosuch", headers=h)
+    pgmod._pool = None
+    assert empty.status_code == 200 and empty.json()["data"] == [] and empty.json()["count"] == 0
+    assert ours.status_code == 200
+    assert [(d["as_of_date"], d["basis_source"], d["stitch_factor"]) for d in ours.json()["data"]] == [
+        ("2024-04-02", "NIDP_PRICE_ADJUSTER", None), ("2024-04-01", "NIDP_PRICE_ADJUSTER", None)]
+    assert none.status_code == 200 and none.json()["data"] == [] and none.json()["pagination"]["next_offset"] is None
+    v = q("SELECT (SELECT count(*) FROM nidp.prices_eod_history) h, "
+          "(SELECT count(*) FROM nidp.v_prices_eod_long_research) v, "
+          "(SELECT count(*) FROM nidp.v_prices_eod_long_research WHERE basis_source = 'truedata_history') vh")[0]
+    assert (v["h"], v["v"], v["vh"]) == (0, 2, 0)
