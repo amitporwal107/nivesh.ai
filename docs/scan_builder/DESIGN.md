@@ -259,3 +259,35 @@ the bid, inside the spread by the mid, at the mid by the tick test; the opening-
 condition: ask-side prints > bid-side prints (ratio > 1). TrueData counts snapshot prints (~1 a second), not every exchange trade. Titles/labels avoid "buy" (owner 3 Nov): TODAYS TOP BUY → Today's strong movers; BUY% → 15m pos %;
 DBUY → Day pos % ((Close − Low) ÷ (High − Low) × 100); OPEN INTEREST BUY7 → Open interest 7; Copy - supertrend rsi scan →
 Supertrend RSI scan.
+
+## 9. Early signals, alerts and trading plans (owner 3 Nov ~17:15 IST: "The whole idea is to give early alerts and signals and trading plan for those stocks")
+Owner choices (AskUserQuestion, same time): alerts **in-app + browser**; plan words **Entry · Stop loss · Target 1 · Target 2**
+(an explicit exception to the 3 Nov wording rule, for this screen's plans only); plan basis **live rules + the strategy
+builder's options idea** beside it.
+
+**Signal** = a stock entering a widget's list (symbol widgets with status ok or partial) during the session, recorded once
+per (day, widget, stock) with the time first seen and the live price then. Recorded only while the market is open and the
+basis is Kite live. Stored in Redis (`nivesh:sb:signals:<day>:…`, TTL 3 days, first writer wins across workers). So that
+alerts are early even when nobody has the page open, one worker (Redis lock) computes the dashboard every 15 s from
+09:15 to 15:30 on staging (`APP_ENV=staging`; `SCAN_SIGNALS_ENABLED=0` turns it off, `=1` turns it on elsewhere).
+Signals from the session's first computation carry `at_open: true`.
+
+**Plan** (rules `scan-plan-v1`, frozen at the moment of the signal):
+- long (every widget, except a falling stock in "Open interest" / "Open interest 7", which are F&O-only): Entry = the live
+  price when first seen; Stop loss = the lower of today's low and Entry − 1 × ATR(14) (daily, Wilder, as of the previous
+  session); risk = Entry − Stop loss; Target 2 = Entry + 3 × risk; Target 1 = Entry + 2 × risk, capped at the highest high of
+  the previous 20 sessions when that high lies above Entry; the plan is shown only when (Target 1 − Entry) ÷ risk ≥ 1.5.
+- short (a falling F&O stock in those two widgets): the mirror — Stop loss = the higher of today's high and Entry + 1 × ATR;
+  targets below, Target 1 capped at the lowest low of the previous 20 sessions.
+
+API: GET /api/scan-builder/market-dashboard adds
+```
+signals: [ { id, widget_id, widget_title, symbol, first_seen (ISO, IST), at_open, direction: long|short, entry, stop_loss,
+             target_1, target_2, risk_per_share, rr_1, rr_2, stop_basis, target_1_basis, plan_ok, plan_note,
+             price_now, move_since_pct } ]        today's, newest first, at most 300
+signals_meta: { day, count, recording, rules, caveat }
+```
+UI: a "New signals" feed above the widgets (newest first: time, stock, scan, Entry / Stop loss / Target 1 / Target 2, R:R,
+the options idea when one exists, price now and move since); an "Enable browser alerts" button (Notification API) that, while the
+page is open, notifies each signal newer than the last one this browser saw (grouped when several arrive at once); stock rows
+with a signal today carry a "New hh:mm" badge.
