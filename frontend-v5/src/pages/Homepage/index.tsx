@@ -65,6 +65,7 @@ export default function HomepagePage() {
   const [showDemo, setShowDemo] = useState(false);
   const blogPosts = POSTS.slice(0, 3);
   const latestBell = useEditions().data?.editions?.[0];
+  const latestOpen = useEditions("opening").data?.editions?.[0];
   const assetBase = import.meta.env.BASE_URL; // respects the staging "/v5/" base path
 
   // Real scores when available, otherwise the sample portfolio.
@@ -339,6 +340,42 @@ export default function HomepagePage() {
                   {latestBell.headlines.map((h) => h.big).join(" · ")}. Market information, not investment advice.
                 </p>
                 <span className="bc-read">Watch Closing Bell →</span>
+              </span>
+            </Link>
+          </section>
+        )}
+
+        {/* morning market commentary (tools/closing_bell --kind opening) — shown once an edition exists.
+            No reveal-on-scroll class: the card mounts after the page's reveal pass. */}
+        {latestOpen && (
+          <section className="wrap section" id="opening-bell" data-testid="home-opening-bell" style={{ paddingTop: 0 }}>
+            <div className="section-head">
+              <h2>
+                Opening Bell, <em>every morning</em>.
+              </h2>
+              <span className="blog-more" onClick={() => navigate("/market-commentary?show=opening")}>
+                All editions →
+              </span>
+            </div>
+            <Link
+              to={`/market-commentary/${latestOpen.date}?show=opening`}
+              className="blog-card"
+              data-testid="home-opening-bell-card"
+              style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.1fr) minmax(0, 1fr)", gap: 22, alignItems: "center", textDecoration: "none" }}
+            >
+              <img
+                src={fileUrl(latestOpen.files.poster, "opening")}
+                alt={`Opening Bell — ${latestOpen.day_long}`}
+                loading="lazy"
+                style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 10, display: "block" }}
+              />
+              <span style={{ display: "block" }}>
+                <span className="bc-kicker">Market commentary · {latestOpen.duration_label} video</span>
+                <h3>{latestOpen.day_long}: before the open</h3>
+                <p>
+                  {latestOpen.headlines.map((h) => h.big).join(" · ")}. Ranges and levels are what the options market prices, not forecasts.
+                </p>
+                <span className="bc-read">Watch Opening Bell →</span>
               </span>
             </Link>
           </section>

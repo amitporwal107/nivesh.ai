@@ -119,7 +119,8 @@ class ScriptGate(unittest.TestCase):
         self.assertTrue(any("closing disclaimer" in f for f in checks.check_script(self.c, s2)["fails"]))
 
     def test_headlines_and_segments(self):
-        self.assertEqual([x["id"] for x in self.s["segments"]], ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"])
+        # owner 2 Nov: the AI lists lead, right after the market wrap
+        self.assertEqual([x["id"] for x in self.s["segments"]], ["s0", "s1", "s6", "s2", "s3", "s4", "s5", "s7"])
         self.assertEqual(len(self.s["headlines"]), 4)
         for seg in self.s["segments"]:
             for b in seg["beats"]:
@@ -197,6 +198,46 @@ class Languages(unittest.TestCase):
         self.assertIn("weak", hi["s1"]["beats"][2]["parts"][0]["key"])
 
 
+class AiListsFocus(unittest.TestCase):
+    """Owner 2 Nov: "focus on the top AI lists" — every idea and its setup, in every language."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.c, cls.s = build_all()
+        cls.seg = next(x for x in cls.s["segments"] if x["id"] == "s6")
+
+    def test_every_idea_is_described_in_every_language(self):
+        texts = {lang: " ".join(b["texts"][lang] for b in self.seg["beats"]) for lang in i18n.LANGS}
+        for idea in self.c["ideas"]:
+            for lang in i18n.LANGS:
+                self.assertIn(idea["name"], texts[lang], (idea["name"], lang))
+
+    def test_setup_patterns(self):
+        cases = {
+            "0.6% below ₹2008.80 resistance · volume 1.6× avg": ("near_res", {"pct": "0.6", "level": "2,008.80", "volx": "1.6"}),
+            "Broke above ₹2244.00 (+0.0%) on 1.7× avg volume": ("breakout", {"level": "2,244.00", "volx": "1.7"}),
+            "Trend intact (close > 20EMA ₹119.28 > 50EMA), 3.0% above 20EMA — pullback": ("trend", {"pct": "3.0"}),
+            "Strong uptrend (above 50 & 200 DMA, 50 above 200)": ("uptrend", {}),
+            "Tight 5.9% range, vol drying -7.7%/d, 1 higher lows": ("accum", {"pct": "5.9"}),
+            "RSI 56 — momentum without being overbought": ("rsi", {"rsi": "56"}),
+            "Something new from the scanner": ("plain", {}),
+        }
+        for why, (kind, args) in cases.items():
+            k, a, _ = script_gen.idea_setup(why)
+            self.assertEqual((k, a), (kind, args), why)
+            for lang in i18n.LANGS:          # every pattern renders in every language
+                self.assertNotIn("{", i18n.render(lang, f"idea.{k}", dict(a, name="X")))
+
+    def test_ai_headline_and_order(self):
+        self.assertEqual(self.s["headlines"][2]["kicker"], "AI Top 10")
+        self.assertIn(self.c["ideas"][0]["name"], self.s["headlines"][2]["big"])
+        self.assertEqual(self.seg["beats"][0]["parts"][0]["key"], "ai_intro")
+        self.assertEqual(self.seg["beats"][-1]["parts"][0]["key"], "ai_close")
+        pairs = [b for b in self.seg["beats"] if b["parts"][0]["key"].startswith("idea.")]
+        self.assertEqual(len(pairs), 5)                      # 10 ideas, two per line, the recorder points at both
+        self.assertEqual(sum(len(b["focus"]["syms"]) for b in pairs), 10)
+
+
 class Formatting(unittest.TestCase):
     def test_indian_grouping(self):
         self.assertEqual(script_gen.fmt_in(101175), "1,01,175")
@@ -221,6 +262,17 @@ class Scheduling(unittest.TestCase):
         ist = pipeline.IST
         self.assertFalse(pipeline.past_cutoff("2026-10-28", datetime(2026, 10, 29, 0, 40, tzinfo=ist)))
         self.assertTrue(pipeline.past_cutoff("2026-10-28", datetime(2026, 10, 29, 0, 50, tzinfo=ist)))
+
+    def test_trim_work_after_publish(self):
+        """The work copies of the videos go after a publish (they were ≈180 MB a day left on a full disk)."""
+        with tempfile.TemporaryDirectory() as w:
+            for p in ("out/web.mp4", "out/web_hi.mp4", "out/master.mp4", "out/transcript.json", "out/captions.vtt",
+                      "out/media.json", "raw/o1.webm", "tts/en/o1_0.mp3", "script.json"):
+                os.makedirs(os.path.dirname(os.path.join(w, p)), exist_ok=True)
+                open(os.path.join(w, p), "w").write("x")
+            pipeline.trim_work(w)
+            left = sorted(os.path.relpath(os.path.join(r, f), w) for r, _, fs in os.walk(w) for f in fs)
+            self.assertEqual(left, ["out/captions.vtt", "out/media.json", "out/transcript.json", "script.json"])
 
 
 class Publish(unittest.TestCase):

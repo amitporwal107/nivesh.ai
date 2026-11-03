@@ -158,6 +158,22 @@ class Sources:
         prices and flows: a setting made months ago is still the setting, so it is never stale, and no notice is added."""
         self.rows.append({"name": name, "as_of": iso_day(as_of), "status": "fresh", "note": note})
 
+    def filed(self, name: str, period_end: Any, note: Optional[str] = None, max_age_days: Optional[int] = None) -> bool:
+        """Record filed evidence (a quarterly result, a shareholding pattern, an annual statement), dated by the period it
+        covers. The previous-session rule is about prices and flows: a September quarter filed in October is the newest
+        there is, not stale, so it never gets the stale-price notice. It is flagged only when it is older than its filing
+        cadence (`max_age_days` after the period end), i.e. a newer filing is due and is not in our data. True when current."""
+        day = iso_day(period_end)
+        today = getattr(self.w, "today", None) if self.w is not None else None
+        late = bool(day and max_age_days and isinstance(today, date) and (today - date.fromisoformat(day)).days > max_age_days)
+        self.rows.append({"name": name, "as_of": day, "status": "stale" if late else "fresh", "note": note})
+        if late:
+            self.notices.append(notice(
+                f"The newest {name} in our data is for the period ended {day_text(day)}. A newer one may have been filed "
+                "that is not in our data yet, so these figures are shown with their period, not as the latest.",
+                "warn", f"late-{len(self.notices)}"))
+        return not late
+
     def miss(self, name: str, reason: str) -> None:
         """Record a source that could not answer: no number from it is shown."""
         self.rows.append({"name": name, "as_of": None, "status": "missing", "note": reason[:200]})
@@ -384,7 +400,8 @@ def validate(p: Any) -> List[str]:
     if p.get("intent") not in (
             "market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
             "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review", "sector_rotation",
-            "results_calendar", "event_intelligence", "portfolio_hedge", "screen_stocks"):
+            "results_calendar", "event_intelligence", "portfolio_hedge", "screen_stocks",
+            "financial_trend", "valuation_view", "ownership_trend", "peer_compare", "company_risks"):
         out.append("intent")
     if not isinstance(p.get("title"), str) or not p["title"]:
         out.append("title")

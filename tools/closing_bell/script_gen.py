@@ -133,6 +133,55 @@ def IX(name: str) -> Dict[str, str]:
 Part = Tuple[str, Dict[str, Any]]
 
 
+def make_beat(parts: List[Part], sup: str, card: Optional[str], f: Optional[dict] = None) -> dict:
+    """One narration beat: the same (template, args) parts rendered in every language."""
+    texts = {lang: i18n.spoken(lang, "".join(i18n.render(lang, k, a) for k, a in parts)) for lang in LANGS}
+    texts["en"] = texts["en"][:1].upper() + texts["en"][1:]
+    return {"who": "A", "text": texts["en"], "texts": texts, "parts": [{"key": k, "args": a} for k, a in parts],
+            "sup": sup, "card": card, "focus": f or {}}
+
+
+def ai_lists_beats(F: "Facts", cards: Dict[str, Any], intro_key: str = "ai_intro") -> List[dict]:
+    """The desk's Top 10 AI lists, idea by idea, then the F&O board (shared by the evening and morning editions)."""
+    beat = make_beat
+    ideas, rg = cards["ideas"], cards.get("regime") or {}
+    s6 = []
+    if ideas:
+        s6.append(beat([(intro_key, {})], "Ideas for review, not recommendations · no measurable ranking skill yet", "ideas", {"desk": "scanner"}))
+        for j in range(0, len(ideas), 2):
+            pair = list(enumerate(ideas))[j:j + 2]
+            parts, sups = [], []
+            for i, x in pair:
+                kind, args, short = idea_setup(F.t(f"ideas.{i}.why") if x.get("why") else "")
+                if parts:
+                    parts.append(("sp", {}))
+                parts.append((f"idea.{kind}", dict(args, name=x["name"])))
+                sups.append(f"#{F.n(f'ideas.{i}.rank', 'int')} {x['name']}" + (f" — {short}" if short else ""))
+            s6.append(beat(parts, " · ".join(sups), "ideas", {"syms": [x["sym"] for _, x in pair]}))
+    fx = cards["fno"]
+    if fx and rg.get("label"):
+        x0 = fx[0]
+        sym = {"NIFTY": "Nifty", "BANKNIFTY": "Bank Nifty"}.get(x0["sym"], x0["sym"])
+        parts = [("fno", {"label": rg["label"], "t": rg.get("trend") or "flat", "sym": sym,
+                          "strategy": F.t("fno.0.label").lower(), "expiry": F.dt("fno.0.expiry")})]
+        if any(v.get("view") == "down" for v in fx) and ideas:
+            parts.append(("fno_conflict", {}))
+        s6.append(beat(parts, f"F&O board: regime {rg['label']} · trend {rg.get('trend') or '—'} · {x0['sym']} {F.t('fno.0.label')}, "
+                              f"{F.date('fno.0.expiry', 'short')} expiry", "fno", {"desk": "fno"}))
+        more = [(i, x) for i, x in enumerate(fx) if i > 0 and x.get("rr") is not None][:3]
+        if more:
+            names = {x["sym"]: x["name"] for x in ideas}
+            spoken_sym = lambda s: {"NIFTY": "Nifty", "BANKNIFTY": "Bank Nifty", "FINNIFTY": "Fin Nifty"}.get(s) or names.get(s) or s.title()
+            items = [M("fno_item", sym=spoken_sym(x["sym"]), label=F.t(f"fno.{i}.label").lower(),
+                       expiry=F.dt(f"fno.{i}.expiry"), rr=F.n(f"fno.{i}.rr", "1")) for i, x in more]
+            s6.append(beat([("fno_list", {"items": L_(items)})],
+                           "F&O list: " + " · ".join(f"{x['sym']} {F.t(f'fno.{i}.label')} R:R {F.n(f'fno.{i}.rr', '1')}" for i, x in more), "fno",
+                           {"fno_syms": [x["sym"] for _, x in more]}))
+    if ideas:
+        s6.append(beat([("ai_close", {})], "Setups to research, not buy or sell calls", None))
+    return s6
+
+
 def build(cards: Dict[str, Any]) -> Dict[str, Any]:
     F = Facts(cards)
     L = cards["L"]
@@ -143,11 +192,7 @@ def build(cards: Dict[str, Any]) -> Dict[str, Any]:
     def ip(name: str, key: str) -> str:
         return f"idx.{idx[name]}.{key}"
 
-    def beat(parts: List[Part], sup: str, card: Optional[str], f: Optional[dict] = None) -> dict:
-        texts = {lang: i18n.spoken(lang, "".join(i18n.render(lang, k, a) for k, a in parts)) for lang in LANGS}
-        texts["en"] = texts["en"][:1].upper() + texts["en"][1:]
-        return {"who": "A", "text": texts["en"], "texts": texts, "parts": [{"key": k, "args": a} for k, a in parts],
-                "sup": sup, "card": card, "focus": f or {}}
+    beat = make_beat
 
     n50p = F.get(ip("Nifty 50", "pct")) if "Nifty 50" in idx else None
     sc = F.get(ip("Nifty Smallcap 250", "pct")) if "Nifty Smallcap 250" in idx else None
@@ -188,24 +233,18 @@ def build(cards: Dict[str, Any]) -> Dict[str, Any]:
         heads.append({"kicker": "Flows", "big": f'Foreign investors <span class="{"up" if buy else "dn"}">{"buy" if buy else "sell"}</span>', "small": small})
         hb.append(beat([("h2_since" if since else "h2", args)], small, "h2"))
     ru = cards["res_up"]
+    ideas = cards["ideas"]
+    if len(ideas) >= 2:
+        k = min(3, len(ideas))
+        small = "AI Top 10 · " + " · ".join(f"#{F.n(f'ideas.{i}.rank', 'int')} {ideas[i]['name']}" for i in range(k))
+        heads.append({"kicker": "AI Top 10", "big": f'AI list: <span class="up">{ideas[0]["name"]}</span> leads', "small": small})
+        hb.append(beat([("h_ai", {"names": L_([ideas[i]["name"] for i in range(min(2, len(ideas)))])})], small, "h3"))
     if len(ru) >= 2:
         k = min(4, len(ru))
         small = " · ".join(f"{ru[i]['name']} {sgn_txt(F, f'res_up.{i}.pct', '1')}" for i in range(k))
         heads.append({"kicker": "Results", "big": 'Results-day <span class="up">rallies</span>', "small": small})
-        hb.append(beat([("h3", {"names": L_([ru[i]["name"] for i in range(k)])})], small, "h3"))
+        hb.append(beat([("h3", {"names": L_([ru[i]["name"] for i in range(k)])}), ("sp", {}), ("h_desk", {})], small, "h4"))
     secs = cards["sectors"]
-    if secs:
-        worst, best = secs[-1], secs[0]
-        if worst["d1"] <= -1.0 and abs(worst["d1"]) >= abs(best["d1"]) * 0.6:
-            s, i, up = worst, len(secs) - 1, False
-        else:
-            s, i, up = best, 0, True
-        v = pick_i(day, "h4", 3)
-        word = (["leads", "shines", "outperforms"] if up else ["cracks", "slides", "lags"])[v]
-        small = f"Nifty {s['name']} {sgn_txt(F, f'sectors.{i}.d1')}" + (
-            f", {F.n(f'sectors.{i}.adv', 'int')} of {F.n(f'sectors.{i}.n', 'int')} up" if s.get("adv") is not None and s.get("n") else "")
-        heads.append({"kicker": "Sectors", "big": f'{s["name"]} <span class="{"up" if up else "dn"}">{word}</span>', "small": small})
-        hb.append(beat([("h4.lead" if up else "h4.weak", {"sector": s["name"], "p": F.n(f"sectors.{i}.d1")})], small, "h4"))
     title = f"Closing Bell · {L['day_long']}"
     s0 = [beat([(f"welcome.{pick_i(day, 'welcome', 3)}", {})], title, "title"), beat([("heads_intro", {})], title, "title")] + hb
     segs.append({"id": "s0", "tag": "HEADLINES", "title": "Tonight's headlines", "beats": s0})
@@ -400,31 +439,9 @@ def build(cards: Dict[str, Any]) -> Dict[str, Any]:
             s5.append(beat([("flow_signal", {})], "One day of flows is a signal, not a trend", None))
     segs.append({"id": "s5", "tag": "FII / DII", "title": "Follow the money", "beats": s5})
 
-    # ------------------------------------------------------------ s6 top 10 ideas
-    s6 = []
-    ideas = cards["ideas"]
-    if ideas:
-        s6.append(beat([("ideas_intro", {})], "Ideas for review, not recommendations · no measurable ranking skill yet", "ideas", {"desk": "scanner"}))
-        i0, i1 = ideas[0], ideas[1] if len(ideas) > 1 else None
-        parts = [("ideas_lead", {"names": L_([i0["name"]] + ([i1["name"]] if i1 else []))})]
-        if i0.get("why"):
-            parts.append(("ideas_why", {"name": i0["name"], "why": why_spoken(F.t("ideas.0.why"))}))
-        s6.append(beat(parts, f"{i0['name']}: {F.t('ideas.0.why')}" + (f" · {i1['name']}: {F.t('ideas.1.why')}" if i1 and i1.get("why") else ""), "ideas",
-                       {"syms": [i0["sym"]] + ([i1["sym"]] if i1 else [])}))
-        if len(ideas) > 2:
-            rest = [x["name"] for x in ideas[2:]]
-            s6.append(beat([("ideas_rest", {"names": L_(rest)})], " · ".join(rest), None, {"syms": [x["sym"] for x in ideas[2:]]}))
-    fx = cards["fno"]
-    if fx and rg.get("label"):
-        x0 = fx[0]
-        sym = {"NIFTY": "Nifty", "BANKNIFTY": "Bank Nifty"}.get(x0["sym"], x0["sym"])
-        parts = [("fno", {"label": rg["label"], "t": rg.get("trend") or "flat", "sym": sym,
-                          "strategy": F.t("fno.0.label").lower(), "expiry": F.dt("fno.0.expiry")})]
-        if any(v.get("view") == "down" for v in fx) and ideas:
-            parts.append(("fno_conflict", {}))
-        s6.append(beat(parts, f"F&O board: regime {rg['label']} · trend {rg.get('trend') or '—'} · {x0['sym']} {F.t('fno.0.label')}, "
-                              f"{F.date('fno.0.expiry', 'short')} expiry", "fno", {"desk": "fno"}))
-    segs.append({"id": "s6", "tag": "TOP 10 IDEAS", "title": "The desk's ideas for review", "beats": s6})
+    # ------------------------------------------------------------ s6 the desk's AI lists (owner 2 Nov: the focus of the show)
+    s6 = ai_lists_beats(F, cards)
+    segs.append({"id": "s6", "tag": "TOP 10 AI IDEAS", "title": "The desk's AI lists, idea by idea", "beats": s6})
 
     # ------------------------------------------------------------ s7 what to watch
     s7 = []
@@ -448,8 +465,43 @@ def build(cards: Dict[str, Any]) -> Dict[str, Any]:
     s7.append(beat([("disclaimer", {})], "Market information and education, not investment advice", "end"))
     segs.append({"id": "s7", "tag": "WHAT TO WATCH", "title": L["next_title"], "beats": s7})
 
-    segs = [s for s in segs if s["beats"]]
+    order = ["s0", "s1", "s6", "s2", "s3", "s4", "s5", "s7"]   # the AI lists lead, right after the market wrap
+    segs = sorted([s for s in segs if s["beats"]], key=lambda s: order.index(s["id"]))
     return {"schema": "closing-bell-script-v2", "date": day, "languages": LANGS, "segments": segs, "headlines": heads, "trace": F.trace}
+
+
+# The AI scanner's reason lines follow a few fixed patterns; each maps to a translated sentence (i18n "idea.*").
+# Numbers are taken from the reason text itself, which Facts.t() has traced.
+IDEA_PATTERNS = [
+    ("near_res", re.compile(r"([\d.]+)% below ₹([\d,.]+) resistance · volume ([\d.]+)× avg")),
+    ("breakout", re.compile(r"Broke above ₹([\d,.]+) \(\+?-?[\d.]+%\) on ([\d.]+)× avg volume")),
+    ("trend", re.compile(r"Trend intact \(close > 20EMA ₹[\d,.]+ > 50EMA\), ([\d.]+)% above 20EMA")),
+    ("uptrend", re.compile(r"Strong uptrend")),
+    ("accum", re.compile(r"Tight ([\d.]+)% range")),
+    ("rsi", re.compile(r"RSI (\d+)")),
+]
+
+
+def idea_setup(why: str):
+    """(pattern, args, short English caption) for one scanner reason line; ('plain', {}, '') when unknown."""
+    for kind, rx in IDEA_PATTERNS:
+        m = rx.search(why or "")
+        if not m:
+            continue
+        g = m.groups()
+        if kind == "near_res":
+            return kind, {"pct": g[0], "level": fmt_in(float(g[1].replace(",", "")), 2), "volx": g[2]}, f"{g[0]}% below ₹{fmt_in(float(g[1].replace(',', '')), 2)} resistance"
+        if kind == "breakout":
+            return kind, {"level": fmt_in(float(g[0].replace(",", "")), 2), "volx": g[1]}, f"broke above ₹{fmt_in(float(g[0].replace(',', '')), 2)}"
+        if kind == "trend":
+            return kind, {"pct": g[0]}, f"trend intact, {g[0]}% above short-term average"
+        if kind == "uptrend":
+            return kind, {}, "strong uptrend"
+        if kind == "accum":
+            return kind, {"pct": g[0]}, f"tight {g[0]}% range"
+        if kind == "rsi":
+            return kind, {"rsi": g[0]}, f"RSI {g[0]}"
+    return "plain", {}, ""
 
 
 def short_sector(s: str) -> str:
@@ -466,7 +518,11 @@ def why_spoken(w: str) -> str:
 
 if __name__ == "__main__":
     c = json.load(open(sys.argv[1]))
-    s = build(c)
+    if c.get("kind") == "opening":
+        import script_open
+        s = script_open.build(c)
+    else:
+        s = build(c)
     json.dump(s, open(sys.argv[2], "w"), indent=1, ensure_ascii=False)
     print(json.dumps({"segments": [(x["id"], len(x["beats"])) for x in s["segments"]],
                       "words_en": sum(len(b["text"].split()) for x in s["segments"] for b in x["beats"]),

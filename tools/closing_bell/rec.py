@@ -370,30 +370,141 @@ async def act_s6(s):
                         await s.scroll_to('[data-first-fno="1"]', off=140, dur=1.6); await s.hover('[data-first-fno="1"]', 0.8, scroll=False)
                 except Exception as e:
                     s.note(f'fno row: {e}')
+        elif f.get('fno_syms'):
+            # the F&O list is already showing (the 'fno' beat switched to it): point at each instrument in turn
+            per = max(1.5, (s.end_of(i) - s.B[i] - 0.6) / max(1, len(f['fno_syms'])))
+            for k, sym in enumerate(f['fno_syms']):
+                await s.until(s.B[i] + 0.3 + k * per)
+                loc = s.pg.locator('[data-testid="desk-top10"]').get_by_text(sym, exact=True).first
+                try:
+                    if await loc.count():
+                        await s.pg.evaluate("(e) => { document.querySelectorAll('[data-fno-focus]').forEach(x => x.removeAttribute('data-fno-focus')); e.setAttribute('data-fno-focus','1'); }", await loc.element_handle())
+                        await s.scroll_to('[data-fno-focus="1"]', off=160, dur=0.8)
+                        await s.hover('[data-fno-focus="1"]', 0.7, scroll=False)
+                    else:
+                        s.note(f'fno row not visible {sym}')
+                except Exception as e:
+                    s.note(f'fno row: {e}')
         else:
             syms = f.get('syms') or []
             per = max(0.9, (s.end_of(i) - s.B[i] - 0.6) / max(1, len(syms)))
             for k, sym in enumerate(syms):
                 await s.until(s.B[i] + 0.2 + k * per)
-                await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', min(0.8, per * 0.5), dx=0.2, dy=0.15)
+                await s.scroll_to(f'[data-testid="desk-top10-stock-{css(sym)}"]', off=140, dur=0.8)
+                await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', min(0.9, per * 0.5), dx=0.2, dy=0.15, scroll=False)
+
+
+async def rw_focus(s, f):
+    """Results week: hover the beat's macro events, then search its first company."""
+    for k, mid in enumerate(f.get('macro') or []):
+        await s.hover(f'[data-testid="results-week-macro-{css(mid)}"]', 1.0, dx=0.4, scroll=False)
+        await asyncio.sleep(1.5)
+    if f.get('search'):
+        await s.scroll_to('[data-testid="results-week-search"]', off=110, dur=0)
+        await s.type('[data-testid="results-week-search"]', f['search'][0])
+        await asyncio.sleep(1.2); await s.move(560, 330, 1.0)
 
 
 async def act_s7(s):
     await rw_counts_view(s)
     for i, b in enumerate(s.beats):
+        await s.at(i, 0.3)
+        await rw_focus(s, b.get('focus') or {})
+
+
+GLIDE = [(350, 640), (560, 640), (450, 712), (800, 660), (520, 600)]
+
+
+async def act_o5(s):
+    """Today: the results week as act_s7 shows it; a beat with nothing to point at (sign-off, disclaimer, a day with no
+    macro event or result due) gets a slow cursor glide, so the footage is never a still picture (checks.py holds
+    footage under one frame per two seconds)."""
+    await rw_counts_view(s)
+    k = 0
+    for i, b in enumerate(s.beats):
         f = b.get('focus') or {}
         await s.at(i, 0.3)
-        for k, mid in enumerate(f.get('macro') or []):
-            await s.hover(f'[data-testid="results-week-macro-{css(mid)}"]', 1.0, dx=0.4, scroll=False)
-            await asyncio.sleep(1.5)
-        if f.get('search'):
-            await s.scroll_to('[data-testid="results-week-search"]', off=110, dur=0)
-            await s.type('[data-testid="results-week-search"]', f['search'][0])
-            await asyncio.sleep(1.2); await s.move(560, 330, 1.0)
+        if f.get('macro') or f.get('search'):
+            await rw_focus(s, f)
+            continue
+        while s.T() < s.end_of(i) - 1.8:
+            await s.move(*GLIDE[k % len(GLIDE)], 1.6)
+            k += 1
+
+
+# ------------------------------------------------------------------ Opening Bell scenes
+async def warm_fno_indices(pg):
+    await goto(pg, BASE + '?tab=market&view=smartmoney&section=fno&lab=indices', '[data-testid="desk-fno-oibar-row"]')
+
+
+async def act_o1(s):
+    """Previous session: the overview's index tiles, sector movers and the Top 10 list (read-only hovers)."""
+    await s.pg.evaluate(MARK_JS)
+    ideas = [i['sym'] for i in CARDS.get('ideas') or []]
+    for i, b in enumerate(s.beats):
+        await s.at(i, 0.4)
+        if i == 0:
+            await s.hover('[data-testid="mo-sector-up"]', 1.2)
+            await s.until(s.B[i] + 4.0); await s.hover('[data-testid="mo-sector-down"]', 1.0)
+        elif i == 1:
+            await s.hover('[data-testid="desk-top10-switch-stocks"]', 1.0)
+        elif ideas:
+            await s.hover(f'[data-testid="desk-top10-stock-{css(ideas[min(i, len(ideas) - 1)])}"]', 1.0, dx=0.2)
+
+
+async def act_o2(s):
+    """Pre-open: recorded in phase A, before the pre-open exists, so the tour runs on a clock (not the beats):
+    a slow pass over the Top 10 list. The 9:08 rebuild only re-cuts this footage to the final length."""
+    await s.pg.evaluate(MARK_JS)
+    await s.scroll_to('[data-testid="desk-top10"]', off=10, dur=0)
+    syms = [i['sym'] for i in CARDS.get('ideas') or []] or [None]
+    k, t = 0, 1.0
+    while t < s.len - 4:
+        await s.until(t)
+        sym = syms[k % len(syms)]
+        if sym:
+            await s.scroll_to(f'[data-testid="desk-top10-stock-{css(sym)}"]', off=180, dur=0.9)
+            await s.hover(f'[data-testid="desk-top10-stock-{css(sym)}"]', 0.9, dx=0.2, dy=0.3, scroll=False)
+        else:
+            await s.move(520 + 200 * (k % 2), 360, 1.2)
+        k, t = k + 1, t + 6.5
+
+
+NEAREST_STRIKE_JS = """(k) => { const rows=[...document.querySelectorAll('[data-testid="desk-fno-oibar-row"]')]; if(!rows.length) return null;
+  rows.forEach(r=>r.removeAttribute('data-o3-focus')); let best=rows[0], d=1e18;
+  for (const r of rows) { const v=Math.abs(parseFloat(r.dataset.strike)-k); if (v<d) { d=v; best=r; } }
+  best.setAttribute('data-o3-focus','1'); return parseFloat(best.dataset.strike); }"""
+
+
+async def act_o3(s):
+    """Ranges & levels: the F&O lab's NIFTY workspace (far down the Smart Money page), then its open-interest bars,
+    pointing at the shown strike nearest each level the script names (the panel lists strikes near the money)."""
+    await s.pg.evaluate(MARK_JS)
+    await s.scroll_to('[data-testid="desk-fno-indices"]', off=90, dur=0)
+    for i, b in enumerate(s.beats):
+        f = b.get('focus') or {}
+        await s.at(i, 0.4)
+        if f.get('desk') == 'fno':
+            await s.move(420, 260, 1.2)
+            await s.until(s.B[i] + 3.5)
+            await s.scroll_to('[data-testid="desk-fno-oibar-row"]', off=300, dur=1.6)
+        for k, strike in enumerate(f.get('strikes') or []):
+            await s.until(s.B[i] + 0.4 + 2.2 * k)
+            shown = await s.pg.evaluate(NEAREST_STRIKE_JS, float(strike))
+            if shown is None:
+                s.note('oi bars: no rows')
+                continue
+            if shown != float(strike):
+                s.note(f'oi bars: {strike} not shown, pointing at {shown}')
+            await s.scroll_to('[data-o3-focus="1"]', off=300, dur=0.9)
+            await s.hover('[data-o3-focus="1"]', 0.8, dx=0.5, scroll=False)
 
 
 SCENES = {'s1': (warm_overview, act_s1), 's2': (warm_rw, act_s2), 's3': (warm_sectors, act_s3), 's4': (warm_sectors, act_s4),
-          's5': (warm_sm, act_s5), 's6': (warm_scanner, act_s6), 's7': (warm_rw, act_s7)}
+          's5': (warm_sm, act_s5), 's6': (warm_scanner, act_s6), 's7': (warm_rw, act_s7),
+          # Opening Bell
+          'o1': (warm_overview, act_o1), 'o2': (warm_overview, act_o2), 'o3': (warm_fno_indices, act_o3),
+          'o4': (warm_scanner, act_s6), 'o5': (warm_rw, act_o5)}
 
 
 async def record(p, sid):
