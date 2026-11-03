@@ -15,8 +15,16 @@
        every quarterly filing (finance costs). Largest companies first. Only what the cache lacks is fetched, at most one
        call per `min_interval` (1.2 s; TrueData's corporate limit is 1/s, 60/min, 3600/h, shared with the 22:45
        cross-check), until `max_minutes` is spent. "No such statement" answers are cached; failures are not.
+    2a. STAGING ONLY (owner, 3 Nov 2026: "keep on staging.. on prod please use our snapshot data"). After the switch,
+       every mode but rollback asks nidp.shared.deploy_env.truedata_load_gate() (shared with the other TrueData jobs).
+       It decides from the database the rows would land in (`nidp_staging` = staging, `nidp` = production) and refuses
+       on any production signal (NIDP_HOME=/opt/nidp, NIDP_ENV/APP_ENV prod/production) or anything not positively
+       staging. Refused: verdict NOT_STAGING, no TrueData call, no raw cache write, no data written; a real (not dry)
+       run records one SKIPPED job_log row, error_class NOT_STAGING. Not built, on purpose: a production override. If
+       the owner ever wants one, it should need BOTH `truedata_licence_confirmed: true` in market_data_source.json AND
+       a separate explicit owner flag for this job; until then production is refused unconditionally.
     4. Transform (transform.py) and load (plan.py, loader.py): fill-only, provenance in
-       nidp.truedata_fundamentals_fills, undone exactly by `--rollback RUN_ID`.
+       nidp.truedata_fundamentals_fills, undone exactly by `--rollback RUN_ID` (allowed in every environment).
 
 Status: OK; PARTIAL when fetching stopped early (deadline, rate limit, repeated failures) — what was cached is still
 loaded and the next run carries on; FAILED when TrueData refuses the login or the load raises (nothing is written);
@@ -31,9 +39,10 @@ import time
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
+from nidp.shared import deploy_env
 from nidp.shared import market_data_source as mds
 from nidp.shared.sources import truedata as td
 
@@ -157,7 +166,7 @@ def window_days(today: date, days: int) -> List[date]:
 
 
 def select(cache: RawCache, refs: Any, today: date, days: int) -> Tuple[List[T.Filing], List[T.Filing], Counter]:
-    """(targets: the load window's filings, all: every cached filing for the unit anchors), both ours, consolidated
+    """(window_filings: the load window's filings, all: every cached filing for the unit anchors), both ours, consolidated
     preferred, duplicates removed."""
     filings, counts = T.filings_from_records(cache.list_records(), refs.known, refs.bse_map)
     all_f = T.dedupe(T.prefer_consolidated(filings))
@@ -168,10 +177,10 @@ def select(cache: RawCache, refs: Any, today: date, days: int) -> Tuple[List[T.F
                 window_ids.add(int(r.get("id")))
             except (TypeError, ValueError):
                 continue
-    targets = [f for f in all_f if f.id in window_ids]
+    window_filings = [f for f in all_f if f.id in window_ids]
     counts["filings_ours_deduped"] = len(all_f)
-    counts["filings_in_window"] = len(targets)
-    return targets, all_f, counts
+    counts["filings_in_window"] = len(window_filings)
+    return window_filings, all_f, counts
 
 
 async def run(*, days: int = DEFAULT_DAYS, symbols: Optional[Sequence[str]] = None, dry_run: bool = False,
@@ -179,7 +188,7 @@ async def run(*, days: int = DEFAULT_DAYS, symbols: Optional[Sequence[str]] = No
               finance_costs: bool = True, today: Optional[date] = None, raw_root: Optional[Path] = None,
               client: Any = None, warehouse: Any = None, resolution: Optional[mds.Resolution] = None,
               job_factory: Optional[Callable[[], Any]] = None, clock: Callable[[], float] = time.monotonic,
-              sleep: Callable[[float], None] = time.sleep) -> Dict[str, Any]:
+              sleep: Callable[[float], None] = time.sleep, environ: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
     today = today or datetime.now(IST).date()
     resolution = resolution or mds.resolve()
     if warehouse is None:
@@ -199,13 +208,24 @@ async def run(*, days: int = DEFAULT_DAYS, symbols: Optional[Sequence[str]] = No
             report["run_id"] = str(job.run_id)
         return report
 
+    gate = await warehouse.load_gate(environ)                 # staging only: decided by the database written to
+    if not gate.allowed:
+        report = {"status": "SKIPPED", "verdict": deploy_env.NOT_STAGING, "environment": gate.environment,
+                  "reason": gate.reason, "dry_run": dry_run}
+        if not dry_run:
+            async with job_factory() as job:
+                job.metadata = dict(report)
+                await job.finalize("SKIPPED", error_message=gate.reason[:500], error_class=deploy_env.NOT_STAGING)
+            report["run_id"] = str(job.run_id)
+        return report
+
     kwargs = dict(days=days, symbols=symbols, offline=offline, anchor_days=anchor_days, max_minutes=max_minutes,
                   finance_costs=finance_costs, today=today, raw_root=raw_root, client=client, warehouse=warehouse,
                   clock=clock, sleep=sleep)
     if dry_run:
-        return await _run(run_id=None, dry_run=True, **kwargs)
+        return {"environment": gate.environment, **(await _run(run_id=None, dry_run=True, **kwargs))}
     async with job_factory() as job:
-        report = await _run(run_id=str(job.run_id), dry_run=False, **kwargs)
+        report = {"environment": gate.environment, **(await _run(run_id=str(job.run_id), dry_run=False, **kwargs))}
         job.rows_fetched = int(report.get("fetch", {}).get("calls", 0))
         job.rows_inserted = int(report.get("load", {}).get("rows_written", 0))
         job.rows_skipped = int(report.get("transform", {}).get("rejects", 0))
@@ -237,8 +257,8 @@ async def _run(*, run_id: Optional[str], dry_run: bool, days: int, symbols: Opti
     if not offline:
         fetcher = Fetcher(client, cache, clock() + max_minutes * 60.0, clock=clock, sleep=sleep)
         fetcher.fetch_lists(window_days(today, max(days, anchor_days)), today)
-    targets, all_f, sel_counts = select(cache, refs, today, days)
-    needed = T.statements_needed(targets, all_f, finance_costs, rank=_size_rank(refs))
+    window_filings, all_f, sel_counts = select(cache, refs, today, days)
+    needed = T.statements_needed(window_filings, all_f, finance_costs, rank=_size_rank(refs))
     if fetcher is not None and not fetcher.stopped:
         fetcher.fetch_statements(needed)
     report["fetch"] = {"needed": len(needed), **(dict(fetcher.counts) if fetcher else {}),
@@ -248,7 +268,7 @@ async def _run(*, run_id: Optional[str], dry_run: bool, days: int, symbols: Opti
         report.update(status="FAILED", status_reason=f"TrueData refused: {fetcher.fatal}", error_class=fetcher.fatal)
         return report
 
-    result = T.build(targets, all_f, cache.read, refs.ours, refs.shares, finance_costs)
+    result = T.build(window_filings, all_f, cache.read, refs.ours, refs.shares, finance_costs)
     report["transform"] = result.summary()
     report["rejected"] = [{"kind": r.kind, "symbol": r.symbol, "period_end": str(r.period_end),
                            "filing_id": r.filing_id, "why": r.reason} for r in result.rejects[:REPORT_REJECTS]]
@@ -261,7 +281,7 @@ async def _run(*, run_id: Optional[str], dry_run: bool, days: int, symbols: Opti
     else:
         report["status"] = "OK"
     logger.info("truedata_fundamentals %s: %s filings in window, %s offers, load %s", report["status"],
-                len(targets), len(result.offers), report["load"])
+                len(window_filings), len(result.offers), report["load"])
     return report
 
 
@@ -273,7 +293,8 @@ def _size_rank(refs: Any) -> Dict[str, int]:
 
 
 async def rollback(run_id: str, warehouse: Any = None) -> Dict[str, Any]:
-    """Undo one run exactly (loader.rollback_run). Works whatever the switch says: it is the way back."""
+    """Undo one run exactly (loader.rollback_run). Works whatever the switch says and in every environment (the
+    staging-only gate does not apply): it is the way back."""
     if warehouse is None:
         from .loader import Warehouse
         warehouse = Warehouse()

@@ -59,6 +59,18 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": [],
         "allowed_modes": ["off", "allowlist", "everyone"],
     },
+    "scan_builder": {
+        "display_name": "Scan Builder (Market Desk)",
+        "description": (
+            "Market Desk › Scan Builder: the user builds stock scans (filters, columns, sort) that run on our own data — NSE "
+            "end-of-day bars (split/bonus adjusted) with today's Kite candle, plus fundamentals from the feature store — and the "
+            "result refreshes every 10 seconds while the market is open. Reads only; no order is placed. Allow-listed for the "
+            "owner while it is new."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist", "everyone"],
+    },
     "portfolio_hedge": {
         "display_name": "Quick Hedge (portfolio protection)",
         "description": (

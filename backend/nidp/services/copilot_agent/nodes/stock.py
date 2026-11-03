@@ -132,11 +132,44 @@ async def _fetch_stock_data(symbol: str) -> list:
         )]
 
 
+# Research Copilot W1 (owner, 3 Nov 2026): a research answer card (services/copilot_visual/research_builders.py) sends its facts
+# with research_intents.WORDING_RULE. Such a question is explained from the card alone. Asked live on staging with the template
+# above, the explanation added this node's own tool figures (a provider's "PAT YoY +4.5%" beside the card's filed +15.4%) and
+# verdict words ("relatively cheap valuation", "bullish bias"), which the owner's rule forbids.
+RESEARCH_CARD_MARK = "WORDING RULE for this research answer"
+_RESEARCH_SYSTEM = """You are the Stock Analyst for Nivesh AI, an Indian investment platform. A research card built from the
+platform's filed statements and end-of-day data is already shown above your answer. Its figures are in the VISUAL_ANSWER data
+block of the user's message; that block is your TOOL_DATA, and you have no other.
+
+Explain what the card shows for the question asked, in at most 150 words of plain sentences, with no headings and no sections:
+- Quote only figures that appear in the VISUAL_ANSWER block, each with its date or period. Never compute a new figure and never
+  bring in any other source, indicator or score.
+- Say plainly what the card marks as not in our data, missing or not applicable.
+- A flagged check is a prompt to read further, not a verdict on the company.
+- Follow the WORDING RULE in the data block exactly. Also never write bullish or bearish, never describe a valuation as cheap,
+  expensive, attractive or rich, and never say what the reader should do.
+""" + ANTI_HALLUCINATION_RULES
+
+
+async def _explain_research_card(state: CopilotState, user_msg: str) -> dict:
+    """The research card's explanation: the card's facts only (no tool reads, no template, no instrument card)."""
+    llm = make_chat_llm(temperature_for(0.1))
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _RESEARCH_SYSTEM},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = text_of(resp)
+    response = AgentResponse(agent=AgentName.STOCK, text=answer_text, widget_type=WidgetType.NONE, widget_data={}, tool_results=[])
+    return {"tool_results": [], "response": response, "messages": [AIMessage(content=answer_text)]}
+
+
 async def stock_node(state: CopilotState) -> dict:
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "",
     )
+    if RESEARCH_CARD_MARK in (user_msg or ""):
+        return await _explain_research_card(state, user_msg)
     # The intent classifier already resolves a symbol when it can; if it didn't
     # (e.g. an ambiguous message), resolve from the raw text here too. Both paths
     # use the same resolver so lowercase tickers and company names work.

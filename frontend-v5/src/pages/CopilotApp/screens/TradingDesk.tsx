@@ -48,7 +48,7 @@ import { FloatingCopilot, useCopilotWindow } from "./tradingdesk/copilot-window"
 import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import {
-  DESK_SECTIONS, FLAGGED_VIEWS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  DESK_SECTIONS, FLAGGED_SUBS, FLAGGED_VIEWS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
   subViewsOf,
   type DeskLocation, type DeskPlace, type DeskSection,
 } from "./tradingdesk/desk-nav";
@@ -318,10 +318,14 @@ function ViewSwitcher({ tab, view, onPick, bleed, underline }: { tab: DeskSectio
 }
 
 /** A Trade Desk section's sub-views: the design's chips, the current one filled mint. */
-function SubViewSwitcher({ subs, sub, onPick, bleed }: { subs: readonly { key: string; label: string }[]; sub: string | null; onPick: (s: string) => void; bleed?: CSSProperties }) {
+function SubViewSwitcher({ place, subs, sub, onPick, bleed }: { place: string; subs: readonly { key: string; label: string }[]; sub: string | null; onPick: (s: string) => void; bleed?: CSSProperties }) {
+  // A flagged sub-view (FLAGGED_SUBS) is offered only with its flag; one sub-view left needs no switcher.
+  const features = useMe().data?.features;
+  const shown = subs.filter((v) => { const flag = FLAGGED_SUBS[`${place}/${v.key}`]; return !flag || features?.[flag] === true; });
+  if (shown.length <= 1) return null;
   return (
     <div data-testid="desk-subviews" role="group" aria-label="Sub-views" className="cp-scroll flex overflow-x-auto" style={{ gap: 8, ...bleed }}>
-      {subs.map((v) => {
+      {shown.map((v) => {
         const on = v.key === sub;
         return (
           <button key={v.key} type="button" data-testid={`desk-sub-${v.key}`} aria-pressed={on} onClick={() => onPick(v.key)}
@@ -653,7 +657,7 @@ export default function TradingDeskScreen() {
     // Market Desk: its own frame (view head, symbol strip) over the hosted screens, plus the Idea scorecard.
     content = (
       <SafeWidget key="market" name="Trading desk · Market Desk">
-        <Suspense fallback={<LoadingBlock label="Loading Market Desk" rows={4} />}><MarketDesk view={loc.view} /></Suspense>
+        <Suspense fallback={<LoadingBlock label="Loading Market Desk" rows={4} />}><MarketDesk view={loc.view} sub={loc.sub ?? null} /></Suspense>
       </SafeWidget>
     );
   } else if (loc.tab === "risk") {
@@ -700,7 +704,7 @@ export default function TradingDeskScreen() {
   const views = tab4 && !redirect ? (
     <>
       <ViewSwitcher tab={tab4} view={loc.view} onPick={(v) => goPlace(tab4, v)} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} underline={tab4 === "trade"} />
-      {subs.length > 0 && <SubViewSwitcher subs={subs} sub={loc.sub ?? null} onPick={(sb) => goPlace(tab4, loc.view, { sub: sb })} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} />}
+      {subs.length > 0 && <SubViewSwitcher place={`${tab4}/${loc.view}`} subs={subs} sub={loc.sub ?? null} onPick={(sb) => goPlace(tab4, loc.view, { sub: sb })} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} />}
     </>
   ) : null;
   const rootAttrs = {

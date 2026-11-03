@@ -1,7 +1,7 @@
 # Functionality Verification Report — TrueData fundamentals NIDP job
 
 - **Branch:** `feat/truedata-fundamentals-job` (base `origin/dev` fb66b6d0)
-- **Date:** 2026-11-03 (work started 2 Nov 23:00 IST)
+- **Date:** 2026-11-03 (work started 2 Nov 23:00 IST; follow-up section added 3 Nov 05:00 IST)
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER + DOMAIN_EXPERT_ANALYST for data trust)
 - **Environment:** local throwaway containers (`postgres:16-alpine`, and `timescale/timescaledb:2.26.4-pg16` = staging's
   version); staging warehouse READ-ONLY for references and comparison; a handful of live TrueData calls.
@@ -53,11 +53,18 @@ merged, migration 190 is applied by the deploy and the owner installs the cron f
 | TC-27 | migration | 190 applied twice on a fresh DB (idempotent) — in every PG test | integration | PASS |
 | TC-28 | job | `current` → no call, only a SKIPPED job_log row; `shadow` runs; rollback ignores switch | unit | PASS |
 | TC-29 | job | cache: no refetch; last 3 days' lists refetched; empty cached, failures not; rate limit; deadline; refused login | unit | PASS |
-| TC-30 | job | CLI parsing and exit codes 0/1/2 | unit | PASS |
+| TC-30 | job | CLI parsing and return codes 0/1/2 | unit | PASS |
 | TC-31 | real data | transform on real raw files vs the 2 Nov staging rows | data | PASS (identical or each difference explained) |
 | TC-32 | real data | `InterestExpense` = finance costs? vs our own figures | data | PASS (scoped below) |
 | TC-33 | live | 6 real calls through the new client methods | app | PASS |
 | TC-34 | regression | existing TrueData / switch / DQ-suite tests | unit | PASS — no new failure; 2 failures pre-exist on origin/dev (below) |
+| TC-35 | env gate | staging database (`nidp_staging`), no production signal → runs | unit + PG | PASS |
+| TC-36 | env gate | any production signal → no TrueData call, no data, no raw cache; SKIPPED/NOT_STAGING job row | unit + PG + e2e | PASS |
+| TC-37 | env gate | unknown / conflicting (other DB, NIDP_ENV=staging alone, odd NIDP_HOME, unreadable DB) → refused | unit + PG | PASS |
+| TC-38 | env gate | `--rollback` in staging, production and unknown environments; shared module byte-identical to #455/#461 | unit | PASS |
+| TC-39 | deploy | prod cron is generated from `nidp-staging.cron` only; this job's cron file is staging-only | unit | PASS |
+| TC-40 | CI | "Backend unit tests (allowlist)" on this branch vs untouched dev, same image | regression | PASS — no failure added (below) |
+| TC-41 | wording | no buy / sell / stop loss / target / entry / exit / accumulate / upside / recommend in added strings | review | PASS |
 
 ## Tests (real output)
 
@@ -228,5 +235,66 @@ own row checks (identities, unit guard, quarter revenue) are stricter and run be
   volume and reject rate are unknown until the quarter-only P&Ls are fetched.
 - The 2 Nov supervised loads are not in the provenance table (made before it existed); their record stays the three
   manifests in `/home/deploy/nivesh-truedata-raw/manifests/`.
+
+## Follow-up, 3 Nov 2026 — owner rules after PR #456 merged (follow-up PR from `feat/truedata-fundamentals-prod-gate`)
+PR #456 was merged at `c9e5e375`, before these changes. Owner, 3 Nov: "keep on staging.. on prod please use our
+snapshot data" and "do not use words like buy, stop loss, target". This follow-up must merge before the next dev→main
+release. Migration 190 is unchanged (not applied on staging yet: `to_regclass('nidp.truedata_fundamentals_fills')` was
+NULL and no `19x` row in `nidp.schema_migrations`, read-only, 3 Nov).
+
+**Staging only.** `backend/nidp/shared/deploy_env.py` is a byte-identical copy of the module in PR #455/#461 (git blob
+`83b493120f5b2f5d357613f59319106d59d6baa0` on both). The job asks `truedata_load_gate()` after the switch and before
+any TrueData client, raw-cache write, or warehouse read or write. The deciding signal is the database the rows would land
+in (`nidp_staging` = staging, `nidp` = production). Any production signal refuses: `NIDP_HOME=/opt/nidp`, or
+`NIDP_ENV`/`APP_ENV` = prod/production. Unknown or conflicting signals refuse. Refused means verdict `NOT_STAGING`; a real
+run records one SKIPPED job_log row (`error_class NOT_STAGING`); a dry run writes nothing. `--rollback` is not gated.
+A production override is documented in `service.py`, not built (it would need `truedata_licence_confirmed: true` AND a
+separate owner flag). The cron file is staging-only: production's cron is generated from `nidp-staging.cron` alone, and
+TC-39 asserts this job is not in it.
+
+New suites (`test_truedata_corporate.py`, `test_truedata_fundamentals_{transform,service,pg}.py`), same image:
+```
+with a throwaway postgres:16-alpine (NIDP_TDF_PG_DSN set):  103 passed in 2.67s
+without a database (as CI runs them):                       94 passed, 9 skipped in 0.95s
+```
+End to end, the real CLI on real raw files (10 companies), database named `nidp_staging`, then a run with production's
+`NIDP_HOME`:
+```
+LOAD rc 0 status OK run db216df1-d34f-45af-b626-00ef23503ca2
+QUARTERLY rows vs staging now: identical 179, different 0, extra rows from the job 0
+CASH FLOW rows: staging 20, job 20, identical 20, missing [], extra []
+PROVENANCE fills vs staging tags: equal 55 of 55; job-only []
+ROLLBACK rc 0 {'rollback_of': 'db216df1-d34f-45af-b626-00ef23503ca2', 'columns_changed_since_kept': 0, 'columns_reset_to_null': 493, 'inserted_rows_deleted': 20, 'provenance_rows': 75, 'rows_reset': 55}
+  after rollback: tables identical to the pre-load state: True
+PRODUCTION SIGNAL rc 0 status SKIPPED verdict NOT_STAGING environment production
+  tables unchanged: True ; provenance rows unchanged: True
+  job_log: {'status': 'SKIPPED', 'error_class': 'NOT_STAGING'}
+```
+
+**CI — "Backend unit tests (allowlist)", side by side.** Each tree's own `backend-tests.yml` list, full checkout,
+`nivesh/backend:staging` image, `--network none`, `python -m pytest -q -p no:cacheprovider <list>`:
+
+| | untouched dev `19d8d974` (296 files) | this branch `75af3e2f` (300 files) |
+|---|---|---|
+| result | 7 failed, 8147 passed, 34 skipped | 6 failed, 8242 passed, 43 skipped |
+| `test_cas_api_client::test_sandbox_parse_and_map` | FAILED | FAILED |
+| `test_cas_api_client::test_convenience_helper_returns_list` | FAILED | FAILED |
+| `test_market_data_source::test_ms11_committed_file_is_current` | FAILED | FAILED |
+| `test_truedata_client::test_sw7_shipped_switch_keeps_truedata_off` | FAILED | FAILED |
+| `test_move_odds_filing_analysis::test_tc10_tc11_route_gate_validation_and_payload` | FAILED | FAILED |
+| `test_nidp_stamp_broadcast_at::test_run_commits_in_batches` | FAILED | FAILED |
+| `test_symbol_lookup::test_warm_search_is_fast_on_a_large_universe` (a timing test) | FAILED | passed |
+
+The branch adds no failure. The counts reconcile exactly: the four new suites add 94 passed + 9 skipped, and the timing
+test passed on the branch run (8147 + 94 + 1 = 8242; 34 + 9 = 43). The six common failures are the ones measured on dev
+by the PR #455 agent. The PR check "Backend unit tests (allowlist)" therefore fails on dev itself; this PR does not
+change that. (`test_cas_api_client` and the move-odds test may behave differently with network access; both runs here
+had none.)
+
+**Wording.** Every line this follow-up adds and every string of the job was scanned for buy / sell / stop loss /
+target / entry / exit / accumulate / upside / recommend / advice and similar. The only hits are the quoted owner rule
+and the test case that names the rule. Renamed: `targets`/`target` variables (→ `window_filings`, `expected`), the
+"unknown target table" message, CLI "Exit:" (→ "Return codes:"). Kept as an identifier: the `target_table` column of
+migration 190, which is already merged; editing a merged migration could break a database migrated in the meantime.
 
 ## Verdict: PASS

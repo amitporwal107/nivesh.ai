@@ -119,7 +119,9 @@ def _fake_deps(monkeypatch, db):
 
 
 def test_tc10_tc11_route_gate_validation_and_payload(monkeypatch):
-    mongo = _Mongo([_analysis("a1", days_ago=0.5)])
+    # The route reads the real clock (30-day window), so the filing is dated from today, not from the fixed NOW.
+    today = datetime.now(timezone.utc)
+    mongo = _Mongo([_analysis("a1", event_ts=today - timedelta(hours=12), analyzed_at=today - timedelta(hours=1))])
     _fake_deps(monkeypatch, mongo)
     db = _DB(flags={"move_odds": {"mode": "allowlist", "allowlist": ["invited@example.com"]}})
     c, calls = _client(monkeypatch, db)
