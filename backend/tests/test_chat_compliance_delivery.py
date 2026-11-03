@@ -63,7 +63,7 @@ def test_cc2_done_and_saved_text_are_the_compliance_output(stream, engine):
     assert done["content"] == engine.text                      # the final text replaces the draft
     assert saved["content"] == engine.text                     # and is what is saved
     assert "bullish" not in saved["content"].lower()
-    assert "Nivesh Copilot does not give buy/sell/hold advice" in saved["content"]
+    assert "Nivesh Copilot does not give investment advice, trading calls" in saved["content"]
 
 
 def test_cc3_the_400_word_cap_reaches_the_saved_answer(stream, monkeypatch):

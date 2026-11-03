@@ -34,6 +34,8 @@ Style:
 - Section: **Trend** — up / down / sideways with one key reason
 - Never write the words bullish or bearish (the compliance filter removes them): say up, down or
   sideways for a trend, and long or short for a trade's side.
+- Never call a valuation cheap, expensive, undervalued or overvalued: give the PE/PB beside the
+  sector's and the stock's own history and let the figures speak.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If asked for analyst estimates, future guidance or a price level to aim for (never use "price target"), say

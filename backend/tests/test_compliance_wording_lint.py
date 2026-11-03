@@ -14,7 +14,8 @@ What this guards, permanently:
   WL-3  every suggestion template and rule text in services/suggestions/catalog.py, placeholders removed;
   WL-4  the Copilot's suggested-prompt chips (routes/copilot_prompts.py + routes/copilot_prompt_catalog.py);
   WL-5  the compliance node: its follow-up chips, its note and scrub marker are clean; the shared VOCABULARY_RULE reaches
-        every answer prompt; the scrub catches the imperative forms and leaves the approved vocabulary alone.
+        every answer prompt; wording_hits() COUNTS the banned words (incl. bullish / bearish / undervalued / overvalued /
+        cheap / expensive as verdicts) and the node only logs them: no new rewrite (a hard filter is an owner decision).
 
 Recognising these words in a USER'S question is not advice, so the routing regexes keep them (and are skipped here).
 """
@@ -252,14 +253,40 @@ def test_wl5_every_specialist_node_builds_its_prompt_through_the_framing():
         assert "frame_for_persona(state.persona, state.desk_persona)" in (nodes / f"{name}.py").read_text(encoding="utf-8"), name
 
 
-@pytest.mark.parametrize("phrase", ["Keep a stop loss at ₹2,350.", "Stop-loss: 2350", "Target of ₹2,600 is in reach.",
-                                    "T1: 2600", "SL ₹2,340", "Buy now before results.", "This is a sell signal.",
-                                    "Book profits above 2,600.", "Accumulate on dips.", "Exit at ₹2,300 if it breaks.",
-                                    "Set a stop loss under support.", "Analysts' price targets are higher."])
-def test_wl5_the_scrub_catches_imperative_calls(phrase):
+@pytest.mark.parametrize("phrase, words", [
+    ("Keep a stop loss at ₹2,350.", ["stop loss"]), ("T1: 2600, SL 2340", ["t1", "sl"]), ("Buy now before results.", ["buy"]),
+    ("This is a sell signal.", ["sell"]), ("Book profits above 2,600.", ["book profits"]), ("Accumulate on dips.", ["accumulate"]),
+    ("TCS looks undervalued and the setup is bullish.", ["undervalued", "bullish"]),
+    ("A relatively cheap valuation; the stock is expensive vs peers.", ["cheap", "expensive"]),
+    ("Analysts' price targets are higher.", ["price targets"])])
+def test_wl5_wording_hits_counts_the_banned_words(phrase, words):
     from nidp.services.copilot_agent.nodes import compliance
-    out, had = compliance._scrub_advice(phrase)
-    assert had and out != phrase, phrase
+    assert compliance.wording_hits(phrase) == words
+
+
+def test_wl5_the_node_counts_hits_and_rewrites_nothing_new(caplog):
+    # A deterministic filter that rewrites or blocks LLM output is an owner decision (raised 3 Nov, not approved): the node
+    # only logs the count. The pre-existing _ADVICE_RE scrub is unchanged, so a phrase it never matched passes through as is.
+    import asyncio
+    from nidp.services.copilot_agent.nodes import compliance
+    from nidp.services.copilot_agent.schemas import AgentResponse, CopilotState
+    text = "The stop loss is ₹2,350 and T1 is ₹2,600 for this setup."
+    assert compliance._scrub_advice(text) == (text, False)
+    state = CopilotState(response=AgentResponse(agent="stock_analyst", text=text))
+    with caplog.at_level("WARNING", logger=compliance.logger.name):
+        out = asyncio.run(compliance.compliance_node(state))
+    assert out["response"].text == text
+    assert any("wording rule: 2 banned-word hit(s)" in r.getMessage() for r in caplog.records)
+
+
+def test_wl5_the_approved_vocabulary_is_not_a_hit():
+    from nidp.services.copilot_agent.nodes import compliance
+    for ok in ("The reference price is ₹2,400, the risk level ₹2,350 and reward level 1 ₹2,500.", "Loss at risk level: ₹4,500.",
+               "Long 1 NIFTY 24000 CE, short 1 NIFTY 24200 CE.", "FIIs had a net outflow of ₹1,200 Cr.", "Check the exit load first.",
+               "Long build-up in NIFTY futures.", "These are ideas that fit the rules, ordered for review."):
+        assert compliance.wording_hits(ok) == [], ok
+    for word in ("bullish", "undervalued", "cheap", "expensive"):
+        assert word in compliance.VOCABULARY_RULE, word
 
 
 @pytest.mark.parametrize("phrase", ["The reference price is ₹2,400, the risk level ₹2,350 and reward level 1 ₹2,500.",

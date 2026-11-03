@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 
 # ── Wording rule (owner, 3 Nov 2026: "do not use words like buy, stop loss, target") ─────────────────────
 # Nivesh is not a SEBI-registered Research Analyst, so no answer may read like a trading call. One instruction, shared by
-# every answer prompt (persona_framing.frame_for_persona adds it to each specialist node's system prompt); _ADVICE_RE
-# below is the deterministic backstop for the imperative forms. Each line that names a word to avoid says "never use",
-# so the prompt lint (tests/test_chat_compliance_delivery.py cc6) can tell a ban from a demand.
+# every answer prompt (persona_framing.frame_for_persona adds it to each specialist node's system prompt). It is a prompt
+# rule only: a deterministic filter that rewrites or blocks these words in LLM output is an OWNER decision (raised 3 Nov,
+# not approved), so wording_hits() below only COUNTS them (logged per answer; tests/test_compliance_wording_lint.py WL-5).
+# _ADVICE_RE is the pre-existing scrub, unchanged. Each line that names a word to avoid says "never use", so the prompt
+# lint (tests/test_chat_compliance_delivery.py cc6) can tell a ban from a demand.
 VOCABULARY_RULE = (
     "WORDING RULE (Nivesh is not a SEBI-registered Research Analyst, so nothing may read like a trading call):\n"
     "- Never use these words as calls or labels: buy, sell, stop loss, SL, target, T1, T2, entry, exit, book profits, "
@@ -30,8 +32,23 @@ VOCABULARY_RULE = (
     "- Say instead: 'long' / 'short' for a side or a leg (e.g. 'Long 1 NIFTY 24000 CE'); 'reference price' for an entry "
     "level; 'risk level' for a stop; 'reward level' (reward level 1 / 2) for a target; 'loss at risk level' for the loss "
     "at a stop; 'close' only for the user's own paper position.\n"
+    "- Never give a verdict: never use bullish, bearish, undervalued, overvalued, cheap or expensive about a stock, a "
+    "valuation or the market; say up, down or sideways for a trend and compare a valuation with figures (PE vs its "
+    "sector and its own history).\n"
     "- Call candidates ideas that fit the rules, ordered for review; describe, never instruct."
 )
+
+# Words the WORDING RULE bans, as they would appear in an answer (counted, never rewritten: see the note above).
+_WORDING_HIT_RE = re.compile(
+    r"\b(?:buy(?:ing)?|sell(?:ing)?|stop[- ]?loss(?:es)?|sl|targets?|t1|t2|entry|exit|book(?:ing)?\s+profits?|accumulate|"
+    r"trim|upside|downside|recommend\w*|picks?|price\s+targets?|suggested\s+trades?|bullish|bearish|undervalued|"
+    r"overvalued|cheap|expensive)\b", re.IGNORECASE)
+_WORDING_ALLOW_RE = re.compile(r"\bexit\s+load\b|\b(?:long|short)\s+build[- ]?ups?\b", re.IGNORECASE)
+
+
+def wording_hits(text: str) -> List[str]:
+    """The WORDING RULE words in an answer, lower-cased, in order. A measurement only: nothing is rewritten or blocked."""
+    return [m.group(0).lower() for m in _WORDING_HIT_RE.finditer(_WORDING_ALLOW_RE.sub(" ", text or ""))]
 
 _DISCLAIMER = (
     "\n\n---\n*⚠️ DISCLAIMER: AI-generated analysis for educational purposes only. "
@@ -166,14 +183,7 @@ _ADVICE_RE = re.compile(
     r"|\b(?:we|i)\s+recommend\b|\brecommend\s+(?:buy|sell|hold|ing|ed)\b"
     r"|\bwill\s+(?:likely\s+)?(?:rise|fall|go\s+up|go\s+down|drop|surge|rally|crash|decline|climb)\b"
     r"|\b(?:looks?|is|are|turning|remains?)\s+(?:bullish|bearish)\b|\bbullish\b|\bbearish\b"
-    r"|\bgood\s+time\s+to\s+(?:buy|sell|enter|exit)\b|\bwhether\s+to\s+(?:buy|sell)\b"
-    # Added 3 Nov 2026 (wording rule): imperative levels and calls the patterns above missed.
-    r"|\bprice\s+targets\b|\b(?:buy|sell)\s+signals?\b|\b(?:buy|sell)\s+(?:now|today|here|on\s+dips?)\b"
-    r"|\b(?:buy|sell|enter|exit|accumulate)\s+(?:at|above|below|near|around|on\s+dips?)\b"
-    r"|\bstop[- ]?loss\s*(?:at|of|near|around|below|above|is|[:=@])\s*(?:₹|rs\.?|inr)?\s*\d"
-    r"|\b(?:sl|t1|t2|target)\s*(?:at|of|is|[:=@])?\s*(?:₹|rs\.?|inr)\s*\d|\b(?:sl|t1|t2)\s*[:=@]\s*\d"
-    r"|\b(?:place|keep|set|put|use)\s+(?:a\s+|your\s+|the\s+)?(?:stop[- ]?loss|sl)\b"
-    r"|\bbook(?:ing)?\s+(?:your\s+|some\s+|partial\s+)?profits?\b|\bexit\s+(?:now|today|here)\b",
+    r"|\bgood\s+time\s+to\s+(?:buy|sell|enter|exit)\b|\bwhether\s+to\s+(?:buy|sell)\b",
     re.IGNORECASE,
 )
 _ADVICE_NOTE = ("\n\n*Factual filings/data only — Nivesh Copilot does not give investment advice, "
@@ -212,6 +222,11 @@ async def compliance_node(state: CopilotState) -> dict:
     text, had_advice = _scrub_advice(text)
     if had_advice:
         text = text.rstrip() + _ADVICE_NOTE
+
+    # 2c. Wording rule (3 Nov 2026): count, never rewrite (a hard filter is an owner decision).
+    hits = wording_hits(text)
+    if hits:
+        logger.warning("wording rule: %d banned-word hit(s) in the answer: %s", len(hits), sorted(set(hits))[:10])
 
     # 3. Grounding check
     grounding = _grounding_ok(text, state.tool_results or [])
