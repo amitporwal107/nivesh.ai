@@ -1,6 +1,7 @@
 # Functionality Verification Report — Chart Analysis: timeframes, chart tools and bar signals
 
-- **Branch:** feat/chart-analysis-signals (from origin/dev 19d8d974; commits 13927581, 8866391d, c93a0e2b + this report)
+- **Branch:** feat/chart-analysis-signals (from origin/dev 19d8d974; commits 13927581, 8866391d, c93a0e2b, this report 28d72b25,
+  510230b8 Research chart route kept at 5m–60m) · PR #463 to dev
 - **Date:** 2026-11-03
 - **Author:** Claude (full stack developer + design engineer + QA)
 - **Environment:** branch tests in containers (staging backend image, Playwright 1.60 + Chromium 1223, mocked routes);
@@ -29,7 +30,7 @@ test_reports/chart_analysis_signals_TESTCASES.md.
 | B6 | live-chart | Kite down at 5m / 60m | failure (pytest) | daily fallback; "Kite login needed for 5m / 1h candles" | PASS |
 | B7 | service | SMA 20 values | unit (pytest) | mean of the last 20 closes | PASS |
 | B8 | oi-buildup | 1m and 3m, sessions 10; Kite `minute` | api (pytest) | accepted; 2m 400; sessions 11 422 | PASS |
-| B9 | regression | live-chart, oi-buildup, options intraday (keeps 5m–60m), fno routes | regression (pytest) | all pass | PASS |
+| B9 | regression | live-chart, oi-buildup, options intraday (keeps 5m–60m), Research chart route (keeps 5m–60m), fno routes, the whole CI allowlist | regression (pytest) | all pass | PASS (2 CAS-client tests fail the same on untouched dev: they call an outside sandbox) |
 | F1–F3 | toolbar | 15m default; 5m and 1h ask both routes; ?tf= deep link | e2e | interval/sessions as designed | PASS |
 | F4 | 1D / 1W | end-of-day bars; 1W asks daily=250 window=5, futures summed per week | e2e | as stated | PASS |
 | F5, F7 | chart type, volume | Line / Area / Candles; one volume bar per candle | e2e | as stated | PASS |
@@ -47,6 +48,17 @@ test_reports/chart_analysis_signals_TESTCASES.md.
 - **pytest** (staging backend image `nivesh/backend:staging`, the branch mounted read only, network off):
   - Command: `docker run --rm --network none -v /home/deploy/nivesh-dev-worktree:/work:ro -w /work/backend … nivesh/backend:staging python -m pytest tests/test_desk_live_chart.py tests/test_chart_analysis_v2_backend.py tests/test_live_chart_fno_series.py tests/test_fno_routes.py -q -p no:cacheprovider`
   - Output: `188 passed, 2 warnings in 8.53s`
+  - Result: PASS
+- **Research chart route kept as it was** (510230b8): Kite's service now also serves 1m and 3m, so
+  `/api/research/chart-intraday` got its own fixed set (5m 15m 30m 60m). Without it `tests/test_kite_intraday.py::
+  test_availability_follows_the_feed_state` (in the CI allowlist) failed, and that route would have accepted 1m with up to 30 sessions.
+  - Command: `… python -m pytest -q -p no:cacheprovider tests/test_kite_intraday.py tests/test_desk_live_chart.py tests/test_live_chart_fno_series.py`
+  - Output: `76 passed, 2 warnings in 6.52s`
+- **The whole CI allowlist** (`.github/workflows/backend-tests.yml`, 136 files) on the branch, same container:
+  - Output: `2 failed, 4532 passed, 21 skipped, 13 warnings in 153.86s` — the 2 are `tests/test_cas_api_client.py::test_sandbox_parse_and_map`
+    and `::test_convenience_helper_returns_list`.
+  - Same file on untouched `origin/dev` (git archive, same container): `2 failed, 3 passed` with the same assertions (`assert 0 > 0`):
+    they call an outside sandbox and this run has no network. Not caused by this change; CI has network.
   - Result: PASS
 - **Staging, the routes as deployed today** (real Kite data, read only, GET with the staging session cookie). 5m and 60m were
   already accepted by the deployed code, so the two timeframes the owner named can be checked on real data now:
@@ -72,9 +84,13 @@ test_reports/chart_analysis_signals_TESTCASES.md.
 - 5m and 1h candles for PETRONET are Kite's own (source "Kite intraday", reason null), sessions 29 Oct–2 Nov (3) and
   27 Oct–2 Nov (5): the T-1 snapshot before today's open, as the stale-data rule allows. Futures OI per bar is the current
   month contract (23 Nov 2026), OI 2,75,65,200 at the 2 Nov close, matching the "FUT OI 275 L" on the owner's screenshot.
-- Found, not caused by this change: the CASH candles of every session end at 15:10 (5m) / 14:15 (1h), so the last 15
-  minutes (15:15–15:30) are missing, while the futures candles run to the close. Same on 30 Oct. Our bar filter
-  (services/kite_live_feed/intraday.py `_bar`) does not drop by time; the cause is upstream or elsewhere and is not fixed here.
+- Found, not caused by this change: the CASH candles end at 15:10 (5m) / 14:15 (1h), so the last 15 minutes (15:15–15:30)
+  are missing, while the futures candles run to the close. Same on 30 Oct. Our bar filter
+  (services/kite_live_feed/intraday.py `_bar`) does not drop by time, and the Research chart route shows the same.
+  **Settled at the source:** Kite's own `historical_data` for PETRONET (NSE cash) on 2 Nov, read in the staging backend with the
+  platform login (read only), returns `minute 360 first 09:15 last 15:14`, `5minute 72 last 15:10`, `15minute 24 last 15:00`,
+  `60minute 6 last 14:15`, last close 299.65. So the gap is in Kite's cash candles, not in our code; the futures candles are
+  a different instrument. Nothing to fix on our side; the chart shows what Kite sends.
 
 ## Inputs required from user
 - none (the staging session cookie file already on the VM was used for read-only GETs; never printed)
