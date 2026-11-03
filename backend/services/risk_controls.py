@@ -238,7 +238,10 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
                           limits_version: Optional[str] = None,
                           correlation_id: Optional[str] = None,
                           detail: Optional[Dict[str, Any]] = None,
-                          now: Optional[datetime] = None) -> Optional[str]:
+                          path: Optional[str] = None,
+                          now: Optional[datetime] = None,
+                          policy_version: Optional[str] = None,
+                          source: Optional[str] = None) -> Optional[str]:
     """Append one risk decision to `risk_decisions`. Returns the event id, or None if it could not be
     written.
 
@@ -253,6 +256,9 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
     error. The kill switch is the control that fails closed — this is the record of what happened.
     The F&O risk gate does NOT use this function: its decision is the authority for the write that
     follows, so services/risk_gate writes its own row and raises when it cannot (fail closed).
+
+    `path` names the entry path the same way the gate's rows do (services/risk_gate/contract.PATHS:
+    desk_paper_trade, journal_create, journal_fill, ...), so one query finds every refusal on a path.
     """
     event_id = str(uuid.uuid4())
     row = {
@@ -266,10 +272,13 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
         "approved_qty": approved_qty,
         "reasons": reasons or [],
         "limits_version": limits_version,
-        "policy_version": POLICY_VERSION,
+        "policy_version": policy_version or POLICY_VERSION,
         "correlation_id": correlation_id,
+        "path": path,
         "detail": detail or {},
     }
+    if source:
+        row["source"] = source
     try:
         await db[DECISIONS].insert_one(row)
     except Exception as e:  # noqa: BLE001
@@ -282,8 +291,10 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
 
 
 async def decision_rows(db, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    cur = db[DECISIONS].find({"user_id": user_id}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
+    # The decision snapshot is left out (projection, and popped for stores that ignore it): POST .../replay reads it.
+    cur = db[DECISIONS].find({"user_id": user_id}, {"snapshot": 0}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
     rows = await cur.to_list(min(limit, MAX_AUDIT_LISTED))
     for r in rows:
         r["event_id"] = r.pop("_id", None)
+        r.pop("snapshot", None)
     return rows

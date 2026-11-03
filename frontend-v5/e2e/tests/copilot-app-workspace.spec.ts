@@ -98,7 +98,7 @@ const sideways = (page: Page) => page.evaluate(() => {
 test.describe("Watchlist — the research watchlist", () => {
   test("every stock has its icon, place, confidence, earlier-list badge, and a live or a stored price", async ({ page }) => {
     const { sent, errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-count")).toHaveText("Research watchlist · 3 stocks");
     await expect(page.getByTestId("watchlist-list-date")).toHaveText("List of 12 Oct 2026");
     await expect(page.getByTestId("watchlist-name")).toHaveText([ALPHA, BRAVO, CHARLIE]);
@@ -135,7 +135,7 @@ test.describe("Watchlist — the research watchlist", () => {
 
   test("the confidence filter and the sort work on the list that came back", async ({ page }) => {
     const { errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-tier-all")).toHaveText("All · 3");
     await expect(page.getByTestId("watchlist-tier-caveat")).toHaveText("Strong, with caveat · 1");
 
@@ -158,7 +158,7 @@ test.describe("Watchlist — the research watchlist", () => {
 
   test("a stock opens to the research behind it: the numbers that came back, the latest quarter and the notes", async ({ page }) => {
     const { sent, errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-detail")).toHaveCount(0);
     const rows = page.getByTestId("watchlist-item");
 
@@ -202,7 +202,7 @@ test.describe("Watchlist — the research watchlist", () => {
       dates.push(date);
       return reply(route, date === "2026-10-05" ? RW.earlier : RW.latest);
     });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     const picker = page.getByTestId("watchlist-list-picker");
     await expect(picker.locator("option")).toHaveText(["12 Oct 2026 · 3 stocks · latest", "5 Oct 2026 · 1 stock"]);
     await expect(page.getByTestId("watchlist-historical")).toHaveCount(0);
@@ -225,7 +225,7 @@ test.describe("Watchlist — the research watchlist", () => {
   test("empty and error states: nothing published, a failed load with a retry that works, and a body that is not a list", async ({ page }) => {
     const { errors } = await open(page);
     await json(page, "**/api/public/research-watchlist*", RW.empty);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     const screen = page.getByTestId("screen-page-watchlist");
     await expect(screen).toContainText("No research list has been published yet");
     await expect(page.getByTestId("watchlist-count")).toHaveText("Research watchlist");
@@ -256,7 +256,7 @@ test.describe("Watchlist — your screens as watchlists", () => {
     await page.route("**/api/strategy-builder/strategies/*", (route) => { strategyReads.push(new URL(route.request().url()).pathname); return reply(route, SB.strategy); });
     const strategyRuns: Array<{ definition: unknown }> = [];
     await page.route("**/api/strategy-builder/screen", (route) => { strategyRuns.push(route.request().postDataJSON()); return reply(route, SB.screen); });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     await expect(page.getByTestId("watchlist-screen-name")).toHaveText(["Fixture value screen"]);
     await expect(page.getByTestId("watchlist-strategy-name")).toHaveText(["Fixture uptrend watch"]);
@@ -287,7 +287,7 @@ test.describe("Watchlist — your screens as watchlists", () => {
     const { errors } = await open(page);
     await json(page, "**/api/screeners", []);
     await json(page, "**/api/strategy-builder/strategies", SB.strategies_empty);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-screens-empty")).toContainText("Save a screen to make a watchlist");
     await expect(page.getByTestId("watchlist-screen")).toHaveCount(0);
     await expect(page.getByTestId("watchlist-strategy")).toHaveCount(0);
@@ -315,7 +315,7 @@ test.describe("Watchlist — your screens as watchlists", () => {
     const { errors } = await open(page);
     await json(page, "**/api/screeners", { detail: "boom" }, 500);
     await json(page, "**/api/strategy-builder/strategies", {});            // 200, but not a list
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     const screen = page.getByTestId("screen-page-watchlist");
     await expect(screen).toContainText("Your saved screens didn’t load — the server reported an error", { timeout: 15_000 });
     await expect(page.getByTestId("watchlist-strategies-error")).toContainText("Your saved ready-made screens didn’t load — the server’s response was not in the expected format");
@@ -354,7 +354,7 @@ test.describe("Watchlist — your screens as watchlists", () => {
       strategies = SB.strategies_empty;
       return reply(route, { ok: true, id: STRATEGY_ID, archived: true });
     });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     // The first press only arms the delete; "Keep" backs out.
     await page.getByTestId("watchlist-screen-delete").click();
@@ -384,7 +384,7 @@ test.describe("Watchlist — your screens as watchlists", () => {
 test.describe("Watchlist — price levels and filing alerts", () => {
   test("the scanner's levels are listed with each stock's icon; none, and a failed load, say so", async ({ page }) => {
     const { sent, errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-levels-count")).toHaveText("Price levels the scanner is watching · 2");
     const table = page.getByTestId("watchlist-levels");
     expect(await iconKeys(table)).toEqual(["FIXALPHA", "FIXBRAVO"]);
@@ -397,7 +397,7 @@ test.describe("Watchlist — price levels and filing alerts", () => {
     await expect.poll(() => sent).toEqual(["Show the FIXBRAVO chart with support and resistance. Scanner note: Fixture reason: just below resistance"]);
 
     // What staging answers today: no technical data, so no levels.
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await json(page, "**/api/positional/watchlist*", WX.levels_none);
     await page.reload();
     await expect(page.getByTestId("watchlist-levels-empty")).toContainText("No price levels to watch right now");
@@ -423,7 +423,7 @@ test.describe("Watchlist — price levels and filing alerts", () => {
       stored = { ...stored, types: body.types, channels: body.channels, updatedAt: "2026-10-13T08:00:00+00:00" };
       return reply(route, stored);
     });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     const types = page.getByTestId("watchlist-alert-switch");
     await expect(page.getByTestId("watchlist-alert")).toHaveCount(4);
@@ -457,7 +457,7 @@ test.describe("Watchlist — price levels and filing alerts", () => {
   test("filing alerts: no types to show, and a failed load", async ({ page }) => {
     const { errors } = await open(page);
     await json(page, "**/api/filings/alerts", { ok: true, types: {}, channels: {}, catalog: [], delivery: { active: false }, updatedAt: null });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     const screen = page.getByTestId("screen-page-watchlist");
     await expect(screen).toContainText("No filing-alert types to show");
     await expect(page.getByTestId("watchlist-alert")).toHaveCount(0);
@@ -512,7 +512,7 @@ test.describe("Screener — save as a watchlist", () => {
     await expect(page.getByTestId("screener-saved-name")).toHaveText(["Fixture cheap stocks", "Fixture value screen"]);
 
     await page.getByTestId("screener-watchlist-open").click();
-    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist$/);
+    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist\?wl=screens$/);
     await expect(page.getByTestId("watchlist-screen-name")).toHaveText(["Fixture cheap stocks", "Fixture value screen"]);
     await page.getByTestId("watchlist-screen-toggle").first().click();
     await expect(page.getByTestId("watchlist-screen-stock")).toHaveText(["FIXALPHA", "FIXBRAVO"]);
@@ -549,7 +549,7 @@ test.describe("Screener — save as a watchlist", () => {
     await expect(page.getByTestId("screener-watchlist-already")).toContainText("Fixture value screen is one of your saved screens, so it is already on your Watchlist.");
     await expect(page.getByTestId("screener-watchlist-save")).toHaveCount(0);
     await page.getByTestId("screener-watchlist-open").click();
-    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist$/);
+    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist\?wl=screens$/);
     expect(store.posts).toEqual([]);
     expect(errors).toEqual([]);
   });
@@ -580,7 +580,7 @@ test.describe("Screener — save as a watchlist", () => {
     expect(posts).toEqual([{ name: "Fixture uptrend to follow", description: "Fixture description of an uptrend screen.", asset_class: "STOCK", definition: SB.templates.templates[0].definition }]);
 
     await page.getByTestId("screener-strategy-watchlist-open").click();
-    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist$/);
+    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist\?wl=screens$/);
     await expect(page.getByTestId("watchlist-strategy-name")).toHaveText(["Fixture uptrend to follow"]);
     await page.getByTestId("watchlist-strategy-toggle").click();
     await expect(page.getByTestId("watchlist-strategy-stock")).toHaveText(["FIXALPHA", "FIXBRAVO"]);
@@ -635,7 +635,7 @@ test.describe("Saved", () => {
     await expect(page.getByTestId("saved-export")).toBeVisible();
 
     await page.getByTestId("saved-strategy-watchlist").click();
-    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist$/);
+    await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist\?wl=screens$/);
     await expect(page.getByTestId("watchlist-strategy-name")).toHaveText(["Fixture uptrend watch"]);
     await page.goBack();
     await page.getByTestId("saved-question-ask").click();
@@ -761,7 +761,7 @@ test.describe("Workspace screens — phone (390×844)", () => {
     const { errors } = await open(page);
     await threads(page, SV.sessions);
 
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-name")).toHaveText([ALPHA, BRAVO, CHARLIE]);
     await page.getByTestId("watchlist-row-toggle").first().click();               // the widest block: a stock's research
     await expect(page.getByTestId("watchlist-detail")).toBeVisible();
@@ -812,7 +812,7 @@ test.describe("Watchlist — price levels · live price", () => {
   test("a Live column appears only while the feed is live; a stock Kite has no quote for shows —", async ({ page }) => {
     await open(page);
     await liveFeed(page, { FIXALPHA: 512.25 });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     const cells = page.getByTestId("watchlist-level-live");
     await expect(cells).toHaveCount(2);
     await expect(cells.nth(0)).toHaveText("₹512.25");
@@ -823,7 +823,7 @@ test.describe("Watchlist — price levels · live price", () => {
   test("no Live column when the feed is closed", async ({ page }) => {
     await open(page);
     await liveFeed(page, { FIXALPHA: 512.25 }, "closed");
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-levels")).toContainText("Level to cross");
     await expect(page.getByTestId("watchlist-level-live")).toHaveCount(0);
   });
@@ -852,7 +852,7 @@ test.describe("Watchlist — price levels · Kite's close", () => {
   test("after the close a Close · Kite column shows while the scanner's day is older", async ({ page }) => {
     await open(page);
     await closeFeed(page, { FIXALPHA: { ltp: 512.25 } }, NEWER);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-levels")).toContainText("Close · Kite");
     await expect(page.getByTestId("watchlist-level-live").nth(0)).toHaveText("₹512.25");
     await expect(page.getByTestId("watchlist-level-live").nth(1)).toHaveText("—");
@@ -861,7 +861,7 @@ test.describe("Watchlist — price levels · Kite's close", () => {
   test("no extra column once the scanner's day has caught up", async ({ page }) => {
     await open(page);
     await closeFeed(page, { FIXALPHA: { ltp: 512.25 } }, OLDER);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("watchlist-levels")).toContainText("Level to cross");
     await expect(page.getByTestId("watchlist-level-live")).toHaveCount(0);
   });

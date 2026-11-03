@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { TypedText } from "@/components/chat/TypedHeadline";
 import { PortfolioBuilderWidget } from "@/components/chat/PortfolioBuilderWidget";
 import { BrokerContractChart } from "@/components/chat/BrokerContractChart";
+import { TradePlanChatCard } from "@/components/chat/TradePlanChatCard";
+import { VisualAnswer } from "@/components/chat/visual/VisualAnswer";
 import StrategyBuilderPage from "@/pages/StrategyBuilder";
 import { createStrategyFromScreen } from "@/services/strategyBuilder";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
@@ -3103,7 +3105,7 @@ export const WIDGET_TYPES = new Set([
   "concentration", "allocation_review", "instrument_detail", "mf_detail", "market_detail",
   "risk_assessment", "goal_simulation", "stock_screener", "portfolio_builder", "strategy_lab",
   "capital_gains", "goal_basket", "backtest_comparison", "stock_insights",
-  "broker_contract_chart",
+  "broker_contract_chart", "trade_plan", "visual_answer",
 ]);
 
 export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: string; data?: any }; onAction?: (a: WidgetAction) => void }) {
@@ -3138,6 +3140,9 @@ export function ChatWidget({ widget, onAction }: { widget?: { widget_type?: stri
       case "stock_insights":     return <StockInsightsWidget data={widget.data} onAction={onAction} />;
       // A futures or options position's own chart, read live from the broker by the card itself.
       case "broker_contract_chart": return <BrokerContractChart data={widget.data} />;
+      case "trade_plan":         return <TradePlanChatCard data={widget.data} onAction={onAction} />;
+      // The Daily Trader Copilot's visual decision dashboard (contract visual-answer-v1).
+      case "visual_answer":      return <VisualAnswer data={widget.data} onAction={onAction} />;
     }
   } catch {
     return null;

@@ -1,7 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Nivesh (Staging)</string>
-    <string name="title_activity_main">Nivesh (Staging)</string>
+    <!-- app_name and title_activity_main come from build.gradle (resValue, CAP_APP_NAME). -->
     <string name="package_name">ai.nivesh.staging</string>
     <string name="custom_url_scheme">ai.nivesh.staging</string>
     <!-- Web OAuth client ID ("nivesh.ai"). Used by @codetrix-studio/capacitor-google-auth

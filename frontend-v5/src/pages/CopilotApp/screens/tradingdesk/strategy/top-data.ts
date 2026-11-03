@@ -20,6 +20,8 @@ export interface TopRequest {
   limit?: number;
   classes?: Array<"index_options" | "stock_fno" | "cash">;
   expiry?: string;
+  /** One row per underlying in the option classes, with the other structures as `alternatives`. */
+  distinct?: boolean;
 }
 
 /** One run of the board: the body and a counter, so "Build again" re-runs the same body. */

@@ -1033,7 +1033,7 @@ export default function SmartMoneyTab() {
     <Screen testId="screen-desk-smart-money" width={1480}>
       <div ref={measureRef} />
       <ScreenHeader
-        eyebrow={<Eyebrow>06 · Smart Money Movement</Eyebrow>}
+        eyebrow={<Eyebrow>Smart Money Movement</Eyebrow>}
         title={persona === "investor" ? "Who is buying and selling" : "Smart Money Movement"}
         pills={
           <>

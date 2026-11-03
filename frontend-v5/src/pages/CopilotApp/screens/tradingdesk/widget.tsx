@@ -51,7 +51,8 @@ export interface WidgetProps {
   testId?: string;
   /** The title eyebrow's data-testid. */
   headTestId?: string;
-  /** Section number shown in mint before the title ("03"). */
+  /** The old desk's section number ("03"). Kept so call sites compile; NOT shown: those numbers match none of the four
+   *  tabs of the redesigned desk (audit 2026-10-28, "leftover section numbers"). */
   num?: string;
   title: ReactNode;
   /** Quiet eyebrow text pushed right. */
@@ -73,7 +74,7 @@ export interface WidgetProps {
   children: ReactNode;
 }
 
-export function Widget({ id, testId, headTestId, num, title, meta, actions, headPad = "13px 18px", bodyStyle, style, defaultCollapsed, data, cardRef, children }: WidgetProps) {
+export function Widget({ id, testId, headTestId, title, meta, actions, headPad = "13px 18px", bodyStyle, style, defaultCollapsed, data, cardRef, children }: WidgetProps) {
   const [s, setS] = useState<Saved>(() => {
     const r = read(id);
     // Nothing saved yet → the author's default; once the viewer has chosen, theirs wins.
@@ -155,7 +156,7 @@ export function Widget({ id, testId, headTestId, num, title, meta, actions, head
             <path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span data-testid={headTestId} className="cp-eyebrow" style={{ minWidth: 0 }}>
-            {num && <><span style={{ color: "var(--mint)" }}>{num}</span> · </>}{title}
+            {title}
           </span>
         </button>
         {meta != null && <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{meta}</span>}

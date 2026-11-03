@@ -106,6 +106,38 @@ def _fetch_latest_close(chain: List[str]) -> Tuple[Optional[float], Optional[str
     return None, None, None
 
 
+# ── Warehouse first for the Indian index series ────────────────────────
+# Nifty 50 and India VIX are read first from the warehouse (nidp.index_eod, the NSE index close the desk regime
+# already trusts), dated by the warehouse's session; yfinance is the fallback. The read ends at the run's date, so a
+# past target_date gets that session, not the latest bar.
+WAREHOUSE_SOURCE = "nidp.index_eod NSE_IND_CLOSE"
+_WAREHOUSE_INDEX: Dict[str, str] = {"nifty": "Nifty 50", "india_vix": "India VIX"}
+WAREHOUSE_LOOKBACK_DAYS = 10
+
+
+async def _fetch_warehouse_close(index_name: str, until: date) -> Tuple[Optional[float], Optional[str], Optional[date]]:
+    """(close, source, session) of the newest warehouse row on or before `until`; (None, None, None) when the
+    warehouse cannot be read or has no row in the lookback, so the caller falls back to yfinance."""
+    try:
+        from services.copilot_tools import daas_client
+        rows = await daas_client.get_index_eod_history(
+            index_name, start=(until - timedelta(days=WAREHOUSE_LOOKBACK_DAYS)).isoformat(), end=until.isoformat())
+    except Exception as e:  # noqa: BLE001 — a failed read falls back; it is logged, never guessed
+        logger.warning("macro_ingester: warehouse read of %s failed (%s); falling back to yfinance", index_name, e)
+        return None, None, None
+    for row in reversed(rows or []):
+        if not isinstance(row, dict):
+            continue
+        try:
+            close = float(row.get("close_price"))
+            session = date.fromisoformat(str(row.get("as_of_date") or "")[:10])
+        except (TypeError, ValueError):
+            continue
+        if session <= until and not _is_nan(close):
+            return close, WAREHOUSE_SOURCE, session
+    return None, None, None
+
+
 # ── PR-3 multi-source fallbacks ────────────────────────────────────────
 # Each fallback returns (close, source_label) like _fetch_latest_close.
 # When the API key / scrape is unavailable, returns (None, None) and the
@@ -176,15 +208,21 @@ async def _fetch_rbi_10y_yield() -> Tuple[Optional[float], Optional[str], Option
     return None, None, None
 
 
-async def _fetch_with_fallback(metric_key: str, chain: List[str],
+async def _fetch_with_fallback(metric_key: str, chain: List[str], until: Optional[date] = None,
                                ) -> Tuple[Optional[float], Optional[str], float, Optional[date]]:
-    """Walk: Alpha Vantage (when applicable) → yfinance chain → RBI (bond only).
+    """Walk: the warehouse (Nifty 50 and India VIX only) → Alpha Vantage (when applicable) → yfinance chain → RBI
+    (bond only).
 
     Returns (value, source_used, confidence_actual, bar_date). The
     bar_date is the actual trading day the value belongs to — used by
     the caller to detect "markets closed today" via the Nifty bar."""
     spec = _TICKERS.get(metric_key, {})
     primary_conf = spec.get("primary_confidence", 1.0)
+
+    if metric_key in _WAREHOUSE_INDEX:
+        v, src, session = await _fetch_warehouse_close(_WAREHOUSE_INDEX[metric_key], until or date.today())
+        if v is not None:
+            return v, src, 1.0, session
 
     # PR-3 placeholder: enable Alpha Vantage for specific metrics once key is set.
     av_symbol_map = {
@@ -355,7 +393,7 @@ async def ingest_today(*, target_date: Optional[date] = None) -> Dict[str, Any]:
     # to the PR-1 yfinance-only path.
     raw: Dict[str, Tuple[Optional[float], Optional[str], float, Optional[date]]] = {}
     for m, spec in _TICKERS.items():
-        v, src, conf, bar_dt = await _fetch_with_fallback(m, spec["chain"])
+        v, src, conf, bar_dt = await _fetch_with_fallback(m, spec["chain"], until=today)
         raw[m] = (v, src, conf, bar_dt)
 
     # Holiday detection — use Nifty's bar date as the canonical Indian
@@ -388,9 +426,17 @@ async def ingest_today(*, target_date: Optional[date] = None) -> Dict[str, Any]:
         "hang_seng": ("hang_seng",   "source_hang_seng", "confidence_hang_seng"),
     }
 
-    for metric, (val, ticker, actual_conf, _bar_dt) in raw.items():
+    for metric, (val, ticker, actual_conf, bar_dt) in raw.items():
         col, src_col, conf_col = metric_to_col[metric]
         prev = await _previous_value(metric, as_of_date)
+        # India VIX belongs to the same NSE session as the Nifty close the row is dated by; a VIX from another session
+        # (e.g. the warehouse had Nifty but yfinance's VIX bar is a day old) would be stored against the wrong day.
+        if metric == "india_vix" and val is not None and bar_dt is not None and bar_dt != as_of_date:
+            summary["metrics"][metric] = {"ok": False, "value": val, "prev": prev, "source": ticker,
+                                          "reason": "session_mismatch", "bar_date": str(bar_dt)}
+            logger.warning("macro_ingester: india_vix from %s is for %s, not the row's session %s — not stored",
+                           ticker, bar_dt, as_of_date)
+            continue
         ok = _passes_sanity(val, prev)
         if ok:
             fields[col] = val

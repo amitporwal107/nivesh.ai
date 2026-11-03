@@ -1,0 +1,10 @@
+{
+  "_what": "Where market data comes from. ONE switch for everything (owner, 29 Oct 2026). Flip it in a PR to dev; the merge is the approval. Read by backend/nidp/shared/market_data_source.py on both servers.",
+  "_modes": "current = our own feeds (NSE files via NIDP, Kite live). shadow = ours serve, TrueData runs beside them for comparison. truedata = TrueData serves and our replaced feeds are switched off.",
+  "_safety": "The code refuses a mode it cannot honour: without TrueData integrated and credentials configured it stays on current; without truedata_licence_confirmed it stays on shadow. Our feeds go off only when TrueData actually serves.",
+  "source": "shadow",
+  "truedata_licence_confirmed": false,
+  "changed_on": "2026-10-30",
+  "changed_by": "Amit Porwal",
+  "reason": "Owner, 30 Oct 2026: run TrueData beside our feeds for the data-quality checks (live feed in shadow + nightly cross-check) while the sandbox WebSocket login lasts (until 5 Nov). Our feeds keep serving; nothing from TrueData is shown to users. Licence flag stays false."
+}

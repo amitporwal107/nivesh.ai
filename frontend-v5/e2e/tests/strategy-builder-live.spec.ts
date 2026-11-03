@@ -1,7 +1,7 @@
 /**
  * @live — Strategy Builder wizard (V5) end-to-end on real staging.
  *
- * Drives the actual deployed screen at /v5/strategy-builder with a real session
+ * Drives the actual deployed screen at /v5/app/trader/strategy with a real session
  * cookie (SESSION_TOKEN → storageState). Walks Universe → Strategy → Screen →
  * Bot details → Backtest and asserts real candidates + backtest metrics render.
  * No mocking.
@@ -10,8 +10,9 @@ import { test, expect } from "@playwright/test";
 
 test.describe("@live Strategy Builder wizard", () => {
   test("walks universe → strategy → screen → backtest with real data", async ({ page }) => {
-    // 1) Load the deployed wizard (V5 is served under /v5/)
-    await page.goto("/v5/strategy-builder", { waitUntil: "domcontentloaded" });
+    // 1) Load the deployed wizard (V5 is served under /v5/). It is mounted in the Copilot shell at /app/trader/strategy;
+    // the standalone /v5/strategy-builder URL was removed in the desk redesign's step 6 (2026-10-27).
+    await page.goto("/v5/app/trader/strategy", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("strategy-builder-page")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("heading", { name: "Strategy Builder" })).toBeVisible();
 

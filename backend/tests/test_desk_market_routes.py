@@ -23,6 +23,7 @@ from routes import filings, markets
 from routes import fno as fno_route
 from routes import markets_desk as desk_route
 from services.copilot_tools import daas_client
+from tests import market_day
 
 Calls = List[Tuple[str, Optional[dict]]]
 
@@ -51,6 +52,7 @@ def _client(monkeypatch, module, reply: Any, *, signed_in: bool = True, configur
 
     monkeypatch.setattr(daas_client, "get_raw", get_raw)
     monkeypatch.setattr(daas_client, "is_configured", lambda: configured)
+    market_day.pin(monkeypatch, "2026-10-13", "2026-10-12")   # the build-up fixture's day
     if signed_in:
         async def fake_user(request: Request):
             return {"user_id": "u1", "email": "u1@example.com"}

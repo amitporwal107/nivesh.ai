@@ -1,6 +1,7 @@
 """Live quotes from the platform-level Kite feed (services/kite_live_feed). Read only.
 
-GET /api/live/status    state of the feed (mode, source, instrument count, last tick age)
+GET /api/live/status    state of the feed (mode, source, instrument count, last tick age), and whether an admin should be
+                        asked for the day's Kite login now (login_needed / login_why, platform_token.login_needed)
 GET /api/live/quotes    ?symbols=RELIANCE,NIFTY 50   batch of quotes from the latest snapshot
 GET /api/live/snapshot  ?universe=indices|nifty500|fno|futures|all   a whole set (futures: the near-month contract of each F&O underlying, with OI)
 GET /api/live/close     ?date=YYYY-MM-DD&symbols=  the saved closing quotes of a trading day (newest when omitted)
@@ -24,12 +25,13 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from deps import get_current_user, require_admin
+from services import market_freshness
 from services.kite_live_feed import config as cfg
 from services.kite_live_feed import fno_quotes as fq
 from services.kite_live_feed import gateway as gw
 from services.kite_live_feed import platform_token as pt
 from services.kite_live_feed import quote_cache as qc
-from services.kite_live_feed.feed import aware, get_feed
+from services.kite_live_feed.feed import COL_CLOSE, aware, get_feed
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/live", tags=["live-quotes"])
@@ -146,6 +148,15 @@ async def _body(symbols: Optional[List[str]], universe: Optional[str]) -> Dict[s
     return overlay_cache(body, symbols, await qc.read_quotes(symbols)) if symbols else body
 
 
+@router.get("/truedata/status")
+async def truedata_shadow_status(request: Request) -> Dict[str, Any]:
+    """TrueData live feed in shadow: connection state, subscription, and today's data-quality findings and agreement
+    with Kite (services/truedata_live). Read only; serves no quotes."""
+    await get_current_user(request)
+    from services import truedata_live
+    return await truedata_live.status(get_feed().db)
+
+
 @router.get("/status")
 async def status(request: Request) -> Dict[str, Any]:
     await get_current_user(request)
@@ -157,6 +168,11 @@ async def status(request: Request) -> Dict[str, Any]:
     out = dict(st or {})
     out.pop("holder", None)
     out.pop("updated_at", None)
+    token = await pt.token_status(feed.db, now)
+    # The day's closing quotes are saved under the IST date (feed._save_close); once they are, a login adds nothing that day.
+    today = now.astimezone(cfg.IST).date().isoformat()
+    close_saved = await feed.db[COL_CLOSE].find_one({"_id": today}, {"_id": 1}) is not None
+    needed, why = pt.login_needed(now, feed_state=out.get("state"), feed_reason=out.get("reason"), token=token, close_saved_today=close_saved)
     return {"enabled": cfg.enabled(), "mode": mode_of(st, age), "state": (st or {}).get("state", "disabled" if not cfg.enabled() else "unknown"),
             "last_tick_age_seconds": age, "as_of": (snap or {}).get("as_of"), "source": out.get("source"),
             "instrument_count": out.get("instrument_count", 0), "unresolved_count": out.get("unresolved_count", 0),
@@ -165,7 +181,8 @@ async def status(request: Request) -> Dict[str, Any]:
             "holiday_checked": out.get("holiday_checked"), "read_only": True,
             "token_alert": out.get("token_alert") or {"state": None},
             "alert_state": (out.get("token_alert") or {}).get("state"),
-            "platform_token": await pt.token_status(feed.db)}
+            "platform_token": token,
+            "login_needed": needed, "login_why": why, "close_saved_today": close_saved}
 
 
 @router.get("/quotes")
@@ -281,10 +298,11 @@ async def fno_quotes(request: Request) -> Dict[str, Any]:
         logger.warning("fno-quotes: quote() failed (%s)", type(e).__name__)
         return off(f"the quote request failed ({type(e).__name__})")
 
-    priced = fq.prices_from(answer, keys)
+    # A contract that has not traded since before the previous session carries an older day's price: not sent.
+    priced = fq.prices_from(answer, keys, floor=(await market_freshness.window()).floor)
     return {
         "available": bool(priced),
-        "reason": None if priced else "Kite returned no price for these contracts",
+        "reason": None if priced else "None of these contracts has traded today or in the previous session",
         "quotes": {str(i): v for i, v in priced.items()},
         "unresolved": unresolved,
         "as_of": datetime.now(timezone.utc).isoformat(),

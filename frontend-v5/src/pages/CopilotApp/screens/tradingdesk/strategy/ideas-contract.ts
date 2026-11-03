@@ -9,6 +9,7 @@
  * Extra fields pass through. Nothing here recomputes a figure.
  */
 import { z } from "zod";
+import { TradePlanOrNull } from "./trade-plan";
 
 const numOrNull = z.number().nullable().catch(null);
 const strOrNull = z.string().nullable().catch(null);
@@ -84,6 +85,11 @@ export const IdeaStrategySchema = z.object({
   liquidity_flags: z.array(z.unknown()).catch([]),
   why: strOrNull,
   flags: z.array(z.unknown()).catch([]),
+  /** The plan's minimum reward : risk and whether the shown ratio reaches it (ideas.strategies_of; absent from older answers). */
+  min_reward_risk: numOrNull,
+  meets_min_reward_risk: z.boolean().nullable().catch(null),
+  /** The preferred strategy only: the risk service's sizing of its trade plan for your account (plan_sizing.size_for). */
+  account_size: z.unknown().optional(),
 }).passthrough();
 export type IdeaStrategy = z.infer<typeof IdeaStrategySchema>;
 
@@ -107,6 +113,9 @@ export const IdeaSchema = z.object({
   direction: z.string().catch(""),
   fno_eligible: z.boolean().catch(false),
   plan_id: strOrNull,
+  /** Phase 2.1: the idea's canonical TradePlan (its cash candidate's levels); undefined from a route older than plans. */
+  trade_plan_id: strOrNull.optional(),
+  trade_plan: TradePlanOrNull,
   plan_status: z.string().catch("insufficient_data"),
   status_reasons: z.array(ReasonSchema).catch([]),
   would_change_if: strList,

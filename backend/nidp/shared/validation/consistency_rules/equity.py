@@ -25,6 +25,9 @@ Source precedence (golden → fallback):
 from __future__ import annotations
 
 from nidp.shared.validation.consistency import (
+    ConsistencyDimension,
+    ConsistencyFinding,
+    ConsistencyRule,
     InternalConsistencyRule,
     TemporalConsistencyRule,
     register_consistency,
@@ -64,34 +67,53 @@ OHLC_INVARIANT = InternalConsistencyRule(
     failure_class=FailureClass.FIX,
 )
 
-# ── C2: Shareholding sum — promoter_pct + public_pct ≈ 100% ± 0.5%
-# Both are published in the same XBRL filing; their sum must equal 100%
-# (any gap > 0.5pp indicates a parsing error or an AMC double-count).
+# ── C2: Shareholding sum, by each source's own definition of "public"
+# The two sources mean different things by public_pct (measured on staging, Jul–Oct 2026 filings):
+#   * NSE_SHP (the NSE SHP filing): public = every non-promoter holder, EXCEPT the "non-promoter non-public" category
+#     (shares underlying depository receipts, employee benefit trusts), which has no column here. So
+#     promoter + public may be BELOW 100 by that category's size, and may never be ABOVE it.
+#   * screener_in: public = retail and others only; FII, DII and government are separate columns. So
+#     promoter + fii + dii + govt + public = 100 (424 of 453 filings did, within 0.5pp).
+# The rule used to test promoter + public = 100 for both, which failed 85% of screener_in filings every day and rejected
+# the whole equity day. Only each symbol's LATEST filing per source in the window counts, so a superseded filing stops
+# failing the rule once a newer one arrives.
+_SHAREHOLDING_LATEST = """
+    SELECT DISTINCT ON (symbol, source)
+           symbol, source, period_end, promoter_pct, public_pct, fii_pct, dii_pct, govt_holding_pct
+      FROM nidp.shareholding_pattern
+     WHERE period_end >= ($1::date - INTERVAL '95 days')
+       AND period_end <= $1::date
+       AND promoter_pct IS NOT NULL
+       AND public_pct   IS NOT NULL
+     ORDER BY symbol, source, period_end DESC
+"""
+_SHAREHOLDING_TOTAL = """
+    CASE WHEN source = 'screener_in'
+         THEN promoter_pct + coalesce(fii_pct, 0) + coalesce(dii_pct, 0) + coalesce(govt_holding_pct, 0) + public_pct
+         ELSE promoter_pct + public_pct END
+"""
+_SHAREHOLDING_BAD = """
+    CASE WHEN source = 'screener_in'
+         THEN abs(promoter_pct + coalesce(fii_pct, 0) + coalesce(dii_pct, 0) + coalesce(govt_holding_pct, 0)
+                  + public_pct - 100.0) > 0.5
+         ELSE promoter_pct + public_pct > 100.5 END
+"""
 SHAREHOLDING_SUM = InternalConsistencyRule(
     name="equity.shareholding_sum",
-    sql="""
-        SELECT count(*) FROM nidp.shareholding_pattern
-         WHERE period_end >= ($1::date - INTERVAL '95 days')
-           AND period_end <= $1::date
-           AND promoter_pct IS NOT NULL
-           AND public_pct   IS NOT NULL
-           AND abs(promoter_pct + public_pct - 100.0) > 0.5
+    sql=f"""
+        SELECT count(*) FROM ({_SHAREHOLDING_LATEST}) latest
+         WHERE {_SHAREHOLDING_BAD}
     """,
-    sample_sql="""
-        SELECT symbol, period_end,
-               promoter_pct, public_pct,
-               round((promoter_pct + public_pct)::numeric, 4) AS total,
-               abs(promoter_pct + public_pct - 100.0)         AS deviation
-          FROM nidp.shareholding_pattern
-         WHERE period_end >= ($1::date - INTERVAL '95 days')
-           AND period_end <= $1::date
-           AND promoter_pct IS NOT NULL
-           AND public_pct   IS NOT NULL
-           AND abs(promoter_pct + public_pct - 100.0) > 0.5
-         ORDER BY deviation DESC
+    sample_sql=f"""
+        SELECT symbol, source, period_end, promoter_pct, public_pct, fii_pct, dii_pct, govt_holding_pct,
+               round(({_SHAREHOLDING_TOTAL})::numeric, 4) AS total
+          FROM ({_SHAREHOLDING_LATEST}) latest
+         WHERE {_SHAREHOLDING_BAD}
+         ORDER BY abs(({_SHAREHOLDING_TOTAL}) - 100.0) DESC
          LIMIT 10
     """,
-    message="promoter_pct + public_pct deviates from 100% by > 0.5pp",
+    message=("shareholding categories do not add up (NSE: promoter + public above 100.5%; "
+             "screener_in: promoter + FII + DII + govt + public not within 0.5pp of 100%)"),
     field_name="shareholding_sum",
     entity_type="symbol",
     severity=Severity.ERROR,
@@ -127,48 +149,126 @@ DELIVERY_RANGE = InternalConsistencyRule(
     params_fn=lambda d: [d],
 )
 
+# Corporate actions that change the price base on their EX-date (the day the price adjusts). NSE adjusts the day's
+# prev_close for these, so a move measured against prev_close is already corrected; they are excluded anyway, and the
+# continuity rule below must not call NSE's adjusted base a mismatch.
+_PRICE_BASE_ACTIONS = "('SPLIT','BONUS','RIGHTS','DEMERGER','CAPITAL_REDUCTION','DISTRIBUTION')"
+
 # ── T1: Price single-day change > 20% — temporal flag
-# NSE circuit-breaker limits most stocks to ±20%. A change beyond this
-# without a corresponding corporate action is almost certainly a data error.
+# NSE price bands cap most stocks at ±20% of the day's base price. The base is the row's own NSE `prev_close` (the
+# security's previous close, carried across a series switch EQ ↔ BE and across days it did not trade). The rule used
+# to compare against the last stored row of the SAME series, which can be months old (GSLSU: 23 Feb vs 26 Oct), so most
+# of its findings were artefacts. Rights entitlements (-RE, -RE1, …) and listing days are excluded: neither has a band.
 PRICE_TEMPORAL_CHANGE = TemporalConsistencyRule(
     name="equity.price_temporal_change",
     field_name="close_price",
     entity_type="symbol",
-    sql="""
+    sql=f"""
         SELECT
-            cur.symbol                       AS entity_id,
-            cur.close_price                  AS current_val,
-            prv.close_price                  AS prior_val,
-            CASE WHEN prv.close_price > 0
-                 THEN ((cur.close_price - prv.close_price) / prv.close_price) * 100.0
-                 ELSE NULL END               AS change_pct
+            cur.symbol      AS entity_id,
+            cur.close_price AS current_val,
+            cur.prev_close  AS prior_val,
+            ((cur.close_price - cur.prev_close) / cur.prev_close) * 100.0 AS change_pct
           FROM nidp.prices_eod cur
-          JOIN nidp.prices_eod prv
-            ON prv.symbol     = cur.symbol
-           AND prv.series     = cur.series
-           AND prv.as_of_date = (
-               SELECT max(as_of_date)
-                 FROM nidp.prices_eod
-                WHERE symbol     = cur.symbol
-                  AND series     = cur.series
-                  AND as_of_date < $1
-           )
          WHERE cur.as_of_date = $1
            AND cur.series IN ('EQ','BE')
            AND cur.close_price > 0
-           AND prv.close_price > 0
-           -- Exclude symbols with a known corporate action on this date
+           AND cur.prev_close  > 0
+           -- Rights entitlements (-RE, -RE1, …) have no price band.
+           AND cur.symbol !~ '-RE[0-9]*$'
+           -- A listing or relisting day: prev_close is the issue / base price and no band applies to price discovery
+           -- (staging 12–28 Oct: TONBO, JPL, TRIVENIPT, SHIVAM-RE1 were all their first day in the store).
+           AND EXISTS (
+               SELECT 1 FROM nidp.prices_eod p
+                WHERE p.symbol = cur.symbol
+                  AND p.as_of_date <  $1
+                  AND p.as_of_date >= $1::date - 30
+           )
            AND NOT EXISTS (
                SELECT 1 FROM nidp.corporate_actions ca
                 WHERE ca.symbol      = cur.symbol
-                  AND ca.record_date = $1
-                  AND ca.action_type IN ('SPLIT','BONUS','RIGHTS','DIVIDEND')
+                  AND ca.ex_date     = $1
+                  AND ca.action_type IN {_PRICE_BASE_ACTIONS}
            )
     """,
     threshold_pct=20.0,
     severity=Severity.WARN,
     failure_class=FailureClass.FIX,
 )
+
+
+class PrevCloseContinuityRule(ConsistencyRule):
+    """NSE's own previous close against the close we stored for the security's previous trading day.
+
+    The bhavcopy carries `prev_close` for every row; it must equal the last close we hold for that security (any of EQ,
+    BE, BZ, so a series switch is not a break) within the last 30 days. A mismatch with no price-base corporate action
+    on the ex-date means one of the two days is wrong in our store (a missed split or consolidation, or a bad row). On
+    staging, 12–27 Oct, it was silent on 2,7xx securities a day except three real breaks (CCAVENUE 13.83 stored vs
+    138.30 NSE, 19 Oct). One finding per security.
+    """
+    name = "equity.prev_close_continuity"
+    dimension = ConsistencyDimension.CROSS_SOURCE
+    severity = Severity.ERROR
+    failure_class = FailureClass.FIX
+    # Prices are quoted to 0.05 (tick) or 0.01; anything within a paisa, or 0.01% of the price, is the same close.
+    ABS_TOLERANCE = 0.011
+    REL_TOLERANCE = 0.0001
+    LOOKBACK_DAYS = 30
+
+    SQL = f"""
+        SELECT cur.symbol, cur.prev_close AS nse_prev_close, prior.close_price AS stored_close,
+               prior.as_of_date AS stored_date
+          FROM nidp.prices_eod cur
+          JOIN LATERAL (
+               SELECT p.close_price, p.as_of_date
+                 FROM nidp.prices_eod p
+                WHERE p.symbol = cur.symbol
+                  AND p.series IN ('EQ','BE','BZ')
+                  AND p.as_of_date <  $1
+                  AND p.as_of_date >= $1::date - $2::int
+                ORDER BY p.as_of_date DESC
+                LIMIT 1
+          ) prior ON TRUE
+         WHERE cur.as_of_date = $1
+           AND cur.series IN ('EQ','BE','BZ')
+           AND cur.prev_close > 0
+           AND prior.close_price > 0
+           AND abs(prior.close_price - cur.prev_close) > greatest($3::numeric, cur.prev_close * $4::numeric)
+           AND NOT EXISTS (
+               SELECT 1 FROM nidp.corporate_actions ca
+                WHERE ca.symbol      = cur.symbol
+                  AND ca.ex_date     = $1
+                  AND ca.action_type IN {_PRICE_BASE_ACTIONS}
+           )
+         ORDER BY cur.symbol
+    """
+
+    async def check(self, conn, target_date):
+        rows = await conn.fetch(self.SQL, target_date, self.LOOKBACK_DAYS, self.ABS_TOLERANCE, self.REL_TOLERANCE)
+        findings: list[ConsistencyFinding] = []
+        for r in rows:
+            nse, ours = float(r["nse_prev_close"]), float(r["stored_close"])
+            dev = abs(ours - nse) / nse * 100.0
+            findings.append(ConsistencyFinding(
+                rule_name=self.name,
+                dimension=self.dimension,
+                severity=self.severity,
+                failure_class=self.failure_class,
+                message=(f"prev_close break for {r['symbol']}: NSE prev_close {nse} vs our close {ours} on "
+                         f"{r['stored_date']} (deviation {dev:.2f}%) with no price-base corporate action"),
+                entity_type="symbol",
+                entity_id=str(r["symbol"]),
+                field_name="close_price",
+                source_a="nidp.prices_eod (stored prior close)",
+                value_a=str(ours),
+                source_b="NSE bhavcopy prev_close",
+                value_b=str(nse),
+                deviation_pct=round(dev, 4),
+            ))
+        return findings
+
+
+PREV_CLOSE_CONTINUITY = PrevCloseContinuityRule()
 
 # ── T2: Promoter holding quarter-on-quarter change > 10pp
 # A >10pp swing in one quarter is extremely unusual and typically
@@ -273,6 +373,7 @@ register_consistency("equity", [
     SHAREHOLDING_SUM,
     DELIVERY_RANGE,
     PRICE_TEMPORAL_CHANGE,
+    PREV_CLOSE_CONTINUITY,
     PROMOTER_QOQ_CHANGE,
     FII_QOQ_CHANGE,
     PRICE_IMMUTABILITY,

@@ -31,7 +31,7 @@ from typing import Optional
 
 import asyncpg
 
-from nidp.shared.validation.quality_score import QualityScore
+from nidp.shared.validation.quality_score import QualityScore, domain_ingesters, is_scored_domain
 
 logger = logging.getLogger(__name__)
 
@@ -81,17 +81,31 @@ class QualityGate:
             target_date, domain,
         ) or 0)
 
-        # 3. Also count BLOCK validation findings from per-ingester runs
-        val_blocks = int(await self._conn.fetchval(
-            """
-            SELECT count(*) FROM nidp.validation_findings vf
-              JOIN nidp.validation_runs vr ON vr.job_run_id = vf.job_run_id
-             WHERE vr.target_date = $1
-               AND vf.failure_class = 'BLOCK'
-               AND ($2 = 'all' OR vf.ingester LIKE $3)
-            """,
-            target_date, domain, f"{domain}%",
-        ) or 0)
+        # 3. Also count BLOCK validation findings. For a domain under the corrected scoring, from its own ingesters
+        #    (the old `LIKE '<domain>%'` filter matched no ingester, so a bhavcopy BLOCK never reached the equity
+        #    gate); any other domain keeps the earlier filter unchanged (see quality_score.DOMAIN_INGESTERS, scope).
+        if is_scored_domain(domain):
+            val_blocks = int(await self._conn.fetchval(
+                """
+                SELECT count(*) FROM nidp.validation_findings vf
+                  JOIN nidp.validation_runs vr ON vr.job_run_id = vf.job_run_id
+                 WHERE vr.target_date = $1
+                   AND vf.failure_class = 'BLOCK'
+                   AND vf.ingester = ANY($2::text[])
+                """,
+                target_date, domain_ingesters(domain),
+            ) or 0)
+        else:
+            val_blocks = int(await self._conn.fetchval(
+                """
+                SELECT count(*) FROM nidp.validation_findings vf
+                  JOIN nidp.validation_runs vr ON vr.job_run_id = vf.job_run_id
+                 WHERE vr.target_date = $1
+                   AND vf.failure_class = 'BLOCK'
+                   AND ($2 = 'all' OR vf.ingester LIKE $3)
+                """,
+                target_date, domain, f"{domain}%",
+            ) or 0)
 
         total_blocks = block_count + val_blocks
 

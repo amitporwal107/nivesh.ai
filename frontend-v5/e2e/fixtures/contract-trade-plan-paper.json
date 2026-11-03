@@ -1,0 +1,3578 @@
+{
+ "about": "The paper-trade bodies the browser sends WITH a TradePlan reference (Phase 2.1). Generated from the backend's own builders; backend/tests/test_trade_plan_contract.py sends them through the real route and checks the plans are the ones the backend builds, and the Playwright specs assert the browser sends exactly these bodies. cash: MOCK \u2014 not real data (the RELIANCE-like world of backend/tests/test_strategy_plan.py). fno: the REAL 2026-10-21 staging capture desk-strategy-top.json, its plan built by regime_fit.attach_trade_plans.",
+ "cash": {
+  "ideas_response": {
+   "generated_at": "2026-10-20T04:00:00+00:00",
+   "data_as_of": {
+    "mode": "end_of_day",
+    "scanner_watchlist": "2026-10-19",
+    "scanner_picks": "2026-10-19",
+    "scan_eligibility": "2026-10-19",
+    "chartink": null,
+    "price": "2026-10-19",
+    "fno": "2026-10-19"
+   },
+   "rules_version": "strategy-rules.v1.6 (2026-10-27)",
+   "calculation_version": "payoff-v2",
+   "sent_to_broker": false,
+   "selection": {
+    "source": "AI scanner (watchlist + picks), end of day",
+    "scan_date": "2026-10-19",
+    "rule": "The scanner's merged list (watchlist and picks, picks win for entry, stop and target), ranked by the scanner's score, then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least Rs 10 crore a day); the top N that pass. When the snapshot cannot be read, the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate.",
+    "considered": 3,
+    "selected": 1,
+    "excluded": [
+     {
+      "symbol": "ZZZ",
+      "reason": "thin",
+      "code": "illiquid"
+     }
+    ],
+    "excluded_note": "Only setups ranked above the last selected one are listed.",
+    "limit": 1,
+    "empty_reason": null,
+    "gate": "scan snapshot eligibility gates",
+    "source_failures": [],
+    "chartink": null,
+    "scan_basis": null
+   },
+   "inputs": {
+    "direction": "bullish",
+    "horizon": "positional",
+    "horizon_days": 10,
+    "instrument": "all",
+    "capital": null,
+    "risk_budget_inr": null,
+    "risk_pct": null,
+    "max_allocation_pct": 25.0,
+    "min_reward_risk": 1.5,
+    "avoid_events": true,
+    "allow_multi_leg": true,
+    "include_combinations": true,
+    "include_chartink": true,
+    "live_broker_reads": false,
+    "costs": null,
+    "defaults_applied": [
+     "allow_multi_leg",
+     "avoid_events",
+     "chartink_limit",
+     "horizon",
+     "horizon_days",
+     "include_chartink",
+     "include_combinations",
+     "live_broker_reads",
+     "max_allocation_pct",
+     "min_reward_risk"
+    ],
+    "limit": 1,
+    "chartink_limit": 4
+   },
+   "ranking_note": "Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
+   "ideas": [
+    {
+     "rank": 1,
+     "symbol": "ICICIBANK",
+     "name": null,
+     "source": "ai_scanner",
+     "chartink": null,
+     "scanner": {
+      "bucket": "breakout_confirmed",
+      "status": "confirmed",
+      "stage": "BREAKOUT",
+      "score": 90.0,
+      "confidence": "HIGH",
+      "close": 1000.0,
+      "close_date": "2026-10-19",
+      "entry": 990.0,
+      "stop": 950.0,
+      "target": null,
+      "risk_reward": null,
+      "reason": "ICICIBANK why",
+      "reasons": [],
+      "horizon_days": null,
+      "horizon_days_min": null,
+      "liquidity_cr": 50.0,
+      "atr_pct": 2.0,
+      "in_watchlist": true,
+      "in_picks": false,
+      "sector": "S"
+     },
+     "direction": "bullish",
+     "fno_eligible": true,
+     "plan_id": "plan_7699ae19c963dcfb",
+     "trade_plan_id": "tp_219b48e5aaa9c06a",
+     "trade_plan": {
+      "schema": "trade-plan-v1",
+      "rules_version": "trade-plan-v1.1 (2026-10-27)",
+      "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
+      "calculation_version": "payoff-v2",
+      "strategy": {
+       "segment": "cash",
+       "family": "breakout_continuation",
+       "label": "Breakout continuation (long)",
+       "direction": "bullish",
+       "candidate_id": "cash:breakout_continuation"
+      },
+      "instrument": {
+       "symbol": "ICICIBANK",
+       "segment": "cash",
+       "lot_size": 1,
+       "expiry": null,
+       "legs": [
+        {
+         "kind": "cash",
+         "side": "buy",
+         "lot_size": 1,
+         "expiry": null,
+         "entry_price": 1200.0
+        }
+       ]
+      },
+      "timeframe": {
+       "horizon": "positional",
+       "sessions_max": 10
+      },
+      "setup": {
+       "source": "ai_scanner",
+       "bucket": "breakout_confirmed",
+       "stage": null,
+       "signal_date": null,
+       "trigger": 1195.0,
+       "scanner_stop": 1160.0,
+       "scanner_target": null,
+       "rules_version": "mock-classifier",
+       "timeframe_days": null
+      },
+      "entry": {
+       "price": 1200.0,
+       "order_type": "at_close",
+       "desk_entry_rule": "at_once",
+       "order_text": "at the session's close (the desk records it at once, inside that session's range)",
+       "valid_for_sessions": null,
+       "reference_close": 1200.0,
+       "logic": "Last close 1200 (nidp.prices_eod_adjusted close, 2026-10-19); a close above the trigger on volume confirms it"
+      },
+      "stop": {
+       "price": 1160.0,
+       "method": "atr",
+       "atr": 23.33,
+       "atr_multiple": 1.5,
+       "distance_atr": 1.714,
+       "swing_ref": null,
+       "measured_from": 1195.0,
+       "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+       "invalidation": "the thesis is wrong if price closes beyond this level"
+      },
+      "r_per_unit": 40.0,
+      "targets": [
+       {
+        "name": "conservative",
+        "price": 1220.0,
+        "r_multiple": 0.5,
+        "rule": "1 x ATR(14) (no resistance at least 0.5 x ATR away)",
+        "primary": false
+       },
+       {
+        "name": "base",
+        "price": 1280.0,
+        "r_multiple": 2.0,
+        "rule": "2 x the stop distance",
+        "primary": true
+       },
+       {
+        "name": "optimistic",
+        "price": 1320.0,
+        "r_multiple": 3.0,
+        "rule": "3 x the stop distance",
+        "primary": false
+       }
+      ],
+      "size": {
+       "status": "incomplete",
+       "quantity": null,
+       "lots": null,
+       "lot_size": 1,
+       "risk_budget_rs": null,
+       "risk_rs": null,
+       "risk_pct_of_equity": null,
+       "equity_basis": null,
+       "binding": null,
+       "missing": [
+        "risk_budget_inr (or risk_pct together with capital)",
+        "capital"
+       ],
+       "costs_included": false
+      },
+      "sizing_inputs": null,
+      "costs": {
+       "model": "desk-cost-v2",
+       "basis": "a round trip of 1 unit(s) from the entry to the stop",
+       "units": 1,
+       "breakdown_at_stop": {
+        "brokerage": 40.0,
+        "stt": 2.36,
+        "exchange": 0.08,
+        "sebi": 0.0,
+        "stamp": 0.18,
+        "gst": 7.22,
+        "slippage": 1.18,
+        "total": 51.02
+       },
+       "excluded": [
+        "DP charges",
+        "income tax",
+        "gap slippage beyond the cost card's slippage"
+       ],
+       "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+      },
+      "exit_plan": {
+       "stop": {
+        "price": 1160.0,
+        "method": "atr"
+       },
+       "targets": [
+        {
+         "name": "conservative",
+         "price": 1220.0,
+         "r_multiple": 0.5
+        },
+        {
+         "name": "base",
+         "price": 1280.0,
+         "r_multiple": 2.0
+        },
+        {
+         "name": "optimistic",
+         "price": 1320.0,
+         "r_multiple": 3.0
+        }
+       ],
+       "primary_target": "base",
+       "time": {
+        "max_sessions": 10,
+        "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
+       },
+       "trailing": {
+        "enabled": false,
+        "atr_multiple": null,
+        "owner": "feat/p2-exits-backtest"
+       },
+       "trend": {
+        "enabled": false,
+        "ma": null,
+        "period": null,
+        "owner": "feat/p2-exits-backtest"
+       },
+       "options": null
+      },
+      "evidence_refs": [
+       {
+        "key": "buildup",
+        "source": "MOCK DaaS fno-buildup",
+        "as_of": "2026-10-19",
+        "content_hash": "873352f49983e4aa"
+       },
+       {
+        "key": "chain",
+        "source": "MOCK NSE F&O bhavcopy chain",
+        "as_of": "2026-10-19",
+        "content_hash": "aee56f706360650d"
+       },
+       {
+        "key": "futures",
+        "source": "MOCK NSE F&O bhavcopy futures",
+        "as_of": "2026-10-19",
+        "content_hash": "0eb3a07ed300d516"
+       },
+       {
+        "key": "indicators",
+        "source": "MOCK nidp.prices_eod_adjusted",
+        "as_of": "2026-10-19",
+        "content_hash": "2b270487085af63c"
+       },
+       {
+        "key": "regime",
+        "source": "MOCK macro_engine.classify_desk_regime",
+        "as_of": "2026-10-19",
+        "content_hash": "74d5cfc01887f37e"
+       },
+       {
+        "key": "scan_row",
+        "source": "MOCK DaaS scan-snapshot",
+        "as_of": "2026-10-19",
+        "content_hash": "875e69e8d45f80ba"
+       },
+       {
+        "key": "scanner_bucket",
+        "source": "MOCK positional watchlist",
+        "as_of": "2026-10-19",
+        "content_hash": "c7d9653ff8772e5f"
+       }
+      ],
+      "evidence": {
+       "items": [
+        {
+         "key": "regime",
+         "label": "Market regime",
+         "status": "ok",
+         "direction": "supports",
+         "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+         "as_of": "2026-10-19",
+         "source": "MOCK macro_engine.classify_desk_regime"
+        },
+        {
+         "key": "trend",
+         "label": "Trend",
+         "status": "ok",
+         "direction": "supports",
+         "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "relative_strength",
+         "label": "Relative strength",
+         "status": "ok",
+         "direction": "supports",
+         "text": "63-session return +3.00% against the benchmark.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "momentum",
+         "label": "Momentum",
+         "status": "ok",
+         "direction": "supports",
+         "text": "MACD histogram +1.50, 20-day change +4.00%.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "volume",
+         "label": "Volume",
+         "status": "ok",
+         "direction": "neutral",
+         "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "structure",
+         "label": "Price structure",
+         "status": "ok",
+         "direction": "neutral",
+         "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        }
+       ],
+       "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+      },
+      "warnings": [
+       {
+        "key": "event",
+        "label": "Event",
+        "status": "clear",
+        "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+       },
+       {
+        "key": "liquidity",
+        "label": "Liquidity",
+        "status": "clear",
+        "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+       },
+       {
+        "key": "concentration",
+        "label": "Concentration",
+        "status": "at_entry",
+        "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+       },
+       {
+        "key": "correlation",
+        "label": "Correlation",
+        "status": "unavailable",
+        "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+       }
+      ],
+      "risk_flags": [
+       {
+        "code": "warning",
+        "message": "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 share."
+       },
+       {
+        "code": "warning",
+        "message": "Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible)."
+       },
+       {
+        "code": "sizing_incomplete",
+        "message": "Sizing needs risk_budget_inr (or risk_pct together with capital), capital."
+       }
+      ],
+      "eligibility": {
+       "eligible": true,
+       "paper_eligible": true,
+       "state": "TRADE_ELIGIBLE",
+       "status": "candidate",
+       "reasons": []
+      },
+      "data_as_of": {
+       "price": "2026-10-19",
+       "fno": "2026-10-19",
+       "reference_session": "2026-10-19",
+       "mode": "end_of_day",
+       "fundamentals": "2026-10-19",
+       "regime": "2026-10-19"
+      },
+      "sent_to_broker": false,
+      "source": {
+       "kind": "strategy_plan",
+       "strategy_plan_id": "plan_7699ae19c963dcfb",
+       "candidate_id": "cash:breakout_continuation"
+      },
+      "plan_id": "tp_219b48e5aaa9c06a",
+      "lineage_key": "tl_06792eb0f4ab97e7",
+      "lifecycle": {
+       "status": "proposed",
+       "state": "TRADE_ELIGIBLE",
+       "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+      },
+      "version": 1,
+      "supersedes": null,
+      "stored": true
+     },
+     "plan_status": "plan",
+     "status_reasons": [],
+     "would_change_if": [
+      "reward_risk_below_minimum: A nearer stop, a farther conservative level, or a lower minimum reward : risk."
+     ],
+     "headline": {
+      "technical_setup": {
+       "label": "supportive",
+       "counts": {
+        "supports": 5,
+        "conflicts": 0,
+        "neutral": 4,
+        "unavailable": 0
+       },
+       "scanner_bucket": "breakout_confirmed",
+       "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+      },
+      "fundamental_context": {
+       "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+       "available": {
+        "pe_ttm": 24.0,
+        "pb": 2.4,
+        "roe_pct": 9.5,
+        "roce_pct": 11.0,
+        "debt_to_equity": 0.4,
+        "market_cap_cr": 1600000.0,
+        "quarterly_trend": {
+         "latest_quarter": "Q1FY27",
+         "growth_trend": "improving",
+         "revenue_yoy_pct": 7.0,
+         "pat_cr": 17000.0,
+         "ebitda_margin_pct": 17.5,
+         "quarters": 8
+        }
+       },
+       "missing": [
+        "analyst_estimates",
+        "cash_flow_quality",
+        "free_cash_flow",
+        "ownership_changes",
+        "bulk_block_deals",
+        "insider_sast"
+       ],
+       "valuation_vs_peers": {
+        "industry": "Refineries",
+        "peer_count": 6,
+        "median_pe": 15.0,
+        "median_pe_n": 6,
+        "median_pb": 2.25,
+        "median_pb_n": 6,
+        "median_roe_pct": 10.5,
+        "median_roe_n": 6,
+        "stock_pe": 24.0,
+        "stock_pb": 2.4,
+        "stock_roe_pct": 9.5,
+        "pe_vs_median_pct": 60.0,
+        "pb_vs_median_pct": 6.7
+       }
+      },
+      "model_estimate": {
+       "status": "withheld",
+       "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+       "value": null
+      },
+      "data_quality": {
+       "label": "complete",
+       "unavailable_items": 8,
+       "total_items": 44,
+       "unavailable": [
+        "fundamental.analyst_estimates",
+        "fundamental.cash_flow_quality",
+        "fundamental.free_cash_flow",
+        "fundamental.ownership_changes",
+        "fundamental.bulk_block_deals",
+        "fundamental.insider_sast",
+        "derivatives.future_day_change",
+        "derivatives.bid_ask"
+       ],
+       "mode": "end_of_day",
+       "price_as_of": "2026-10-19",
+       "reference_session": "2026-10-19"
+      },
+      "confidence": null,
+      "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+     },
+     "evidence_summary": {
+      "market_context": {
+       "supports": 4,
+       "conflicts": 0,
+       "neutral": 1,
+       "unavailable": 0
+      },
+      "technical": {
+       "supports": 5,
+       "conflicts": 0,
+       "neutral": 4,
+       "unavailable": 0
+      },
+      "fundamental": {
+       "supports": 0,
+       "conflicts": 0,
+       "neutral": 8,
+       "unavailable": 6
+      },
+      "catalysts": {
+       "supports": 1,
+       "conflicts": 0,
+       "neutral": 2,
+       "unavailable": 0
+      },
+      "derivatives": {
+       "supports": 1,
+       "conflicts": 0,
+       "neutral": 6,
+       "unavailable": 2
+      },
+      "validation": {
+       "supports": 0,
+       "conflicts": 0,
+       "neutral": 2,
+       "unavailable": 0
+      },
+      "portfolio_fit": {
+       "supports": 0,
+       "conflicts": 0,
+       "neutral": 2,
+       "unavailable": 0
+      }
+     },
+     "oi_view": {
+      "buildup": "long_buildup",
+      "cash_confirmation": "confirms",
+      "pcr": 1.0,
+      "max_pain": 1200.0,
+      "call_wall": 1250.0,
+      "put_wall": 1150.0,
+      "expected_move": 96.0,
+      "chain_expiry": "2026-11-24",
+      "atm_iv": 22.0,
+      "source_as_of": "2026-10-19",
+      "unavailable": []
+     },
+     "preferred": "combination:covered_call",
+     "strategies": [
+      {
+       "id": "cash:breakout_continuation",
+       "trade_plan_id": "tp_219b48e5aaa9c06a",
+       "segment": "cash",
+       "family": "breakout_continuation",
+       "label": "Breakout continuation (long)",
+       "status": "candidate",
+       "reasons": [],
+       "legs_text": "Buy 1 shares ICICIBANK",
+       "max_loss": -91.02,
+       "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+       "capital_at_risk": 1249.23,
+       "max_profit": null,
+       "profit_unbounded": true,
+       "breakeven": [
+        1200.0
+       ],
+       "reward_risk_net": 0.32,
+       "reward_risk_gross": 2.0,
+       "sizing": {
+        "status": "incomplete",
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": "shares",
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": [
+         "risk_budget_inr (or risk_pct together with capital)",
+         "capital"
+        ]
+       },
+       "liquidity_flags": [],
+       "why": "Scanner bucket breakout confirmed (rules mock-classifier).",
+       "flags": [
+        "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 share.",
+        "Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible)."
+       ],
+       "actionable": true
+      },
+      {
+       "id": "futures:long_buildup_continuation",
+       "trade_plan_id": "tp_807244b6954569b4",
+       "segment": "futures",
+       "family": "long_buildup_continuation",
+       "label": "Long futures: build-up with cash confirmation",
+       "status": "no_trade",
+       "reasons": [
+        {
+         "code": "reward_risk_below_minimum",
+         "message": "Reward : risk 0.89 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+        }
+       ],
+       "legs_text": "Buy 1 lot ICICIBANK future, 27 Oct",
+       "max_loss": -13754.49,
+       "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+       "capital_at_risk": 300960.44,
+       "max_profit": null,
+       "profit_unbounded": true,
+       "breakeven": [
+        1203.0
+       ],
+       "reward_risk_net": 0.82,
+       "reward_risk_gross": 0.89,
+       "sizing": {
+        "status": "incomplete",
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": "lots",
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": [
+         "risk_budget_inr (or risk_pct together with capital)",
+         "capital"
+        ]
+       },
+       "liquidity_flags": [],
+       "why": "Futures OI build-up is long_buildup, confirmed by the cash market (a heuristic, not proof of intent).",
+       "flags": [
+        "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot.",
+        "Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap.",
+        "Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible)."
+       ],
+       "actionable": false
+      },
+      {
+       "id": "options:long_call",
+       "trade_plan_id": "tp_fb53d8cd46adcdac",
+       "segment": "options",
+       "family": "long_call",
+       "label": "Long call",
+       "status": "no_trade",
+       "reasons": [
+        {
+         "code": "reward_risk_below_minimum",
+         "message": "Reward : risk -0.05 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+        }
+       ],
+       "legs_text": "Buy 1 lot ICICIBANK 1200 call, 24 Nov",
+       "max_loss": -13000.0,
+       "max_loss_basis": "defined max loss at expiry (gross)",
+       "capital_at_risk": 13059.55,
+       "max_profit": null,
+       "profit_unbounded": true,
+       "breakeven": [
+        1252.0
+       ],
+       "reward_risk_net": -0.05,
+       "reward_risk_gross": -0.04,
+       "sizing": {
+        "status": "incomplete",
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": "lots",
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": [
+         "risk_budget_inr (or risk_pct together with capital)",
+         "capital"
+        ]
+       },
+       "liquidity_flags": [],
+       "why": "The ATM call (1200): the strike nearest the spot, the most responsive to the underlying for its premium; the premium is the whole risk.",
+       "flags": [
+        "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+        "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot."
+       ],
+       "actionable": false
+      },
+      {
+       "id": "options:bull_call_spread",
+       "trade_plan_id": "tp_b44a271b6cdc7af8",
+       "segment": "options",
+       "family": "bull_call_spread",
+       "label": "Bull call spread (debit)",
+       "status": "candidate",
+       "reasons": [],
+       "legs_text": "Buy 1 lot ICICIBANK 1200 call + Sell 1 lot ICICIBANK 1250 call, 24 Nov",
+       "max_loss": -3500.0,
+       "max_loss_basis": "defined max loss at expiry (gross)",
+       "capital_at_risk": 3629.75,
+       "max_profit": 9000.0,
+       "profit_unbounded": false,
+       "breakeven": [
+        1214.0
+       ],
+       "reward_risk_net": 2.44,
+       "reward_risk_gross": 2.57,
+       "sizing": {
+        "status": "incomplete",
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": "lots",
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": [
+         "risk_budget_inr (or risk_pct together with capital)",
+         "capital"
+        ]
+       },
+       "liquidity_flags": [],
+       "why": "Long the ATM 1200, short 1250: the call wall (rule 3, FnoStrategies.tsx), inside the expected move, so the short leg sits where the market has the most open interest.",
+       "flags": [
+        "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+        "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot."
+       ],
+       "actionable": true
+      },
+      {
+       "id": "combination:covered_call",
+       "trade_plan_id": "tp_71a7651b616489b1",
+       "segment": "combination",
+       "family": "covered_call",
+       "label": "Covered call (shares + short call)",
+       "status": "candidate",
+       "reasons": [],
+       "legs_text": "Buy 250 shares ICICIBANK + Sell 1 lot ICICIBANK 1250 call, 24 Nov",
+       "max_loss": -290500.0,
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+       "capital_at_risk": 291123.62,
+       "max_profit": 22000.0,
+       "profit_unbounded": false,
+       "breakeven": [
+        1162.0
+       ],
+       "reward_risk_net": 13.51,
+       "reward_risk_gross": 44.0,
+       "sizing": {
+        "status": "incomplete",
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": "lots",
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": [
+         "risk_budget_inr (or risk_pct together with capital)",
+         "capital"
+        ]
+       },
+       "liquidity_flags": [],
+       "why": "Bullish-to-neutral view: sell the 1250 call (the call wall) against 250 shares to collect 38 a share; the upside is capped at that strike.",
+       "flags": [
+        "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+        "No pre-expiry estimate for combination structures in this release: the expiry payoff applies.",
+        "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 lot."
+       ],
+       "actionable": true
+      },
+      {
+       "id": "combination:protective_put",
+       "trade_plan_id": null,
+       "segment": "combination",
+       "family": "protective_put",
+       "label": "Protective put (shares + long put)",
+       "status": "no_trade",
+       "reasons": [
+        {
+         "code": "not_indicated",
+         "message": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+        }
+       ],
+       "legs_text": "",
+       "max_loss": null,
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+       "capital_at_risk": null,
+       "max_profit": null,
+       "profit_unbounded": false,
+       "breakeven": [],
+       "reward_risk_net": null,
+       "reward_risk_gross": null,
+       "sizing": {
+        "status": null,
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": null,
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": []
+       },
+       "liquidity_flags": [],
+       "why": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+       "flags": [],
+       "actionable": false
+      },
+      {
+       "id": "combination:collar",
+       "trade_plan_id": null,
+       "segment": "combination",
+       "family": "collar",
+       "label": "Collar (shares + long put + short call)",
+       "status": "no_trade",
+       "reasons": [
+        {
+         "code": "not_indicated",
+         "message": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+        }
+       ],
+       "legs_text": "",
+       "max_loss": null,
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+       "capital_at_risk": null,
+       "max_profit": null,
+       "profit_unbounded": false,
+       "breakeven": [],
+       "reward_risk_net": null,
+       "reward_risk_gross": null,
+       "sizing": {
+        "status": null,
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": null,
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": []
+       },
+       "liquidity_flags": [],
+       "why": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+       "flags": [],
+       "actionable": false
+      },
+      {
+       "id": "combination:futures_protective_put",
+       "trade_plan_id": null,
+       "segment": "combination",
+       "family": "futures_protective_put",
+       "label": "Futures + protective put (synthetic long call)",
+       "status": "no_trade",
+       "reasons": [
+        {
+         "code": "not_indicated",
+         "message": "Futures + protective put (synthetic long call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason. The plain long future carries the idea."
+        }
+       ],
+       "legs_text": "",
+       "max_loss": null,
+       "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+       "capital_at_risk": null,
+       "max_profit": null,
+       "profit_unbounded": false,
+       "breakeven": [],
+       "reward_risk_net": null,
+       "reward_risk_gross": null,
+       "sizing": {
+        "status": null,
+        "quantity": null,
+        "lots": null,
+        "binding": null,
+        "unit": null,
+        "risk_budget_inr": null,
+        "risk_at_stop_inr": null,
+        "deployed_inr": null,
+        "missing": []
+       },
+       "liquidity_flags": [],
+       "why": "Futures + protective put (synthetic long call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason. The plain long future carries the idea.",
+       "flags": [],
+       "actionable": false
+      }
+     ],
+     "data_as_of": {
+      "price": "2026-10-19",
+      "fno": "2026-10-19",
+      "reference_session": "2026-10-19",
+      "mode": "end_of_day",
+      "fundamentals": "2026-10-19",
+      "regime": "2026-10-19"
+     },
+     "plan_inputs": {
+      "underlying": "ICICIBANK",
+      "direction": "bullish",
+      "instrument": "all"
+     },
+     "build_ms": 200
+    }
+   ],
+   "elapsed_ms": 205,
+   "caveats": [
+    "Conditional research ideas, not advice and not an instruction to trade.",
+    "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
+    "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
+    "Margin is not estimated by the plan: it comes only from Zerodha's margin calculator, which needs a live Kite session. Margin is not the maximum loss.",
+    "Nothing is sent to a broker."
+   ]
+  },
+  "trade_plan": {
+   "schema": "trade-plan-v1",
+   "rules_version": "trade-plan-v1.1 (2026-10-27)",
+   "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
+   "calculation_version": "payoff-v2",
+   "strategy": {
+    "segment": "cash",
+    "family": "breakout_continuation",
+    "label": "Breakout continuation (long)",
+    "direction": "bullish",
+    "candidate_id": "cash:breakout_continuation"
+   },
+   "instrument": {
+    "symbol": "ICICIBANK",
+    "segment": "cash",
+    "lot_size": 1,
+    "expiry": null,
+    "legs": [
+     {
+      "kind": "cash",
+      "side": "buy",
+      "lot_size": 1,
+      "expiry": null,
+      "entry_price": 1200.0
+     }
+    ]
+   },
+   "timeframe": {
+    "horizon": "positional",
+    "sessions_max": 10
+   },
+   "setup": {
+    "source": "ai_scanner",
+    "bucket": "breakout_confirmed",
+    "stage": null,
+    "signal_date": null,
+    "trigger": 1195.0,
+    "scanner_stop": 1160.0,
+    "scanner_target": null,
+    "rules_version": "mock-classifier",
+    "timeframe_days": null
+   },
+   "entry": {
+    "price": 1200.0,
+    "order_type": "at_close",
+    "desk_entry_rule": "at_once",
+    "order_text": "at the session's close (the desk records it at once, inside that session's range)",
+    "valid_for_sessions": null,
+    "reference_close": 1200.0,
+    "logic": "Last close 1200 (nidp.prices_eod_adjusted close, 2026-10-19); a close above the trigger on volume confirms it"
+   },
+   "stop": {
+    "price": 1160.0,
+    "method": "atr",
+    "atr": 23.33,
+    "atr_multiple": 1.5,
+    "distance_atr": 1.714,
+    "swing_ref": null,
+    "measured_from": 1195.0,
+    "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+    "invalidation": "the thesis is wrong if price closes beyond this level"
+   },
+   "r_per_unit": 40.0,
+   "targets": [
+    {
+     "name": "conservative",
+     "price": 1220.0,
+     "r_multiple": 0.5,
+     "rule": "1 x ATR(14) (no resistance at least 0.5 x ATR away)",
+     "primary": false
+    },
+    {
+     "name": "base",
+     "price": 1280.0,
+     "r_multiple": 2.0,
+     "rule": "2 x the stop distance",
+     "primary": true
+    },
+    {
+     "name": "optimistic",
+     "price": 1320.0,
+     "r_multiple": 3.0,
+     "rule": "3 x the stop distance",
+     "primary": false
+    }
+   ],
+   "size": {
+    "status": "incomplete",
+    "quantity": null,
+    "lots": null,
+    "lot_size": 1,
+    "risk_budget_rs": null,
+    "risk_rs": null,
+    "risk_pct_of_equity": null,
+    "equity_basis": null,
+    "binding": null,
+    "missing": [
+     "risk_budget_inr (or risk_pct together with capital)",
+     "capital"
+    ],
+    "costs_included": false
+   },
+   "sizing_inputs": null,
+   "costs": {
+    "model": "desk-cost-v2",
+    "basis": "a round trip of 1 unit(s) from the entry to the stop",
+    "units": 1,
+    "breakdown_at_stop": {
+     "brokerage": 40.0,
+     "stt": 2.36,
+     "exchange": 0.08,
+     "sebi": 0.0,
+     "stamp": 0.18,
+     "gst": 7.22,
+     "slippage": 1.18,
+     "total": 51.02
+    },
+    "excluded": [
+     "DP charges",
+     "income tax",
+     "gap slippage beyond the cost card's slippage"
+    ],
+    "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+   },
+   "exit_plan": {
+    "stop": {
+     "price": 1160.0,
+     "method": "atr"
+    },
+    "targets": [
+     {
+      "name": "conservative",
+      "price": 1220.0,
+      "r_multiple": 0.5
+     },
+     {
+      "name": "base",
+      "price": 1280.0,
+      "r_multiple": 2.0
+     },
+     {
+      "name": "optimistic",
+      "price": 1320.0,
+      "r_multiple": 3.0
+     }
+    ],
+    "primary_target": "base",
+    "time": {
+     "max_sessions": 10,
+     "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
+    },
+    "trailing": {
+     "enabled": false,
+     "atr_multiple": null,
+     "owner": "feat/p2-exits-backtest"
+    },
+    "trend": {
+     "enabled": false,
+     "ma": null,
+     "period": null,
+     "owner": "feat/p2-exits-backtest"
+    },
+    "options": null
+   },
+   "evidence_refs": [
+    {
+     "key": "buildup",
+     "source": "MOCK DaaS fno-buildup",
+     "as_of": "2026-10-19",
+     "content_hash": "873352f49983e4aa"
+    },
+    {
+     "key": "chain",
+     "source": "MOCK NSE F&O bhavcopy chain",
+     "as_of": "2026-10-19",
+     "content_hash": "aee56f706360650d"
+    },
+    {
+     "key": "futures",
+     "source": "MOCK NSE F&O bhavcopy futures",
+     "as_of": "2026-10-19",
+     "content_hash": "0eb3a07ed300d516"
+    },
+    {
+     "key": "indicators",
+     "source": "MOCK nidp.prices_eod_adjusted",
+     "as_of": "2026-10-19",
+     "content_hash": "2b270487085af63c"
+    },
+    {
+     "key": "regime",
+     "source": "MOCK macro_engine.classify_desk_regime",
+     "as_of": "2026-10-19",
+     "content_hash": "74d5cfc01887f37e"
+    },
+    {
+     "key": "scan_row",
+     "source": "MOCK DaaS scan-snapshot",
+     "as_of": "2026-10-19",
+     "content_hash": "875e69e8d45f80ba"
+    },
+    {
+     "key": "scanner_bucket",
+     "source": "MOCK positional watchlist",
+     "as_of": "2026-10-19",
+     "content_hash": "c7d9653ff8772e5f"
+    }
+   ],
+   "evidence": {
+    "items": [
+     {
+      "key": "regime",
+      "label": "Market regime",
+      "status": "ok",
+      "direction": "supports",
+      "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+      "as_of": "2026-10-19",
+      "source": "MOCK macro_engine.classify_desk_regime"
+     },
+     {
+      "key": "trend",
+      "label": "Trend",
+      "status": "ok",
+      "direction": "supports",
+      "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "relative_strength",
+      "label": "Relative strength",
+      "status": "ok",
+      "direction": "supports",
+      "text": "63-session return +3.00% against the benchmark.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "momentum",
+      "label": "Momentum",
+      "status": "ok",
+      "direction": "supports",
+      "text": "MACD histogram +1.50, 20-day change +4.00%.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "volume",
+      "label": "Volume",
+      "status": "ok",
+      "direction": "neutral",
+      "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "structure",
+      "label": "Price structure",
+      "status": "ok",
+      "direction": "neutral",
+      "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     }
+    ],
+    "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+   },
+   "warnings": [
+    {
+     "key": "event",
+     "label": "Event",
+     "status": "clear",
+     "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+    },
+    {
+     "key": "liquidity",
+     "label": "Liquidity",
+     "status": "clear",
+     "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+    },
+    {
+     "key": "concentration",
+     "label": "Concentration",
+     "status": "at_entry",
+     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+    },
+    {
+     "key": "correlation",
+     "label": "Correlation",
+     "status": "unavailable",
+     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+    }
+   ],
+   "risk_flags": [
+    {
+     "code": "warning",
+     "message": "Sizing is incomplete (risk_budget_inr (or risk_pct together with capital), capital): the payoff is shown for 1 share."
+    },
+    {
+     "code": "warning",
+     "message": "Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible)."
+    },
+    {
+     "code": "sizing_incomplete",
+     "message": "Sizing needs risk_budget_inr (or risk_pct together with capital), capital."
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "paper_eligible": true,
+    "state": "TRADE_ELIGIBLE",
+    "status": "candidate",
+    "reasons": []
+   },
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": "2026-10-19",
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-19"
+   },
+   "sent_to_broker": false,
+   "source": {
+    "kind": "strategy_plan",
+    "strategy_plan_id": "plan_7699ae19c963dcfb",
+    "candidate_id": "cash:breakout_continuation"
+   },
+   "plan_id": "tp_219b48e5aaa9c06a",
+   "lineage_key": "tl_06792eb0f4ab97e7",
+   "lifecycle": {
+    "status": "proposed",
+    "state": "TRADE_ELIGIBLE",
+    "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+   },
+   "version": 1,
+   "supersedes": null,
+   "stored": true
+  },
+  "body": {
+   "symbol": "ICICIBANK",
+   "quantity": 5,
+   "entry_price": 1200.0,
+   "stop_price": 1160.0,
+   "target_price": 1280.0,
+   "source": {
+    "kind": "scanner",
+    "bucket": "breakout_confirmed",
+    "signal_date": "2026-10-19"
+   },
+   "entry_rule": "at_once",
+   "max_hold_sessions": 10,
+   "plan_ref": {
+    "plan_id": "tp_219b48e5aaa9c06a",
+    "candidate_id": "cash:breakout_continuation",
+    "rules_version": "trade-plan-v1.1 (2026-10-27)"
+   }
+  },
+  "bar": {
+   "date": "2026-10-19",
+   "high": 1215.0,
+   "low": 1185.0,
+   "close": 1200.0
+  }
+ },
+ "fno": {
+  "idea_underlying": "BANKNIFTY",
+  "trade_plan": {
+   "schema": "trade-plan-v1",
+   "rules_version": "trade-plan-v1.1 (2026-10-27)",
+   "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
+   "calculation_version": "strategy-levels-v2",
+   "strategy": {
+    "segment": "options",
+    "family": "bear_put_spread",
+    "label": "Bear put spread 54100/55000",
+    "direction": "bearish",
+    "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
+   },
+   "instrument": {
+    "symbol": "BANKNIFTY",
+    "segment": "options",
+    "lot_size": 30,
+    "expiry": "2026-10-27",
+    "legs": [
+     {
+      "kind": "option",
+      "side": "buy",
+      "lots": 1,
+      "lot_size": 30,
+      "entry_price": 437.5,
+      "expiry": "2026-10-27",
+      "strike": 55000,
+      "option_type": "put",
+      "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+     },
+     {
+      "kind": "option",
+      "side": "sell",
+      "lots": 1,
+      "lot_size": 30,
+      "entry_price": 145.2,
+      "expiry": "2026-10-27",
+      "strike": 54100,
+      "option_type": "put",
+      "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+     }
+    ]
+   },
+   "timeframe": {
+    "horizon": "to expiry",
+    "sessions_max": null
+   },
+   "setup": {
+    "source": "regime_fit_board",
+    "fit_score": 92.5,
+    "view": "down",
+    "expiry": "2026-10-27",
+    "days_to_expiry": 6
+   },
+   "entry": {
+    "price": null,
+    "net_premium_rs": -8769.0,
+    "order_type": "at_premium",
+    "desk_entry_rule": "at_once",
+    "order_text": "every leg at its end-of-day premium (NSE F&O bhavcopy close)",
+    "valid_for_sessions": null,
+    "reference_close": 54976.9,
+    "legs": [
+     {
+      "strike": 55000,
+      "option_type": "put",
+      "side": "buy",
+      "price": 437.5
+     },
+     {
+      "strike": 54100,
+      "option_type": "put",
+      "side": "sell",
+      "price": 145.2
+     }
+    ],
+    "logic": "Recorded at the legs' end-of-day premiums."
+   },
+   "stop": {
+    "price": 55271.88,
+    "method": "underlying",
+    "premium_stop": 204.61,
+    "atr": null,
+    "atr_multiple": null,
+    "distance_atr": null,
+    "swing_ref": null,
+    "measured_from": 54976.9,
+    "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+    "invalidation": "the thesis is wrong if the underlying closes beyond this level"
+   },
+   "r_per_unit": 294.98,
+   "targets": [
+    {
+     "name": "t1",
+     "price": 54641.63,
+     "r_multiple": 1.14,
+     "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+     "primary": true
+    },
+    {
+     "name": "t2",
+     "price": 54362.19,
+     "r_multiple": 2.08,
+     "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+     "primary": false
+    }
+   ],
+   "size": {
+    "status": "complete",
+    "quantity": null,
+    "lots": 1,
+    "lot_size": 30,
+    "risk_budget_rs": null,
+    "risk_rs": 8857.74,
+    "risk_pct_of_equity": null,
+    "equity_basis": null,
+    "binding": "the structure's lots",
+    "missing": [
+     "capital (no equity basis on a board idea)"
+    ],
+    "costs_included": true
+   },
+   "sizing_inputs": null,
+   "costs": {
+    "model": "desk-cost-v2",
+    "basis": "every leg, entry and exit side, at the entry premiums",
+    "breakdown_round_trip_at_entry": {
+     "brokerage": 80.0,
+     "stt": 26.22,
+     "exchange": 12.42,
+     "sebi": 0.02,
+     "stamp": 0.52,
+     "gst": 16.64,
+     "slippage": 17.48,
+     "total": 153.3
+    },
+    "excluded": [
+     "exchange margin",
+     "income tax"
+    ],
+    "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
+   },
+   "exit_plan": {
+    "stop": {
+     "price": 55271.88,
+     "method": "underlying"
+    },
+    "targets": [
+     {
+      "name": "t1",
+      "price": 54641.63,
+      "r_multiple": 1.14
+     },
+     {
+      "name": "t2",
+      "price": 54362.19,
+      "r_multiple": 2.08
+     }
+    ],
+    "primary_target": "t1",
+    "time": {
+     "max_sessions": null,
+     "basis": null
+    },
+    "trailing": {
+     "enabled": false,
+     "atr_multiple": null,
+     "owner": "feat/p2-exits-backtest"
+    },
+    "trend": {
+     "enabled": false,
+     "ma": null,
+     "period": null,
+     "owner": "feat/p2-exits-backtest"
+    },
+    "options": {
+     "status": "ok",
+     "version": "strategy-levels-v2",
+     "as_of": "2026-10-21",
+     "kind": "debit",
+     "entry": 292.3,
+     "planned_stop": 204.61,
+     "target_1": 379.99,
+     "target_2": 467.68,
+     "unit_shares": 30,
+     "underlying_stop": 55271.88,
+     "underlying_t1": 54641.63,
+     "underlying_t2": 54362.19,
+     "greek_review": {
+      "entry_delta_per_unit": -0.279,
+      "view": "bearish",
+      "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+     },
+     "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
+     "expiry_flags": [],
+     "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
+    }
+   },
+   "evidence_refs": [
+    {
+     "key": "regime_fit_board",
+     "source": "POST /api/desk/strategy/top",
+     "as_of": "2026-10-21",
+     "content_hash": null,
+     "fit_score": 92.5
+    },
+    {
+     "key": "option_chain",
+     "source": "NSE F&O bhavcopy close, 2026-10-21",
+     "as_of": "2026-10-21",
+     "content_hash": null
+    }
+   ],
+   "evidence": {
+    "items": [
+     {
+      "key": "regime",
+      "label": "Market regime",
+      "status": "ok",
+      "direction": null,
+      "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+      "as_of": "2026-10-19",
+      "source": "desk-regime-v1"
+     },
+     {
+      "key": "trend",
+      "label": "Trend",
+      "status": "ok",
+      "direction": "supports",
+      "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+      "as_of": "2026-10-19",
+      "source": "regime-fit factor: direction"
+     },
+     {
+      "key": "relative_strength",
+      "label": "Relative strength",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     },
+     {
+      "key": "momentum",
+      "label": "Momentum",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     },
+     {
+      "key": "volume",
+      "label": "Volume",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     },
+     {
+      "key": "structure",
+      "label": "Price structure",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     }
+    ],
+    "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+   },
+   "warnings": [
+    {
+     "key": "event",
+     "label": "Event",
+     "status": "unavailable",
+     "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+    },
+    {
+     "key": "liquidity",
+     "label": "Liquidity",
+     "status": "clear",
+     "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+    },
+    {
+     "key": "concentration",
+     "label": "Concentration",
+     "status": "at_entry",
+     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+    },
+    {
+     "key": "correlation",
+     "label": "Correlation",
+     "status": "unavailable",
+     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+    }
+   ],
+   "risk_flags": [],
+   "eligibility": {
+    "eligible": true,
+    "paper_eligible": true,
+    "state": "TRADE_ELIGIBLE",
+    "status": "candidate",
+    "reasons": []
+   },
+   "data_as_of": {
+    "chain": "2026-10-21",
+    "regime": "2026-10-19"
+   },
+   "lineage": null,
+   "sent_to_broker": false,
+   "source": {
+    "kind": "regime_fit_board",
+    "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
+   },
+   "plan_id": "tp_dd8a6714e0150b58",
+   "lineage_key": "tl_c1fb512c39c8050b",
+   "lifecycle": {
+    "status": "proposed",
+    "state": "TRADE_ELIGIBLE",
+    "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+   }
+  },
+  "body": {
+   "kind": "strategy",
+   "underlying": "BANKNIFTY",
+   "direction": "bearish",
+   "family": "bear_put_spread",
+   "reference_price": 54976.9,
+   "legs": [
+    {
+     "kind": "option",
+     "side": "buy",
+     "lots": 1,
+     "lot_size": 30,
+     "entry_price": 437.5,
+     "expiry": "2026-10-27",
+     "strike": 55000,
+     "option_type": "put",
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+    },
+    {
+     "kind": "option",
+     "side": "sell",
+     "lots": 1,
+     "lot_size": 30,
+     "entry_price": 145.2,
+     "expiry": "2026-10-27",
+     "strike": 54100,
+     "option_type": "put",
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+    }
+   ],
+   "stop_underlying": 55271.88,
+   "target_underlying": 54641.63,
+   "signal": {
+    "signal_at": "2026-10-21",
+    "rule_version": "regime-fit-v1 (2026-10-22)",
+    "source_refs": [
+     {
+      "kind": "regime_fit_board",
+      "ref": "BANKNIFTY bear_put_spread 2026-10-27",
+      "as_of": "2026-10-21"
+     },
+     {
+      "kind": "option_chain",
+      "ref": "NSE F&O bhavcopy close, 2026-10-21",
+      "as_of": "2026-10-21"
+     },
+     {
+      "kind": "market_regime",
+      "ref": "desk market regime",
+      "as_of": "2026-10-19"
+     },
+     {
+      "kind": "strategy_levels",
+      "ref": "strategy-levels-v2",
+      "as_of": "2026-10-21"
+     }
+    ],
+    "evidence_summary": "Fit 92.5 to the measured regime. supports: The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average). supports: India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side. supports: Breadth is down (19.0% of the universe advancing) and the structure needs down. neutral: The short strike is placed by the expected move, not on an open-interest wall."
+   },
+   "note": "Top by regime \u2014 fit 92.5",
+   "plan_ref": {
+    "plan_id": "tp_dd8a6714e0150b58",
+    "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p",
+    "rules_version": "trade-plan-v1.1 (2026-10-27)"
+   }
+  },
+  "top_response": {
+   "schema": "desk.strategy.top.v1",
+   "rules_version": "regime-fit-v1 (2026-10-22)",
+   "generated_at": "2026-10-21T19:15:17.670778+00:00",
+   "limit": 5,
+   "regime": {
+    "available": true,
+    "key": "bearish",
+    "label": "Bearish",
+    "as_of": "2026-10-19",
+    "trend": "down",
+    "nifty_close": 22888.95,
+    "nifty_average": 23514.265999999996,
+    "nifty_vs_average_pct": -2.66,
+    "india_vix": 14.77,
+    "vix_high_threshold": 20.0,
+    "volatility": "low",
+    "breadth": "down",
+    "advancing_share_pct": 19.0,
+    "rule_version": "desk-regime-v1",
+    "source": "macro_engine.classify_desk_regime (routes/macro._desk_regime)"
+   },
+   "staleness_note": "The option chain is from 2026-10-21 but the market regime was last classified on 2026-10-19: the fit is scored against the older regime.",
+   "classes": {
+    "index_options": {
+     "as_of": "2026-10-21",
+     "ideas": [
+      {
+       "underlying": "BANKNIFTY",
+       "structure": "bear_put_spread",
+       "name": "Bear put spread 54100/55000",
+       "view": "down",
+       "premium_flow": "debit",
+       "expiry": "2026-10-27",
+       "days_to_expiry": 6,
+       "placement": "short strike from the move",
+       "legs": [
+        {
+         "kind": "option",
+         "side": "buy",
+         "quantity": 1,
+         "lot_size": 30,
+         "entry_price": 437.5,
+         "expiry": "2026-10-27",
+         "strike": 55000,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 15.36
+        },
+        {
+         "kind": "option",
+         "side": "sell",
+         "quantity": 1,
+         "lot_size": 30,
+         "entry_price": 145.2,
+         "expiry": "2026-10-27",
+         "strike": 54100,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 16.46
+        }
+       ],
+       "net_greeks": {
+        "delta": -8.49,
+        "gamma": 0.0035,
+        "theta": -226.59,
+        "vega": 222.321
+       },
+       "max_profit": 18231.0,
+       "max_loss": -8769.0,
+       "profit_unbounded": false,
+       "loss_unbounded": false,
+       "breakevens": [
+        54707.7
+       ],
+       "net_premium": -8769.0,
+       "capital_at_risk": 8857.74,
+       "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+       "reward_risk": 2.01,
+       "reward_risk_theoretical": 2.08,
+       "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+       "net_at_expected_move": 17612.03,
+       "margin": null,
+       "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+       "caveats": [
+        "Margin is not the maximum loss."
+       ],
+       "fit": {
+        "score": 92.5,
+        "because": [
+         {
+          "factor": "direction",
+          "state": "supports",
+          "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+         },
+         {
+          "factor": "volatility",
+          "state": "supports",
+          "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+         },
+         {
+          "factor": "breadth",
+          "state": "supports",
+          "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+         },
+         {
+          "factor": "positioning",
+          "state": "neutral",
+          "text": "The short strike is placed by the expected move, not on an open-interest wall."
+         }
+        ]
+       },
+       "data_as_of": {
+        "chain": "2026-10-21",
+        "regime": "2026-10-19"
+       },
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "rank": 1,
+       "reference_price": 54976.9,
+       "trade_plan": {
+        "schema": "trade-plan-v1",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
+        "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
+        "calculation_version": "strategy-levels-v2",
+        "strategy": {
+         "segment": "options",
+         "family": "bear_put_spread",
+         "label": "Bear put spread 54100/55000",
+         "direction": "bearish",
+         "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
+        },
+        "instrument": {
+         "symbol": "BANKNIFTY",
+         "segment": "options",
+         "lot_size": 30,
+         "expiry": "2026-10-27",
+         "legs": [
+          {
+           "kind": "option",
+           "side": "buy",
+           "lots": 1,
+           "lot_size": 30,
+           "entry_price": 437.5,
+           "expiry": "2026-10-27",
+           "strike": 55000,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          },
+          {
+           "kind": "option",
+           "side": "sell",
+           "lots": 1,
+           "lot_size": 30,
+           "entry_price": 145.2,
+           "expiry": "2026-10-27",
+           "strike": 54100,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          }
+         ]
+        },
+        "timeframe": {
+         "horizon": "to expiry",
+         "sessions_max": null
+        },
+        "setup": {
+         "source": "regime_fit_board",
+         "fit_score": 92.5,
+         "view": "down",
+         "expiry": "2026-10-27",
+         "days_to_expiry": 6
+        },
+        "entry": {
+         "price": null,
+         "net_premium_rs": -8769.0,
+         "order_type": "at_premium",
+         "desk_entry_rule": "at_once",
+         "order_text": "every leg at its end-of-day premium (NSE F&O bhavcopy close)",
+         "valid_for_sessions": null,
+         "reference_close": 54976.9,
+         "legs": [
+          {
+           "strike": 55000,
+           "option_type": "put",
+           "side": "buy",
+           "price": 437.5
+          },
+          {
+           "strike": 54100,
+           "option_type": "put",
+           "side": "sell",
+           "price": 145.2
+          }
+         ],
+         "logic": "Recorded at the legs' end-of-day premiums."
+        },
+        "stop": {
+         "price": 55271.88,
+         "method": "underlying",
+         "premium_stop": 204.61,
+         "atr": null,
+         "atr_multiple": null,
+         "distance_atr": null,
+         "swing_ref": null,
+         "measured_from": 54976.9,
+         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "invalidation": "the thesis is wrong if the underlying closes beyond this level"
+        },
+        "r_per_unit": 294.98,
+        "targets": [
+         {
+          "name": "t1",
+          "price": 54641.63,
+          "r_multiple": 1.14,
+          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "primary": true
+         },
+         {
+          "name": "t2",
+          "price": 54362.19,
+          "r_multiple": 2.08,
+          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "primary": false
+         }
+        ],
+        "size": {
+         "status": "complete",
+         "quantity": null,
+         "lots": 1,
+         "lot_size": 30,
+         "risk_budget_rs": null,
+         "risk_rs": 8857.74,
+         "risk_pct_of_equity": null,
+         "equity_basis": null,
+         "binding": "the structure's lots",
+         "missing": [
+          "capital (no equity basis on a board idea)"
+         ],
+         "costs_included": true
+        },
+        "sizing_inputs": null,
+        "costs": {
+         "model": "desk-cost-v2",
+         "basis": "every leg, entry and exit side, at the entry premiums",
+         "breakdown_round_trip_at_entry": {
+          "brokerage": 80.0,
+          "stt": 26.22,
+          "exchange": 12.42,
+          "sebi": 0.02,
+          "stamp": 0.52,
+          "gst": 16.64,
+          "slippage": 17.48,
+          "total": 153.3
+         },
+         "excluded": [
+          "exchange margin",
+          "income tax"
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
+        },
+        "exit_plan": {
+         "stop": {
+          "price": 55271.88,
+          "method": "underlying"
+         },
+         "targets": [
+          {
+           "name": "t1",
+           "price": 54641.63,
+           "r_multiple": 1.14
+          },
+          {
+           "name": "t2",
+           "price": 54362.19,
+           "r_multiple": 2.08
+          }
+         ],
+         "primary_target": "t1",
+         "time": {
+          "max_sessions": null,
+          "basis": null
+         },
+         "trailing": {
+          "enabled": false,
+          "atr_multiple": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "trend": {
+          "enabled": false,
+          "ma": null,
+          "period": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "options": {
+          "status": "ok",
+          "version": "strategy-levels-v2",
+          "as_of": "2026-10-21",
+          "kind": "debit",
+          "entry": 292.3,
+          "planned_stop": 204.61,
+          "target_1": 379.99,
+          "target_2": 467.68,
+          "unit_shares": 30,
+          "underlying_stop": 55271.88,
+          "underlying_t1": 54641.63,
+          "underlying_t2": 54362.19,
+          "greek_review": {
+           "entry_delta_per_unit": -0.279,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+          },
+          "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
+          "expiry_flags": [],
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
+         }
+        },
+        "evidence_refs": [
+         {
+          "key": "regime_fit_board",
+          "source": "POST /api/desk/strategy/top",
+          "as_of": "2026-10-21",
+          "content_hash": null,
+          "fit_score": 92.5
+         },
+         {
+          "key": "option_chain",
+          "source": "NSE F&O bhavcopy close, 2026-10-21",
+          "as_of": "2026-10-21",
+          "content_hash": null
+         }
+        ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
+        "risk_flags": [],
+        "eligibility": {
+         "eligible": true,
+         "paper_eligible": true,
+         "state": "TRADE_ELIGIBLE",
+         "status": "candidate",
+         "reasons": []
+        },
+        "data_as_of": {
+         "chain": "2026-10-21",
+         "regime": "2026-10-19"
+        },
+        "lineage": null,
+        "sent_to_broker": false,
+        "source": {
+         "kind": "regime_fit_board",
+         "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
+        },
+        "plan_id": "tp_dd8a6714e0150b58",
+        "lineage_key": "tl_c1fb512c39c8050b",
+        "lifecycle": {
+         "status": "proposed",
+         "state": "TRADE_ELIGIBLE",
+         "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+        }
+       },
+       "trade_plan_id": "tp_dd8a6714e0150b58"
+      },
+      {
+       "underlying": "NIFTY",
+       "structure": "bear_put_spread",
+       "name": "Bear put spread 22500/22800",
+       "view": "down",
+       "premium_flow": "debit",
+       "expiry": "2026-10-27",
+       "days_to_expiry": 6,
+       "placement": "short strike from the move",
+       "legs": [
+        {
+         "kind": "option",
+         "side": "buy",
+         "quantity": 1,
+         "lot_size": 65,
+         "entry_price": 196.65,
+         "expiry": "2026-10-27",
+         "strike": 22800,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 14.33
+        },
+        {
+         "kind": "option",
+         "side": "sell",
+         "quantity": 1,
+         "lot_size": 65,
+         "entry_price": 74.45,
+         "expiry": "2026-10-27",
+         "strike": 22500,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 14.61
+        }
+       ],
+       "net_greeks": {
+        "delta": -17.563,
+        "gamma": 0.0102,
+        "theta": -118.209,
+        "vega": 112.2615
+       },
+       "max_profit": 11557.0,
+       "max_loss": -7943.0,
+       "profit_unbounded": false,
+       "loss_unbounded": false,
+       "breakevens": [
+        22677.8
+       ],
+       "net_premium": -7943.0,
+       "capital_at_risk": 8031.81,
+       "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+       "reward_risk": 1.44,
+       "reward_risk_theoretical": 1.45,
+       "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+       "net_at_expected_move": 11457.01,
+       "margin": null,
+       "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+       "caveats": [
+        "Margin is not the maximum loss."
+       ],
+       "fit": {
+        "score": 92.5,
+        "because": [
+         {
+          "factor": "direction",
+          "state": "supports",
+          "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+         },
+         {
+          "factor": "volatility",
+          "state": "supports",
+          "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+         },
+         {
+          "factor": "breadth",
+          "state": "supports",
+          "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+         },
+         {
+          "factor": "positioning",
+          "state": "neutral",
+          "text": "The short strike is placed by the expected move, not on an open-interest wall."
+         }
+        ]
+       },
+       "data_as_of": {
+        "chain": "2026-10-21",
+        "regime": "2026-10-19"
+       },
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "rank": 2,
+       "reference_price": 22811.35,
+       "trade_plan": {
+        "schema": "trade-plan-v1",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
+        "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
+        "calculation_version": "strategy-levels-v2",
+        "strategy": {
+         "segment": "options",
+         "family": "bear_put_spread",
+         "label": "Bear put spread 22500/22800",
+         "direction": "bearish",
+         "candidate_id": "NIFTY:bear_put_spread:2026-10-27:buy22800p/sell22500p"
+        },
+        "instrument": {
+         "symbol": "NIFTY",
+         "segment": "options",
+         "lot_size": 65,
+         "expiry": "2026-10-27",
+         "legs": [
+          {
+           "kind": "option",
+           "side": "buy",
+           "lots": 1,
+           "lot_size": 65,
+           "entry_price": 196.65,
+           "expiry": "2026-10-27",
+           "strike": 22800,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          },
+          {
+           "kind": "option",
+           "side": "sell",
+           "lots": 1,
+           "lot_size": 65,
+           "entry_price": 74.45,
+           "expiry": "2026-10-27",
+           "strike": 22500,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          }
+         ]
+        },
+        "timeframe": {
+         "horizon": "to expiry",
+         "sessions_max": null
+        },
+        "setup": {
+         "source": "regime_fit_board",
+         "fit_score": 92.5,
+         "view": "down",
+         "expiry": "2026-10-27",
+         "days_to_expiry": 6
+        },
+        "entry": {
+         "price": null,
+         "net_premium_rs": -7943.0,
+         "order_type": "at_premium",
+         "desk_entry_rule": "at_once",
+         "order_text": "every leg at its end-of-day premium (NSE F&O bhavcopy close)",
+         "valid_for_sessions": null,
+         "reference_close": 22811.35,
+         "legs": [
+          {
+           "strike": 22800,
+           "option_type": "put",
+           "side": "buy",
+           "price": 196.65
+          },
+          {
+           "strike": 22500,
+           "option_type": "put",
+           "side": "sell",
+           "price": 74.45
+          }
+         ],
+         "logic": "Recorded at the legs' end-of-day premiums."
+        },
+        "stop": {
+         "price": 22865.45,
+         "method": "underlying",
+         "premium_stop": 85.54,
+         "atr": null,
+         "atr_multiple": null,
+         "distance_atr": null,
+         "swing_ref": null,
+         "measured_from": 22811.35,
+         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "invalidation": "the thesis is wrong if the underlying closes beyond this level"
+        },
+        "r_per_unit": 54.1,
+        "targets": [
+         {
+          "name": "t1",
+          "price": 22589.17,
+          "r_multiple": 4.11,
+          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "primary": true
+         },
+         {
+          "name": "t2",
+          "price": 22454.17,
+          "r_multiple": 6.6,
+          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "primary": false
+         }
+        ],
+        "size": {
+         "status": "complete",
+         "quantity": null,
+         "lots": 1,
+         "lot_size": 65,
+         "risk_budget_rs": null,
+         "risk_rs": 8031.81,
+         "risk_pct_of_equity": null,
+         "equity_basis": null,
+         "binding": "the structure's lots",
+         "missing": [
+          "capital (no equity basis on a board idea)"
+         ],
+         "costs_included": true
+        },
+        "sizing_inputs": null,
+        "costs": {
+         "model": "desk-cost-v2",
+         "basis": "every leg, entry and exit side, at the entry premiums",
+         "breakdown_round_trip_at_entry": {
+          "brokerage": 80.0,
+          "stt": 26.43,
+          "exchange": 12.52,
+          "sebi": 0.02,
+          "stamp": 0.53,
+          "gst": 16.66,
+          "slippage": 17.62,
+          "total": 153.78
+         },
+         "excluded": [
+          "exchange margin",
+          "income tax"
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
+        },
+        "exit_plan": {
+         "stop": {
+          "price": 22865.45,
+          "method": "underlying"
+         },
+         "targets": [
+          {
+           "name": "t1",
+           "price": 22589.17,
+           "r_multiple": 4.11
+          },
+          {
+           "name": "t2",
+           "price": 22454.17,
+           "r_multiple": 6.6
+          }
+         ],
+         "primary_target": "t1",
+         "time": {
+          "max_sessions": null,
+          "basis": null
+         },
+         "trailing": {
+          "enabled": false,
+          "atr_multiple": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "trend": {
+          "enabled": false,
+          "ma": null,
+          "period": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "options": {
+          "status": "ok",
+          "version": "strategy-levels-v2",
+          "as_of": "2026-10-21",
+          "kind": "debit",
+          "entry": 122.2,
+          "planned_stop": 85.54,
+          "target_1": 158.86,
+          "target_2": 195.52,
+          "unit_shares": 65,
+          "underlying_stop": 22865.45,
+          "underlying_t1": 22589.17,
+          "underlying_t2": 22454.17,
+          "greek_review": {
+           "entry_delta_per_unit": -0.251,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.075 (30% of the entry delta -0.251)"
+          },
+          "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
+          "expiry_flags": [],
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
+         }
+        },
+        "evidence_refs": [
+         {
+          "key": "regime_fit_board",
+          "source": "POST /api/desk/strategy/top",
+          "as_of": "2026-10-21",
+          "content_hash": null,
+          "fit_score": 92.5
+         },
+         {
+          "key": "option_chain",
+          "source": "NSE F&O bhavcopy close, 2026-10-21",
+          "as_of": "2026-10-21",
+          "content_hash": null
+         }
+        ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
+        "risk_flags": [],
+        "eligibility": {
+         "eligible": true,
+         "paper_eligible": true,
+         "state": "TRADE_ELIGIBLE",
+         "status": "candidate",
+         "reasons": []
+        },
+        "data_as_of": {
+         "chain": "2026-10-21",
+         "regime": "2026-10-19"
+        },
+        "lineage": null,
+        "sent_to_broker": false,
+        "source": {
+         "kind": "regime_fit_board",
+         "candidate_id": "NIFTY:bear_put_spread:2026-10-27:buy22800p/sell22500p"
+        },
+        "plan_id": "tp_f2656d1385527057",
+        "lineage_key": "tl_48d5fadb0543af06",
+        "lifecycle": {
+         "status": "proposed",
+         "state": "TRADE_ELIGIBLE",
+         "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+        }
+       },
+       "trade_plan_id": "tp_f2656d1385527057"
+      }
+     ],
+     "considered": 10,
+     "underlyings": [
+      {
+       "underlying": "NIFTY",
+       "spot": 22811.35,
+       "expiry": "2026-10-27",
+       "atm_strike": 22800,
+       "atm_iv": 14.18,
+       "pcr": 0.6999,
+       "max_pain": 22900,
+       "expected_move": 333.3,
+       "expected_move_pct": 1.46
+      },
+      {
+       "underlying": "BANKNIFTY",
+       "spot": 54976.9,
+       "expiry": "2026-10-27",
+       "atm_strike": 55000,
+       "atm_iv": 15.28,
+       "pcr": 0.883,
+       "max_pain": 55500,
+       "expected_move": 859.0,
+       "expected_move_pct": 1.56
+      }
+     ],
+     "unavailable": []
+    },
+    "stock_fno": {
+     "as_of": "2026-10-21",
+     "ideas": [
+      {
+       "underlying": "MPHASIS",
+       "structure": "bear_put_spread",
+       "name": "Bear put spread 2500/2550",
+       "view": "down",
+       "premium_flow": "debit",
+       "expiry": "2026-10-27",
+       "days_to_expiry": 6,
+       "placement": "short strike from the wall",
+       "legs": [
+        {
+         "kind": "option",
+         "side": "buy",
+         "quantity": 1,
+         "lot_size": 275,
+         "entry_price": 31.1,
+         "expiry": "2026-10-27",
+         "strike": 2550,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 31.9
+        },
+        {
+         "kind": "option",
+         "side": "sell",
+         "quantity": 1,
+         "lot_size": 275,
+         "entry_price": 15.35,
+         "expiry": "2026-10-27",
+         "strike": 2500,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 32.62
+        }
+       ],
+       "net_greeks": {
+        "delta": -45.5125,
+        "gamma": 0.2211,
+        "theta": -169.895,
+        "vega": 70.5375
+       },
+       "max_profit": 9418.75,
+       "max_loss": -4331.25,
+       "profit_unbounded": false,
+       "loss_unbounded": false,
+       "breakevens": [
+        2534.25
+       ],
+       "net_premium": -4331.25,
+       "capital_at_risk": 4417.64,
+       "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+       "reward_risk": 2.15,
+       "reward_risk_theoretical": 2.17,
+       "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+       "net_at_expected_move": 9323.09,
+       "margin": null,
+       "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+       "caveats": [
+        "Margin is not the maximum loss."
+       ],
+       "fit": {
+        "score": 100.0,
+        "because": [
+         {
+          "factor": "direction",
+          "state": "supports",
+          "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+         },
+         {
+          "factor": "volatility",
+          "state": "supports",
+          "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+         },
+         {
+          "factor": "breadth",
+          "state": "supports",
+          "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+         },
+         {
+          "factor": "positioning",
+          "state": "supports",
+          "text": "The short strike sits on the open-interest wall from the same chain. Chain put/call OI ratio 0.934."
+         }
+        ]
+       },
+       "data_as_of": {
+        "chain": "2026-10-21",
+        "regime": "2026-10-19"
+       },
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "rank": 1,
+       "reference_price": 2574.99,
+       "conflicts_with_cash_setup": {
+        "cash_direction": "bullish",
+        "fno_direction": "bearish",
+        "source": "the AI scanner's setup list",
+        "message": "One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded as a paper trade today."
+       },
+       "trade_plan": {
+        "schema": "trade-plan-v1",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
+        "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
+        "calculation_version": "strategy-levels-v2",
+        "strategy": {
+         "segment": "options",
+         "family": "bear_put_spread",
+         "label": "Bear put spread 2500/2550",
+         "direction": "bearish",
+         "candidate_id": "MPHASIS:bear_put_spread:2026-10-27:buy2550p/sell2500p"
+        },
+        "instrument": {
+         "symbol": "MPHASIS",
+         "segment": "options",
+         "lot_size": 275,
+         "expiry": "2026-10-27",
+         "legs": [
+          {
+           "kind": "option",
+           "side": "buy",
+           "lots": 1,
+           "lot_size": 275,
+           "entry_price": 31.1,
+           "expiry": "2026-10-27",
+           "strike": 2550,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          },
+          {
+           "kind": "option",
+           "side": "sell",
+           "lots": 1,
+           "lot_size": 275,
+           "entry_price": 15.35,
+           "expiry": "2026-10-27",
+           "strike": 2500,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          }
+         ]
+        },
+        "timeframe": {
+         "horizon": "to expiry",
+         "sessions_max": null
+        },
+        "setup": {
+         "source": "regime_fit_board",
+         "fit_score": 100.0,
+         "view": "down",
+         "expiry": "2026-10-27",
+         "days_to_expiry": 6
+        },
+        "entry": {
+         "price": null,
+         "net_premium_rs": -4331.25,
+         "order_type": "at_premium",
+         "desk_entry_rule": "at_once",
+         "order_text": "every leg at its end-of-day premium (NSE F&O bhavcopy close)",
+         "valid_for_sessions": null,
+         "reference_close": 2574.99,
+         "legs": [
+          {
+           "strike": 2550,
+           "option_type": "put",
+           "side": "buy",
+           "price": 31.1
+          },
+          {
+           "strike": 2500,
+           "option_type": "put",
+           "side": "sell",
+           "price": 15.35
+          }
+         ],
+         "logic": "Recorded at the legs' end-of-day premiums."
+        },
+        "stop": {
+         "price": 2602.13,
+         "method": "underlying",
+         "premium_stop": 11.02,
+         "atr": null,
+         "atr_multiple": null,
+         "distance_atr": null,
+         "swing_ref": null,
+         "measured_from": 2574.99,
+         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "invalidation": "the thesis is wrong if the underlying closes beyond this level"
+        },
+        "r_per_unit": 27.14,
+        "targets": [
+         {
+          "name": "t1",
+          "price": 2544.02,
+          "r_multiple": 1.14,
+          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "primary": true
+         },
+         {
+          "name": "t2",
+          "price": 2518.79,
+          "r_multiple": 2.07,
+          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "primary": false
+         }
+        ],
+        "size": {
+         "status": "complete",
+         "quantity": null,
+         "lots": 1,
+         "lot_size": 275,
+         "risk_budget_rs": null,
+         "risk_rs": 4417.64,
+         "risk_pct_of_equity": null,
+         "equity_basis": null,
+         "binding": "the structure's lots",
+         "missing": [
+          "capital (no equity basis on a board idea)"
+         ],
+         "costs_included": true
+        },
+        "sizing_inputs": null,
+        "costs": {
+         "model": "desk-cost-v2",
+         "basis": "every leg, entry and exit side, at the entry premiums",
+         "breakdown_round_trip_at_entry": {
+          "brokerage": 80.0,
+          "stt": 19.16,
+          "exchange": 9.08,
+          "sebi": 0.02,
+          "stamp": 0.39,
+          "gst": 16.04,
+          "slippage": 12.78,
+          "total": 137.47
+         },
+         "excluded": [
+          "exchange margin",
+          "income tax"
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
+        },
+        "exit_plan": {
+         "stop": {
+          "price": 2602.13,
+          "method": "underlying"
+         },
+         "targets": [
+          {
+           "name": "t1",
+           "price": 2544.02,
+           "r_multiple": 1.14
+          },
+          {
+           "name": "t2",
+           "price": 2518.79,
+           "r_multiple": 2.07
+          }
+         ],
+         "primary_target": "t1",
+         "time": {
+          "max_sessions": null,
+          "basis": null
+         },
+         "trailing": {
+          "enabled": false,
+          "atr_multiple": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "trend": {
+          "enabled": false,
+          "ma": null,
+          "period": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "options": {
+          "status": "ok",
+          "version": "strategy-levels-v2",
+          "as_of": "2026-10-21",
+          "kind": "debit",
+          "entry": 15.75,
+          "planned_stop": 11.02,
+          "target_1": 20.48,
+          "target_2": 25.2,
+          "unit_shares": 275,
+          "underlying_stop": 2602.13,
+          "underlying_t1": 2544.02,
+          "underlying_t2": 2518.79,
+          "greek_review": {
+           "entry_delta_per_unit": -0.162,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.049 (30% of the entry delta -0.162)"
+          },
+          "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
+          "expiry_flags": [],
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
+         }
+        },
+        "evidence_refs": [
+         {
+          "key": "regime_fit_board",
+          "source": "POST /api/desk/strategy/top",
+          "as_of": "2026-10-21",
+          "content_hash": null,
+          "fit_score": 100.0
+         },
+         {
+          "key": "option_chain",
+          "source": "NSE F&O bhavcopy close, 2026-10-21",
+          "as_of": "2026-10-21",
+          "content_hash": null
+         }
+        ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
+        "risk_flags": [
+         {
+          "code": "conflicts_with_cash_setup",
+          "message": "One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded as a paper trade today."
+         }
+        ],
+        "eligibility": {
+         "eligible": false,
+         "paper_eligible": false,
+         "state": "REJECTED",
+         "status": "candidate",
+         "reasons": [
+          {
+           "code": "direction_conflict",
+           "message": "One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded as a paper trade today."
+          }
+         ]
+        },
+        "data_as_of": {
+         "chain": "2026-10-21",
+         "regime": "2026-10-19"
+        },
+        "lineage": null,
+        "sent_to_broker": false,
+        "source": {
+         "kind": "regime_fit_board",
+         "candidate_id": "MPHASIS:bear_put_spread:2026-10-27:buy2550p/sell2500p"
+        },
+        "plan_id": "tp_191627a18412dccf",
+        "lineage_key": "tl_d3d1bbb5d79ee965",
+        "lifecycle": {
+         "status": "proposed",
+         "state": "REJECTED",
+         "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+        }
+       },
+       "trade_plan_id": "tp_191627a18412dccf"
+      },
+      {
+       "underlying": "ICICIBANK",
+       "structure": "bear_put_spread",
+       "name": "Bear put spread 1360/1380",
+       "view": "down",
+       "premium_flow": "debit",
+       "expiry": "2026-10-27",
+       "days_to_expiry": 6,
+       "placement": "short strike from the move",
+       "legs": [
+        {
+         "kind": "option",
+         "side": "buy",
+         "quantity": 1,
+         "lot_size": 700,
+         "entry_price": 8.65,
+         "expiry": "2026-10-27",
+         "strike": 1380,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 16.89
+        },
+        {
+         "kind": "option",
+         "side": "sell",
+         "quantity": 1,
+         "lot_size": 700,
+         "entry_price": 3.1,
+         "expiry": "2026-10-27",
+         "strike": 1360,
+         "option_type": "put",
+         "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+         "iv_pct": 17.34
+        }
+       ],
+       "net_greeks": {
+        "delta": -151.62,
+        "gamma": 2.9842,
+        "theta": -199.43,
+        "vega": 150.85
+       },
+       "max_profit": 10115.0,
+       "max_loss": -3885.0,
+       "profit_unbounded": false,
+       "loss_unbounded": false,
+       "breakevens": [
+        1374.45
+       ],
+       "net_premium": -3885.0,
+       "capital_at_risk": 3969.11,
+       "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+       "reward_risk": 2.32,
+       "reward_risk_theoretical": 2.6,
+       "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+       "net_at_expected_move": 9029.39,
+       "margin": null,
+       "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+       "caveats": [
+        "Margin is not the maximum loss."
+       ],
+       "fit": {
+        "score": 92.5,
+        "because": [
+         {
+          "factor": "direction",
+          "state": "supports",
+          "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+         },
+         {
+          "factor": "volatility",
+          "state": "supports",
+          "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+         },
+         {
+          "factor": "breadth",
+          "state": "supports",
+          "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+         },
+         {
+          "factor": "positioning",
+          "state": "neutral",
+          "text": "The short strike is placed by the expected move, not on an open-interest wall."
+         }
+        ]
+       },
+       "data_as_of": {
+        "chain": "2026-10-21",
+        "regime": "2026-10-19"
+       },
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "rank": 2,
+       "reference_price": 1385.0,
+       "conflicts_with_cash_setup": {
+        "cash_direction": "bullish",
+        "fno_direction": "bearish",
+        "source": "the AI scanner's setup list",
+        "message": "One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded as a paper trade today."
+       },
+       "trade_plan": {
+        "schema": "trade-plan-v1",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
+        "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
+        "calculation_version": "strategy-levels-v2",
+        "strategy": {
+         "segment": "options",
+         "family": "bear_put_spread",
+         "label": "Bear put spread 1360/1380",
+         "direction": "bearish",
+         "candidate_id": "ICICIBANK:bear_put_spread:2026-10-27:buy1380p/sell1360p"
+        },
+        "instrument": {
+         "symbol": "ICICIBANK",
+         "segment": "options",
+         "lot_size": 700,
+         "expiry": "2026-10-27",
+         "legs": [
+          {
+           "kind": "option",
+           "side": "buy",
+           "lots": 1,
+           "lot_size": 700,
+           "entry_price": 8.65,
+           "expiry": "2026-10-27",
+           "strike": 1380,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          },
+          {
+           "kind": "option",
+           "side": "sell",
+           "lots": 1,
+           "lot_size": 700,
+           "entry_price": 3.1,
+           "expiry": "2026-10-27",
+           "strike": 1360,
+           "option_type": "put",
+           "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+          }
+         ]
+        },
+        "timeframe": {
+         "horizon": "to expiry",
+         "sessions_max": null
+        },
+        "setup": {
+         "source": "regime_fit_board",
+         "fit_score": 92.5,
+         "view": "down",
+         "expiry": "2026-10-27",
+         "days_to_expiry": 6
+        },
+        "entry": {
+         "price": null,
+         "net_premium_rs": -3885.0,
+         "order_type": "at_premium",
+         "desk_entry_rule": "at_once",
+         "order_text": "every leg at its end-of-day premium (NSE F&O bhavcopy close)",
+         "valid_for_sessions": null,
+         "reference_close": 1385.0,
+         "legs": [
+          {
+           "strike": 1380,
+           "option_type": "put",
+           "side": "buy",
+           "price": 8.65
+          },
+          {
+           "strike": 1360,
+           "option_type": "put",
+           "side": "sell",
+           "price": 3.1
+          }
+         ],
+         "logic": "Recorded at the legs' end-of-day premiums."
+        },
+        "stop": {
+         "price": 1394.42,
+         "method": "underlying",
+         "premium_stop": 3.88,
+         "atr": null,
+         "atr_multiple": null,
+         "distance_atr": null,
+         "swing_ref": null,
+         "measured_from": 1385.0,
+         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "invalidation": "the thesis is wrong if the underlying closes beyond this level"
+        },
+        "r_per_unit": 9.42,
+        "targets": [
+         {
+          "name": "t1",
+          "price": 1378.78,
+          "r_multiple": 0.66,
+          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "primary": true
+         },
+         {
+          "name": "t2",
+          "price": 1372.16,
+          "r_multiple": 1.36,
+          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "primary": false
+         }
+        ],
+        "size": {
+         "status": "complete",
+         "quantity": null,
+         "lots": 1,
+         "lot_size": 700,
+         "risk_budget_rs": null,
+         "risk_rs": 3969.11,
+         "risk_pct_of_equity": null,
+         "equity_basis": null,
+         "binding": "the structure's lots",
+         "missing": [
+          "capital (no equity basis on a board idea)"
+         ],
+         "costs_included": true
+        },
+        "sizing_inputs": null,
+        "costs": {
+         "model": "desk-cost-v2",
+         "basis": "every leg, entry and exit side, at the entry premiums",
+         "breakdown_round_trip_at_entry": {
+          "brokerage": 80.0,
+          "stt": 12.34,
+          "exchange": 5.84,
+          "sebi": 0.02,
+          "stamp": 0.25,
+          "gst": 15.46,
+          "slippage": 8.24,
+          "total": 122.15
+         },
+         "excluded": [
+          "exchange margin",
+          "income tax"
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
+        },
+        "exit_plan": {
+         "stop": {
+          "price": 1394.42,
+          "method": "underlying"
+         },
+         "targets": [
+          {
+           "name": "t1",
+           "price": 1378.78,
+           "r_multiple": 0.66
+          },
+          {
+           "name": "t2",
+           "price": 1372.16,
+           "r_multiple": 1.36
+          }
+         ],
+         "primary_target": "t1",
+         "time": {
+          "max_sessions": null,
+          "basis": null
+         },
+         "trailing": {
+          "enabled": false,
+          "atr_multiple": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "trend": {
+          "enabled": false,
+          "ma": null,
+          "period": null,
+          "owner": "feat/p2-exits-backtest"
+         },
+         "options": {
+          "status": "ok",
+          "version": "strategy-levels-v2",
+          "as_of": "2026-10-21",
+          "kind": "debit",
+          "entry": 5.55,
+          "planned_stop": 3.88,
+          "target_1": 7.21,
+          "target_2": 8.88,
+          "unit_shares": 700,
+          "underlying_stop": 1394.42,
+          "underlying_t1": 1378.78,
+          "underlying_t2": 1372.16,
+          "greek_review": {
+           "entry_delta_per_unit": -0.221,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.066 (30% of the entry delta -0.221)"
+          },
+          "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
+          "expiry_flags": [],
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
+         }
+        },
+        "evidence_refs": [
+         {
+          "key": "regime_fit_board",
+          "source": "POST /api/desk/strategy/top",
+          "as_of": "2026-10-21",
+          "content_hash": null,
+          "fit_score": 92.5
+         },
+         {
+          "key": "option_chain",
+          "source": "NSE F&O bhavcopy close, 2026-10-21",
+          "as_of": "2026-10-21",
+          "content_hash": null
+         }
+        ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
+        "risk_flags": [
+         {
+          "code": "conflicts_with_cash_setup",
+          "message": "One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded as a paper trade today."
+         }
+        ],
+        "eligibility": {
+         "eligible": false,
+         "paper_eligible": false,
+         "state": "REJECTED",
+         "status": "candidate",
+         "reasons": [
+          {
+           "code": "direction_conflict",
+           "message": "One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded as a paper trade today."
+          }
+         ]
+        },
+        "data_as_of": {
+         "chain": "2026-10-21",
+         "regime": "2026-10-19"
+        },
+        "lineage": null,
+        "sent_to_broker": false,
+        "source": {
+         "kind": "regime_fit_board",
+         "candidate_id": "ICICIBANK:bear_put_spread:2026-10-27:buy1380p/sell1360p"
+        },
+        "plan_id": "tp_18163aca5fb6e1f3",
+        "lineage_key": "tl_4bd179e6a223992e",
+        "lifecycle": {
+         "status": "proposed",
+         "state": "REJECTED",
+         "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
+        }
+       },
+       "trade_plan_id": "tp_18163aca5fb6e1f3"
+      }
+     ],
+     "considered": 20,
+     "underlyings": [
+      {
+       "underlying": "ICICIBANK",
+       "spot": 1385.0,
+       "expiry": "2026-10-27",
+       "atm_strike": 1380,
+       "atm_iv": 16.13,
+       "pcr": 0.5136,
+       "max_pain": 1360,
+       "expected_move": 23.55,
+       "expected_move_pct": 1.7
+      },
+      {
+       "underlying": "HAL",
+       "spot": 4854.36,
+       "expiry": "2026-10-27",
+       "atm_strike": 4850,
+       "atm_iv": 22.95,
+       "pcr": 0.7545,
+       "max_pain": 4800,
+       "expected_move": 113.85,
+       "expected_move_pct": 2.35
+      },
+      {
+       "underlying": "MPHASIS",
+       "spot": 2574.99,
+       "expiry": "2026-10-27",
+       "atm_strike": 2550,
+       "atm_iv": 31.16,
+       "pcr": 0.934,
+       "max_pain": 2450,
+       "expected_move": 83.7,
+       "expected_move_pct": 3.25
+      },
+      {
+       "underlying": "INDHOTEL",
+       "spot": 753.0,
+       "expiry": "2026-10-27",
+       "atm_strike": 750,
+       "atm_iv": 36.48,
+       "pcr": 0.7618,
+       "max_pain": 750,
+       "expected_move": 27.95,
+       "expected_move_pct": 3.71
+      }
+     ],
+     "unavailable": [
+      {
+       "underlying": "PREMEXPLN",
+       "reason": "HTTPException: 404: No F&O data for PREMEXPLN"
+      },
+      {
+       "underlying": "BALRAMCHIN",
+       "reason": "HTTPException: 404: No F&O data for BALRAMCHIN"
+      }
+     ],
+     "universe": {
+      "source": "the AI scanner's merged setup list (services/strategy_plan/selection.select_opportunities)",
+      "symbols_tried": [
+       "ICICIBANK",
+       "HAL",
+       "PREMEXPLN",
+       "BALRAMCHIN",
+       "SGMART",
+       "ORIENTHOT",
+       "MPHASIS",
+       "INDHOTEL"
+      ]
+     }
+    },
+    "cash": {
+     "as_of": "2026-10-21",
+     "data_as_of": {
+      "mode": "end_of_day",
+      "scanner_watchlist": "2026-10-16",
+      "scanner_picks": "2026-10-16",
+      "scan_eligibility": "2026-10-21",
+      "chartink": {
+       "scan_date": "2026-10-21",
+       "fetched_at": "2026-10-20T19:45:35Z",
+       "mode": "fetched_at"
+      },
+      "price": "2026-10-21",
+      "fno": "2026-10-21"
+     },
+     "ideas": [
+      {
+       "rank": 1,
+       "symbol": "ICICIBANK",
+       "name": "ICICI Bank Limited",
+       "direction": "bullish",
+       "plan_status": "no_trade"
+      },
+      {
+       "rank": 2,
+       "symbol": "HAL",
+       "name": "Hindustan Aeronautics Limited",
+       "direction": "bullish",
+       "plan_status": "no_trade"
+      }
+     ],
+     "considered": 9,
+     "unavailable": [],
+     "ranking": "Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
+     "source": "POST /api/desk/strategy/ideas (services/strategy_plan/ideas.build_ideas), unchanged"
+    }
+   },
+   "ranking_note": "Ranked by fit to the market regime measured on the dates shown and by the live end-of-day option chain, then by reward : risk. This is not a forecast, not a probability, and not a ranking by past performance: no strategy performance is recorded for options in this system. Nothing here is an instruction to trade and nothing is sent to a broker.",
+   "ranking_note_cash": "The cash class is NOT ranked by regime fit: it is the desk's existing 'From AI opportunities' answer, kept unchanged, so it carries the scanner's own evidence rank and its ideas have no fit score. The two are shown side by side rather than merged into one ranking.",
+   "gaps": [
+    "No IV percentile or IV rank: no option-implied-volatility history is stored, so 'rich' and 'cheap' volatility use India VIX against the desk-regime threshold (desk-regime-v1 vix_high), not a percentile of this underlying's own IV.",
+    "No performance ranking: the only realised records are three manual cash backtests (public.strategy_trades); there is no options performance history, so no idea here can be ranked by what it earned.",
+    "End of day only: the chain is the NSE F&O bhavcopy close. There is no intraday option data.",
+    "An index has no cash leg: NIFTY and BANKNIFTY cannot be held, so covered calls, protective puts and collars are offered for stocks only."
+   ],
+   "sent_to_broker": false
+  }
+ }
+}

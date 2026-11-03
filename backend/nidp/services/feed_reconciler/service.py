@@ -57,8 +57,17 @@ DEFAULT_LOOKBACK_DAYS = 7
 def _configured_feeds() -> list[str]:
     raw = os.environ.get("NIDP_RECONCILE_FEEDS", "")
     if raw.strip():
-        return [f.strip() for f in raw.split(",") if f.strip()]
-    return list(DEFAULT_FEEDS)
+        feeds = [f.strip() for f in raw.split(",") if f.strip()]
+    else:
+        feeds = list(DEFAULT_FEEDS)
+    # A feed switched off by the market-data switch (TrueData serves it) has no gaps to heal: its runs are SKIPPED on
+    # purpose, and re-running it would only record another skip.
+    from nidp.shared import market_data_source as mds
+    resolution = mds.resolve()
+    off = [f for f in feeds if not mds.feed_is_on(f, resolution)]
+    if off:
+        logger.info("feed_reconciler: not healing %s (switched off: market data source is TrueData)", ", ".join(off))
+    return [f for f in feeds if f not in off]
 
 
 def _configured_lookback() -> int:

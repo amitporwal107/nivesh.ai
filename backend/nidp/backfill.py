@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
 
+from nidp.shared.run_context import backfill_context
 from nidp.shared.storage.pg import get_pool
 
 logger = logging.getLogger(__name__)
@@ -189,9 +190,8 @@ async def _run_one(
         mod = importlib.import_module(spec.module_path)
         run_fn = getattr(mod, "run")
         logger.info("backfill[%s %s] start", spec.name, ds)
-        if spec.needs_date:
-            await run_fn(target_date)
-        else:
+        # Every run made here is a deliberate catch-up: Gate 1 skips its staleness check for it (run_context).
+        with backfill_context():
             await run_fn(target_date)  # most accept Optional[date]
         report.runs_ok += 1
         logger.info("backfill[%s %s] ok", spec.name, ds)

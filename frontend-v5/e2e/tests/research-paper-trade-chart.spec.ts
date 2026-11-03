@@ -1,5 +1,6 @@
 /**
- * Research -> Paper -> one trade: the swing chart (TC-PC1..TC-PC9).
+ * Paper record -> one trade: the swing chart (TC-PC1..TC-PC9). The record is /app/page/paper › Full record (it was
+ * Research -> Paper until 2026-10-27).
  *
  * MOCK -- not real data: every /api/paper-trades response is a fixture (e2e/fixtures/paper-*.json).
  * Trade 532 is MPSLTD, entry 2627.25, stop 2417.07, T1 2758.6125, T2 2889.975, six daily observations.
@@ -59,9 +60,11 @@ async function mockPaper(page: Page, tradeOver?: (id: string) => unknown | null)
   });
 }
 
+// The paper record was Research → Paper until the desk redesign's step 6 (2026-10-27); the same screen (PaperTradesScreen)
+// is /app/page/paper › Full record, and /research?screen=paper redirects there.
 async function openTrade532(page: Page) {
-  await page.goto("/v5/research");
-  await page.getByTestId("rail-paper").click();
+  await page.goto("/v5/app/page/paper");
+  await page.getByTestId("paper-view-record").click();
   await expect(page.getByTestId("paper-screen")).toBeVisible();
   await page.getByTestId("pt-sample-replay").click();
   await page.getByTestId("pt-date").selectOption("2025-03-10");

@@ -506,7 +506,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
         </span>
         <BuildupPill label={label} testId="desk-fno-strat-buildup" />
         <span className="flex flex-wrap items-center" style={{ marginLeft: "auto", gap: "6px 12px" }}>
-          {!index && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-fno-strat-build" onClick={() => openStrategy(symbol, { kind: "lab", date: chain?.summary.as_of ?? null })}>Build a strategy ›</button>}
+          {!index && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-fno-strat-build" onClick={() => openStrategy(symbol, { kind: "lab", date: chain?.summary.as_of ?? null })}>Open on Chart Analysis ›</button>}
           <span className="cp-eyebrow" data-testid="desk-fno-strat-kind">Rules-based · paper trading only</span>
         </span>
       </div>

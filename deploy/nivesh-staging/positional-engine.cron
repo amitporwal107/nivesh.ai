@@ -1,0 +1,23 @@
+# /etc/cron.d/nivesh-staging-positional-engine — the AI scanner (positional engine) after each day's bhavcopy [staging].
+#
+# Without it the scanner never refreshes on CloudPe staging: deploy/nivesh-app/positional-engine.cron targets the old
+# GCP container (nivesh-backend) and was never installed here, so "Top AI opportunities" stayed on the last hand run
+# (user decision 2026-10-26: scan after the bhavcopy).
+#
+# Schedule (the VM's clock is Asia/Kolkata), Mon-Fri:
+#   19:45 IST  the engine ingests the day's NSE bhavcopy (published 18:00-19:30 IST), runs the Chartink scans and scores.
+#   21:45 IST  retry for a late bhavcopy; does nothing when 19:45 already scored the day.
+# --require-bars: no bars for the day (holiday, bhavcopy not out yet) -> nothing is scored or written, exit 2.
+# --skip-if-done: the day is already in positional_signals -> nothing to do.
+# Runs before the 20:15 research-watchlist refresh's container load peaks; the two do not share tables.
+#
+# Install (one-off, not CI-managed):
+#   sudo install -m 0644 /opt/nivesh-staging/repo/deploy/nivesh-staging/positional-engine.cron /etc/cron.d/nivesh-staging-positional-engine
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+45 19 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.run_positional_engine --require-bars --skip-if-done >> /opt/nivesh-staging/logs/positional-engine.log 2>&1
+45 21 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.run_positional_engine --require-bars --skip-if-done >> /opt/nivesh-staging/logs/positional-engine.log 2>&1

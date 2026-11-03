@@ -9,13 +9,16 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, Tuple
 
+from services.strategy_limits import MAX_STRATEGY_LEGS
+
 POLICY_VERSION = "fno-risk-v1"
 BASIS = "Conservative defaults for the first release; not calibrated to any account, broker margin or risk profile."
 
 
 @dataclass(frozen=True)
 class Limits:
-    max_legs: int = 4
+    #: the shared product limit (services/strategy_limits); a stricter policy may lower it, never raise it
+    max_legs: int = MAX_STRATEGY_LEGS
     max_lots_per_leg: int = 10
     max_open_structures: int = 10
     #: per trade: the maximum loss at expiry for a structure, the capital deployed for cash

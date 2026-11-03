@@ -15,6 +15,7 @@ import DirectVsRegularArticle from "./DirectVsRegularArticle";
 import CopilotTourArticle from "./CopilotTourArticle";
 import ResearchTourArticle from "./ResearchTourArticle";
 import TeamOfTenArticle from "./TeamOfTenArticle";
+import ClosingBellArticle from "./ClosingBellArticle";
 
 export type BlogPost = {
   slug: string;
@@ -27,6 +28,16 @@ export type BlogPost = {
 };
 
 export const POSTS: BlogPost[] = [
+  {
+    slug: "closing-bell-27-oct-2026",
+    title: "Watch: Closing Bell — market commentary for Tuesday, 27 October 2026",
+    excerpt:
+      "A 7-minute end-of-day wrap from the Smart Trading Desk: the Nifty flat on expiry while smallcaps jump 2%, results-day movers, sector rotation, movers and shakers across the Nifty 50, 100, 200 and 500, FII/DII flows and the desk's Top 10 ideas for review. Market information, not investment advice.",
+    category: "Market commentary",
+    readMins: 7,
+    dateLabel: "27 Oct 2026",
+    Body: ClosingBellArticle,
+  },
   {
     slug: "research-tab-2-minute-tour",
     title: "Watch: a 2-minute tour of the Research tab",

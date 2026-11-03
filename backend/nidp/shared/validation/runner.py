@@ -67,13 +67,15 @@ async def run_validation(
 
     started = time.time()
     async with pool.acquire() as conn:
-        # Begin run row early so a crash mid-rule still records
+        # Begin run row early so a crash mid-rule still records. `asset` is the ingester itself: nidp.v_feed_dq (and so
+        # v_feed_status.last_dq_status) only counts runs with an asset, and this runner never set one, so every feed
+        # read NONE.
         await conn.execute(
             """
             INSERT INTO nidp.validation_runs
-                (validation_id, job_run_id, ingester, target_date, status,
+                (validation_id, job_run_id, ingester, asset, target_date, status,
                  rules_run, rules_failed, findings_count, started_at)
-            VALUES ($1, $2, $3, $4::date, 'PASSED', 0, 0, 0, NOW())
+            VALUES ($1, $2, $3, $3, $4::date, 'PASSED', 0, 0, 0, NOW())
             """,
             validation_id, job_run_id, ingester, target_date,
         )

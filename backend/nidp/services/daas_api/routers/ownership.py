@@ -643,11 +643,14 @@ _CUTS_SQL = """
       FROM act
 """
 
+#: Two parameters only: $1 the current quarter end, $2 the universe. Every $n passed must appear in
+#: the text -- Postgres cannot type a parameter the query never uses, and asyncpg then fails the
+#: prepare with IndeterminateDatatypeError (the 2026-10-27 staging 500 -> app 502 on Smart Money).
 _COVERAGE_SQL = """
     WITH n5 AS (
         SELECT DISTINCT symbol FROM nidp.index_constituents
-         WHERE index_name = $3
-           AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = $3)
+         WHERE index_name = $2
+           AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = $2)
            AND symbol <> 'DUMMYHEG'
     ),
     cur AS (
@@ -744,7 +747,7 @@ async def ownership_reaction(
             "SELECT EXISTS (SELECT 1 FROM nidp.smart_money_promotion_decisions WHERE decision = 'APPROVED')"))
 
         cuts_row = row_to_dict(await conn.fetchrow(_CUTS_SQL, cur_end, prev_end, prev_start, UNIVERSE, MIN_SESSIONS))
-        cov = row_to_dict(await conn.fetchrow(_COVERAGE_SQL, cur_end, prev_end, UNIVERSE))
+        cov = row_to_dict(await conn.fetchrow(_COVERAGE_SQL, cur_end, UNIVERSE))
         raw = [row_to_dict(r) for r in await conn.fetch(
             _ROWS_SQL, cur_end, prev_end, prev_start, UNIVERSE, MIN_SESSIONS)]
         # Both bounds inclusive, so the first session of each quarter is counted.

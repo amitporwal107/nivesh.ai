@@ -1,0 +1,3 @@
+# OVERRIDE: desk redesign step 5 (Market Desk)
+
+REASON: Frontend-only change on feat/desk-market-desk, verified offline (tsc, production build, Playwright against mocked APIs: test_reports/desk_market_desk_20261027.md) and with read-only GETs of the two staging routes it reads. It is NOT deployed to staging: staging deploys only after the PR to dev is merged, and this session may not merge. The Idea scorecard component is not mounted by any URL in this PR (Trade Desk mounts it); its cases passed on a temporary, uncommitted mount. After merge and deploy, open https://staging.niveshcopilot.com/v5/app/trader/desk?tab=market in Trader mode and check MD-1, MD-4, MD-7 and MD-11 with real data.

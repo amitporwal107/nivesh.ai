@@ -1,0 +1,164 @@
+{
+ "about": "Contract between the F&O idea 'Paper trade' button (frontend-v5 strategy/top-actions.ts paperTradeBodyFor) and POST /api/desk/paper-trades (backend services/desk_strategy_trades.new_strategy_trade). The idea is desk-strategy-top.json classes.index_options.ideas[0] (BANKNIFTY, a real staging capture of 2026-10-21); the levels reply is desk-strategy-levels-banknifty.json (the real strategy_levels.compute answer for levels_request). Playwright asserts the browser sends exactly levels_request and these bodies; backend/tests/test_fno_idea_paper_trade_contract.py sends the bodies through the real route and validator.",
+ "idea": {
+  "fixture": "desk-strategy-top.json",
+  "class": "index_options",
+  "underlying": "BANKNIFTY",
+  "structure": "bear_put_spread"
+ },
+ "rules_version": "regime-fit-v1 (2026-10-22)",
+ "levels_request": {
+  "payoff": {
+   "underlying": "BANKNIFTY",
+   "reference_price": 54976.9,
+   "as_of": "2026-10-21",
+   "legs": [
+    {
+     "kind": "option",
+     "side": "buy",
+     "quantity": 1,
+     "lot_size": 30,
+     "entry_price": 437.5,
+     "expiry": "2026-10-27",
+     "strike": 55000,
+     "option_type": "put",
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+     "iv_pct": 15.36
+    },
+    {
+     "kind": "option",
+     "side": "sell",
+     "quantity": 1,
+     "lot_size": 30,
+     "entry_price": 145.2,
+     "expiry": "2026-10-27",
+     "strike": 54100,
+     "option_type": "put",
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+     "iv_pct": 16.46
+    }
+   ]
+  },
+  "refs": {
+   "put_wall": null,
+   "call_wall": null,
+   "expected_move": 859.0
+  }
+ },
+ "levels_reply_fixture": "desk-strategy-levels-banknifty.json",
+ "body_with_levels": {
+  "kind": "strategy",
+  "underlying": "BANKNIFTY",
+  "direction": "bearish",
+  "family": "bear_put_spread",
+  "reference_price": 54976.9,
+  "legs": [
+   {
+    "kind": "option",
+    "side": "buy",
+    "lots": 1,
+    "lot_size": 30,
+    "entry_price": 437.5,
+    "expiry": "2026-10-27",
+    "strike": 55000,
+    "option_type": "put",
+    "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+   },
+   {
+    "kind": "option",
+    "side": "sell",
+    "lots": 1,
+    "lot_size": 30,
+    "entry_price": 145.2,
+    "expiry": "2026-10-27",
+    "strike": 54100,
+    "option_type": "put",
+    "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+   }
+  ],
+  "stop_underlying": 55271.88,
+  "target_underlying": 54641.63,
+  "signal": {
+   "signal_at": "2026-10-21",
+   "rule_version": "regime-fit-v1 (2026-10-22)",
+   "source_refs": [
+    {
+     "kind": "regime_fit_board",
+     "ref": "BANKNIFTY bear_put_spread 2026-10-27",
+     "as_of": "2026-10-21"
+    },
+    {
+     "kind": "option_chain",
+     "ref": "NSE F&O bhavcopy close, 2026-10-21",
+     "as_of": "2026-10-21"
+    },
+    {
+     "kind": "market_regime",
+     "ref": "desk market regime",
+     "as_of": "2026-10-19"
+    },
+    {
+     "kind": "strategy_levels",
+     "ref": "strategy-levels-v2",
+     "as_of": "2026-10-21"
+    }
+   ],
+   "evidence_summary": "Fit 92.5 to the measured regime. supports: The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average). supports: India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side. supports: Breadth is down (19.0% of the universe advancing) and the structure needs down. neutral: The short strike is placed by the expected move, not on an open-interest wall."
+  },
+  "note": "Top by regime — fit 92.5"
+ },
+ "body_without_levels": {
+  "kind": "strategy",
+  "underlying": "BANKNIFTY",
+  "direction": "bearish",
+  "family": "bear_put_spread",
+  "reference_price": 54976.9,
+  "legs": [
+   {
+    "kind": "option",
+    "side": "buy",
+    "lots": 1,
+    "lot_size": 30,
+    "entry_price": 437.5,
+    "expiry": "2026-10-27",
+    "strike": 55000,
+    "option_type": "put",
+    "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+   },
+   {
+    "kind": "option",
+    "side": "sell",
+    "lots": 1,
+    "lot_size": 30,
+    "entry_price": 145.2,
+    "expiry": "2026-10-27",
+    "strike": 54100,
+    "option_type": "put",
+    "price_source": "NSE F&O bhavcopy close, 2026-10-21"
+   }
+  ],
+  "signal": {
+   "signal_at": "2026-10-21",
+   "rule_version": "regime-fit-v1 (2026-10-22)",
+   "source_refs": [
+    {
+     "kind": "regime_fit_board",
+     "ref": "BANKNIFTY bear_put_spread 2026-10-27",
+     "as_of": "2026-10-21"
+    },
+    {
+     "kind": "option_chain",
+     "ref": "NSE F&O bhavcopy close, 2026-10-21",
+     "as_of": "2026-10-21"
+    },
+    {
+     "kind": "market_regime",
+     "ref": "desk market regime",
+     "as_of": "2026-10-19"
+    }
+   ],
+   "evidence_summary": "Fit 92.5 to the measured regime. supports: The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average). supports: India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side. supports: Breadth is down (19.0% of the universe advancing) and the structure needs down. neutral: The short strike is placed by the expected move, not on an open-interest wall."
+  },
+  "note": "Top by regime — fit 92.5"
+ }
+}

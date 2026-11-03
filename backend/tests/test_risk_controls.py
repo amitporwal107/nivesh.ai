@@ -38,7 +38,7 @@ class FakeCollection:
             self.docs.append(doc)
         doc.update(update.get("$set") or {})
 
-    def find(self, q):
+    def find(self, q, projection=None):  # projection ignored, as in test_risk_gate.FakeDB
         rows = [d for d in self.docs if all(d.get(k) == v for k, v in q.items())]
         return _Cursor(rows)
 

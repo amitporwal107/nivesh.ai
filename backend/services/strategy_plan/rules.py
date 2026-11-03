@@ -4,7 +4,7 @@ Change a constant here and bump STRATEGY_RULES_VERSION: a saved plan carries the
 """
 from __future__ import annotations
 
-STRATEGY_RULES_VERSION = "strategy-rules.v1.5 (2026-10-20)"
+STRATEGY_RULES_VERSION = "strategy-rules.v1.6 (2026-10-27)"
 PLAN_SCHEMA = "strategy-plan.v1"
 
 RULES = {
@@ -94,8 +94,9 @@ RULES = {
         "sizing": "lots = floor(risk budget / loss per lot at the stop (the cash stop distance x lot size when the premium covers it)), "
                   "capped by the allocation cap on the deployed value per lot (shares or futures notional plus the net premium)",
     },
-    "sizing": {"formula": "units = floor(risk budget / risk per unit), capped by floor(capital x max allocation % / "
-                          "entry value per unit), rounded down to whole lots"},
+    "sizing": {"formula": "units = the most whole lots with units x risk per unit + estimated round-trip costs at the stop "
+                          "(the desk cost card) <= risk budget, capped by floor(capital x max allocation % / entry value per "
+                          "unit); for an option structure the risk per unit is already its worst net loss"},
     # The user's Chartink dashboard as a second source of opportunities (services/chartink_desk). A Chartink scan is the user's own screen: a rule
     # match, not validated, not a probability. Chartink-only stocks (hits that the AI scanner does not list) follow the scanner's ideas, ranked by the
     # number of enabled bullish scans that listed them, then by 20-session traded value, and pass the same eligibility gates as scanner stocks.
@@ -151,7 +152,7 @@ RULES = {
         "rule": "Each Chartink stock that passes the scan-snapshot eligibility gates is scored on scan confluence, trend (EMA), momentum (MACD, 20-day change, RSI), "
                 "relative volume, liquidity, F&O open-interest build-up (F&O stocks), fundamentals quality, event risk (results inside the horizon), distance from "
                 "its 52-week extremes and ATR risk. A figure that could not be read earns nothing and is listed as unavailable. Thin or conflicting evidence, a score "
-                "under the minimum, or a strategy plan that says wait or no trade, is Wait / No trade and the stock is not a pick. Strategies come from the Strategy "
+                "under the minimum, or a strategy plan that says wait or no trade, is Wait / No trade and the stock is not a candidate. Strategies come from the Strategy "
                 "Builder's plan; options are defined risk only and nothing is sent to a broker.",
     },
     "model_estimate": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",

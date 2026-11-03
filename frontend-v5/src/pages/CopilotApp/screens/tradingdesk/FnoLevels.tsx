@@ -17,10 +17,14 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? 
 
 export interface Levels {
   valid: boolean;
+  /** The engine's settings version (services/strategy_levels.VERSION), e.g. "strategy-levels-v2". */
+  version: string | null;
   problems: string[];
   kind: "debit" | "credit" | null;
   entry: number | null; plannedStop: number | null; plannedStopLoss: number | null; boundary: number | null; boundaryText: string | null; t1: number | null; t2: number | null;
   maxProfit: number | null; maxLoss: number | null; riskReward: number | null;
+  /** The structure's maximum loss for the position's lots, before costs (negative), or null when it has no limit. */
+  maxLossTotal: number | null;
   underlying: { view: string | null; entry: number | null; stop: number | null; target: number | null; target2: number | null; low: number | null; high: number | null; valueAtStop: number | null; valueAtTarget: number | null;
     basis: string | null; wallStop: number | null; wallTarget: number | null; putWall: number | null; callWall: number | null };
   totals: { plannedStopLoss: number | null; target1Gain: number | null; target2Gain: number | null; shares: number | null };
@@ -37,9 +41,9 @@ export function parseLevels(body: unknown): Levels {
   const p = rec(b.premium), u = rec(b.underlying), g = rec(b.greeks), t = rec(b.totals), c = rec(b.costs), wr = rec(u.wall_reference);
   const kind = p.kind === "debit" || p.kind === "credit" ? p.kind : null;
   return {
-    valid: b.valid, problems: (Array.isArray(b.problems) ? b.problems : []).map((x) => str(rec(x).message) ?? "").filter(Boolean), kind,
+    valid: b.valid, version: str(b.version), problems: (Array.isArray(b.problems) ? b.problems : []).map((x) => str(rec(x).message) ?? "").filter(Boolean), kind,
     entry: num(p.entry), plannedStop: num(p.planned_stop), plannedStopLoss: num(p.planned_stop_loss_per_unit), boundary: num(rec(p.risk_boundary).value), boundaryText: str(rec(p.risk_boundary).meaning), t1: num(p.target_1), t2: num(p.target_2),
-    maxProfit: num(b.max_profit_per_unit), maxLoss: num(b.max_loss_per_unit), riskReward: num(b.risk_reward),
+    maxProfit: num(b.max_profit_per_unit), maxLoss: num(b.max_loss_per_unit), riskReward: num(b.risk_reward), maxLossTotal: num(b.max_loss_total),
     underlying: { view: str(u.view), entry: num(u.entry), stop: num(u.stop), target: num(u.target), target2: num(u.target_2), low: num(u.range_low), high: num(u.range_high), valueAtStop: num(u.value_at_stop), valueAtTarget: num(u.value_at_target),
       basis: str(u.basis), wallStop: num(u.wall_stop), wallTarget: num(u.wall_target), putWall: num(wr.put_wall), callWall: num(wr.call_wall) },
     totals: { plannedStopLoss: num(t.planned_stop_loss), target1Gain: num(t.target_1_gain), target2Gain: num(t.target_2_gain), shares: num(t.shares) },
@@ -80,15 +84,20 @@ function Fig({ k, v, sub, testId }: { k: string; v: string; sub?: string; testId
 }
 
 export function LevelsCard({ q }: { q: ReturnType<typeof useLevels> }) {
-  const d = q.data;
+  return <LevelsView d={q.data} pending={q.isPending && q.fetchStatus !== "idle"} failed={q.isError} />;
+}
+
+/** The card from levels already in hand: a query's answer, or levels stored with a day's list (the AI scanner watchlist).
+ *  `inLab` false drops the one sentence that points at the lab's margin calculator, which an idea row does not have. */
+export function LevelsView({ d, pending, failed, inLab = true }: { d?: Levels; pending?: boolean; failed?: boolean; inLab?: boolean }) {
   return (
     <section data-testid="desk-levels" className="cp-card flex flex-col" style={{ gap: 12, padding: 16, minWidth: 0 }}>
       <div className="flex flex-wrap items-center justify-between" style={{ gap: 6 }}>
         <span style={{ fontSize: 15, fontWeight: 600 }}>Estimated entry, stop-loss and targets</span>
         <Pill tone="amber">Rule-based · hypothetical</Pill>
       </div>
-      {q.isPending && q.fetchStatus !== "idle" && <span style={quiet}>Working out the levels…</span>}
-      {q.isError && <span data-testid="desk-levels-error" style={quiet}>The levels did not load just now; the payoff and margin above are unaffected.</span>}
+      {pending && <span style={quiet}>Working out the levels…</span>}
+      {failed && <span data-testid="desk-levels-error" style={quiet}>The levels did not load just now; the payoff and margin above are unaffected.</span>}
       {d && !d.valid && <span data-testid="desk-levels-invalid" style={quiet}>No levels for this structure: {d.problems[0] ?? "it was not accepted by the calculation"}</span>}
       {d && d.valid && (
         <>
@@ -196,7 +205,7 @@ export function LevelsCard({ q }: { q: ReturnType<typeof useLevels> }) {
             <span style={quiet}>
               Maximum loss before costs {inr(d.costs.maxLossGross == null ? null : Math.abs(d.costs.maxLossGross))}. The plotted net loss adds the entry costs ({inr(d.costs.entry)}); capital at risk {inr(d.costs.capitalAtRisk)} is the worst net loss with entry and exit costs on every leg
               (round trip {inr(d.costs.roundTrip)}, an assumed cost model). They are one position with different cost treatments, not different positions.
-              {d.costs.capitalBasis ? ` Basis: ${d.costs.capitalBasis}.` : ""} Funds and margin needed are Zerodha’s calculator, shown above.
+              {d.costs.capitalBasis ? ` Basis: ${d.costs.capitalBasis}.` : ""}{inLab ? " Funds and margin needed are Zerodha’s calculator, shown above." : ""}
             </span>
           </div>
           <ul data-testid="desk-levels-caveats" style={{ margin: 0, paddingLeft: 18, ...quiet }}>{d.caveats.map((c) => <li key={c}>{c}</li>)}</ul>

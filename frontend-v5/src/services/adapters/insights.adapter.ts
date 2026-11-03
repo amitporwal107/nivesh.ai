@@ -71,7 +71,10 @@ export const realInsightsAdapter: InsightsAdapter = {
 
   async list() {
     const res = await http({ path: "/api/insights" });
-    const parsed = InsightsListRes.safeParse(res.data);
+    // GET /api/insights answers a bare list of saved insights (backend/routes/insights.py
+    // get_insights; the legacy app reads it as a list too). Read that list as `insights`.
+    const body = Array.isArray(res.data) ? { insights: res.data } : res.data;
+    const parsed = InsightsListRes.safeParse(body);
     if (!parsed.success) throw ApiError.contractDrift(`insights.list: ${parsed.error.message}`);
     return {
       insights: parsed.data.insights.map(mapInsightItem),

@@ -12,7 +12,7 @@ import math
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
-MAX_LEGS = 8
+MAX_LEGS = 8    # an ANALYSIS limit (what the payoff engine prices), not the strategy limit: services/strategy_limits
 MIN_POINTS, MAX_POINTS = 5, 400
 DEFAULT_GRID = {"from_pct": -20.0, "to_pct": 20.0, "points": 121}
 MAX_IV_PCT = 500.0

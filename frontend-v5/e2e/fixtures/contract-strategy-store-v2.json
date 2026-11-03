@@ -1,0 +1,90 @@
+{
+  "_comment": "MOCK — not real data. The bodies Strategy Lab › Build a trade sends to the shared strategy store (frontend-v5 tradingdesk/strategy/instance-store.ts definitionOf + createStrategy), pinned once for the browser specs and backend/tests/test_strategy_store_v2_model.py + test_strategy_store_v2_routes.py. Prices and dates are invented; the shapes are the contract. docs/strategy_copilot_review_20261028/PROPOSAL_strategy_store_v2.md §3-§5.",
+  "create_bull_call_spread": {
+    "name": "NIFTY bull call spread",
+    "asset_class": "FNO",
+    "source": "template",
+    "template_id": "bull_call_spread",
+    "definition": {
+      "schema_version": "2",
+      "name": "NIFTY bull call spread",
+      "market": "NSE",
+      "underlying": {"symbol": "NIFTY", "kind": "index"},
+      "template_id": "bull_call_spread",
+      "timeframe": "1d",
+      "legs": [
+        {"leg_id": "L1", "instrument": "CALL", "side": "BUY", "lots": 1, "lot_size_at_save": 65,
+         "expiry": {"rule": "specific", "date": "2026-11-25"}, "strike": {"rule": "fixed", "value": 25500},
+         "entry_price_at_save": {"value": 182.4, "source": "NSE F&O bhavcopy close, 2026-10-27"}, "relationship": null},
+        {"leg_id": "L2", "instrument": "CALL", "side": "SELL", "lots": 1, "lot_size_at_save": 65,
+         "expiry": {"rule": "specific", "date": "2026-11-25"}, "strike": {"rule": "fixed", "value": 25700},
+         "entry_price_at_save": {"value": 98.1, "source": "NSE F&O bhavcopy close, 2026-10-27"}, "relationship": null}
+      ],
+      "entry": {"type": "manual", "assumption": "at once at the chain's end-of-day close, plus the desk cost card's slippage (market + slippage)"},
+      "exit": {"profit_target_pct_of_net_debit": null, "stop_loss_pct_of_net_debit": null, "time_exit_sessions": null, "close_before_expiry_sessions": null},
+      "build_constraints": {
+        "max_loss_rs": null, "max_capital_rs": null, "stop_underlying": null,
+        "strike_rule": {"rule": "atm", "anchor_strikes": 1, "width_strikes": 2, "target_delta": 0.3},
+        "chain_as_of": "2026-10-27"
+      },
+      "sizing": {"lots": 1}
+    }
+  },
+  "create_covered_call_stock": {
+    "name": "RELIANCE covered call",
+    "asset_class": "MIXED",
+    "source": "user",
+    "template_id": "covered_call",
+    "definition": {
+      "schema_version": "2",
+      "name": "RELIANCE covered call",
+      "market": "NSE",
+      "underlying": {"symbol": "RELIANCE", "kind": "stock"},
+      "template_id": "covered_call",
+      "timeframe": "1d",
+      "legs": [
+        {"leg_id": "L1", "instrument": "STOCK", "side": "BUY", "shares": 500, "lot_size_at_save": 1,
+         "expiry": null, "strike": null,
+         "entry_price_at_save": {"value": 1450.5, "source": "NSE close, 2026-10-27"}, "relationship": null},
+        {"leg_id": "L2", "instrument": "CALL", "side": "SELL", "lots": 1, "lot_size_at_save": 500,
+         "expiry": {"rule": "specific", "date": "2026-11-25"}, "strike": {"rule": "fixed", "value": 1500},
+         "entry_price_at_save": {"value": 21.35, "source": ""}, "relationship": null}
+      ],
+      "entry": {"type": "manual", "assumption": "at once at the chain's end-of-day close, plus the desk cost card's slippage (market + slippage)"},
+      "exit": {"profit_target_pct_of_net_debit": null, "stop_loss_pct_of_net_debit": null, "time_exit_sessions": null, "close_before_expiry_sessions": null},
+      "build_constraints": {
+        "max_loss_rs": 25000, "max_capital_rs": 800000, "stop_underlying": 1380,
+        "strike_rule": {"rule": "otm", "anchor_strikes": 2, "width_strikes": 2, "target_delta": 0.3},
+        "chain_as_of": "2026-10-27"
+      },
+      "sizing": {"lots": 1}
+    }
+  },
+  "create_long_future": {
+    "name": "BANKNIFTY long future",
+    "asset_class": "FNO",
+    "source": "user",
+    "template_id": "long_future",
+    "definition": {
+      "schema_version": "2",
+      "name": "BANKNIFTY long future",
+      "market": "NSE",
+      "underlying": {"symbol": "BANKNIFTY", "kind": "index"},
+      "template_id": "long_future",
+      "timeframe": "1d",
+      "legs": [
+        {"leg_id": "L1", "instrument": "FUTURE", "side": "BUY", "lots": 2, "lot_size_at_save": 30,
+         "expiry": {"rule": "specific", "date": "2026-11-25"}, "strike": null,
+         "entry_price_at_save": null, "relationship": null}
+      ],
+      "entry": {"type": "manual", "assumption": "at once at the chain's end-of-day close, plus the desk cost card's slippage (market + slippage)"},
+      "exit": {"profit_target_pct_of_net_debit": null, "stop_loss_pct_of_net_debit": null, "time_exit_sessions": null, "close_before_expiry_sessions": null},
+      "build_constraints": {
+        "max_loss_rs": null, "max_capital_rs": null, "stop_underlying": 54000,
+        "strike_rule": {"rule": "manual", "anchor_strikes": 0, "width_strikes": 0, "target_delta": 0.3},
+        "chain_as_of": null
+      },
+      "sizing": {"lots": 2}
+    }
+  }
+}

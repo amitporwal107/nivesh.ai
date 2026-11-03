@@ -22,13 +22,17 @@
 import { useMemo, useState } from "react";
 import { EmptyBlock, ErrorBlock, LoadingBlock, Section, errorSentence, fmtINR, fmtNum, fmtPct } from "../../../components/ui";
 import { fmtDay } from "../../trading/parts";
+import type { Levels } from "../FnoLevels";
+import { IdeaLevels, useIdeaLevels } from "../IdeaLevels";
+import { DecisionCard } from "../decision/DecisionCard";
+import { usePlanView } from "../decision/plan-view";
 import { DASH, noteStyle } from "./plan-format";
 import { StrategyGraphs } from "./StrategyGraphs";
 import { payoffProblem, usePayoff } from "./usePayoff";
-import { paperTradeBodyFor, payoffRequestFor, usePaperTradeIdea } from "./top-actions";
+import { levelsRefsFor, paperTradeBodyFor, paperTradeProblem, payoffRequestFor, usePaperTradeIdea, type LevelsRefs } from "./top-actions";
 import { TOP_LIMIT, useStrategyTop, type TopRun } from "./top-data";
 import { legsForBoard, liveNetPremium, useFnoLive, type LiveAnswer } from "./top-live";
-import type { FitFactor, OptionClass, OptionIdea, Regime } from "./top-contract";
+import type { FitFactor, OptionClass, OptionIdea, OptionIdeaCore, Regime, TopBoard } from "./top-contract";
 
 const STATE_TONE: Record<string, { glyph: string; color: string }> = {
   supports: { glyph: "+", color: "var(--good, #3fbf87)" },
@@ -36,7 +40,7 @@ const STATE_TONE: Record<string, { glyph: string; color: string }> = {
   neutral: { glyph: "·", color: "var(--cp-ink-3)" },
 };
 
-function Why({ items }: { items: FitFactor[] }) {
+export function Why({ items }: { items: FitFactor[] }) {
   if (!items.length) return null;
   return (
     <ul data-testid="idea-why" className="flex flex-col" style={{ gap: 4, margin: 0, padding: 0, listStyle: "none" }}>
@@ -67,17 +71,50 @@ function Fig({ k, v, title }: { k: string; v: string; title?: string }) {
  * Both go through the desk's existing routes — POST /api/desk/strategy/payoff and
  * POST /api/desk/paper-trades — so an idea opened here and the same structure built in "One stock"
  * cannot price or record differently. The payoff is only requested once the chart is opened: five
- * cards would otherwise fire five calculations nobody asked for. */
-function IdeaActions({ idea }: { idea: OptionIdea }) {
+ * cards would otherwise fire five calculations nobody asked for.
+ *
+ * The paper trade records the idea's signal (the board's `rulesVersion`, required) and, when the row shows the levels
+ * engine's answer (`levels`), the same underlying stop and target 1 (top-actions.ts paperTradeBodyFor). While those
+ * levels are still being worked out the button waits, so the trade never records less than the row then shows. A row
+ * that shows no levels (an alternative structure) passes none and records none.
+ *
+ * Also used by the Scanner's Top 10 F&O board, the lab's focus panel and the AI scanner watchlist; `onViewTrades` adds
+ * their "View trades ›" link to the row. */
+export function IdeaActions({ idea, onViewTrades, rulesVersion, levels }: {
+  idea: OptionIdeaCore; onViewTrades?: () => void; rulesVersion: string | null | undefined;
+  levels?: { data?: Levels; pending: boolean };
+}) {
   const [openChart, setOpenChart] = useState(false);
   const request = useMemo(() => payoffRequestFor(idea), [idea]);
   const pay = usePayoff(openChart ? request : null);
   const paper = usePaperTradeIdea();
-  const body = useMemo(() => paperTradeBodyFor(idea), [idea]);
+  // Phase 3: the decision card's action gate. The trade records this row's legs, so a newer version of the plan (or a
+  // universal-risk block that still applies) turns the button off with the card's reason.
+  const view = usePlanView(idea.trade_plan ?? null);
+  const gate = view?.gate ?? null;
+  const built = useMemo(() => paperTradeBodyFor(idea, { rulesVersion, levels: levels?.data }), [idea, rulesVersion, levels?.data]);
+  const body = gate ? null : built;
+  const waiting = !!levels?.pending;
+  const problem = paperTradeProblem(idea, rulesVersion) ?? gate;
+  const stop = typeof built?.stop_underlying === "number" ? built.stop_underlying : null;
+  const target = typeof built?.target_underlying === "number" ? built.target_underlying : null;
+  const records = stop != null || target != null
+    ? `with the stop ${stop != null ? fmtNum(stop, 2) : DASH} and target ${target != null ? fmtNum(target, 2) : DASH} on ${idea.underlying} from the levels shown`
+    : "with no stop or target: it closes at expiry or when you close it";
   const asOf = idea.data_as_of?.chain ?? null;
 
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+      {idea.conflicts_with_cash_setup ? (
+        <span data-testid="idea-cash-conflict" role="note" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>
+          Conflicts with the cash setup: {idea.conflicts_with_cash_setup.message ?? "the stock is a bullish cash setup today."}
+        </span>
+      ) : null}
+      {idea.trade_plan ? (
+        <span data-testid="idea-plan-id" data-plan-id={idea.trade_plan.plan_id} style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>
+          Plan {idea.trade_plan.plan_id} · {idea.trade_plan.eligibility.state.replace(/_/g, " ").toLowerCase()}
+        </span>
+      ) : null}
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
         <button
           type="button" className="cp-chip" data-testid="idea-payoff-toggle"
@@ -89,19 +126,24 @@ function IdeaActions({ idea }: { idea: OptionIdea }) {
         </button>
         <button
           type="button" className="cp-chip" data-testid="idea-paper-trade"
-          disabled={!body || paper.isPending || paper.isSuccess}
-          title={body ? undefined : "This idea cannot be recorded as a paper trade."}
+          disabled={!body || waiting || paper.isPending || paper.isSuccess}
+          title={!body ? problem ?? "This idea cannot be recorded as a paper trade."
+            : waiting ? "Waiting for the levels, so the paper trade records the stop and target the row shows."
+            : `A simulated trade at the end-of-day prices shown, ${records}. Nothing is sent to a broker.`}
           onClick={() => body && paper.mutate(body)}
         >
           {paper.isSuccess ? "Added to paper trades" : paper.isPending ? "Adding…" : "Paper trade"}
         </button>
+        {onViewTrades ? (
+          <button type="button" className="cp-chip" data-testid="idea-view-trades" onClick={onViewTrades}>View trades ›</button>
+        ) : null}
         {paper.isError ? (
           <span role="alert" data-testid="idea-paper-error" style={{ ...noteStyle, color: "var(--cp-danger)" }}>
             {errorSentence(paper.error)}
           </span>
         ) : null}
         {paper.isSuccess ? (
-          <span style={noteStyle}>Recorded at the end-of-day prices shown. Nothing was sent to a broker.</span>
+          <span data-testid="idea-paper-done" style={noteStyle}>Recorded at the end-of-day prices shown, {records}. Nothing was sent to a broker.</span>
         ) : null}
       </div>
 
@@ -148,7 +190,16 @@ function LivePremium({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; 
 }
 
 
-function IdeaCard({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; at: Map<string, number> }) {
+const NO_LIVE: Map<string, number> = new Map();
+
+/** One ranked idea in full, with its provisional levels (IdeaLevels). Also the lab's focus panel (LabFocus.tsx).
+ *  `rulesVersion` and `refs` come from the board the idea is on. */
+export function IdeaCard({ idea, rulesVersion, refs, live, at = NO_LIVE, onViewTrades, cardVariant = "row" }: {
+  idea: OptionIdea; rulesVersion: string | null | undefined; refs: LevelsRefs; live?: LiveAnswer; at?: Map<string, number>; onViewTrades?: () => void;
+  /** The decision card: one line with an expander on a board, every section in the lab's focus panel. */
+  cardVariant?: "row" | "full";
+}) {
+  const levels = useIdeaLevels(idea, refs);
   const rr = idea.reward_risk;
   const be = idea.breakevens.length ? idea.breakevens.map((b) => fmtNum(b, 2)).join(", ") : DASH;
   const maxProfit = idea.profit_unbounded ? "No upper limit" : fmtINR(idea.max_profit);
@@ -191,11 +242,15 @@ function IdeaCard({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; at:
         </div>
       ) : null}
 
+      <IdeaLevels idea={idea} state={levels} />
+
+      {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant={cardVariant} testId="idea-card-plan" /> : null}
+
       <Why items={idea.fit.because} />
 
       <LivePremium idea={idea} live={live} at={at} />
 
-      <IdeaActions idea={idea} />
+      <IdeaActions idea={idea} onViewTrades={onViewTrades} rulesVersion={rulesVersion} levels={levels} />
 
       <footer style={{ ...noteStyle, borderTop: "1px solid var(--cp-line)", paddingTop: 8 }}>
         {idea.price_source ?? "end-of-day prices"}
@@ -220,7 +275,7 @@ function Unavailable({ rows }: { rows: OptionClass["unavailable"] }) {
   );
 }
 
-function OptionSection({ title, note, cls, testId, live, at }: { title: string; note: string; cls?: OptionClass; testId: string; live?: LiveAnswer; at: Map<string, number> }) {
+function OptionSection({ title, note, cls, board, testId, live, at }: { title: string; note: string; cls?: OptionClass; board: TopBoard; testId: string; live?: LiveAnswer; at: Map<string, number> }) {
   if (!cls) return null;
   return (
     <Section title={title} note={note}>
@@ -235,7 +290,10 @@ function OptionSection({ title, note, cls, testId, live, at }: { title: string; 
             }
           />
         ) : (
-          cls.ideas.map((idea) => <IdeaCard key={`${idea.underlying}-${idea.structure}-${idea.rank}`} idea={idea} live={live} at={at} />)
+          cls.ideas.map((idea) => (
+            <IdeaCard key={`${idea.underlying}-${idea.structure}-${idea.rank}`} idea={idea} rulesVersion={board.rules_version}
+              refs={levelsRefsFor(board, idea.underlying)} live={live} at={at} />
+          ))
         )}
         {cls.considered != null ? (
           <p style={noteStyle} data-testid="top-considered">
@@ -334,6 +392,7 @@ export function TopByRegime() {
         title="Index options — NIFTY and BANKNIFTY"
         note="Defined-risk structures only: an index cannot be held, so there is no covered call, protective put or collar here."
         cls={board.classes.index_options}
+        board={board}
         live={wantLive ? liveQ.data : undefined}
         at={at}
       />
@@ -343,6 +402,7 @@ export function TopByRegime() {
         title="Stock F&O"
         note={board.classes.stock_fno?.universe?.source ?? "From the AI scanner's own ranked names."}
         cls={board.classes.stock_fno}
+        board={board}
         live={wantLive ? liveQ.data : undefined}
         at={at}
       />

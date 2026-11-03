@@ -128,7 +128,7 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
     await input.press("ArrowDown");
     await input.press("ArrowDown");
     await input.press("Enter");
-    await expect(page).toHaveURL(/tab=chart/);
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/sym=RELIANCE/);
     await expect(input).toHaveValue("");
   });
@@ -221,7 +221,7 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
     await expect(page.getByTestId("desk-search-picked")).toContainText("TESTPICK selected");
     await search(page).fill("ZZTOP");
     await search(page).press("Enter");
-    await expect(page).toHaveURL(/tab=chart/);
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/sym=ZZTOP/);
   });
 
@@ -257,7 +257,7 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
       asked.push(sym);
       return sym === "PCJEWELLERS" || sym === "QQZZ" ? json(r, { detail: "no_bars_for_symbol" }, 404) : json(r, { symbol: sym, timeframe: "1D", bars: [["2026-10-16", 10, 12, 9, 11, 1000], ["2026-10-19", 11, 13, 10, 12, 1200]], data_quality_status: "VALID", provenance: { provider: "MOCK" } });
     });
-    await page.goto(`${DESK}?tab=chart&sym=PCJEWELLERS`);
+    await page.goto(`${DESK}?tab=market&view=research&sym=PCJEWELLERS`);
     await expect(page.getByTestId("desk-chart-noprices")).toContainText("No daily prices on record for PCJEWELLERS");
     const chip = page.getByTestId("desk-chart-dym-PCJEWELLER");
     await expect(chip).toContainText("PC Jeweller Limited");
@@ -267,11 +267,11 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
     await expect.poll(() => asked).toContain("PCJEWELLER");
     await expect(page.getByTestId("desk-chart-noprices")).toHaveCount(0);
     // A symbol nothing resembles.
-    await page.goto(`${DESK}?tab=chart&sym=QQZZ`);
+    await page.goto(`${DESK}?tab=market&view=research&sym=QQZZ`);
     await expect(page.getByTestId("desk-chart-dym-none")).toContainText("No NSE stock matches QQZZ");
     // The lookup failing leaves the explanation alone.
     look.mode = "fail";
-    await page.goto(`${DESK}?tab=chart&sym=PCJEWELLERS`);
+    await page.goto(`${DESK}?tab=market&view=research&sym=PCJEWELLERS`);
     await expect(page.getByTestId("desk-chart-noprices")).toBeVisible();
     await expect(page.getByTestId("desk-chart-dym")).toHaveCount(0);
     await expect(page.getByTestId("desk-chart-dym-none")).toHaveCount(0);
@@ -307,94 +307,8 @@ async function builder(page: Page, plan: (sym: string) => unknown) {
   await page.route("**/api/desk/strategy/ideas", (r) => json(r, { ideas: [] }));
   return { ...b, builds };
 }
-const BUILDER = `${DESK}?tab=more&view=strategy&mode=stock`;
 
-test.describe("Smart trading desk — Strategy Builder symbol checks (MOCK)", () => {
-  test("SS-10 an unknown symbol shows suggestions inline and sends no plan request; Use fixes the box", async ({ page }) => {
-    const { builds } = await builder(page, () => load("strategy-plan-cash.json"));
-    await page.goto(BUILDER);
-    const input = page.getByTestId("in-symbol");
-    await input.fill("pcjewellers");
-    await page.getByTestId("in-direction-bullish").click();
-    await page.getByRole("button", { name: /build the plan/i }).click();
-    const hint = page.getByTestId("symbol-hint");
-    await expect(hint).toContainText("PCJEWELLERS is not a known NSE symbol");
-    await expect(page.getByTestId("symbol-hint-use-PCJEWELLER")).toContainText("PC Jeweller Limited");
-    expect(builds).toEqual([]);
-    await page.getByTestId("symbol-hint-use-PCJEWELLER").click();
-    await expect(input).toHaveValue("PCJEWELLER");
-    await expect(hint).toHaveCount(0);
-  });
-
-  test("SS-10b leaving the box checks the symbol after a pause", async ({ page }) => {
-    await builder(page, () => load("strategy-plan-cash.json"));
-    await page.goto(BUILDER);
-    await page.getByTestId("in-symbol").fill("pcjewellers");
-    await page.getByTestId("in-direction-bullish").click();            // focus leaves the box
-    await expect(page.getByTestId("symbol-hint")).toBeVisible();
-  });
-
-  test("SS-10c a symbol the lookup cannot see, or a failing lookup, still builds", async ({ page }) => {
-    const { look, builds } = await builder(page, () => load("strategy-plan-cash.json"));
-    look.blind.add("pcjewellers");
-    await page.goto(BUILDER);
-    await page.getByTestId("in-symbol").fill("pcjewellers");
-    await page.getByTestId("in-direction-bullish").click();
-    await page.getByRole("button", { name: /build the plan/i }).click();
-    await expect.poll(() => builds.length).toBe(1);
-    look.mode = "fail";
-    await page.getByTestId("in-symbol").fill("RELIANCE");
-    await page.getByRole("button", { name: /build the plan/i }).click();
-    await expect.poll(() => builds.length).toBe(2);
-  });
-
-  test("SS-11 an unknown_symbol plan shows the message, suggestions and a one-click rebuild that rewrites ?sym=", async ({ page }) => {
-    const msg = "No price history for PCJEWELLERS. Did you mean PCJEWELLER (PC Jeweller Limited)?";
-    const { look, builds } = await builder(page, (sym) => (sym === "PCJEWELLERS" ? unknownPlan(sym, UNKNOWN_REASON(SUGG_PCJ, "PCJEWELLER", msg)) : load("strategy-plan-cash.json")));
-    look.blind.add("pcjewellers");                 // the lookup cannot see it, so the build goes to the route, which answers unknown_symbol
-    await page.goto(BUILDER);
-    await page.getByTestId("in-symbol").fill("PCJEWELLERS");
-    await page.getByTestId("in-direction-bullish").click();
-    await page.getByRole("button", { name: /build the plan/i }).click();
-    const reasons = page.getByTestId("plan-status-reasons");
-    await expect(reasons).toContainText(msg);
-    await expect(reasons).toContainText("unknown_symbol");
-    expect(builds.map((b) => b.underlying)).toEqual(["PCJEWELLERS"]);     // the input was kept, not substituted
-    await expect(page.getByTestId("plan-status")).toContainText(/insufficient/i);
-    const rebuild = page.getByTestId("rebuild-for-PCJEWELLER");
-    await expect(rebuild).toContainText("Rebuild for PCJEWELLER");
-    await rebuild.click();
-    await expect.poll(() => builds.map((b) => b.underlying)).toEqual(["PCJEWELLERS", "PCJEWELLER"]);
-    await expect(page).toHaveURL(/sym=PCJEWELLER(&|$)/);
-    await expect(page.getByTestId("in-symbol")).toHaveValue("PCJEWELLER");
-  });
-
-  test("SS-12 an unknown_symbol plan with no suggestion says to check the ticker", async ({ page }) => {
-    const { look } = await builder(page, (sym) => unknownPlan(sym, UNKNOWN_REASON([], null, `No price history for ${sym}. No NSE stock matches ${sym}.`)));
-    look.blind.add("qqzz");
-    await page.goto(BUILDER);
-    await page.getByTestId("in-symbol").fill("QQZZ");
-    await page.getByTestId("in-direction-bullish").click();
-    await page.getByRole("button", { name: /build the plan/i }).click();
-    await expect(page.getByTestId("plan-status-reasons")).toContainText("No NSE stock matches QQZZ");
-    await expect(page.getByTestId("unknown-symbol-none")).toContainText("Check the ticker");
-    await expect(page.locator('[data-testid^="rebuild-for-"]')).toHaveCount(0);
-  });
-
-  test("SS-13 investor wording: box, hint and empty states", async ({ page }) => {
-    await builder(page, () => load("strategy-plan-cash.json"));
-    await page.goto(`${BUILDER}&persona=investor`);
-    await page.getByTestId("in-symbol").fill("pcjewellers");
-    await page.getByTestId("in-direction-bullish").click();
-    await page.getByTestId("build-plan").click();
-    await expect(page.getByTestId("symbol-hint-text")).toContainText("We could not find “PCJEWELLERS”");
-    await page.goto(`${DESK}?tab=overview&persona=investor`);
-    await expect(search(page)).toHaveAttribute("placeholder", "Search a company, or ask Nivesh…");
-    await search(page).fill("rel");
-    await expect(opt(page, "RELIANCE")).toContainText("Options available");
-    await expect(opt(page, "RELIANCE")).toContainText("On today’s AI list");
-  });
-});
+// SS-10 … SS-12 (the Strategy Builder's symbol box) went with Strategy Lab (owner, 29 Oct).
 
 test.describe("Smart trading desk — stock search at 390px and screenshots (MOCK)", () => {
   test.use({ hasTouch: true });
@@ -429,10 +343,6 @@ test.describe("Smart trading desk — stock search at 390px and screenshots (MOC
       await expect(opt(page, "RELIANCE")).toBeVisible();
       await search(page).press("ArrowDown");
       await page.screenshot({ path: path.join(dir, `ss-header-${w}.png`) });
-      await page.goto(BUILDER);
-      await page.getByTestId("in-symbol").fill("rel");
-      await expect(page.getByTestId("in-symbol-option-RELIANCE")).toBeVisible();
-      await page.screenshot({ path: path.join(dir, `ss-builder-${w}.png`) });
       look.reqs.length = 0;
       await page.goto(`${DESK}?tab=fno`);
       await page.getByTestId("desk-fno-symbol-input").fill("rel");

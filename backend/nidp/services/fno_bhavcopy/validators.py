@@ -6,8 +6,10 @@ from nidp.shared.validation.rules import (
     CountAtLeastRule, CustomSQLRule, FailureClass, NoNullsRule, Severity,
 )
 
-# F&O bhavcopy publishes ~70-90k contracts per day across all expiries.
-# <30k means partial fetch.
+# Real sessions on staging, Oct 2025 – Oct 2026 (dq.gate_verdicts): 29,088 to 54,042 contracts a day. The lowest days
+# fall just after a monthly expiry, when fewer contracts are listed (27 Aug 2026: 29,088; 30 Jul: 29,240). The old
+# floor of 30,000 BLOCKed those real sessions. 25,000 sits ~14% under the lowest real day; below it means a partial
+# fetch. Gate 1 uses the same floor (migration 184).
 ROW_COUNT_MIN = CountAtLeastRule(
     name="fno_bhavcopy.row_count_min",
     sql="""
@@ -15,7 +17,7 @@ ROW_COUNT_MIN = CountAtLeastRule(
          WHERE as_of_date = $1::date
            AND source_run_id = $2
     """,
-    min_count=30000,
+    min_count=25000,
     severity=Severity.CRITICAL,
     failure_class=FailureClass.BLOCK,
 )

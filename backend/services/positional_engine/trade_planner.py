@@ -11,12 +11,40 @@ fall back to a 2× risk projection so RR is always defined.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 def _round(x: float) -> float:
     """Round to 2 dp; keeps the API tidy without extra deps."""
     return round(x + 1e-9, 2)
+
+
+STOP_ATR_MULTIPLE = 1.5          # the ATR leg of the stop rule below
+STOP_SWING_BUFFER = 0.995        # the structural leg: just under the 20-session swing low
+
+
+def stop_meta(entry: float, stop: float, atr: Optional[float], swing_low: Optional[float]) -> Dict[str, Any]:
+    """HOW a stop from `plan()` was set, as data (finding N13: the plan called this stop "2 x ATR" when it is
+    1.5 x ATR). The rule takes the tighter of `swing_low x 0.995` and `entry - 1.5 x ATR(14)`; this says which one
+    produced `stop`: method "structural" (the swing low) or "atr", the ATR multiple, the swing low it was measured
+    against, the ATR, and the stop's actual distance in ATRs. Works on stored rows too (their stop, entry and the
+    features), so a pick written before this field existed is labelled from its own numbers, never assumed."""
+    atr_stop = entry - STOP_ATR_MULTIPLE * atr if atr else None
+    swing_stop = swing_low * STOP_SWING_BUFFER if swing_low is not None and swing_low < entry else None
+    method = "unknown"
+    if swing_stop is not None and abs(stop - _round(swing_stop)) <= 0.011 and (atr_stop is None or swing_stop >= atr_stop - 1e-9):
+        method = "structural"
+    elif atr_stop is not None and abs(stop - _round(atr_stop)) <= 0.011:
+        method = "atr"
+    return {
+        "method": method,
+        "atr_multiple": STOP_ATR_MULTIPLE if method == "atr" else None,
+        "atr": _round(atr) if atr else None,
+        "swing_ref": _round(swing_low) if swing_low is not None else None,
+        "measured_from": entry,
+        "distance_atr": round((entry - stop) / atr, 3) if atr else None,
+        "rule": f"the tighter of the 20-session swing low x {STOP_SWING_BUFFER:g} and entry - {STOP_ATR_MULTIPLE:g} x ATR(14)",
+    }
 
 
 def plan(stage: str,
@@ -68,11 +96,11 @@ def plan(stage: str,
     # ── Stop-loss ────────────────────────────────────────────────────────
     sl_candidates = []
     if swing_low is not None and swing_low < entry:
-        sl_candidates.append(swing_low * 0.995)
-    sl_candidates.append(entry - 1.5 * atr)
+        sl_candidates.append(swing_low * STOP_SWING_BUFFER)
+    sl_candidates.append(entry - STOP_ATR_MULTIPLE * atr)
     sl = max(sl_candidates)   # tightest SL that still gives breathing room
     if sl >= entry:
-        sl = entry - 1.5 * atr
+        sl = entry - STOP_ATR_MULTIPLE * atr
 
     risk = entry - sl
     if risk <= 0:
@@ -118,6 +146,8 @@ def plan(stage: str,
         "risk_reward": _round(rr),
         "timeframe_days_min": tf_min,
         "timeframe_days_max": tf_max,
+        # The stop's method as data (N13), measured on the rounded levels the row stores.
+        "stop_method": stop_meta(_round(entry), _round(sl), atr, swing_low),
     }
 
     # PR-3: attach the macro-aware position-size factor when caller passes

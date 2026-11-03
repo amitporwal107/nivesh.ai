@@ -237,3 +237,41 @@ def test_size_ranked_questions_about_my_own_book_route_to_portfolio(q):
 ])
 def test_similar_phrasings_about_other_things_route_as_before(q, agent):
     assert match_agent(q) == agent
+
+
+# ── copilot_chat_p0 (30 Oct): the ticker token is upper case, or a stock the resolver knows ──
+# _P_STOCK was compiled IGNORECASE, so "What are…", "How much…", "What did…", "What should…" matched as a ticker
+# question and the stock analyst replied "Which stock…?".
+@pytest.mark.parametrize("q", [
+    "What are my open trades doing?",
+    "How much should I risk?",
+    "What did I learn from today's trades?",
+    "What should I avoid today?",
+    "Which F&O setups are attractive?",
+    "What is the entry, target and stop-loss?",
+    "How much capital should I put in one trade?",
+])
+def test_generic_trader_questions_do_not_route_to_the_stock_analyst(q):
+    assert match_agent(q) != STOCK
+
+
+@pytest.mark.parametrize("q", [
+    "What is INFY trading at",
+    "how is tcs doing",
+    "How is TCS doing?",
+    "how is infosys doing",
+    "what is itc trading at",
+    "Tell me about RELIANCE",
+    "infosys stock",
+    "INFY share price",
+    "Is this stock a buy now?",
+])
+def test_real_stock_questions_still_route_to_the_stock_analyst(q):
+    assert match_agent(q) == STOCK
+
+
+def test_a_lower_case_curated_ticker_resolves():
+    from services.copilot_tools.symbol_resolver import resolve_symbol
+    assert resolve_symbol("how is tcs doing").symbol == "TCS"
+    assert resolve_symbol("what is itc trading at").symbol == "ITC"
+    assert resolve_symbol("How much should I risk?").symbol is None

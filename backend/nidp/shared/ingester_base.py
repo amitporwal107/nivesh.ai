@@ -116,6 +116,15 @@ class BaseIngester(abc.ABC):
             target_date=target_date,
         ) as run:
             bind_context(run_id=str(run.run_id))
+            # 0. The market-data switch (backend/config/market_data_source.json): when TrueData serves, the feeds it
+            #    replaces do not run. The run is recorded as SKIPPED with the reason, so feed health shows why.
+            from nidp.shared import market_data_source as _mds
+            if not _mds.feed_is_on(self.SERVICE_NAME):
+                await run.finalize("SKIPPED", error_message=_mds.switched_off_message(self.SERVICE_NAME),
+                                   error_class="SWITCHED_OFF")
+                INGESTER_RUNS.labels(service=self.SERVICE_NAME, status="SKIPPED").inc()
+                logger.info("ingester %s: %s", self.SERVICE_NAME, _mds.switched_off_message(self.SERVICE_NAME))
+                return run
             with time_ingester(self.SERVICE_NAME):
                 try:
                     # 1. Fetch
@@ -225,11 +234,13 @@ class BaseIngester(abc.ABC):
                         from nidp.shared.storage.pg import get_pool as _get_pool
                         _pool = await _get_pool()
                         async with _pool.acquire() as _g1_conn:
+                            # A backfill is a deliberate catch-up (nidp.backfill, or NIDP_BACKFILL=1), never
+                            # inferred from the date's age: that made G1-UNIV-004 skip exactly when it could fail.
+                            from nidp.shared.run_context import is_backfill_run as _is_backfill_run
                             _gate1 = IngestionGate(
                                 feed=self.SERVICE_NAME,
                                 row_count=len(kept),
-                                is_backfill=(target_date is not None
-                                             and (date.today() - target_date).days > 1),
+                                is_backfill=_is_backfill_run(),
                             )
                             _g1_result = await _gate1.run(
                                 _g1_conn, target_date, job_run_id=run.run_id,

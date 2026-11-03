@@ -212,6 +212,31 @@ async def token_status(db, now: Optional[datetime] = None) -> Dict[str, Any]:
     return {"stored": bool(doc), "valid_until": exp.isoformat() if exp else None, "expired": bool(exp and now >= exp)}
 
 
+# ── when to ask an admin for the day's login ─────────────────────────────────
+
+ASK_FROM, SESSION_CLOSE = dtime(6, 0), dtime(15, 30)
+
+
+def login_needed(now: datetime, *, feed_state: Optional[str], feed_reason: Optional[str], token: Dict[str, Any],
+                 close_saved_today: bool) -> Tuple[bool, Optional[str]]:
+    """(needed, why) — whether an admin opening the app should be asked for the day's Kite login.
+
+    Not needed while the token works (stored, unexpired, and the feed not reporting it expired or missing), on weekends
+    and holidays, or before 06:00 IST (the previous token dies then). From 06:00 to the 15:30 close: needed ("session"),
+    so the first admin visit of a trading day gets the link. After the close: needed only until the day's closing quotes
+    are saved ("close_not_saved"): a login then still lets the feed take its one final snapshot, which every screen shows
+    until the bhavcopy end of day lands. Once that close is saved there is nothing more a login would add that day."""
+    working = bool(token.get("stored")) and not token.get("expired") and feed_state not in ("expired", "not_connected")
+    if working:
+        return False, None
+    t = now.astimezone(IST)
+    if t.weekday() >= 5 or feed_reason in ("weekend", "holiday") or t.time() < ASK_FROM:
+        return False, None
+    if t.time() <= SESSION_CLOSE:
+        return True, "session"
+    return (False, None) if close_saved_today else (True, "close_not_saved")
+
+
 # ── callback ─────────────────────────────────────────────────────────────────
 
 def _default_exchange(api_key: str, secret: str, request_token: str) -> Dict[str, Any]:

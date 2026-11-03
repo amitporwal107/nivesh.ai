@@ -26,6 +26,8 @@ more than one expiry it is not computed (None, so the cap blocks as unknown).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import math
 import uuid
@@ -331,14 +333,24 @@ def _open_filter(user_id: str) -> Dict[str, Any]:
     return {"user_id": user_id, "kind": strat.KIND, "status": "open"}
 
 
-async def _open_structures(db, req: RiskRequest, run: _Run) -> None:
-    if req.instrument != "structure" or req.action != "open":
-        return run.skip("open_structures", "only a new structure counts towards the cap")
-    limit = policy.LIMITS.max_open_structures
+def _counts_open(req: RiskRequest) -> bool:
+    return req.instrument == "structure" and req.action == "open"
+
+
+async def _count_open(db, req: RiskRequest) -> Optional[int]:
+    """The user's open desk structures; None when they cannot be counted (the check then blocks)."""
     try:
-        count = await db[desk.TRADES].count_documents(_open_filter(req.user_id))
+        return int(await db[desk.TRADES].count_documents(_open_filter(req.user_id)))
     except Exception as e:  # noqa: BLE001 — fail closed
         logger.error("risk_gate: open structures unreadable for %s (%s)", req.user_id, type(e).__name__)
+        return None
+
+
+def _open_structures(req: RiskRequest, count: Optional[int], run: _Run) -> None:
+    if not _counts_open(req):
+        return run.skip("open_structures", "only a new structure counts towards the cap")
+    limit = policy.LIMITS.max_open_structures
+    if count is None:
         return run.record("open_structures", [("open_structures_unverified",
                                                "The open structures could not be counted.")])
     failures = []
@@ -348,10 +360,9 @@ async def _open_structures(db, req: RiskRequest, run: _Run) -> None:
     run.record("open_structures", failures, f"{count} open")
 
 
-async def _controls(db, req: RiskRequest, run: _Run) -> None:
-    try:
-        state = await rc.read(db, req.user_id)
-    except Exception:  # noqa: BLE001 — rc.read logs it; an unreadable kill switch must never read as off
+def _controls(state: Optional[Dict[str, Any]], run: _Run) -> None:
+    """`state` is the snapshot's controls: None when they could not be read (an unreadable kill switch never reads as off)."""
+    if state is None:
         return run.record("controls", [("controls_unreadable", "The kill switch and halt could not be read, so new "
                                                                "risk is refused.")])
     failures = []
@@ -362,10 +373,11 @@ async def _controls(db, req: RiskRequest, run: _Run) -> None:
     run.record("controls", failures)
 
 
-async def _mode(db, req: RiskRequest, run: _Run) -> None:
+def _mode(req: RiskRequest, live_allowed: Optional[bool], run: _Run) -> None:
+    """`live_allowed` is the snapshot's answer to modes.is_live_allowed, read only for a live request."""
     if req.mode not in modes.MODES:
         return run.record("mode", [("mode_unknown", f"Unknown mode {req.mode!r}.")])
-    if req.mode == "live" and not await modes.is_live_allowed(db, req.user_id):
+    if req.mode == "live" and not live_allowed:
         if not modes.LIVE_EXECUTION_AVAILABLE:
             return run.record("mode", [("live_execution_unavailable", "Live execution does not exist in this "
                                                                       "release.")])
@@ -377,31 +389,75 @@ async def _mode(db, req: RiskRequest, run: _Run) -> None:
 
 
 # ── the decision ─────────────────────────────────────────────────────────────
+# A decision is made in two steps. gather() reads everything outside the request that the checks depend on (the
+# controls, the live grant, the exchange reference, the open-structure count) into one snapshot; decide() is a pure
+# function of the request and that snapshot. The snapshot is stored with the decision, so replay.py can run decide()
+# again on exactly what the gate saw and show whether the same code and policy reach the same outcome.
+SNAPSHOT_VERSION = "decision-snapshot-v1"
+
+
+def bson_safe(value: Any) -> Any:
+    """A JSON round trip: dates and other non-JSON values become strings, so the snapshot stores and hashes the same."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def snapshot_hash(snapshot: Dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+async def gather(db, req: RiskRequest, today: date) -> Dict[str, Any]:
+    """Every outside read a decision depends on. Each read fails closed: an unreadable value is stored as None and the
+    check that uses it blocks."""
+    try:
+        state = await rc.read(db, req.user_id)
+        controls: Optional[Dict[str, Any]] = {"kill_switch": bool(state.get("kill_switch")),
+                                              "halted": bool(state.get("halted")), "reason": state.get("reason")}
+    except Exception:  # noqa: BLE001 — rc.read logs it; an unreadable kill switch must never read as off
+        controls = None
+    live_allowed = await modes.is_live_allowed(db, req.user_id) if req.mode == "live" else None
+    legs = _structure(req, _Run())
+    refs = await _references(req, legs, today)
+    open_count: Any = (await _count_open(db, req)) if _counts_open(req) else "n/a"
+    return bson_safe({"request": req.model_dump(), "today": today.isoformat(), "controls": controls,
+                      "live_allowed": live_allowed, "references": refs, "open_structures": open_count})
+
+
+def decide(req: RiskRequest, snapshot: Dict[str, Any]) -> Tuple[_Run, Optional[float]]:
+    """The checks, in CHECK_ORDER, on the request and a gathered snapshot. No I/O."""
+    run = _Run()
+    today = date.fromisoformat(snapshot["today"])
+    refs = snapshot.get("references") or {}
+    _controls(snapshot.get("controls"), run)
+    _mode(req, snapshot.get("live_allowed"), run)
+    legs = _structure(req, run)
+    _defined_risk(req, legs, run)
+    _lot_size(req, legs, refs, run)
+    _expiry(req, legs, refs, today, run)
+    capital = _caps(req, legs, run)
+    count = snapshot.get("open_structures")
+    _open_structures(req, count if isinstance(count, int) else None, run)
+    return run, capital
+
+
 async def check(db, req: RiskRequest, *, now: Optional[datetime] = None) -> RiskDecision:
     moment = now or rc.utcnow()
     today = moment.astimezone(desk.IST).date()
     await rc.ensure_indexes(db)
-    run = _Run()
-    await _controls(db, req, run)
-    await _mode(db, req, run)
-    legs = _structure(req, run)
-    _defined_risk(req, legs, run)
-    refs = await _references(req, legs, today)
-    _lot_size(req, legs, refs, run)
-    _expiry(req, legs, refs, today, run)
-    capital = _caps(req, legs, run)
-    await _open_structures(db, req, run)
+    snapshot = await gather(db, req, today)
+    run, capital = decide(req, snapshot)
     decision = RiskDecision(
         decision_id=str(uuid.uuid4()), outcome="block" if run.reasons else "allow", reasons=run.reasons,
         checks=run.checks, policy_version=policy.POLICY_VERSION, inputs_hash=inputs_hash(req),
         at=moment.astimezone(timezone.utc).isoformat(), correlation_id=req.correlation_id)
-    await _persist(db, req, decision, capital)
+    await _persist(db, req, decision, capital, snapshot)
     return decision
 
 
-async def _persist(db, req: RiskRequest, decision: RiskDecision, capital: Optional[float]) -> None:
+async def _persist(db, req: RiskRequest, decision: RiskDecision, capital: Optional[float],
+                   snapshot: Optional[Dict[str, Any]] = None) -> None:
     """The risk_decisions row: the fields rc.record_decision writes (so the stream reads the same), plus path, mode,
-    inputs_hash, the checks and the actor. `outcome` uses that stream's words, allowed / blocked."""
+    inputs_hash, the checks, the actor and the snapshot the decision was made on. `outcome` uses that stream's words,
+    allowed / blocked."""
     quantity = _whole(req.quantity) if req.instrument == "cash" else None
     row = {
         "_id": decision.decision_id,
@@ -425,6 +481,8 @@ async def _persist(db, req: RiskRequest, decision: RiskDecision, capital: Option
         "actor_id": req.actor_id,
         "source": "risk_gate",
     }
+    if snapshot is not None:
+        row.update({"snapshot": snapshot, "snapshot_version": SNAPSHOT_VERSION, "snapshot_hash": snapshot_hash(snapshot)})
     try:
         await db[rc.DECISIONS].insert_one(row)
     except Exception as e:  # noqa: BLE001 — re-raised: nothing may be written on an unrecorded decision

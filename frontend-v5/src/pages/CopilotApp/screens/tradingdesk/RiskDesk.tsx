@@ -12,7 +12,8 @@
  *   trade scenario          GET /api/positional/scenario (useScenario): the one sizing rule, on the server
  *                           (PRD §8.5): per-share downside and upside, reward : risk, quantity under the risk
  *                           budget, the allocation cap, a maximum quantity and the lot size, gross exposure,
- *                           costs (strategy_engine model: 0.05% slippage + ₹20 brokerage per side, editable),
+ *                           costs (the desk cost card desk-cost-v2: 0.05% slippage + ₹20 brokerage per side, editable,
+ *                           plus STT, exchange, SEBI, stamp duty and GST),
  *                           loss at the stop and profit at the target before and after costs. A read: it stores
  *                           nothing and sends nothing to a broker.
  *   your portfolio (§8.6)   GET /api/portfolio/holdings-enriched (useHoldingsEnriched): the stock and its sector
@@ -41,8 +42,9 @@ import { fmtDay, fmtPrice } from "../trading/parts";
 import { setupLabel, useDeskLevels, useScenario, useStockOdds, type DeskLevels, type Scenario, type ScenarioInputs } from "./chart-data";
 import { useDesk } from "./context";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
-import { useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
+import { costsBreakdownText, maxHoldFor, maxHoldNote, readCostsBreakdown, useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 import { largestGap, type DailyBar } from "./indicators";
+import { RiskReduceOffer } from "./RiskReduce";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
 
@@ -503,7 +505,9 @@ function ScenarioOutputs({ st }: { st: ScenarioState }) {
       <OutRow testId="desk-scn-out-qty" k="Illustrative quantity" v={z ? `${fmtNum(z.quantity)} shares` : "—"} sub={z ? `Limited by ${BINDING[z.binding] ?? z.binding}: risk budget ${fmtINR(z.risk_budget)} → ${fmtNum(z.qty_by_risk)} shares${z.qty_by_allocation != null ? `; ${fmtNum(z.max_alloc_pct)}% cap → ${fmtNum(z.qty_by_allocation)}` : ""}${z.qty_by_max != null ? `; max ${fmtNum(z.qty_by_max)}` : ""}${z.lot_size > 1 ? `; lots of ${fmtNum(z.lot_size)}` : ""}.` : undefined} />
       <OutRow testId="desk-scn-out-gross" k="Gross exposure" v={z ? fmtINR(z.gross_exposure) : "—"} sub={z?.allocation_pct != null ? `${fmtPct(z.allocation_pct, { digits: 1 })} of capital` : undefined} />
       <OutRow testId="desk-scn-out-costs" k="Estimated costs · round trip" v={c ? `${fmtINR(c.round_trip_at_stop)} at the stop · ${c.round_trip_at_target != null ? `${fmtINR(c.round_trip_at_target)} at the target` : "no target"}` : "—"}
-        sub={`${plainNum(s.cost_model.slippage_pct_per_side)}% slippage + ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side (strategy_engine cost model); taxes not included.`} />
+        sub={c?.breakdown_at_stop
+          ? `At the stop: ${costsBreakdownText(readCostsBreakdown(c.breakdown_at_stop), (n) => fmtPrice(n))}. ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side is a desk assumption, not a broker's tariff; ${plainNum(s.cost_model.slippage_pct_per_side)}% slippage a side also covers the spread; DP charges and income tax are not included (${s.cost_model.version ?? "desk cost card"}).`
+          : `${plainNum(s.cost_model.slippage_pct_per_side)}% slippage + ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side; taxes not included.`} />
       <OutRow testId="desk-scn-out-loss" k="Loss at the stop" v={o ? `−${fmtINR(o.loss_at_stop_net)} after costs` : "—"} sub={o ? `−${fmtINR(o.loss_at_stop)} before costs` : undefined} />
       <OutRow testId="desk-scn-out-profit" k="Profit at the target" v={o?.profit_at_target_net != null ? `${fmtINR(o.profit_at_target_net, { signed: true })} after costs` : "—"} sub={o?.profit_at_target != null ? `${fmtINR(o.profit_at_target, { signed: true })} before costs` : "No target entered."} />
       {s.warnings.map((w) => <li key={w.code} data-testid={`desk-scn-warn-${w.code}`} style={{ fontSize: 12, color: "var(--amber)", paddingTop: 4 }}>{w.message}</li>)}
@@ -870,7 +874,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           </span>
         )}
         {setup && target == null && entry != null && (
-          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s picks carry one.</span>
+          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s ideas with a target carry one.</span>
         )}
 
         <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
@@ -923,7 +927,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           mode="eod"
           asOf={scan.data?.signalDate ? fmtDay(scan.data.signalDate) : scan.data?.watchAsOf ? fmtDay(scan.data.watchAsOf) : null}
           maker="rules"
-          method={st.q.data ? `PRD §8.5 sizing · costs ${plainNum(st.q.data.cost_model.slippage_pct_per_side)}% + ₹${fmtNum(st.q.data.cost_model.brokerage_inr_per_side)} a side (strategy_engine)` : "PRD §8.5 sizing on the server"}
+          method={st.q.data ? `PRD §8.5 sizing after costs · ${plainNum(st.q.data.cost_model.slippage_pct_per_side)}% + ₹${fmtNum(st.q.data.cost_model.brokerage_inr_per_side)} a side + STT, exchange, SEBI, stamp duty and GST (${st.q.data.cost_model.version ?? "desk cost card"})` : "PRD §8.5 sizing on the server"}
           status={st.q.isError ? "failed" : null}
         />
       </div>
@@ -1028,6 +1032,8 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
   else if (!s || !sent) paperWhy = st.read.problems.length || (st.current && st.q.data?.valid === false) ? "Fix the scenario’s inputs first." : "Working out the quantity…";
   else if (qty == null || qty < 1) paperWhy = "The risk budget fits no whole share; pick more capital or a larger risk.";
   else {
+    // The setup's holding window (the scanner's timeframe_days_max) is the time exit: closed at that session's close.
+    const maxHold = maxHoldFor(setup.daysMax);
     paperBody = {
       symbol,
       quantity: qty,
@@ -1035,8 +1041,9 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
       stop_price: sent.stop,
       target_price: sendTarget,
       source: { kind: "scanner", ...(setup.bucket ? { bucket: setup.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
+      ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
     };
-    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
+    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${maxHoldNote(maxHold)}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
   }
 
   const level = setup?.trigger ?? setup?.entry ?? null;
@@ -1083,6 +1090,10 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
         </Outcome>
       )}
       {paperDone?.isError && <Outcome ok={false} testId="desk-risk-paper-error">Not added — {writeProblem(paperDone.error)}</Outcome>}
+      {paperDone?.isError && (
+        <RiskReduceOffer error={paperDone.error} testId="desk-risk-paper-reduce"
+          onAccept={(n) => { const last = paperDone.variables; if (last) paper.mutate({ ...last, quantity: n }); }} />
+      )}
       {alertDone?.isSuccess && (
         <Outcome ok testId="desk-risk-alert-done" onOpen={() => openTab("portfolio")} openLabel="See your alerts ›">
           Alert set: {symbol} above {fmtPrice(alertDone.variables?.level ?? null)}, checked against end-of-day highs.

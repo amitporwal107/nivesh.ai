@@ -35,6 +35,7 @@ import { BrokerHub } from "./account/brokers";
 import { ChoiceCard, GmailSource, HoldingsFileUpload, InlineError, LinkButton, StatementUpload, ToggleChip, errorText, goalHorizonYears, riskAssessed, useProfileWizard } from "./account/parts";
 import { useCompleteOnboarding, useOnboardingState } from "./account/queries";
 
+import { NiftyFallCard } from "../components/NiftyFallCard";
 type StepKey = "you" | "goals" | "portfolio" | "done";
 const FLOW: StepKey[] = ["you", "goals", "portfolio", "done"];
 const PROGRESS: Array<{ key: StepKey; label: string }> = [
@@ -311,6 +312,7 @@ function StepDone({ importedHoldings }: { importedHoldings: number | null }) {
           body="Nivesh works for research without one. Connect a broker or add a file any time from Settings."
         />
       )}
+      {((importedHoldings ?? 0) > 0 || (s?.holdings_count ?? 0) > 0) && <NiftyFallCard />}
     </section>
   );
 }

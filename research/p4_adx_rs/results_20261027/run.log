@@ -1,0 +1,50 @@
+{
+ "signal_dates": 385,
+ "bounds": {
+  "discovery": [
+   "2025-02-17",
+   "2026-02-11"
+  ],
+  "validation": [
+   "2026-02-12",
+   "2026-06-15"
+  ],
+  "test": [
+   "2026-06-16",
+   "2026-10-09"
+  ]
+ },
+ "decision": {
+  "per_arm": {
+   "A1": {
+    "checks": {
+     "a_validation": false,
+     "b_test": false,
+     "c_test_net_spread_not_below_B0": true,
+     "d_test_same_sign_both_regimes": false
+    },
+    "adopt": false
+   },
+   "A2": {
+    "checks": {
+     "a_validation": true,
+     "b_test": true,
+     "c_test_net_spread_not_below_B0": true,
+     "d_test_same_sign_both_regimes": false
+    },
+    "adopt": false
+   },
+   "A3": {
+    "checks": {
+     "a_validation": false,
+     "b_test": true,
+     "c_test_net_spread_not_below_B0": true,
+     "d_test_same_sign_both_regimes": false
+    },
+    "adopt": false
+   }
+  },
+  "adopted": null,
+  "verdict": "keep B0 (no arm met every pre-registered condition)"
+ }
+}

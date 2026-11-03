@@ -101,7 +101,7 @@ export function SetupsToWatch() {
           {rows.length > PREVIEW && (
             <Btn variant="ghost" data-testid="watchlist-levels-toggle" onClick={() => setAll((v) => !v)}>{all ? "Show fewer" : `Show all ${rows.length}`}</Btn>
           )}
-          <Btn variant="ghost" onClick={() => go("trader")}>Open the Trader desk ›</Btn>
+          <Btn variant="ghost" onClick={() => go("trader/desk")}>Open the trading desk ›</Btn>
         </span>
       </div>
     </Section>

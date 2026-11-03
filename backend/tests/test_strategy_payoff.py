@@ -4,7 +4,11 @@ All fixtures are labelled MOCK — not real data: they are round numbers chosen 
 Expected values are worked in the comments, and Black-76 is checked against an independent closed form written in
 this file (math.erf), not against the module under test.
 
-Cost model (services/strategy_engine/backtest.py defaults): slippage 0.05% of traded value + ₹20 flat, each side, each leg.
+Cost model (payoff-v2, 2026-10-27): the desk cost card desk-cost-v2 (services/desk_cost_card.py), each leg, each order side,
+by segment: ₹20 brokerage + STT + exchange charge + SEBI fee + stamp duty (buy side) + 18% GST on brokerage+exchange+SEBI
++ 0.05% slippage, every component rounded to the paisa. Rates: equity delivery STT 0.1% both sides, exchange 0.00307%, stamp
+0.015%; futures STT 0.05% sell, exchange 0.00183%, stamp 0.002%; options (premium) STT 0.15% sell, exchange 0.03553%, stamp
+0.003%; SEBI ₹10 per crore. Every payoff-v1 figure (slippage + ₹20 only) that changed is re-derived below with both values.
 """
 from __future__ import annotations
 
@@ -17,7 +21,6 @@ from fastapi.testclient import TestClient
 
 import routes.strategy_plan as route
 from services.option_pricing import RISK_FREE_RATE
-from services.strategy_engine.backtest import DEFAULT_BROKERAGE_INR, DEFAULT_SLIPPAGE_PCT
 from services.strategy_plan import compute_payoff
 from services.strategy_plan import payoff as po
 from services.strategy_plan import templates as tp
@@ -69,27 +72,34 @@ def test_cash_long_and_short():
 
 
 def test_cash_cost_arithmetic():
-    # entry 1215 × 100 = 121,500 × 0.0005 = 60.75 + 20 = 80.75 ; exit at 1300: 130,000 × 0.0005 = 65 + 20 = 85
-    # round trip 165.75 ; net at 1300 = 8,500 − 165.75 = 8,334.25
+    # payoff-v1: entry 80.75 (slippage 60.75 + 20), net at 1300 8,334.25. payoff-v2 adds the statutory charges of equity delivery:
+    # entry BUY 1215 × 100 = 1,21,500: 20 + STT 121.50 + exchange 3.73 + SEBI 0.12 + stamp 18.23 + GST 18% × 23.85 = 4.29
+    #   + slippage 60.75 = 228.62
+    # exit SELL at 1300: 1,30,000: 20 + STT 130.00 + exchange 3.99 + SEBI 0.13 + GST 18% × 24.12 = 4.34 + slippage 65.00 = 223.46
+    # round trip 452.08 ; net at 1300 = 8,500 − 452.08 = 8,047.92
     r = run([leg("cash", qty=100, entry=1215.0)])
     c = r["costs"]
-    assert (DEFAULT_SLIPPAGE_PCT, DEFAULT_BROKERAGE_INR) == (0.0005, 20.0)
-    assert c["entry"] == 80.75 and c["excluded"] and "STT" in c["excluded"]
-    assert at(r, 1300.0, "net") == 8334.25
+    assert c["version"] == "desk-cost-v2" and c["slippage_pct"] == 0.05 and c["brokerage_per_side"] == 20.0
+    assert c["entry"] == 228.62 and c["excluded"] and "STT" not in c["excluded"] and "DP charges" in c["excluded"]
+    assert c["components"]["entry"] == {"brokerage": 20.0, "stt": 121.5, "exchange": 3.73, "sebi": 0.12, "stamp": 18.23,
+                                        "gst": 4.29, "slippage": 60.75, "total": 228.62}
+    assert at(r, 1300.0, "net") == 8047.92
 
 
 def test_long_future_with_lot_size_and_costs():
     # 2 lots × 250 = 500 units at 1215. At 1250: 35 × 500 = 17,500.
-    # entry 1215 × 500 = 607,500 × .0005 = 303.75 + 20 = 323.75 ; exit 1250 × 500 = 625,000 × .0005 = 312.5 + 20 = 332.5
-    # net = 17,500 − 656.25 = 16,843.75
+    # payoff-v1: entry 323.75, exit 332.5, net 16,843.75. payoff-v2, futures segment:
+    # entry BUY 6,07,500: 20 + exchange 11.12 + SEBI 0.61 + stamp 12.15 + GST 18% × 31.73 = 5.71 + slippage 303.75 = 353.34 (no buy STT)
+    # exit SELL 6,25,000: 20 + STT 312.50 + exchange 11.44 + SEBI 0.63 + GST 18% × 32.07 = 5.77 + slippage 312.50 = 662.84
+    # net = 17,500 − 353.34 − 662.84 = 16,483.82
     r = run([leg("future", qty=2, lot=250, entry=1215.0)])
-    assert at(r, 1250.0) == 17500.0 and at(r, 1250.0, "net") == 16843.75
+    assert at(r, 1250.0) == 17500.0 and at(r, 1250.0, "net") == 16483.82
     e = r["expiry"]
     assert e["profit_unbounded"] and not e["loss_unbounded"]
     assert e["max_loss"] == -607500.0                   # bounded only by the price reaching 0
     assert r["loss_can_exceed_margin"] is True and r["margin"] is None and r["margin_reason"]
     assert any("exceed the initial margin" in c for c in r["caveats"]) and any("Margin is not the maximum loss" in c for c in r["caveats"])
-    assert r["costs"]["entry"] == 323.75 and r["sent_to_broker"] is False
+    assert r["costs"]["entry"] == 353.34 and r["sent_to_broker"] is False
 
 
 def test_margin_reason_points_to_the_margin_calculator_and_its_kite_login():
@@ -122,10 +132,12 @@ def test_long_call_below_at_above():
     e = r["expiry"]
     assert e["max_loss"] == -10000.0 and e["max_profit"] is None and e["profit_unbounded"] and not e["loss_unbounded"]
     assert e["breakevens"] == [1340.0] and e["net_premium"] == -10000.0
-    # worthless at 1200: only the entry cost (40 × 250 = 10,000 × .0005 = 5 + 20 = 25), no exit cost
-    assert at(r, 1200.0, "net") == -10025.0
-    # capital at risk: 10,000 + entry 25 + conservative exit brokerage 20 at S where the exit value is 0 = 10,045
-    assert r["capital_at_risk"] == 10045.0
+    # worthless at 1200: only the entry side, no exit order. payoff-v1: 25 (5 + 20). payoff-v2, options BUY on 10,000 premium:
+    # 20 + exchange 3.55 + SEBI 0.01 + stamp 0.30 + GST 18% × 23.56 = 4.24 + slippage 5.00 = 33.10
+    assert at(r, 1200.0, "net") == -10033.1
+    # capital at risk: 10,000 + entry 33.10 + the conservative exit at S where the exit value is 0, a SELL of nothing:
+    # brokerage 20 + GST 3.60 = 23.60 (payoff-v1: 20) -> 10,056.70 (payoff-v1: 10,045)
+    assert r["capital_at_risk"] == 10056.7
 
 
 def test_long_put():
@@ -139,17 +151,22 @@ def test_long_put():
 
 def test_bull_call_spread_worked():
     # Buy 1300C at 40, sell 1350C at 18. Net debit 22 × 250 = 5,500. Width 50: max profit (50 − 22) × 250 = 7,000.
-    # Breakeven 1322. Entry costs: 40×250×.0005 + 20 = 25 ; 18×250×.0005 + 20 = 22.25 ; total 47.25
-    # At 1400: exits 100×250×.0005+20 = 32.5 and 50×250×.0005+20 = 26.25 → 58.75 ; net = 7,000 − 47.25 − 58.75 = 6,894.00
+    # Breakeven 1322. payoff-v1 costs: entry 25 + 22.25 = 47.25, exits at 1400 32.5 + 26.25 = 58.75, net 6,894.00, at 1200 -5,547.25.
+    # payoff-v2 (options segment, on the premium):
+    #   entry BUY 1300C 10,000: 20 + exch 3.55 + SEBI 0.01 + stamp 0.30 + GST 4.24 + slip 5.00 = 33.10
+    #   entry SELL 1350C 4,500: 20 + STT 6.75 + exch 1.60 + SEBI 0.00 + GST 18% × 21.60 = 3.89 + slip 2.25 = 34.49 ; entry 67.59
+    #   at 1400, exit SELL 1300C at intrinsic 100 × 250 = 25,000: 20 + STT 37.50 + exch 8.88 + SEBI 0.03 + GST 5.20 + slip 12.50 = 84.11
+    #            exit BUY back 1350C at 50 × 250 = 12,500: 20 + exch 4.44 + SEBI 0.01 + stamp 0.38 + GST 4.40 + slip 6.25 = 35.48
+    #   net at 1400 = 7,000 − 67.59 − 84.11 − 35.48 = 6,812.82 ; at 1200 both expire worthless: −5,500 − 67.59 = −5,567.59
     r = run([leg(side="buy", strike=1300.0, ot="call", entry=40.0), leg(side="sell", strike=1350.0, ot="call", entry=18.0)])
     e = r["expiry"]
     assert (e["max_loss"], e["max_profit"]) == (-5500.0, 7000.0)
     assert e["breakevens"] == [1322.0] and e["net_premium"] == -5500.0
     assert not e["profit_unbounded"] and not e["loss_unbounded"]
     assert at(r, 1000.0) == -5500.0 and at(r, 1300.0) == -5500.0 and at(r, 1350.0) == 7000.0 and at(r, 1500.0) == 7000.0
-    assert at(r, 1400.0, "net") == 6894.0
-    assert at(r, 1200.0, "net") == -5547.25
-    assert r["costs"]["entry"] == 47.25
+    assert at(r, 1400.0, "net") == 6812.82
+    assert at(r, 1200.0, "net") == -5567.59
+    assert r["costs"]["entry"] == 67.59
     assert [p["label"] for p in e["per_leg"]] == ["Buy 1 lot call 1300", "Sell 1 lot call 1350"]
     assert at(r, 1400.0) == sum(p["gross"][e["grid"].index(1400.0)] for p in e["per_leg"])
 
@@ -214,15 +231,20 @@ def test_scenarios():
     r = run([leg(strike=1300.0, ot="call", entry=40.0), leg(side="sell", strike=1350.0, ot="call", entry=18.0)],
             scenarios=[{"name": "conservative", "underlying_price": 1400}, {"name": "worthless", "underlying_price": 1200}])
     s = r["expiry"]["scenarios"]
-    assert s[0] == {"name": "conservative", "underlying_price": 1400.0, "gross": 7000.0, "net": 6894.0}
-    assert s[1]["gross"] == -5500.0 and s[1]["net"] == -5547.25
+    # the bull call spread's figures re-derived above (payoff-v1: 6,894.00 and -5,547.25)
+    assert s[0] == {"name": "conservative", "underlying_price": 1400.0, "gross": 7000.0, "net": 6812.82}
+    assert s[1]["gross"] == -5500.0 and s[1]["net"] == -5567.59
 
 
 def test_costs_from_request_and_reproducible():
     legs = [leg("future", entry=1215.0)]
     a = run(legs, costs={"slippage_pct": 0.1, "brokerage_per_side": 0})
-    # entry 1215 × 250 = 303,750 × .001 = 303.75 ; exit at 1250: 312,500 × .001 = 312.5 ; net = 8,750 − 616.25
-    assert at(a, 1250.0, "net") == 8133.75
+    # The request replaces the card's slippage (0.1%) and brokerage (0); the statutory charges still apply (payoff-v1: 8,133.75).
+    # entry BUY 3,03,750: exch 5.56 + SEBI 0.30 + stamp 6.08 + GST 18% × 5.86 = 1.05 + slippage 303.75 = 316.74
+    # exit SELL 3,12,500: STT 156.25 + exch 5.72 + SEBI 0.31 + GST 18% × 6.03 = 1.09 + slippage 312.50 = 475.87
+    # net = 8,750 − 316.74 − 475.87 = 7,957.39
+    assert at(a, 1250.0, "net") == 7957.39
+    assert a["costs"]["slippage_pct"] == 0.1 and a["costs"]["brokerage_per_side"] == 0.0 and "from the request" in a["costs"]["source"]
     assert run(legs, costs={"slippage_pct": 0.1, "brokerage_per_side": 0}) == a
 
 
@@ -344,11 +366,16 @@ def test_pre_expiry_matches_independent_black76():
         assert p["gross"][i] == pytest.approx(want, abs=0.01), s
     # not the expiry payoff
     assert p["gross"] != r["expiry"]["gross"]
-    # net subtracts entry (30 × 250 = 7,500 × .0005 = 3.75 + 20) and the exit at the modelled value, never less than gross − costs
+    # net subtracts the entry side and the exit side at the modelled value (payoff-v2, options on the premium; payoff-v1 was
+    # slippage + ₹20 only). Entry BUY 7,500: 20 + exch 2.66 + SEBI 0.01 + stamp 0.23 + GST 18% × 22.67 = 4.08 + slip 3.75 = 30.73.
+    # Exit SELL v = px × 250: 20 + STT 0.15% v + exch 0.03553% v + SEBI v/1e7×10 + GST 18% × (20 + exch + SEBI) + slip 0.05% v,
+    # unrounded here: each card component is rounded to the paisa, hence the tolerance (at most ±0.005 on each of 6 parts).
     s = p["grid"][2]
     px = b76("call", s, 1300.0, 31, 0.25)
-    cost = (3.75 + 20) + (px * 250 * 0.0005 + 20)
-    assert p["net"][2] == pytest.approx(p["gross"][2] - cost, abs=0.02)
+    v = px * 250
+    exch, sebi = v * 0.0003553, v * 1e-6
+    cost = 30.73 + (20 + v * 0.0015 + exch + sebi + 0.18 * (20 + exch + sebi) + v * 0.0005)
+    assert p["net"][2] == pytest.approx(p["gross"][2] - cost, abs=0.04)
 
 
 def test_pre_expiry_greeks_against_finite_differences():
@@ -510,7 +537,7 @@ def test_route_valid(monkeypatch):
     res = _client(monkeypatch).post(URL, json=req(legs))
     assert res.status_code == 200
     b = res.json()
-    assert b["valid"] is True and b["calculation_version"] == "payoff-v1" and b["sent_to_broker"] is False
+    assert b["valid"] is True and b["calculation_version"] == "payoff-v2" and b["sent_to_broker"] is False
     assert b["expiry"]["profit_unbounded"] is True and b["margin"] is None
 
 

@@ -14,8 +14,8 @@ export const SCREENS: Record<string, Screen> = {
   "tool/markets": lazy(() => import("./Markets")),
   // Not a rail item: opened from the Screener, the desk's sector card, or by URL (see SECTOR_HEATMAP_VIEW).
   "tool/sector-heatmap": lazy(() => import("./SectorHeatmap")),
-  "tool/optlab": lazy(() => import("./OptionsLab")),
-  trader: lazy(() => import("./Trader")),
+  // The old Trader landing ("trader"), the Options lab and the F&O lab were removed in the desk redesign's step 6;
+  // their URLs redirect into the desk (lib/retired-views.ts).
   "trader/desk": lazy(() => import("./TradingDesk")),
   "trader/strategy": lazy(() => import("./desk/StrategyBuilder")),
   "page/watchlist": lazy(() => import("./Watchlist")),
@@ -23,6 +23,7 @@ export const SCREENS: Record<string, Screen> = {
   "page/saved": lazy(() => import("./Saved")),
   "page/plan": lazy(() => import("./Plan")),
   "page/ledger": lazy(() => import("./Ledger")),
+  "page/positions": lazy(() => import("./positions/OpenPositions")),
   "page/paper": lazy(() => import("./Paper")),
   "page/brokers": lazy(() => import("./Brokers")),
   "page/settings": lazy(() => import("./Settings")),

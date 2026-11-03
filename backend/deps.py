@@ -1,7 +1,10 @@
 """Shared dependencies: DB, repos, config, auth helpers."""
+from contextlib import contextmanager
+from contextvars import ContextVar
 from motor.motor_asyncio import AsyncIOMotorClient
 from fastapi import HTTPException, Request
 from datetime import datetime, timezone
+from typing import Iterator, Optional
 import os
 from helpers.openai_key import get_openai_api_key
 import logging
@@ -46,7 +49,29 @@ holding_repo = HoldingRepository(db)
 ai_engine = AIEngine(OPENAI_API_KEY)
 
 
+# ── System caller (in-process jobs only) ─────────────────────────────────────
+# A nightly job (e.g. scripts/build_ai_watchlist.py) reuses route functions that check the signed-in user. Inside
+# `with system_caller(user):` get_current_user returns that user instead of reading a session. It is a ContextVar, so it
+# is per asyncio task: tasks the job starts inherit it, a request handled by the server never does, and nothing an HTTP
+# request carries (cookie, header, body) can set it. The user is never an admin (require_admin refuses it).
+_SYSTEM_CALLER: ContextVar[Optional[dict]] = ContextVar("system_caller", default=None)
+
+
+@contextmanager
+def system_caller(user: dict) -> Iterator[None]:
+    if not user.get("user_id") or _is_role(user, "admin"):
+        raise ValueError("a system caller needs a user_id and must not be an admin")
+    token = _SYSTEM_CALLER.set({**user, "_session_user_id": user["user_id"], "_active_profile_id": None, "_system": True})
+    try:
+        yield
+    finally:
+        _SYSTEM_CALLER.reset(token)
+
+
 async def get_current_user(request: Request) -> dict:
+    system_user = _SYSTEM_CALLER.get()
+    if system_user is not None:
+        return dict(system_user)
     session_token = request.cookies.get("session_token")
     if not session_token:
         auth_header = request.headers.get("Authorization")

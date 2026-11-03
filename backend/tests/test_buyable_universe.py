@@ -14,7 +14,9 @@ from services import buyable_universe as bu
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # asyncio.run, not get_event_loop(): a test that ran earlier with asyncio.run leaves no current loop, and
+    # get_event_loop() then raises (Python 3.11), which made this file fail only when run after such a test.
+    return asyncio.run(coro)
 
 
 # ── is_direct_growth() truth table ────────────────────────────────────────────────

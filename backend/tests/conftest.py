@@ -56,3 +56,62 @@ def admin_email() -> str:
 @pytest.fixture(scope="session")
 def user_email() -> str:
     return os.environ["NIVESH_TEST_USER_EMAIL"]
+
+
+# ── the universal risk service's server-resolved inputs (services/risk_gate/inputs.py) ──────────────────────────
+# MOCK — not real data. Every desk / journal / AI-trader route now asks the risk service, which reads the sector
+# (index_constituents) and the market state (the desk regime) on the server and BLOCKS when either is unknown. Unit
+# tests have no data platform, so by default they get a known sector and a fresh, calm market state, dated at the
+# reference session of whatever clock the test fixed (services/desk_trading.utcnow). The instrument's bars are NOT
+# faked here: they come from each harness's own fake data platform, and fail closed without one.
+# Tests of the fail-closed paths override `risk_mock_inputs` (tests/test_risk_service.py).
+RISK_MOCK_SECTOR = "MOCK Sector"
+
+
+@pytest.fixture(autouse=True)
+def risk_mock_inputs(monkeypatch):
+    try:
+        from services import data_freshness as fresh
+        from services import desk_trading as desk
+        from services.risk_gate import inputs
+    except Exception:  # noqa: BLE001 — a suite that cannot import the backend has nothing to patch
+        yield None
+        return
+    state = {"sector": RISK_MOCK_SECTOR, "sectors": {}, "vix": 14.0, "regime": "BULL", "market_error": None,
+             "market_as_of": None}
+
+    async def sector_of(symbol):
+        sector = state["sectors"].get(str(symbol).upper(), state["sector"])
+        return {"sector": sector, "as_of": None, "source": "MOCK sector (tests/conftest.py)",
+                "error": None if sector else f"{symbol} is on none of the MOCK lists"}
+
+    async def market_state():
+        if state["market_error"]:
+            return {"vix": None, "regime": None, "as_of": None, "key": None, "source": "MOCK", "error": state["market_error"]}
+        as_of = state["market_as_of"] or fresh.reference_session(desk.utcnow()).isoformat()
+        return {"vix": state["vix"], "regime": state["regime"], "as_of": as_of, "key": "mock", "source": "MOCK regime",
+                "error": None}
+
+    # F&O index underlyings read their close from the NSE index (inputs._index_bars), which most harnesses' fake data
+    # platforms do not serve. When none can be read, a MOCK close at the suites' own reference prices is used (dated at
+    # the reference session); set state["index_closes"] = {} to exercise the fail-closed path instead.
+    state["index_closes"] = {"NIFTY": 22500.0, "BANKNIFTY": 54976.9, "FINNIFTY": 24454.35}
+    real_index_bars = inputs._index_bars
+
+    async def index_bars(symbol, today):
+        try:
+            out = await real_index_bars(symbol, today)
+        except Exception:  # noqa: BLE001
+            out = {"bars": [], "error": "unreadable"}
+        if out.get("bars") or symbol not in state["index_closes"]:
+            return out
+        close = state["index_closes"][symbol]
+        day = fresh.reference_session(desk.utcnow())
+        bar = {"date": day, "open": close, "high": close, "low": close, "close": close, "volume": None, "series": "INDEX"}
+        return {"bars": [bar], "last_close": close, "last_close_as_of": day.isoformat(), "adv_rs": None, "adv_sessions": 0,
+                "source": "MOCK index close (tests/conftest.py)", "error": None}
+
+    monkeypatch.setattr(inputs, "sector_of", sector_of)
+    monkeypatch.setattr(inputs, "market_state", market_state)
+    monkeypatch.setattr(inputs, "_index_bars", index_bars)
+    yield state

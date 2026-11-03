@@ -11,7 +11,9 @@ Scheduler is started from server startup only when POSTGRES_URL is
 configured; it auto-starts on first secret write.
 """
 from __future__ import annotations
+import fcntl
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -25,6 +27,56 @@ logger = logging.getLogger(__name__)
 
 _scheduler: Optional[AsyncIOScheduler] = None
 DRAIN_BATCH = 30
+
+# ── One process runs the scheduled jobs ──────────────────────────────────────
+# `uvicorn --workers N` starts N processes and each runs the startup hook, so every
+# job here ran N times at once (staging, 4 workers: four 17:30 broker syncs racing on
+# the same holdings). An exclusive, non-blocking flock on one file elects the first
+# process to start; the others start no scheduler. The kernel drops the lock when its
+# holder exits, so a worker restarted by uvicorn takes it over at its own startup.
+# Scope: one host / container (the file's directory). MF_SCHEDULER_LOCK_PATH moves it.
+LOCK_PATH_ENV = "MF_SCHEDULER_LOCK_PATH"
+DEFAULT_LOCK_PATH = "/tmp/nivesh-mf-scheduler.lock"
+_lock_fd: Optional[int] = None
+
+
+def _lock_path() -> str:
+    return os.environ.get(LOCK_PATH_ENV) or DEFAULT_LOCK_PATH
+
+
+def _acquire_leader_lock() -> bool:
+    """True when this process holds (or now takes) the scheduler lock."""
+    global _lock_fd
+    if _lock_fd is not None:
+        return True
+    fd = os.open(_lock_path(), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, PermissionError):
+        os.close(fd)
+        return False
+    except Exception:
+        os.close(fd)
+        raise
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode())
+    _lock_fd = fd
+    return True
+
+
+def _release_leader_lock() -> None:
+    global _lock_fd
+    if _lock_fd is None:
+        return
+    fd, _lock_fd = _lock_fd, None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def is_leader() -> bool:
+    return _lock_fd is not None
 
 
 async def _drain_job():
@@ -185,10 +237,9 @@ async def _benchmark_refresh_job():
 
 
 async def _macro_intelligence_job():
-    """Daily macro intelligence refresh — runs 18:35 IST (5 min after the
-    benchmark job) per Macro PRD. Ingests crude/USDINR/yield/Nifty via
-    yfinance, computes features, classifies regime, persists everything
-    so /api/macro/today returns fresh data the next morning."""
+    """Daily macro intelligence refresh — runs 19:30 IST on weekdays, with a 21:30 IST retry. Ingests Nifty 50 and
+    India VIX from the warehouse (yfinance as fallback) and the global series from yfinance, computes features,
+    classifies regime, persists everything so /api/macro/today and the risk service read the session that closed."""
     try:
         from services import macro_engine
         out = await macro_engine.run_daily()
@@ -279,9 +330,14 @@ async def _broker_daily_sync_job():
 
 
 def start():
-    """Idempotent start. No-op if already running."""
+    """Idempotent start. No-op if already running, or if another process holds the
+    scheduler lock (it runs the jobs; see _acquire_leader_lock)."""
     global _scheduler
     if _scheduler is not None and _scheduler.running:
+        return
+    if not _acquire_leader_lock():
+        logger.info("MF scheduler not started in pid %s: another process holds %s and runs the jobs",
+                    os.getpid(), _lock_path())
         return
     _scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
     # Every hour between 02:00 and 05:59 IST on weekdays
@@ -340,15 +396,25 @@ def start():
     # (Nifty 50, Midcap 150, Smallcap 250, Bank, IT, etc.) from yfinance,
     # upserts OHLC into market_index_data, recomputes returns/volatility/
     # drawdown, busts the latest-snapshot Redis cache.
+    # The trigger names its timezone: a CronTrigger without one runs in the process's zone (UTC in the backend
+    # image), so "18:30" ran at 00:00 IST.
     _scheduler.add_job(
-        _benchmark_refresh_job, CronTrigger(hour=18, minute=30),
+        _benchmark_refresh_job, CronTrigger(hour=18, minute=30, timezone="Asia/Kolkata"),
         id="benchmark_index_daily", replace_existing=True, max_instances=1,
     )
-    # Macro Intelligence layer: 18:35 IST — 5 min after the benchmark job
-    # so the regime classifier has fresh Nifty close to compare to its 50DMA.
+    # Macro Intelligence layer: 19:30 IST on weekdays, after the warehouse's NSE index close lands (about 19:00 IST),
+    # and again at 21:30 IST in case that close was late (the upsert is idempotent). Until 2026-10-27 the trigger had
+    # no timezone and ran at 00:05 IST, when yfinance often left out the session that had just closed, so macro_daily
+    # lagged (21 and 26 Oct were never stored) and the risk service's regime read three sessions old.
     _scheduler.add_job(
-        _macro_intelligence_job, CronTrigger(hour=18, minute=35),
+        _macro_intelligence_job,
+        CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone="Asia/Kolkata"),
         id="macro_intelligence_daily", replace_existing=True, max_instances=1,
+    )
+    _scheduler.add_job(
+        _macro_intelligence_job,
+        CronTrigger(day_of_week="mon-fri", hour=21, minute=30, timezone="Asia/Kolkata"),
+        id="macro_intelligence_retry", replace_existing=True, max_instances=1,
     )
     # Gmail auto-import: monthly, 1st of month 06:30 IST — pull new ECAS
     # statements (NSDL priority, then CDSL). On-demand sync is available
@@ -375,13 +441,23 @@ def start():
 def stop():
     global _scheduler
     if _scheduler is not None and _scheduler.running:
-        _scheduler.shutdown(wait=False)
+        try:
+            _scheduler.shutdown(wait=False)
+        except Exception:
+            # APScheduler's own event loop may already be closed (e.g. a test that ran start() and stop() in
+            # separate asyncio.run() calls). The leader lock still has to come free so another process can take
+            # over the jobs, so this never blocks that release.
+            logger.warning("mf_scheduler: shutdown raised; releasing the leader lock anyway", exc_info=True)
         _scheduler = None
+    _release_leader_lock()
 
 
 def status() -> dict:
     if _scheduler is None or not _scheduler.running:
-        return {"running": False, "jobs": []}
+        out = {"running": False, "jobs": []}
+        if not is_leader():
+            out["note"] = "This process does not run the scheduled jobs; the process holding the scheduler lock does."
+        return out
     return {
         "running": True,
         "timezone": str(_scheduler.timezone),

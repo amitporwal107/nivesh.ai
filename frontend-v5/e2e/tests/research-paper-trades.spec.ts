@@ -1,5 +1,5 @@
 /**
- * Research → Paper (mocked layer). Test cases TC-P23..TC-P28 in test_reports/paper_trades_engine_20260918_1338.md.
+ * Paper record (mocked layer): /app/page/paper › Full record, which was Research → Paper until 2026-10-27. Test cases TC-P23..TC-P28 in test_reports/paper_trades_engine_20260918_1338.md.
  *
  * MOCK — not real data: every /api/paper-trades response here is a fixture (e2e/fixtures/paper-*.json). The portfolio,
  * trade and evaluation fixtures were captured from the staging DaaS on 2026-09-18 after the engine's forward and replay
@@ -51,9 +51,11 @@ async function mockPaper(page: Page, over: { portfolio?: (u: URL) => Reply | nul
   });
 }
 
+// The paper record was Research → Paper until the desk redesign's step 6 (2026-10-27); the same screen (PaperTradesScreen)
+// is /app/page/paper › Full record, and /research?screen=paper redirects there.
 async function openPaper(page: Page) {
-  await page.goto("/v5/research");
-  await page.getByTestId("rail-paper").click();
+  await page.goto("/v5/app/page/paper");
+  await page.getByTestId("paper-view-record").click();
   await expect(page.getByTestId("paper-screen")).toBeVisible();
 }
 
@@ -71,20 +73,26 @@ async function cleanText(page: Page) {
 test.describe("Paper — access", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("TC-P23 without move_odds the rail item is absent", async ({ page }) => {
-    await mockAuthAs(page, "user-profile-onboarded.json");
+  test("TC-P23 the Research rail has no Paper item, even with move_odds; ?screen=paper opens the paper page", async ({ page }) => {
+    await mockAuthAs(page, "user-profile-move-odds.json");
     await mockPaper(page);
     await page.goto("/v5/research");
     await expect(page.getByTestId("rail-feed")).toBeVisible();
+    await expect(page.getByTestId("rail-odds")).toBeVisible();
     await expect(page.getByTestId("rail-paper")).toHaveCount(0);
+    await page.goto("/v5/research?screen=paper");
+    await expect(page).toHaveURL(/\/v5\/app\/page\/paper$/);
+    await expect(page.getByTestId("screen-page-paper")).toBeVisible();
   });
 
   test("TC-P27 a 403 shows the not-enabled state and no numbers", async ({ page }) => {
     await mockAuthAs(page, "user-profile-move-odds.json");
     await mockPaper(page, { portfolio: () => ({ status: 403, body: { detail: "feature_not_enabled" } }) });
-    await openPaper(page);
-    await expect(page.getByTestId("pt-state-no_access")).toBeVisible();
-    expect(await page.getByTestId("paper-screen").innerText()).not.toMatch(/\d+\.\d+%|₹\d/);
+    // On /app/page/paper a 403 hides the views, Full record included, and says so.
+    await page.goto("/v5/app/page/paper");
+    await expect(page.getByTestId("paper-no-access")).toBeVisible();
+    await expect(page.getByTestId("paper-view-record")).toHaveCount(0);
+    expect(await page.getByTestId("screen-page-paper").innerText()).not.toMatch(/\d+\.\d+%|₹\d/);
   });
 
   test("TC-P27 upstream error offers a retry and shows no numbers; empty sample says so", async ({ page }) => {
@@ -252,9 +260,7 @@ test.describe("Paper — phone width", () => {
   test("TC-P28 no horizontal page scroll on any of the three screens", async ({ page }) => {
     await mockAuthAs(page, "user-profile-move-odds.json");
     await mockPaper(page);
-    await page.goto("/v5/research");
-    await page.getByTestId("mnav-paper").click();
-    await expect(page.getByTestId("paper-screen")).toBeVisible();
+    await openPaper(page);
     await expect(page.getByTestId("pt-row-SHAREINDIA")).toBeVisible();
     // neither the document nor the screen's own scroll region may scroll sideways (wide tables scroll inside their wrappers)
     const noScroll = async () => page.evaluate(() => {

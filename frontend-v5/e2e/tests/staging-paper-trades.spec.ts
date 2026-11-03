@@ -34,10 +34,11 @@ test("TC-P30 real staging: today's portfolio, older session, trade path and eval
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await login(page);
-  await page.goto(`${UI}/v5/research`);
+  // The record is /app/page/paper › Full record (Research → Paper until the desk redesign's step 6, 2026-10-27).
   const first = page.waitForResponse((r) => isPortfolio(r, "sample=forward") && r.url().includes("P5-NEXT"));
   const liveP = page.waitForResponse((r) => r.url().includes("/api/paper-trades/live") && r.status() === 200);
-  await page.getByTestId("rail-paper").click();
+  await page.goto(`${UI}/v5/app/page/paper`);
+  await page.getByTestId("paper-view-record").click();
   const pf = await json(await first);
   const live = await json(await liveP);
   await expect(page.getByTestId("paper-screen")).toBeVisible();
@@ -94,8 +95,8 @@ test("TC-P30 real staging at 390 px: no sideways scroll on the three screens", a
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
-  await page.goto(`${UI}/v5/research`);
-  await page.getByTestId("mnav-paper").click();
+  await page.goto(`${UI}/v5/app/page/paper`);
+  await page.getByTestId("paper-view-record").click();
   await expect(page.locator('[data-testid^="pt-row-"]').first()).toBeVisible({ timeout: 30_000 });
   const noScroll = () => page.evaluate(() => {
     const doc = document.documentElement;

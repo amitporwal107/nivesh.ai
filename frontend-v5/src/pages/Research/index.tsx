@@ -27,18 +27,19 @@
  *
  * Responsive: one component. Desktop (≥lg) gets the 64px icon rail + top header;
  * below that the mobile design's app header + bottom tab bar.
+ *
+ * Paper and Lab left this surface in the desk redesign's step 6 (2026-10-27): they were the same screens that
+ * /app/page/paper mounts ("Full record" and "Simulation lab"), so ?screen=paper and ?screen=lab open that page.
  */
 import { useState, useRef, useEffect, useCallback, useMemo, Suspense, lazy } from "react";
 import {
   Search, FileText, ExternalLink, Sparkles, Loader2, Bell, Bookmark,
   ChevronLeft, ChevronRight, MoreVertical, Megaphone, X, Download, Star,
-  ClipboardCheck, Activity, FlaskConical, Beaker, LineChart,
+  ClipboardCheck, Activity, LineChart,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { useMe } from "@/hooks/use-auth";
 import MoveOddsScreen from "./MoveOddsScreen";
-import PaperTradesScreen from "./PaperTradesScreen";
-import SimulationLabScreen from "./SimulationLabScreen";
 import { chatService } from "@/services";
 import { Markdown } from "@/components/chat/Markdown";
 import { filingsService } from "@/services/adapters/filings.adapter";
@@ -59,7 +60,7 @@ const PINNED_AGENT = "stocks_insights";
 const FEED_DAYS = 30;
 const PAGE_SIZE = 20;
 
-type Screen = "feed" | "alerts" | "odds" | "paper" | "lab" | "charts";
+type Screen = "feed" | "alerts" | "odds" | "charts";
 
 /** sentiment → accent (matches the prototype's sig-* classes). */
 function sig(sentiment?: string | null): { cls: string; dot: string } {
@@ -94,7 +95,16 @@ interface Answer {
   refs: string[];
 }
 
+/** The old Paper and Lab screens' deep links (see the header). */
+const MOVED_SCREENS = new Set(["paper", "lab"]);
+
 export default function ResearchPage() {
+  const [params] = useSearchParams();
+  if (MOVED_SCREENS.has(params.get("screen") ?? "")) return <Navigate to="/app/page/paper" replace />;
+  return <ResearchSurface />;
+}
+
+function ResearchSurface() {
   // ── shell ───────────────────────────────────────────────────────────────
   // ?screen= lets another page deep-link in (Paper -> Charts carries a trade's symbol and levels).
   // The existing flag effects below still bounce an un-entitled screen back to the feed, so an
@@ -102,16 +112,13 @@ export default function ResearchPage() {
   const [screen, setScreen] = useState<Screen>(() => {
     if (typeof window === "undefined") return "feed";
     const want = new URLSearchParams(window.location.search).get("screen");
-    const known: Screen[] = ["feed", "alerts", "odds", "paper", "lab", "charts"];
+    const known: Screen[] = ["feed", "alerts", "odds", "charts"];
     return (known as string[]).includes(want ?? "") ? (want as Screen) : "feed";
   });
   // Move odds is allowlist-gated (feature move_odds); the API also answers 403 to anyone not on the list.
   const { data: me } = useMe();
   const oddsEnabled = !!me?.features?.move_odds;
-  useEffect(() => { if ((screen === "odds" || screen === "paper") && !oddsEnabled) setScreen("feed"); }, [screen, oddsEnabled]);
-  // Simulation Lab is allowlist-gated the same way (feature sim_lab); the API also answers 403 to anyone not on the list.
-  const labEnabled = !!me?.features?.sim_lab;
-  useEffect(() => { if (screen === "lab" && !labEnabled) setScreen("feed"); }, [screen, labEnabled]);
+  useEffect(() => { if (screen === "odds" && !oddsEnabled) setScreen("feed"); }, [screen, oddsEnabled]);
   // Charts is allowlist-gated the same way (feature charting, Kite-derived prices — NI-1); the API also answers
   // 403 to anyone not on the list, independent of this client-side check.
   const chartsEnabled = !!me?.features?.charting;
@@ -376,8 +383,6 @@ export default function ResearchPage() {
     { key: "feed", label: "Feed", icon: Sparkles, title: "Filings intelligence" },
     { key: "alerts", label: "Alerts", icon: Bell, title: "Alerts" },
     ...(oddsEnabled ? [{ key: "odds" as Screen, label: "Odds", icon: Activity, title: "Move odds" }] : []),
-    ...(oddsEnabled ? [{ key: "paper" as Screen, label: "Paper", icon: FlaskConical, title: "Paper trades" }] : []),
-    ...(labEnabled ? [{ key: "lab" as Screen, label: "Lab", icon: Beaker, title: "Simulation Lab" }] : []),
     ...(chartsEnabled ? [{ key: "charts" as Screen, label: "Charts", icon: LineChart, title: "Charts" }] : []),
   ];
 
@@ -565,10 +570,6 @@ export default function ResearchPage() {
             />
           ) : screen === "odds" && oddsEnabled ? (
             <MoveOddsScreen backToFeed={backToFeed} />
-          ) : screen === "paper" && oddsEnabled ? (
-            <PaperTradesScreen />
-          ) : screen === "lab" && labEnabled ? (
-            <SimulationLabScreen />
           ) : screen === "charts" && chartsEnabled ? (
             <Suspense fallback={<div data-testid="charts-suspense-loading" style={{ padding: 24, fontSize: 13.5, color: "var(--c-ink-3)" }}>Loading charts…</div>}>
               <ChartsScreen />

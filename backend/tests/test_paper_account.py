@@ -33,7 +33,8 @@ def mongo_expr(doc: Dict[str, Any], e: Any) -> Any:
 
 
 def _match(d: Dict[str, Any], q: Dict[str, Any]) -> bool:
-    return all(mongo_expr(d, v) if k == "$expr" else d.get(k) == v for k, v in q.items())
+    from tests import mongo_ops                     # Mongo's filter semantics, shared by every risk fake
+    return mongo_ops.match(d, q)
 
 
 class _Res:
@@ -61,16 +62,15 @@ class FakeCollection:
     async def update_one(self, q, update, upsert=False):
         await asyncio.sleep(0)
         self.updates.append(q)
+        from tests import mongo_ops
         doc = next((d for d in self.docs if _match(d, q)), None)
         matched = doc is not None
         if doc is None:
             if not upsert:
                 return _Res()
-            doc = dict(update.get("$setOnInsert") or {})
+            doc = {}
             self.docs.append(doc)
-        doc.update(update.get("$set") or {})
-        for k, delta in (update.get("$inc") or {}).items():
-            doc[k] = (doc.get(k) or 0) + delta
+        mongo_ops.apply(doc, update, inserting=not matched)
         return _Res(int(matched))
 
 
@@ -295,9 +295,12 @@ def test_the_ai_trader_path_charges_the_same_account():
 
     from routes import ai_trader
 
+    # Phase 1: the funds AND the risk budget are reserved by the universal risk service before the trade is written
+    # (services/risk_gate/service.enter -> paper_account.reserve_entry); the trade records what was reserved.
     src = inspect.getsource(ai_trader._open_paper_trade)
-    assert "pacct.reserve" in src, "the AI trader path must charge the paper account"
-    assert "InsufficientFunds" in src, "and must refuse when it cannot"
+    assert 'trade["paper_reserved_rs"]' in src and "risk_service.stamp" in src
+    signals = inspect.getsource(ai_trader.strategy_signals) + inspect.getsource(ai_trader.confirm_ticket)
+    assert signals.count("risk_service.enter(") == 2 and "reserve=True" in signals and 'reserve=body.mode == "paper"' in signals
     # the reservation is stored on the trade, so the close returns exactly what was taken
     assert "paper_reserved_rs" in src
 

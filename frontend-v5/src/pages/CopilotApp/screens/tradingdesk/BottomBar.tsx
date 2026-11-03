@@ -1,16 +1,16 @@
 /**
- * Smart trading desk — the phone's bottom navigation (PRD §3.1 and §3.3; the user's decision of 2026-10-14):
- * Overview · Scanner · Intel · Chart · Portfolio · More, fixed at the bottom of the screen above the safe area.
- * It replaces the top chip row on phones; the desktop tab row stays. More holds the desk's AI Copilot (the app's
- * own ask box is hidden on desk pages on a phone and lives there instead, index.tsx), the Options & futures lab
- * and the other destinations. Reads nothing.
+ * Smart trading desk — the phone's bottom navigation (the user's decision of 2026-10-14: a persistent bar on phones),
+ * with the four numbered tabs of the redesign of 2026-10-27 (docs/desk_redesign_20261027/PLAN.md): 01 Overview ·
+ * 02 Trade · 03 Market · 04 Risk, then the desk's AI Copilot (on a phone the app's own ask box is hidden on desk pages
+ * and lives there instead, index.tsx). Fixed at the bottom of the screen above the safe area. My portfolio is in the
+ * phone header. Reads nothing.
  *
  * Each item is a real button (keyboard reachable, with an aria label); the current one carries
  * aria-current="page" and says so in words to screen readers, not only by colour.
  */
 import type { ReactNode } from "react";
 
-export type BottomKey = "overview" | "scanner" | "intel" | "chart" | "portfolio" | "smartmoney" | "more";
+export type BottomKey = "overview" | "trade" | "market" | "risk" | "copilot";
 
 /** The bar's own height without the safe area; the page leaves this much room under its content. */
 export const BOTTOM_BAR_HEIGHT = 58;
@@ -33,23 +33,19 @@ function Icon({ children }: { children: ReactNode }) {
 
 const ICONS: Record<BottomKey, ReactNode> = {
   overview: <Icon><rect x="2.5" y="2.5" width="5.5" height="5.5" rx="1.2" {...stroke} /><rect x="10" y="2.5" width="5.5" height="5.5" rx="1.2" {...stroke} /><rect x="2.5" y="10" width="5.5" height="5.5" rx="1.2" {...stroke} /><rect x="10" y="10" width="5.5" height="5.5" rx="1.2" {...stroke} /></Icon>,
-  scanner: <Icon><circle cx="8" cy="8" r="5" {...stroke} /><path d="M12 12l3.5 3.5" {...stroke} /><path d="M5.8 8.6l1.6 1.4 2.8-3.4" {...stroke} /></Icon>,
-  intel: <Icon><path d="M3 3.5h9.5v11H4.5A1.5 1.5 0 0 1 3 13V3.5z" {...stroke} /><path d="M12.5 6.5H15V13a1.5 1.5 0 0 1-1.5 1.5" {...stroke} /><path d="M5.5 6.5h4.5M5.5 9h4.5M5.5 11.5h3" {...stroke} /></Icon>,
-  chart: <Icon><path d="M4.5 3v12M9 2v14M13.5 5v9" {...stroke} /><rect x="3" y="6" width="3" height="5" rx="0.6" {...stroke} /><rect x="7.5" y="4.5" width="3" height="7" rx="0.6" {...stroke} /><rect x="12" y="7" width="3" height="4" rx="0.6" {...stroke} /></Icon>,
-  portfolio: <Icon><circle cx="9" cy="9" r="6.2" {...stroke} /><path d="M9 2.8V9l5.4 3" {...stroke} /></Icon>,
-  smartmoney: <Icon><ellipse cx="9" cy="4.6" rx="5.5" ry="2.1" {...stroke} /><path d="M3.5 4.6v4.2c0 1.16 2.46 2.1 5.5 2.1s5.5-.94 5.5-2.1V4.6" {...stroke} /><path d="M3.5 8.8v4.2c0 1.16 2.46 2.1 5.5 2.1s5.5-.94 5.5-2.1V8.8" {...stroke} /></Icon>,
-  more: <Icon><circle cx="4" cy="9" r="1.3" fill="currentColor" /><circle cx="9" cy="9" r="1.3" fill="currentColor" /><circle cx="14" cy="9" r="1.3" fill="currentColor" /></Icon>,
+  trade: <Icon><path d="M3 12.5l4-4 3 3 5-6" {...stroke} /><path d="M11.5 5.5H15V9" {...stroke} /></Icon>,
+  market: <Icon><path d="M3 3.5h9.5v11H4.5A1.5 1.5 0 0 1 3 13V3.5z" {...stroke} /><path d="M12.5 6.5H15V13a1.5 1.5 0 0 1-1.5 1.5" {...stroke} /><path d="M5.5 6.5h4.5M5.5 9h4.5M5.5 11.5h3" {...stroke} /></Icon>,
+  risk: <Icon><path d="M9 2.5l5.5 2v4.2c0 3.2-2.3 5.6-5.5 6.8-3.2-1.2-5.5-3.6-5.5-6.8V4.5L9 2.5z" {...stroke} /><path d="M6.6 8.9l1.7 1.6 3.1-3.4" {...stroke} /></Icon>,
+  copilot: <Icon><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5v6A1.5 1.5 0 0 1 13.5 12H8l-3.5 3v-3h0A1.5 1.5 0 0 1 3 10.5v-6z" {...stroke} /></Icon>,
 };
 
-/** The PRD's order (§3.1), with the phone's short names. */
-export const BOTTOM_ITEMS: ReadonlyArray<{ key: BottomKey; label: string; aria: string }> = [
-  { key: "overview", label: "Overview", aria: "Overview" },
-  { key: "scanner", label: "Scanner", aria: "AI Scanner" },
-  { key: "intel", label: "Intel", aria: "Market Intelligence" },
-  { key: "chart", label: "Chart", aria: "Chart Analysis" },
-  { key: "portfolio", label: "Portfolio", aria: "Portfolio and Risk" },
-  { key: "smartmoney", label: "Flows", aria: "Smart Money Movement" },
-  { key: "more", label: "More", aria: "More: AI Copilot, Options and futures lab, watchlists and settings" },
+/** The four numbered tabs, short names, then the Copilot. */
+export const BOTTOM_ITEMS: ReadonlyArray<{ key: BottomKey; label: string; aria: string; num?: string }> = [
+  { key: "overview", label: "Overview", aria: "01 Market Overview", num: "01" },
+  { key: "trade", label: "Trade", aria: "02 Trade Desk", num: "02" },
+  { key: "market", label: "Market", aria: "03 Market Desk", num: "03" },
+  { key: "risk", label: "Risk", aria: "04 Risk Desk", num: "04" },
+  { key: "copilot", label: "Copilot", aria: "AI Copilot" },
 ];
 
 export function DeskBottomBar({ active, onPick }: { active: BottomKey; onPick: (key: BottomKey) => void }) {

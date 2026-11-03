@@ -158,14 +158,15 @@ const STAGE_PLAIN: Record<string, string> = {
 };
 
 /**
- * The bucket's name, or "Scanner pick · early breakout" for a stock only the picks route has.
+ * The bucket's name, or "Scanner idea · early breakout" for a stock only the scanner's target list (the picks route) has.
+ * "Idea", never "pick": the owner's wording (SEBI), audit 2026-10-28.
  * `plain` gives the investor wording ("Broke above a recent high").
  */
 export function setupLabel(s: DeskSetup, plain = false): string {
   if (s.bucket) return plain ? BUCKET_PLAIN[s.bucket] : BUCKET_LABEL[s.bucket];
-  if (!s.stage) return "Scanner pick";
+  if (!s.stage) return "Scanner idea";
   const stage = s.stage.replace(/_/g, " ").toLowerCase();
-  return `Scanner pick · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
+  return `Scanner idea · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
 }
 
 /** The two up-move heads of the move-odds model the scanner ranks by. */
@@ -190,7 +191,7 @@ export function lastMove(closes: number[]): { close: number; change: number; cha
 
 /** "13 Oct 2026", or both dates when the two scanner routes are on different sessions. */
 export function scanDateLabel(watchAsOf: string | null, signalDate: string | null): string | null {
-  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · picks ${fmtDay(signalDate)}`;
+  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · targets ${fmtDay(signalDate)}`;
   const d = watchAsOf ?? signalDate;
   return d ? fmtDay(d) : null;
 }
@@ -499,7 +500,9 @@ const ScenarioC = z.object({
     risk_budget: z.number(), qty_by_risk: z.number(), qty_by_allocation: nn, qty_by_max: nn, lot_size: z.number(),
     quantity: z.number(), binding: z.string(), gross_exposure: z.number(), allocation_pct: nn, max_alloc_pct: z.number(),
   }).nullable(),
-  costs: z.object({ entry: z.number(), exit_at_stop: z.number(), exit_at_target: nn, round_trip_at_stop: z.number(), round_trip_at_target: nn }).nullable(),
+  costs: z.object({ entry: z.number(), exit_at_stop: z.number(), exit_at_target: nn, round_trip_at_stop: z.number(), round_trip_at_target: nn,
+    /** The round trip at the stop by component (the desk cost card, backend services/desk_cost_card.py). */
+    breakdown_at_stop: z.record(z.number()).nullish() }).nullable(),
   outcomes: z.object({ loss_at_stop: z.number(), loss_at_stop_net: z.number(), profit_at_target: nn, profit_at_target_net: nn }).nullable(),
   portfolio: z.object({
     portfolio_value: z.number(),
@@ -508,7 +511,7 @@ const ScenarioC = z.object({
     impact_at_stop_pct: nn, impact_at_target_pct: nn,
     assumption: z.string().nullish(),
   }).nullable(),
-  cost_model: z.object({ slippage_pct_per_side: z.number(), brokerage_inr_per_side: z.number(), source: z.string().nullish() }),
+  cost_model: z.object({ slippage_pct_per_side: z.number(), brokerage_inr_per_side: z.number(), source: z.string().nullish(), version: z.string().nullish() }),
   caveats: z.array(z.string()).default([]),
   method: z.string().nullish(),
   sent_to_broker: z.literal(false),

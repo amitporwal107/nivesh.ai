@@ -1,8 +1,11 @@
 /**
  * Admin-only, in-app notice for the daily Kite login (the alert channel is in-app only).
  *
- *   banner  at the top of the Trader shell while GET /api/live/status says alert_state === "TOKEN_ALERT", or the feed is
- *           expired / not connected during a trading session. "Log in to Kite" asks POST /api/live/kite/login-url for a fresh
+ *   banner  at the top of the shell, in every mode, while GET /api/live/status says login_needed (platform_token.login_needed:
+ *           a trading day from 06:00 IST to the close, and after the close until the day's closing quotes are saved), or
+ *           alert_state === "TOKEN_ALERT", or the feed is expired / not connected during a trading session. So the first
+ *           admin visit of a trading day gets the link, and a visit after 15:30 still can save that day's close.
+ *           "Log in to Kite" asks POST /api/live/kite/login-url for a fresh
  *           single-use link and goes there (the one human step: Zerodha 2FA; nothing logs in for anyone).
  *           "Dismiss" hides it until the page is reloaded or the IST day changes, while the problem is unresolved.
  *           It disappears by itself when the feed turns LIVE (or the market is closed with a working token).
@@ -17,7 +20,11 @@ import { http } from "@/services/api/http";
 import { startKiteLogin } from "./LiveBits";
 import { useLiveMeta } from "../lib/useLiveQuotes";
 
-interface KiteStatus { mode?: string; state?: string; session?: string | null; reason?: string | null; alert_state?: string | null }
+interface KiteStatus {
+  mode?: string; state?: string; session?: string | null; reason?: string | null; alert_state?: string | null;
+  /** The server's answer to "ask the admin now?"; absent on an older backend, which falls back to the session rule. */
+  login_needed?: boolean; login_why?: "session" | "close_not_saved" | null;
+}
 
 const REASONS: Record<string, string> = {
   wrong_account: "That Zerodha account is not the platform account. Log in again with the platform's own Zerodha login.",
@@ -82,8 +89,9 @@ export function KiteLoginNotice({ isAdmin }: { isAdmin: boolean }) {
   const live = meta.mode === "live" || s.mode === "live";
   const sessionActive = s.session === "open" || s.session === "pre_open";
   const broken = s.mode === "expired" || s.mode === "not_connected";
-  const need = !live && (s.alert_state === "TOKEN_ALERT" || (broken && sessionActive));
+  const need = !live && (s.login_needed === true || s.alert_state === "TOKEN_ALERT" || (broken && sessionActive));
   const showBanner = need && dismissedDay !== istDay();
+  const afterClose = s.login_why === "close_not_saved";
 
   return (
     <>
@@ -107,11 +115,18 @@ export function KiteLoginNotice({ isAdmin }: { isAdmin: boolean }) {
           role="alert"
           data-testid="kite-login-banner"
           data-alert={s.alert_state ?? ""}
+          data-why={s.login_why ?? ""}
           className="flex flex-wrap items-center"
           style={{ gap: "8px 12px", padding: "10px 380px 10px 18px", background: "var(--cp-danger-soft)", borderBottom: "1px solid var(--danger-line)", color: "var(--cp-ink)" }}
         >
-          <span style={{ fontSize: 13.5, fontWeight: 500, minWidth: 0 }}>Kite login needed — 2FA required to start live data</span>
-          <span style={{ fontSize: 12, color: "var(--cp-ink-2)", minWidth: 0 }}>Screens show end-of-day figures until you log in.</span>
+          <span data-testid="kite-login-banner-title" style={{ fontSize: 13.5, fontWeight: 500, minWidth: 0 }}>
+            {afterClose ? "Kite login needed — 2FA required to save today’s closing prices" : "Kite login needed — 2FA required to start live data"}
+          </span>
+          <span style={{ fontSize: 12, color: "var(--cp-ink-2)", minWidth: 0 }}>
+            {afterClose
+              ? "Screens show the previous end of day until you log in; then today’s Kite close shows until the bhavcopy end of day lands."
+              : "Screens show end-of-day figures until you log in."}
+          </span>
           <span style={{ flex: 1 }} />
           {failed && <span data-testid="kite-login-banner-failed" style={{ fontSize: 12, color: "var(--cp-danger)" }}>The login link could not be made. Try again.</span>}
           <button

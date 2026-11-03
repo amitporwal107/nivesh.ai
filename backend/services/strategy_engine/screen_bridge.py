@@ -73,7 +73,10 @@ SCREENER_KEY_TO_FEATURE: Dict[str, str] = {
 _DEFAULT_EXIT = {"stoploss_pct": 8.0, "target_rr": 2.0, "max_hold_days": 90}
 _DEFAULT_RANKING = {"by": "momentum_score", "limit": 20, "order": "desc"}
 _DEFAULT_REBALANCE = "weekly"
-_DEFAULT_UNIVERSE = {"type": "index", "ref": "NIFTY500"}
+# A screen filters the whole market, so its strategy defaults to the whole-market, point-in-time liquid universe
+# (liquid_universe.py, liquid-eq-v1): survivorship-free in a backtest. It was Nifty 500, whose backtests apply the
+# latest constituents to every past date (survivorship bias).
+_DEFAULT_UNIVERSE = {"type": "market", "ref": "LIQUID_EQ"}
 
 
 class ScreenBridgeError(ValueError):
