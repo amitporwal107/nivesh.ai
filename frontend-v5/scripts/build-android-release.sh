@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the PRODUCTION v5 Android app and (optionally) publish it at the public
-# download URL on data.niveshcopilot.com.
+# download URL on niveshcopilot.com.
 #
 # Unlike build-android-apk.sh (staging, unsigned debug), this:
 #   - bakes API calls to the PROD backend (https://niveshcopilot.com)
@@ -12,8 +12,8 @@
 # Output:
 #   - frontend-v5/nivesh-v5-prod-release.apk                       (local copy)
 #   - frontend-v5/nivesh-v5-prod-release.aab                       (local copy, for Play)
-#   - /var/www/nidp-downloads/nivesh-v5-prod-release.apk           (served file, if webroot present)
-#   - https://data.niveshcopilot.com/downloads/nivesh-v5-prod-release.apk
+#   - /opt/nivesh/downloads/nivesh-v5-prod-release.apk             (served file, if webroot present)
+#   - https://niveshcopilot.com/downloads/nivesh-v5-prod-release.apk
 #
 # Required env (CI supplies these from GitHub secrets; see
 # docs/android-release.md). The build FAILS FAST if any are missing rather than
@@ -61,7 +61,7 @@ export VITE_USE_MOCK_API="false"
 export VITE_APP_VERSION="$ANDROID_VERSION_NAME"
 unset VITE_BASE || true   # APK serves from https://localhost root, base must be "/"
 
-WEBROOT="/var/www/nidp-downloads"
+WEBROOT="/opt/nivesh/downloads"   # the CloudPe prod VM; the edge nginx serves it at /downloads/
 APK_NAME="nivesh-v5-prod-release.apk"
 AAB_NAME="nivesh-v5-prod-release.aab"
 BUILT_APK="android/app/build/outputs/apk/release/app-release.apk"
@@ -91,10 +91,10 @@ if [ -d "$WEBROOT" ]; then
   echo "  published to $WEBROOT/$APK_NAME"
 else
   echo "  NOTE: $WEBROOT not found on this host — local copies only."
-  echo "        CI publishes to data.niveshcopilot.com via SCP (see android-release workflow)."
+  echo "        CI publishes to the prod VM over ssh (see the android-release workflow)."
 fi
 
 echo "✓ Done."
 echo "  APK sha256: $(sha256sum "$BUILT_APK" | cut -d' ' -f1)"
 echo "  AAB sha256: $(sha256sum "$BUILT_AAB" | cut -d' ' -f1)"
-echo "  URL: https://data.niveshcopilot.com/downloads/$APK_NAME"
+echo "  URL: https://niveshcopilot.com/downloads/$APK_NAME"

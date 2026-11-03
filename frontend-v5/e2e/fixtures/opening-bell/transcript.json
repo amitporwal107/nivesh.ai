@@ -1,0 +1,224 @@
+{
+ "date": "2026-11-03",
+ "lang": "en",
+ "sections": [
+  {
+   "tag": "HEADLINES",
+   "title": "This morning's headlines",
+   "start": "0:00",
+   "cues": [
+    {
+     "t": "0:03",
+     "text": "Good morning, and welcome to the Opening Bell on the Nivesh Desk.",
+     "sup": "Opening Bell · Tuesday, 3 November 2026"
+    },
+    {
+     "t": "0:08",
+     "text": "Here's what's set up for today.",
+     "sup": "Opening Bell · Tuesday, 3 November 2026"
+    },
+    {
+     "t": "0:11",
+     "text": "The pre-open points to a higher start, with the Nifty indicated near 23,637.",
+     "sup": "Nifty indicated near 23,637 (+0.84%) · F&O 152 up · 45 down · NSE pre-open 09:09 IST"
+    },
+    {
+     "t": "0:18",
+     "text": "India VIX prices a typical day of about 190 points either way: 23,251 to 23,631 on the Nifty.",
+     "sup": "India VIX 15.50 · about ±190 pts · OI support 23,000 · resistance 24,000"
+    },
+    {
+     "t": "0:29",
+     "text": "On the desk's AI list, Petronet LNG and Punjab National Bank lead today's Top 10 ideas.",
+     "sup": "AI Top 10 · #1 Petronet LNG · #2 Punjab National Bank · #3 Anand Rathi Wealth"
+    },
+    {
+     "t": "0:37",
+     "text": "And it's Nifty expiry day. On today's results calendar: State Bank, Bajaj Finserv, and Solar Industries.",
+     "sup": "Nifty expiry today · 23,450 straddle 179.45 pts · Results: State Bank · Bajaj Finserv · Solar Industries · Lupin"
+    }
+   ]
+  },
+  {
+   "tag": "PREVIOUS SESSION",
+   "title": "Where we left off, and overnight",
+   "start": "0:46",
+   "cues": [
+    {
+     "t": "0:48",
+     "text": "First, where we left off. On Monday, the Nifty 50 closed at 23,440.80, up 387.70 points, or 1.68 percent.",
+     "sup": "2 Nov close: Nifty 50 23,440.80 · +387.70 pts (+1.68%)"
+    },
+    {
+     "t": "1:01",
+     "text": "Bank Nifty rose 0.58 percent, the Midcap 150 rose 1.25 percent, and the Smallcap 250 rose 1.35 percent.",
+     "sup": "Bank Nifty +0.58% · Midcap 150 +1.25% · Smallcap 250 +1.35%"
+    },
+    {
+     "t": "1:13",
+     "text": "Follow the money. Provisional data show FIIs bought a net 3,115 crore rupees in cash on 2 November. DIIs sold 392 crore.",
+     "sup": "2 Nov (provisional): FII +₹3,115 Cr · DII −₹392 Cr"
+    },
+    {
+     "t": "1:26",
+     "text": "On MCX last night, crude oil ended at 9,071 rupees a barrel, down 8.7 percent, and gold at 1,40,201 rupees for ten grams, up 1.2 percent.",
+     "sup": "MCX 2 Nov: crude ₹9,071/bbl (−8.7%) · gold ₹1,40,201/10 g (+1.2%)"
+    }
+   ]
+  },
+  {
+   "tag": "PRE-OPEN",
+   "title": "What the 9:08 pre-open says",
+   "start": "1:40",
+   "cues": [
+    {
+     "t": "1:42",
+     "text": "The pre-open is in. Priced on its constituent stocks, the Nifty is indicated near 23,637, about 0.84 percent higher than Monday's close.",
+     "sup": "Indicated Nifty 23,637 (+0.84%) · 50 of 50 constituents priced · NSE pre-open 09:09 IST"
+    },
+    {
+     "t": "1:55",
+     "text": "Across F and O stocks, 152 are indicated higher and 45 lower.",
+     "sup": "F&O pre-open: 152 up · 45 down · 21 unchanged"
+    },
+    {
+     "t": "2:02",
+     "text": "Leading the gap-ups: Reliance, up 5.4 percent, GE Vernova T and D, up 4.7 percent, and Delhivery, up 3.6 percent.",
+     "sup": "Gap-ups: Reliance +5.4% · GE Vernova T&D +4.7% · Delhivery +3.6%"
+    },
+    {
+     "t": "2:13",
+     "text": "And the biggest gap-downs: Phoenix Mills, down 2.9 percent, Muthoot Finance, down 1.8 percent, and Manappuram Finance, down 1.4 percent.",
+     "sup": "Gap-downs: Phoenix Mills −2.9% · Muthoot Finance −1.8% · Manappuram Finance −1.4%"
+    },
+    {
+     "t": "2:25",
+     "text": "Reacting to results filed after Monday's close: Petronet LNG, up 0.1 percent.",
+     "sup": "After the bell: Petronet LNG +0.1%"
+    },
+    {
+     "t": "2:32",
+     "text": "On the desk's AI list: Petronet LNG, up 0.1 percent, Punjab National Bank, down 0.3 percent, Anand Rathi Wealth, up 0.3 percent, and Persistent, down 0.8 percent.",
+     "sup": "AI list in the pre-open: #1 Petronet LNG +0.1% · #2 Punjab National Bank −0.3% · #3 Anand Rathi Wealth +0.3% · #4 Persistent −0.8%"
+    },
+    {
+     "t": "2:47",
+     "text": "Pre-open prices can shift once normal trading starts at 9:15 AM.",
+     "sup": "Indicative until the 09:15 IST open"
+    }
+   ]
+  },
+  {
+   "tag": "RANGES & LEVELS",
+   "title": "What the options market is pricing",
+   "start": "2:55",
+   "cues": [
+    {
+     "t": "2:56",
+     "text": "Now, the range. India VIX closed at 15.50. That prices a typical one-day move of about 190 points for the Nifty, either way: 23,251 to 23,631 from Monday's close.",
+     "sup": "India VIX 15.50 → about ±190 Nifty points · 23,251 to 23,631"
+    },
+    {
+     "t": "3:13",
+     "text": "In the nearest Nifty options expiry, the largest put open interest sits at 23,000, and the largest call open interest at 24,000. Traders often read these as support and resistance.",
+     "sup": "Nifty 3 Nov expiry · largest put OI 23,000 · largest call OI 24,000"
+    },
+    {
+     "t": "3:27",
+     "text": "The put-call ratio is 1.67, and max pain, where option buyers as a group would lose the most at expiry, is 23,250.",
+     "sup": "Put-call ratio 1.67 · max pain 23,250"
+    },
+    {
+     "t": "3:39",
+     "text": "It's expiry day. The 23,450 straddle closed at 179.45 points, about 0.8 percent of the index: the move the options market is pricing for today.",
+     "sup": "23,450 straddle 179.45 pts ≈ ±0.8% · expiring today"
+    },
+    {
+     "t": "3:55",
+     "text": "For the companies reporting today, options price these moves up to the 23 November expiry, results included: State Bank, about 5.0 percent either way, Bajaj Finserv, about 5.2 percent either way, and Solar Industries, about 7.6 percent either way.",
+     "sup": "Implied to 23 Nov (ATM straddle): State Bank ±5.0% · Bajaj Finserv ±5.2% · Solar Industries ±7.6%"
+    },
+    {
+     "t": "4:13",
+     "text": "These are ranges the options market is pricing, not forecasts.",
+     "sup": "Ranges priced by the options market, not forecasts"
+    }
+   ]
+  },
+  {
+   "tag": "TOP 10 AI IDEAS",
+   "title": "Today's AI lists, idea by idea",
+   "start": "4:18",
+   "cues": [
+    {
+     "t": "4:20",
+     "text": "Now, the desk's AI scanner lists for today. These are ideas for review, not recommendations, and the desk's own scorecard shows no measurable ranking skill yet.",
+     "sup": "Ideas for review, not recommendations · no measurable ranking skill yet"
+    },
+    {
+     "t": "4:32",
+     "text": "Petronet LNG's trend is intact, 3.3 percent above its short-term average after a pullback. Punjab National Bank is in a strong uptrend, above its key moving averages.",
+     "sup": "#1 Petronet LNG — trend intact, 3.3% above short-term average · #2 Punjab National Bank — strong uptrend"
+    },
+    {
+     "t": "4:45",
+     "text": "Anand Rathi Wealth is in a strong uptrend, above its key moving averages. Persistent is in a strong uptrend, above its key moving averages.",
+     "sup": "#3 Anand Rathi Wealth — strong uptrend · #4 Persistent — strong uptrend"
+    },
+    {
+     "t": "4:55",
+     "text": "IIFL Capital Services is 0.6 percent below resistance at 349.95, on 3.7 times its average volume. GAIL (India) is 0.2 percent below resistance at 177.40, on 1.4 times its average volume.",
+     "sup": "#5 IIFL Capital Services — 0.6% below ₹349.95 resistance · #6 GAIL (India) — 0.2% below ₹177.40 resistance"
+    },
+    {
+     "t": "5:16",
+     "text": "Union Bank's trend is intact, 3.3 percent above its short-term average after a pullback. Indegene is in a strong uptrend, above its key moving averages.",
+     "sup": "#7 Union Bank — trend intact, 3.3% above short-term average · #8 Indegene — strong uptrend"
+    },
+    {
+     "t": "5:28",
+     "text": "Indian Bank is also on the list. Leela Palaces is 1.8 percent below resistance at 683.00, on 1.7 times its average volume.",
+     "sup": "#9 Indian Bank · #10 Leela Palaces — 1.8% below ₹683.00 resistance"
+    },
+    {
+     "t": "5:41",
+     "text": "The F and O board reads a bullish regime with a up trend, so it fits defined-risk structures, like the Nifty bull call spread 23450 to 23600 for 3 November.",
+     "sup": "F&O board: regime Bullish · trend up · NIFTY Bull call spread 23450/23600, 3 Nov expiry"
+    },
+    {
+     "t": "5:55",
+     "text": "On the F and O list: Indian Bank, a bull call spread 870 to 900 for 23 November, reward to risk 1.8, Kotakbank, a bull call spread 460 to 470 for 23 November, reward to risk 1.6, and GAIL (India), a bull call spread 177.5 to 180 for 23 November, reward to risk 1.4.",
+     "sup": "F&O list: INDIANB Bull call spread 870/900 R:R 1.8 · KOTAKBANK Bull call spread 460/470 R:R 1.6 · GAIL Bull call spread 177.5/180 R:R 1.4"
+    },
+    {
+     "t": "6:21",
+     "text": "Every one of these is a setup to research, not a call to buy or sell.",
+     "sup": "Setups to research, not buy or sell calls"
+    }
+   ]
+  },
+  {
+   "tag": "TODAY",
+   "title": "Tuesday, 3 November",
+   "start": "6:28",
+   "cues": [
+    {
+     "t": "6:29",
+     "text": "Results due today from the F and O list: State Bank, Bajaj Finserv, Solar Industries, and Lupin.",
+     "sup": "Results due today (F&O): State Bank · Bajaj Finserv · Solar Industries · Lupin"
+    },
+    {
+     "t": "6:36",
+     "text": "That's the Opening Bell from the Nivesh Desk. Trading starts at 9:15 AM.",
+     "sup": "Sources: NSE pre-open and end-of-day data, NIDP option chain, MCX via TrueData · read on the Nivesh Smart Trading Desk"
+    },
+    {
+     "t": "6:44",
+     "text": "Market information and education, not investment advice. Have a good session.",
+     "sup": "Market information and education, not investment advice"
+    }
+   ]
+  }
+ ],
+ "cue_count": 35
+}

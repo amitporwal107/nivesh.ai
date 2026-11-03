@@ -1,0 +1,238 @@
+{
+ "about": "MOCK — not real data. position_size payloads built by the real builder (services/copilot_visual/builders.position_size) over the unit tests' invented inputs (tests/test_copilot_visual.py, PS-*), and the chat's usage-limit message from the real classifier (services/chat_errors.friendly_error) on the gateway's real error text.",
+ "payloads": {
+  "none": {
+   "schema": "visual-answer-v1",
+   "intent": "position_size",
+   "title": "How much to risk",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-31T16:49:02+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "You have no saved risk profile; these are the platform's default limits.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "no-profile",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "You have not set a risk profile yet. Your paper trades are checked against the platform's default limits below until you set your own.",
+     "actions": [
+      {
+       "kind": "set_risk_profile",
+       "label": "Set up your risk profile"
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "limits",
+     "title": "Default risk limits",
+     "note": "Platform defaults, not saved by you: they apply to your paper trades until you set your own profile.",
+     "items": [
+      {
+       "label": "Per trade",
+       "value": "0.5% of equity",
+       "sub": "paper equity"
+      },
+      {
+       "label": "Max open risk",
+       "value": "3%",
+       "sub": "all open positions plus a new one"
+      },
+      {
+       "label": "One position",
+       "value": "10%",
+       "sub": "market exposure, one position"
+      },
+      {
+       "label": "One sector",
+       "value": "25%",
+       "sub": "market exposure, one sector"
+      },
+      {
+       "label": "Min reward:risk",
+       "value": "1.5×",
+       "sub": "planned, after costs"
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "usage",
+     "title": "Today's usage",
+     "note": null,
+     "items": [
+      {
+       "label": "Paper equity",
+       "value": "₹995,000.00",
+       "sub": null
+      },
+      {
+       "label": "Used of today's loss limit",
+       "value": "0.50%",
+       "sub": "limit 2%"
+      },
+      {
+       "label": "Open risk reserved",
+       "value": "₹20,000.00",
+       "sub": "all open positions"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Your risk profile (risk_profiles)",
+      "as_of": null,
+      "status": "fresh",
+      "note": "no profile saved: platform defaults"
+     },
+     {
+      "name": "Your paper account's risk book (equity, day/week P&L, open risk)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What are my open trades doing?",
+     "query": "What are my open trades doing?"
+    },
+    {
+     "label": "Which F&O setups are attractive?",
+     "query": "Which F&O setups are attractive?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "What's the setup on this stock?",
+     "query": "What's the setup on this stock?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "saved": {
+   "schema": "visual-answer-v1",
+   "intent": "position_size",
+   "title": "How much to risk",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-31T16:49:02+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Your risk budget and today's usage.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "limits",
+     "title": "Your risk limits",
+     "note": "balanced profile, set 15 Jul 2026",
+     "items": [
+      {
+       "label": "Per trade",
+       "value": "0.5% of equity",
+       "sub": "paper equity"
+      },
+      {
+       "label": "Max open risk",
+       "value": "3%",
+       "sub": "all open positions plus a new one"
+      },
+      {
+       "label": "One position",
+       "value": "10%",
+       "sub": "market exposure, one position"
+      },
+      {
+       "label": "One sector",
+       "value": "25%",
+       "sub": "market exposure, one sector"
+      },
+      {
+       "label": "Min reward:risk",
+       "value": "1.5×",
+       "sub": "planned, after costs"
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "usage",
+     "title": "Today's usage",
+     "note": null,
+     "items": [
+      {
+       "label": "Paper equity",
+       "value": "₹995,000.00",
+       "sub": null
+      },
+      {
+       "label": "Used of today's loss limit",
+       "value": "0.50%",
+       "sub": "limit 2%"
+      },
+      {
+       "label": "Open risk reserved",
+       "value": "₹20,000.00",
+       "sub": "all open positions"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Your risk profile (risk_profiles)",
+      "as_of": "2026-07-15",
+      "status": "fresh",
+      "note": "saved by you on 15 Jul 2026"
+     },
+     {
+      "name": "Your paper account's risk book (equity, day/week P&L, open risk)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What are my open trades doing?",
+     "query": "What are my open trades doing?"
+    },
+    {
+     "label": "Which F&O setups are attractive?",
+     "query": "Which F&O setups are attractive?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "What's the setup on this stock?",
+     "query": "What's the setup on this stock?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  }
+ },
+ "usage_limit_message": "The AI assistant has reached its usage limit, so it cannot write an explanation right now; it should be back around 10:50 AM IST. The figures and charts on your screen are not affected. Please try again later."
+}

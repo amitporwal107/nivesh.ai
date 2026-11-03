@@ -129,6 +129,26 @@ class HubPosition:
     name: Optional[str] = None         # broker's instrument / company name, when given
 
 
+@dataclass
+class BrokerTrade:
+    """One executed fill from a broker's trade book (the day's own; brokers send only the current day). Read-only data: what the
+    broker says was traded, at what price, when. A field the broker does not give is None — never filled with a guess; no fee is
+    estimated here, `fees_rs` is the broker's own per-trade charge when it sends one."""
+    symbol: str                      # broker trading symbol (ICICI: its own stock code), upper-case
+    exchange: str                    # NSE | BSE | NFO | BFO | MCX | CDS ...
+    side: str                        # "buy" | "sell"
+    quantity: float                  # units, positive
+    price: float                     # the fill price per unit
+    traded_at: Optional[str] = None  # ISO timestamp (UTC) or the broker's own date when no time is given
+    trade_id: Optional[str] = None
+    order_id: Optional[str] = None
+    product_raw: Optional[str] = None
+    instrument_type: Optional[str] = None  # "FUT" | "CE" | "PE"; None for cash (and for Kite, which encodes it in the symbol)
+    expiry: Optional[str] = None
+    strike: Optional[float] = None
+    fees_rs: Optional[float] = None
+
+
 @dataclass(frozen=True)
 class ContractRef:
     """One futures or options contract, in the terms a `HubPosition` row

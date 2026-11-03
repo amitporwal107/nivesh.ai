@@ -1,0 +1,76 @@
+{
+ "policy_version": "quick-hedge-v1",
+ "status": "incomplete",
+ "reasons": [
+  {
+   "code": "missing_portfolio",
+   "message": "There are no equity-linked holdings to hedge. Connect a broker or upload a CAS statement so the hedge can see your holdings."
+  }
+ ],
+ "expiry": "2026-12-01",
+ "modes": [],
+ "exposure": null,
+ "confidence": {
+  "level": "unknown",
+  "r2": null,
+  "correlation": null,
+  "message": "The portfolio's fit to Nifty could not be measured, so the hedge cannot be placed."
+ },
+ "disclosures": [
+  "Estimated scenario, not guaranteed future performance.",
+  "A hedge reduces the size of a possible loss but does not eliminate it; the premium is a cost whether or not it pays.",
+  "The portfolio is assumed to move with Nifty by its beta. If it does not track Nifty closely, the hedge will protect less (or more) than shown.",
+  "Option premiums are the last exchange closing prices, not live quotes. Figures are before income tax.",
+  "Nifty options are European-style and cash-settled at expiry; the hedge protects only if Nifty is below the strike at expiry."
+ ],
+ "inputs": {
+  "tolerance_rs": 0.0,
+  "expected_fall_pct": 10.0
+ },
+ "tenor": "1m",
+ "data": {
+  "portfolio": {
+   "portfolio_value_rs": 0.0,
+   "hedgeable_value_rs": 0.0,
+   "excluded_rs": {
+    "hybrid": 300000.0,
+    "debt": 0.0,
+    "gold": 200000.0,
+    "other": 0.0,
+    "unclassified": 0.0
+   },
+   "beta": null,
+   "beta_coverage": 1.0,
+   "holdings_counted": 0,
+   "as_of": "2026-10-30",
+   "sources": {
+    "holdings": [],
+    "cas": null,
+    "brokers": [],
+    "needs_attention": true
+   }
+  },
+  "market": {
+   "as_of": "2026-10-30",
+   "expiry": "2026-12-01",
+   "days_to_expiry": 32,
+   "expiries": [
+    "2026-11-03",
+    "2026-12-01"
+   ],
+   "puts_traded": 81,
+   "source": "NSE F&O bhavcopy via the data platform (end of day)"
+  },
+  "fit": {
+   "r2": null,
+   "correlation": null,
+   "regression_beta": null,
+   "observations": 0,
+   "coverage": 0.0,
+   "series_used": 0,
+   "window_start": null,
+   "window_end": null,
+   "reason": null
+  }
+ }
+}

@@ -1,0 +1,291 @@
+{
+ "about": "REAL staging capture, 31 Oct 2026, re-run after merging dev (a starter whose answer is 'none met the rule' is no longer suggested, so no breakouts card on a day with no confirmed breakout) (session window: today 31 Oct, previous session 30 Oct; data of 30 Oct): the Market and F&O Lab tabs of GET /api/suggestions as backend/services/suggestions built them in-process inside nivesh-staging-app-backend, read-only (every Mongo/Redis write refused), for a staging user with no portfolio and no trades (mode investor). These two tabs read market data only, so they are the same for any user. The For you and My trades tabs read one user's own portfolio and trades, so they are NOT captured here: the spec's personal cards are MOCK — not real data, shaped from the same route response.",
+ "tabs": {
+  "market": {
+   "schema": "suggestions-v1",
+   "tab": "market",
+   "mode": "investor",
+   "generated_at": "2026-10-31T00:46:22.206756+00:00",
+   "window": {
+    "today": "2026-10-31",
+    "previous_session": "2026-10-30"
+   },
+   "tabs": [
+    {
+     "key": "for_you",
+     "label": "For you",
+     "count": 1
+    },
+    {
+     "key": "market",
+     "label": "Market",
+     "count": 4
+    },
+    {
+     "key": "my_trades",
+     "label": "My trades",
+     "count": 2
+    },
+    {
+     "key": "fno_lab",
+     "label": "F&O Lab",
+     "count": 5
+    }
+   ],
+   "suggestions": [
+    {
+     "id": "sg_78423726111049b5",
+     "tab": "market",
+     "class": "informational",
+     "class_label": "To explore",
+     "title": "Today's key market levels",
+     "why": "Nifty, breadth, India VIX and sector moves for 30 Oct 2026.",
+     "footer": "A question to explore with the latest data. Not advice.",
+     "query": "What is the market view today?",
+     "intent": "market_view",
+     "template_id": "t_market_view",
+     "rule_id": "market_view_daily",
+     "symbol": null,
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "market_snapshot",
+       "label": "Market snapshot",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_d6220eaaf8224951",
+     "tab": "market",
+     "class": "informational",
+     "class_label": "To explore",
+     "title": "Where smart money is moving",
+     "why": "FII cash +₹3,598.54 Cr, DII cash −₹817.51 Cr on 30 Oct 2026.",
+     "footer": "A question to explore with the latest data. Not advice.",
+     "query": "Where is smart money moving?",
+     "intent": "smart_money",
+     "template_id": "t_smart_money",
+     "rule_id": "smart_money_daily",
+     "symbol": null,
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "fii_dii",
+       "label": "NSE FII/DII cash flows",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_a22cbca8fb5a8053",
+     "tab": "market",
+     "class": "informational",
+     "class_label": "To explore",
+     "title": "Nifty's expected move to 3 Nov 2026",
+     "why": "Priced from the NIFTY option chain of 30 Oct 2026.",
+     "footer": "A question to explore with the latest data. Not advice.",
+     "query": "What is the expected move in Nifty?",
+     "intent": "expected_move",
+     "template_id": "t_expected_move_nifty",
+     "rule_id": "expected_move_nifty_daily",
+     "symbol": null,
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "chain_NIFTY",
+       "label": "NIFTY option chain (NSE F&O bhavcopy)",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_657c7452f520da5d",
+     "tab": "market",
+     "class": "informational",
+     "class_label": "To explore",
+     "title": "Stocks trading on unusual volume",
+     "why": "50 stocks met the unusual-volume rule on 30 Oct 2026.",
+     "footer": "A question to explore with the latest data. Not advice.",
+     "query": "Which stocks have unusual volume?",
+     "intent": "unusual_volume",
+     "template_id": "t_unusual_volume",
+     "rule_id": "unusual_volume_daily",
+     "symbol": null,
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "scan_snapshot",
+       "label": "Stock scan (features + NSE bhavcopy)",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    }
+   ],
+   "notices": []
+  },
+  "fno_lab": {
+   "schema": "suggestions-v1",
+   "tab": "fno_lab",
+   "mode": "investor",
+   "generated_at": "2026-10-31T00:46:22.206756+00:00",
+   "window": {
+    "today": "2026-10-31",
+    "previous_session": "2026-10-30"
+   },
+   "tabs": [
+    {
+     "key": "for_you",
+     "label": "For you",
+     "count": 1
+    },
+    {
+     "key": "market",
+     "label": "Market",
+     "count": 4
+    },
+    {
+     "key": "my_trades",
+     "label": "My trades",
+     "count": 2
+    },
+    {
+     "key": "fno_lab",
+     "label": "F&O Lab",
+     "count": 5
+    }
+   ],
+   "suggestions": [
+    {
+     "id": "sg_46f2bf3a240fdf0a",
+     "tab": "fno_lab",
+     "class": "validated_signal",
+     "class_label": "Rule-based signal",
+     "title": "PERSISTENT: Bear put spread 5800/6000 fits today's regime",
+     "why": "Rank 1 on the AI scanner's F&O list of 30 Oct 2026; regime fit 100.",
+     "footer": "Met a scanner rule on 30 Oct 2026. An idea to review with its evidence, not advice.",
+     "query": "What's the setup for PERSISTENT?",
+     "intent": "stock_decision",
+     "template_id": "t_stock_setup",
+     "rule_id": "fno_top_signals",
+     "symbol": "PERSISTENT",
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "ai_watchlist",
+       "label": "AI scanner daily list",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_9b4c0558345a6592",
+     "tab": "fno_lab",
+     "class": "validated_signal",
+     "class_label": "Rule-based signal",
+     "title": "PNB: Bear put spread 120/123 fits today's regime",
+     "why": "Rank 2 on the AI scanner's F&O list of 30 Oct 2026; regime fit 100.",
+     "footer": "Met a scanner rule on 30 Oct 2026. An idea to review with its evidence, not advice.",
+     "query": "What's the setup for PNB?",
+     "intent": "stock_decision",
+     "template_id": "t_stock_setup",
+     "rule_id": "fno_top_signals",
+     "symbol": "PNB",
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "ai_watchlist",
+       "label": "AI scanner daily list",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_19587c936f261077",
+     "tab": "fno_lab",
+     "class": "validated_signal",
+     "class_label": "Rule-based signal",
+     "title": "ZYDUSLIFE: Bear put spread 1200/1250 fits today's regime",
+     "why": "Rank 3 on the AI scanner's F&O list of 30 Oct 2026; regime fit 100.",
+     "footer": "Met a scanner rule on 30 Oct 2026. An idea to review with its evidence, not advice.",
+     "query": "What's the setup for ZYDUSLIFE?",
+     "intent": "stock_decision",
+     "template_id": "t_stock_setup",
+     "rule_id": "fno_top_signals",
+     "symbol": "ZYDUSLIFE",
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "ai_watchlist",
+       "label": "AI scanner daily list",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_8e6be2eb8c549031",
+     "tab": "fno_lab",
+     "class": "informational",
+     "class_label": "To explore",
+     "title": "F&O setups that fit today's regime",
+     "why": "Defined-risk structures on the AI scanner's F&O list of 30 Oct 2026 (10 instruments).",
+     "footer": "A question to explore with the latest data. Not advice.",
+     "query": "Which F&O setups are attractive?",
+     "intent": "fno_setups",
+     "template_id": "t_fno_setups",
+     "rule_id": "fno_setups_daily",
+     "symbol": null,
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "ai_watchlist",
+       "label": "AI scanner daily list",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    },
+    {
+     "id": "sg_1a9198bbdf9e4da4",
+     "tab": "fno_lab",
+     "class": "informational",
+     "class_label": "To explore",
+     "title": "Bank Nifty's expected move to 23 Nov 2026",
+     "why": "Priced from the BANKNIFTY option chain of 30 Oct 2026.",
+     "footer": "A question to explore with the latest data. Not advice.",
+     "query": "What is the expected move in Bank Nifty?",
+     "intent": "expected_move",
+     "template_id": "t_expected_move_banknifty",
+     "rule_id": "expected_move_banknifty_daily",
+     "symbol": null,
+     "as_of": "2026-10-30",
+     "inputs": [
+      {
+       "name": "chain_BANKNIFTY",
+       "label": "BANKNIFTY option chain (NSE F&O bhavcopy)",
+       "as_of": "2026-10-30",
+       "status": "fresh"
+      }
+     ],
+     "state": "active"
+    }
+   ],
+   "notices": []
+  }
+ }
+}
