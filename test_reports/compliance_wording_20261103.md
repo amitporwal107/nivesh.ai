@@ -39,9 +39,7 @@ FAILED tests/test_cas_api_client.py::test_convenience_helper_returns_list
 FAILED tests/test_cas_api_client.py::test_sandbox_parse_and_map
 FAILED tests/test_nidp_stamp_broadcast_at.py::test_run_commits_in_batches
 ```
-These 3 need the network (the container runs `--network none`). GitHub's run on dev reports 6 pre-existing failures (MS-11,
-SW-7, test_cas_api_client ×2, test_move_odds_filing_analysis TC-10/11, test_nidp_stamp_broadcast_at); MS-11, SW-7 and TC-10/11
-pass in this container on both trees. The branch adds no failure on either side. The lint test is added to the allowlist.
+These 3 need the network (the container runs `--network none`). On GitHub (network available) the check "Backend unit tests (allowlist)" passes on both sides: dev PR #468 head `c64b9025` `9133 passed, 51 skipped` (0 failed); this PR #469 head `c176626a` `9199 passed, 51 skipped` (0 failed). The 6 failures reported earlier on dev (MS-11, SW-7, test_cas_api_client ×2, TC-10/11, test_nidp_stamp_broadcast_at) do not appear in the latest dev runs. The branch adds no failure on either side. The lint test is added to the allowlist.
 
 ### Named suites (copilot_visual, suggestions, copilot_agent, desk, positional, paper, strategy, ai_watchlist, open_book …)
 
