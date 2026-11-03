@@ -476,8 +476,10 @@ def test_sw6_evaluation_runs_while_switched_off_and_says_so():
 
 
 def test_sw7_shipped_switch_keeps_truedata_off():
+    # The committed switch may be `current` or `shadow` (owner, 30 Oct 2026: PR #416); without TrueData credentials
+    # (CI, unit tests) either one resolves to `current`, so TrueData stays off.
     r = mds.resolve()
-    assert r.configured == "current" and r.effective == "current" and mds.TRUEDATA_INTEGRATED is False
+    assert r.configured in ("current", "shadow") and r.effective == "current" and mds.TRUEDATA_INTEGRATED is False
     assert mds.truedata_is_on() is False and mds.truedata_is_on(r) is False
 
 

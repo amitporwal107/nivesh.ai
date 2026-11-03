@@ -109,8 +109,9 @@ def _r(v: Any, digits: int = 2) -> Optional[float]:
 
 
 def _q_label(d: Any) -> str:
+    """'Sep 2026' for the quarter ended 30 Sep 2026 (live check, 3 Nov: the model read 'Dec 24' as 24 December)."""
     x = date.fromisoformat(iso_day(d))
-    return f"{x.strftime('%b')} {x.strftime('%y')}"
+    return f"{x.strftime('%b')} {x.year}"
 
 
 def _fy_label(d: Any) -> str:
@@ -727,21 +728,27 @@ async def ownership_trend(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
             head = (f"{sym} at {lab}, percent of shares: " + "; ".join(parts)
                     + (f" (change from {_q_label(prev['period_end'])} in brackets)." if prev and "(" in "".join(parts) else "."))
         blocks.extend(hold.notices(sym))
-    _amc_blocks(sym, amc, e_a, src, blocks)
+    mf_ref = next(((r["mf_pct"], r["period_end"]) for r in recs if r.get("mf_pct") is not None), None)
+    _amc_blocks(sym, amc, e_a, src, blocks, mf_ref)
     gaps = ["Promoter trades one by one: the insider-trading table is empty; the exchange filings (ask for ownership filings) list SAST and pledge disclosures",
-            "Which FIIs entered or exited: FII holdings are reported only as a category total",
+            "Which FIIs started or ended a holding: FII holdings are reported only as a category total",
             "Mutual-fund holdings before September 2025"]
     blocks.append(block("list", "gaps", "Not in our data", None, items=[{"text": t} for t in gaps]))
     as_of = _newest(*(r.get("as_of") for r in src.rows))
     return _finish(assemble("ownership_trend", title, as_of, head, "neutral", blocks, src, follow_ups, now=ctx.get("now")), as_of)
 
 
-def _amc_blocks(sym: str, amc: Optional[Dict[str, Any]], err: Optional[BaseException], src: Sources, blocks: List[Dict[str, Any]]) -> None:
+AMC_AGREE = (0.8, 1.25)        # the fund-house total over the filing's MF holding, within which the two are taken to agree
+
+
+def _amc_blocks(sym: str, amc: Optional[Dict[str, Any]], err: Optional[BaseException], src: Sources, blocks: List[Dict[str, Any]],
+                mf_ref: Optional[Tuple[float, str]] = None) -> None:
+    """The fund houses behind the latest month, shown only when their disclosed total agrees with the company's own shareholding
+    filing. Measured 3 Nov 2026: the DaaS view sums every plan of a scheme (TCS: 658 scheme entries, 309 named Direct, 318 Regular),
+    so its total read 11.61% of TCS's shares against 5.65% in the filing (RADICO 45.64% vs 21.40%). Figures that double-count are
+    not shown; the notice gives both numbers."""
     if err is not None:
-        reason = why(err)
-        if "404" in reason:
-            reason = "the data platform does not serve the fund-house view yet (HTTP 404)"
-        src.miss(SRC_AMC, reason)
+        src.miss(SRC_AMC, why(err))
         return
     rows = [r for r in (amc or {}).get("rows") or [] if isinstance(r, dict)]
     if not (amc or {}).get("as_of") or not rows:
@@ -749,8 +756,21 @@ def _amc_blocks(sym: str, amc: Optional[Dict[str, Any]], err: Optional[BaseExcep
                              "stocks with an ISIN in NSE's index files.", "info", "noamc"))
         return
     cur, prv = amc["as_of"], amc.get("previous_month")
-    src.filed(SRC_AMC, cur, f"monthly scheme disclosures, {day_text(prv)} to {day_text(cur)}", 75)
     t = amc.get("totals") or {}
+    disclosed = num(t.get("pct_of_equity"))
+    if mf_ref and disclosed and mf_ref[0] > 0 and abs(_days_between(cur, mf_ref[1])) <= 75:
+        ratio = disclosed / mf_ref[0]
+        if not AMC_AGREE[0] <= ratio <= AMC_AGREE[1]:
+            src.filed(SRC_AMC, cur, f"monthly scheme disclosures, {day_text(prv)} to {day_text(cur)}; not shown (does not agree with the filing)", 75)
+            blocks.append(notice(
+                f"The mutual-fund scheme disclosures for {_month(cur)} add up to {disclosed:.2f}% of {sym}'s shares, against {mf_ref[0]:.2f}% held "
+                f"by mutual funds in the company's {_q_label(mf_ref[1])} shareholding filing. The disclosures appear to count the same holding "
+                "under more than one plan of a scheme, so the fund-house figures are not shown.", "warn", "amc-mismatch"))
+            return
+    src.filed(SRC_AMC, cur, f"monthly scheme disclosures, {day_text(prv)} to {day_text(cur)}", 75)
+    if not mf_ref or not disclosed:
+        blocks.append(notice("The fund-house figures could not be checked against the company's shareholding filing (one of the two "
+                             "totals is not in our data).", "info", "amc-unchecked"))
     blocks.append(block("kpis", "amc_totals", f"Mutual funds · {_month(cur)} vs {_month(prv)}",
                         "Monthly scheme disclosures, every scheme of a fund house added together, the stock matched by ISIN.", items=[
         {"label": "Fund houses holding", "value": f"{int(t.get('amcs') or len(rows))}", "sub": f"{int(t.get('schemes') or 0)} schemes"},
@@ -1298,13 +1318,16 @@ def _bs_block(bs: List[Dict[str, Any]], lender: bool, served: bool, blocks: List
         ca, cl = num(r.get("current_assets_cr")), num(r.get("current_liabilities_cr"))
         cells = {"p": _q_label(r["period_end"]), "eq": _cr_cell(r.get("total_equity_cr")), "debt": _cr_cell(_debt(r)),
                  "cash": _cr_cell(r.get("cash_and_equiv_cr")),
-                 "src": "TrueData balance sheet" if r.get("bs_truedata") else f"filed ({_provider(r.get('source'))} row)"}
+                 # The row's `source` owns its P&L, not necessarily these columns (the TrueData job fills them on other providers'
+                 # rows and keeps its record in nidp.truedata_fundamentals_fills, not on the row), so an untagged row names no provider.
+                 "src": "TrueData balance sheet" if r.get("bs_truedata") else "provider not recorded on the row"}
         if served and not lender:
             cells.update(cr=_times(ca / cl, 2) if ca is not None and cl else None, rec=_cr_cell(r.get("trade_receivables_cr")),
                          inv=_cr_cell(r.get("inventory_cr")))
         rows.append({"symbol": None, "cells": cells})
     blocks.append(block("ranked", "balance", "Balance sheets (filed half-yearly)",
-                        "Debt = long-term + short-term borrowings. A blank is not in our data, not zero.", columns=cols, rows=rows))
+                        "Debt = long-term + short-term borrowings. A blank is not in our data, not zero. Source names TrueData only where "
+                        "the row carries that load's tag.", columns=cols, rows=rows))
 
 
 BUILDERS = {"financial_trend": financial_trend, "valuation_view": valuation_view, "ownership_trend": ownership_trend,

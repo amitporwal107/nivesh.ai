@@ -112,6 +112,7 @@ jobs:
           tests/test_copilot_prompts_mode.py
           tests/test_copilot_visual.py
           tests/test_copilot_visual_chat.py
+          tests/test_copilot_research_answers.py
           tests/test_open_book.py
           tests/test_broker_trades.py
           tests/test_core_exceptions.py
@@ -192,6 +193,10 @@ jobs:
           tests/test_market_data_switch_live_feed.py
           nidp/tests/shared/test_market_data_source.py
           nidp/tests/shared/test_truedata_client.py
+          nidp/tests/shared/test_truedata_corporate.py
+          nidp/tests/services/test_truedata_fundamentals_transform.py
+          nidp/tests/services/test_truedata_fundamentals_service.py
+          nidp/tests/services/test_truedata_fundamentals_pg.py
           tests/test_quick_hedge_calc.py
           tests/test_quick_hedge_chat.py
           tests/test_quick_hedge_inputs.py
@@ -358,3 +363,5 @@ jobs:
           tests/test_watchlists.py
           nidp/tests/shared/test_dq_foundation_unit.py
           nidp/tests/shared/test_dq_foundation_pg.py
+          nidp/tests/services/test_truedata_history.py
+          nidp/tests/services/test_truedata_history_pg.py

@@ -11,6 +11,9 @@
 # every write recorded in nidp.truedata_fundamentals_fills. Undo a run: run_service.sh truedata_fundamentals --rollback RUN_ID
 #
 # The job obeys backend/config/market_data_source.json: at `current` it records a SKIPPED run and calls nothing.
+# STAGING ONLY (owner, 3 Nov 2026: "keep on staging.. on prod please use our snapshot data"). Never install this on
+# production: production's /etc/cron.d/nidp is generated from nidp-staging.cron alone (deploy/cloudpe-prod/
+# deploy-nidp.sh), and the job itself refuses on production (nidp.shared.deploy_env: verdict NOT_STAGING).
 # Needs TRUEDATA_USERNAME / TRUEDATA_PASSWORD in nidp.env (the same TrueData account as the 22:45 cross-check).
 #
 # Timing (IST, weekdays): 21:15 start, --max-minutes 75 stops fetching by 22:30 at the latest, so it never shares

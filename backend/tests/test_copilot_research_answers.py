@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from types import SimpleNamespace
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List
@@ -236,7 +237,7 @@ CASH = [{"symbol": "ACME", "period_end": "2026-03-31", "consolidated": True, "cf
 AMC = {"symbol": "ACME", "as_of": "2026-09-01", "previous_month": "2026-08-01", "count": 1,
        "rows": [{"amc_id": "a1", "amc_name": "MOCK Fund House A", "schemes": 5, "schemes_up": 3, "schemes_dn": 1, "shares_delta": 120000,
                  "shares_pct_change": 4.2, "share_of_disclosed_pct": 35.0}],
-       "totals": {"amcs": 1, "schemes": 5, "schemes_up": 3, "schemes_dn": 1, "pct_of_equity": 2.5, "largest_amc_share_pct": 35.0}}  # MOCK
+       "totals": {"amcs": 1, "schemes": 5, "schemes_up": 3, "schemes_dn": 1, "pct_of_equity": 8.1, "largest_amc_share_pct": 35.0}}  # MOCK (agrees with the 8.00% MF filing)
 UNIVERSE = {"as_of": "2026-10-30", "rows": [
     {"symbol": "ACME", "sector": "IT", "industry": "Information Technology", "market_cap_cr": 100000},
     {"symbol": "PEERA", "sector": "IT", "industry": "Information Technology", "market_cap_cr": 200000},
@@ -324,14 +325,14 @@ def test_b1_financial_trend_one_basis_yoy_and_depth(src):
     p = build("financial_trend")
     assert p["intent"] == "financial_trend" and p["title"] == "ACME · Financial trend"
     rows = blk(p, "quarters")["rows"]
-    assert [r["cells"]["q"] for r in rows] == ["Sep 26", "Jun 26", "Mar 26", "Dec 25", "Sep 25", "Jun 25", "Mar 25", "Dec 24"]   # 8 shown
+    assert [r["cells"]["q"] for r in rows] == ["Sep 2026", "Jun 2026", "Mar 2026", "Dec 2025", "Sep 2025", "Jun 2025", "Mar 2025", "Dec 2024"]   # 8 shown
     assert rows[0]["cells"]["rev"] == "1,100"                       # consolidated, not the standalone 700
     assert rows[0]["cells"]["rev_yoy"] == 10.0 and rows[0]["cells"]["rev_qoq"] == 4.76
-    assert rows[-1]["cells"]["rev_yoy"] is None                     # Dec 24 has no year-ago quarter in the data
+    assert rows[-1]["cells"]["rev_yoy"] is None                     # Dec 2024 has no year-ago quarter in the data
     assert rows[0]["cells"]["ebitda_m"] == "25.0%" and rows[5]["cells"]["ebitda"] is None
-    assert kpi(p, "latest", "EBITDA margin")["sub"] == "−4.00 pp vs Sep 25"
-    assert "slower than the Jun 26 quarter's (+10.5%)" in p["headline"]["text"]
-    assert "Our data has 9 quarters (Sep 24 to Sep 26) and 3 fiscal years (FY24 to FY26) for ACME." in blk(p, "depth")["text"]
+    assert kpi(p, "latest", "EBITDA margin")["sub"] == "−4.00 pp vs Sep 2025"
+    assert "slower than the Jun 2026 quarter's (+10.5%)" in p["headline"]["text"]
+    assert "Our data has 9 quarters (Sep 2024 to Sep 2026) and 3 fiscal years (FY24 to FY26) for ACME." in blk(p, "depth")["text"]
     assert "more than one provider (Trendlyne, screener.in)" in blk(p, "providers")["text"]
     assert "EBITDA is not in our data for 3 of the 8 quarters shown." == blk(p, "noebitda")["text"]
     years = blk(p, "years")["rows"]
@@ -386,9 +387,9 @@ def test_b2_scenarios_only_when_asked(src):
 def test_b3_field_wise_merge_nse_first_and_no_public_figure(src):
     p = build("ownership_trend")
     k = {i["label"]: i for i in blk(p, "latest")["items"]}
-    assert k["Promoters · Sep 26"]["value"] == "50.00%" and k["Promoters · Sep 26"]["sub"] == "−1.00 pp vs Jun 26 · −3.00 pp vs Sep 25"
-    assert k["DIIs · Sep 26"]["value"] == "15.00%"                                     # NSE's 15.00, not screener.in's 15.02
-    assert k["Mutual funds · Sep 26"]["value"] == "8.00%"
+    assert k["Promoters · Sep 2026"]["value"] == "50.00%" and k["Promoters · Sep 2026"]["sub"] == "−1.00 pp vs Jun 2026 · −3.00 pp vs Sep 2025"
+    assert k["DIIs · Sep 2026"]["value"] == "15.00%"                                     # NSE's 15.00, not screener.in's 15.02
+    assert k["Mutual funds · Sep 2026"]["value"] == "8.00%"
     assert k["Pledged (of promoter shares)"]["value"] == "12.50%" and "6.25% of all shares" in k["Pledged (of promoter shares)"]["sub"]
     rows = blk(p, "quarters")["rows"]
     assert rows[1]["cells"]["pledge"] == "11.00%" and rows[2]["cells"]["pledge"] is None        # a blank is not reported, not 0
@@ -399,13 +400,36 @@ def test_b3_field_wise_merge_nse_first_and_no_public_figure(src):
     assert blk(p, "amc")["rows"][0]["cells"]["amc"] == "MOCK Fund House A"
 
 
-def test_b3_fund_house_route_404_is_a_named_missing_source(src, monkeypatch):
+def test_b3_fund_house_read_failing_is_a_named_missing_source(src, monkeypatch):
     async def amc404(sym):
-        raise RuntimeError("DaaS /smart-money/amc answered 404")
+        raise RuntimeError("DaaS /desk/smart-money/amc answered 404")
     monkeypatch.setattr(rr, "amc", amc404)
     p = build("ownership_trend")
     assert blk(p, "amc") is None and blk(p, "amc_totals") is None
-    assert any("does not serve the fund-house view yet (HTTP 404)" in x for x in p["data_quality"]["missing"])
+    assert any(x.startswith("Mutual-fund holdings by fund house") and "404" in x for x in p["data_quality"]["missing"])
+
+
+def test_b3_fund_house_reader_calls_the_desk_route(monkeypatch):
+    """The smart-money router is mounted under /desk (daas_api/app.py); /v1/smart-money/amc does not exist (W1 shipped that path:
+    every answer said the view was not served)."""
+    seen = []
+
+    async def daas(path, params=None):
+        seen.append((path, params))
+        return {"symbol": "ACME", "as_of": "2026-09-01", "rows": []}
+    monkeypatch.setattr(rd, "_daas", daas)
+    asyncio.run(rr.amc("ACME"))
+    assert seen == [("/desk/smart-money/amc", {"symbol": "ACME"})]
+
+
+def test_b3_fund_house_figures_that_disagree_with_the_filing_are_not_shown(src):
+    """Real, 3 Nov 2026: the DaaS view sums every plan of a scheme, TCS 11.61% of shares against 5.65% in the filing."""
+    src.v["amc"] = {**AMC, "totals": {**AMC["totals"], "pct_of_equity": 16.4}}         # MOCK: twice the 8.00% filed
+    p = build("ownership_trend")
+    assert blk(p, "amc") is None and blk(p, "amc_totals") is None
+    t = blk(p, "amc-mismatch")["text"]
+    assert "add up to 16.40% of ACME's shares, against 8.00% held by mutual funds in the company's Sep 2026 shareholding filing" in t
+    assert advice_words([t]) == []
 
 
 def test_b3_sources_that_disagree_never_make_a_change(src):
@@ -436,17 +460,17 @@ def test_b3_pledge_without_a_promoter_is_not_shown(src):
 def test_b3_a_change_across_unchecked_sources_says_so(src):
     src.v["shareholding"] = [r for r in shareholding() if not (r["period_end"] == "2026-09-30" and r["source"] == "screener_in")]
     p = build("ownership_trend")
-    assert kpi(p, "latest", "Promoters")["sub"].startswith("−1.00 pp vs Jun 26")
+    assert kpi(p, "latest", "Promoters")["sub"].startswith("−1.00 pp vs Jun 2026")
     assert "have no quarter in common to check them" in blk(p, "crossed")["text"]
 
 
 def test_b3_an_unusually_large_one_quarter_move_is_named(src):
     """The ICICIBANK case (real: screener.in FIIs 43.87% → 34.48% in one quarter)."""
     rows = shareholding()
-    rows[4]["fii_pct"] = 12.0                                                          # MOCK: Mar 26 12.0 → Jun 26 19.5
+    rows[4]["fii_pct"] = 12.0                                                          # MOCK: Mar 2026 12.0 → Jun 2026 19.5
     src.v["shareholding"] = rows
     p = build("ownership_trend")
-    assert "FIIs +7.50 pp (Mar 26 to Jun 26)" in blk(p, "jumps")["text"]
+    assert "FIIs +7.50 pp (Mar 2026 to Jun 2026)" in blk(p, "jumps")["text"]
 
 
 def test_b3_short_history_says_so(src):
@@ -531,9 +555,9 @@ def test_b5_debt_growth_from_a_tiny_base_is_not_flagged(src):
 def test_b5_march_balance_sheet_uses_the_fiscal_year_revenue(src):
     src.v["quarterly"] = [r for r in quarters() if r["period_end"] not in ("2026-09-30", "2026-06-30")]
     c = checks_of(build("company_risks"))
-    # Mar 26 vs Mar 25: receivables 500 vs 380 (+31.6%) against FY26 vs FY25 revenue 4,000 vs 3,600 (+11.1%)
+    # Mar 2026 vs Mar 2025: receivables 500 vs 380 (+31.6%) against FY26 vs FY25 revenue 4,000 vs 3,600 (+11.1%)
     assert c["Receivables vs revenue growth"]["value"] == "receivables +31.6%, revenue (12 months) +11.1%"
-    assert c["Receivables vs revenue growth"]["result"] == "Flagged" and c["Receivables vs revenue growth"]["when"] == "Mar 25 to Mar 26"
+    assert c["Receivables vs revenue growth"]["result"] == "Flagged" and c["Receivables vs revenue growth"]["when"] == "Mar 2025 to Mar 2026"
 
 
 def test_b5_no_source_column_when_no_row_states_one(src):
@@ -566,6 +590,7 @@ def test_b5_balance_sheet_columns_not_served(src):
     c = checks_of(p)
     assert c["Current ratio"]["value"] == "not served by the data platform yet" and c["Current ratio"]["result"] == "Not in our data"
     assert c["Debt to equity"]["result"] == "Within the rule"                         # equity and debt are served today
+    assert blk(p, "balance")["rows"][0]["cells"]["src"] == "provider not recorded on the row"   # never the P&L row's provider
 
 
 def test_b5_lender_checks_are_not_applicable(src):
@@ -607,11 +632,43 @@ def test_b6_thread_stock_is_named(src):
 
 
 # ═════ TC-B7: SEBI wording lint ═════════════════════════════════════════════════════════════════════════════════════
+# Owner, 3 Nov 2026: "Please check compliance and do not use words like buy, stop loss, target". Applied to every string the
+# answers can show: block titles, notes, KPI labels and values, table cells, notices, headline, follow-up chips, caveat, the facts
+# lines the explanation reads, and the suggestion templates. Routing regexes that RECOGNISE these words in a question are not
+# output and are not linted.
+LINT = re.compile(r"\b(buy\w*|sell\w*|hold|holds|target\w*|price\s+target\w*|recommend\w*|pick|picks|picked|cheap\w*|expensive|"
+                  r"undervalued|overvalued|stop[- ]?loss\w*|entry|entries|exit\w*|accumulat\w*|book(ing)?\s+profits?|upside|downside|"
+                  r"multibagger\w*|should\s+invest)\b", re.I)
+LINT_CASED = re.compile(r"\bSL\b")
 
-LINT = re.compile(r"\b(buy|sell|hold|target|targets|recommend\w*|pick|picks|cheap|expensive|undervalued|overvalued)\b", re.I)
+
+def advice_words(strings) -> List[str]:
+    return [t for t in strings if LINT.search(t) or LINT_CASED.search(t)]
 
 
-@pytest.mark.parametrize("variant", ["full", "lender", "failure", "cash404"])
+def facts_lines(p, sym="ACME") -> List[str]:
+    """The facts the explanation reads, without its fixed instruction header (which names words only to forbid them)."""
+    return facts(p, subject=sym).splitlines()[1:]
+
+
+TD_BS = ("total_equity_cr", "long_term_debt_cr", "short_term_debt_cr", "cash_and_equiv_cr", "current_assets_cr",
+         "current_liabilities_cr", "trade_receivables_cr", "inventory_cr", "trade_payables_cr")
+
+
+def production_data(src):
+    """Production (owner, 3 Nov 2026: TrueData figures only on staging; "on prod please use our snapshot data"): no TrueData job runs
+    there, so nidp.nse_financials_cashflow is empty and the TrueData-filled balance-sheet columns are null. The DaaS still serves
+    the columns (this branch), with null values."""
+    src.v["cashflow"] = []
+    for k in ("quarterly", "annual"):
+        src.v[k] = [{**r, **{c: None for c in TD_BS}, "bs_truedata": False} for r in src.v[k]]
+
+
+ALL_ANSWERS = (("financial_trend", {}), ("valuation_view", {"growth": [15.0]}), ("ownership_trend", {}),
+               ("peer_compare", {"symbols": ["ACME"]}), ("peer_compare", {"symbols": ["ACME", "PEERA"]}), ("company_risks", {}))
+
+
+@pytest.mark.parametrize("variant", ["full", "lender", "failure", "cash404", "production", "thread"])
 def test_b7_no_advice_words_in_any_answer(src, variant):
     if variant == "lender":
         src.v["features"] = {**FEAT, "sector": "BANKING"}
@@ -619,11 +676,61 @@ def test_b7_no_advice_words_in_any_answer(src, variant):
         src.fail.update({"financials", "cashflow", "shareholding", "features_latest", "pe_history", "amc", "universe", "features_on"})
     if variant == "cash404":
         src.fail.add("cashflow_404")
-    for name, params in (("financial_trend", {}), ("valuation_view", {"growth": [15.0]}), ("ownership_trend", {}),
-                         ("peer_compare", {"symbols": ["ACME"]}), ("peer_compare", {"symbols": ["ACME", "PEERA"]}), ("company_risks", {})):
-        p = build(name, **params)
-        hits = [t for t in texts(p) if LINT.search(t)]
-        assert hits == [], (name, variant, hits)
+    if variant == "production":
+        production_data(src)
+    for name, params in ALL_ANSWERS:
+        p = build(name, symbol_from_thread=variant == "thread", **params)
+        assert advice_words(texts(p)) == [], (name, variant, advice_words(texts(p)))
+        assert advice_words(facts_lines(p)) == [], (name, variant, advice_words(facts_lines(p)))
+
+
+def test_b7_the_lint_catches_the_owner_words():
+    for bad in ("Buy on dips", "stop loss at 820", "stop-loss", "SL 820", "target 900", "price target", "entry near 800", "exit above",
+                "accumulate", "book profits", "upside of 10%", "downside", "a multibagger", "you should invest",
+                "Which FIIs entered or exited"):
+        assert advice_words([bad]), bad
+    for ok in ("Promoter holding", "shareholding", "Fund houses holding", "threshold", "Schemes that added", "held"):
+        assert not advice_words([ok]), ok
+
+
+def test_b7_the_research_suggestion_templates_are_clean():
+    from services.suggestions import catalog
+    research = [t for t in catalog.QUERY_TEMPLATES if t["intent"] in RESEARCH_INTENTS]
+    assert {t["intent"] for t in research} == set(RESEARCH_INTENTS)
+    assert advice_words([t[k] for t in research for k in ("label", "query")]) == []
+
+
+# ═════ TC-P: production data (no TrueData: cash flow empty, balance-sheet columns null) ══════════════════════════════
+
+def test_p1_company_risks_on_production_data_says_not_in_our_data(src):
+    production_data(src)
+    p = build("company_risks")
+    c = checks_of(p)
+    for name in ("Debt to equity", "Debt growth vs profit growth", "Current ratio", "Cash from operations ÷ PAT",
+                 "PAT growth vs cash-flow growth", "Free cash flow", "Receivables vs revenue growth", "Working capital days"):
+        assert c[name]["result"] == "Not in our data", (name, c[name])
+        assert c[name]["value"] in (None, "not served by the data platform yet") or "not" in c[name]["value"], (name, c[name])
+    assert c["Interest cover"]["value"] == "17.0×"                                    # from the P&L, which prod has
+    assert kpi(p, "summary", "Flagged")["value"] == "3 of 5" and kpi(p, "summary", "No data")["value"] == "8"
+    assert kpi(p, "summary", "Latest balance sheet")["value"] == "not in our data"
+    assert kpi(p, "summary", "Latest cash-flow year")["value"] == "not in our data"
+    assert "Cash-flow statements for ACME are not in our data yet" in blk(p, "nocf")["text"]
+    assert blk(p, "cash") is None and blk(p, "cfo_pat") is None and blk(p, "balance") is None
+    flat = " ".join(texts(p))
+    for figure in ("420", "480", "1.50×", "0.25×", "35 days"):                       # nothing from the absent statements
+        assert figure not in flat, figure
+    assert p["data_quality"]["missing"] == []                                       # absent data is a gap in the data, not a failed read
+
+
+def test_p2_the_other_answers_on_production_data(src):
+    production_data(src)
+    for name, params in ALL_ANSWERS:
+        p = build(name, **params)                                                    # validate() == [] inside build
+        assert p["blocks"], name
+    years = blk(build("financial_trend"), "years")["rows"]
+    assert all(r["cells"]["roe"] is None for r in years)                             # ROE needs filed equity: blank, not estimated
+    assert kpi(build("valuation_view"), "now", "P/E (trailing")["value"] == "20.0×"   # features, not TrueData
+    assert kpi(build("ownership_trend"), "latest", "Promoters")["value"] == "50.00%"
 
 
 # ═════ TC-B8: registration, facts subject ═══════════════════════════════════════════════════════════════════════════
@@ -641,6 +748,8 @@ def test_b8_prepare_names_the_stock_as_the_facts_subject(src, monkeypatch):
     va = asyncio.run(cv.prepare(None, {"user_id": "u1"}, "What is the current ratio of TCS?", None, None, None, None))
     assert va is not None and va.intent.name == "company_risks" and va.agent == "stock_analyst"
     assert va.facts.startswith("VISUAL_ANSWER for TCS (company_risks)")
+    from services.copilot_visual.research_intents import WORDING_RULE
+    assert va.facts.endswith(WORDING_RULE) and "stop loss" in WORDING_RULE and "price target" in WORDING_RULE
     assert va.widget["widget_type"] == "visual_answer" and va.trade_idea is None
 
 
@@ -713,7 +822,100 @@ def test_c2_research_real_capture_matches_the_contract():
     assert {p["intent"] for p in doc["payloads"].values()} == set(RESEARCH_INTENTS)
     for key, p in doc["payloads"].items():
         assert p["intent"] == key.split(":")[0] and validate(p) == [], (key, validate(p))
-        assert [t for t in texts(p) if LINT.search(t)] == [], key
+        assert advice_words(texts(p)) == [], (key, advice_words(texts(p)))
     risks = doc["payloads"]["company_risks:route_sql"]
     assert any(r["cells"]["check"] == "Current ratio" and r["cells"]["value"] for r in blk(risks, "checks")["rows"])
-    assert any("does not serve cash-flow statements yet" in m for m in doc["payloads"]["company_risks"]["data_quality"]["missing"])
+    live = doc["payloads"]["company_risks"]                                         # the live DaaS serves the cash-flow route (#458 deploy)
+    assert live["data_quality"]["missing"] == [] and blk(live, "cash") is not None
+    assert "amc-mismatch" in {b.get("id") for b in doc["payloads"]["ownership_trend"]["blocks"]}   # the real double count is caught
+    prod = doc["payloads"]["company_risks:production"]
+    assert blk(prod, "cash") is None and "nocf" in {b.get("id") for b in prod["blocks"]}
+
+
+# ═════ TC-B11: the stock analyst explains a research card from the card alone ═══════════════════════════════════════
+# Live on staging, 3 Nov 2026 (round 1): the explanation used the stock node's own template and tools, so it added a provider's
+# "PAT YoY +4.5%" beside the card's filed +15.4% and wrote "relatively cheap valuation" / "bullish bias".
+
+class _FakeLLM:
+    def __init__(self, seen):
+        self.seen = seen
+
+    async def ainvoke(self, messages):
+        self.seen.append(messages)
+        return SimpleNamespace(content="MOCK explanation")
+
+
+def _stock_state(text):
+    from langchain_core.messages import HumanMessage
+    from nidp.services.copilot_agent.schemas import CopilotState
+    return CopilotState(messages=[HumanMessage(content=text)], user_id="u1", session_id="s1")
+
+
+def test_b11_research_card_is_explained_from_its_facts_only(src, monkeypatch):
+    from services import copilot_visual as cv
+    from nidp.services.copilot_agent.nodes import stock as node
+    seen: List[Any] = []
+    monkeypatch.setattr(node, "make_chat_llm", lambda *a, **k: _FakeLLM(seen))
+
+    async def no_tools(symbol):
+        raise AssertionError("the research path reads no tool of its own")
+    monkeypatch.setattr(node, "_fetch_stock_data", no_tools)
+    va = asyncio.run(cv.prepare(None, {"user_id": "u1"}, "Is TCS expensive or cheap?", None, None, None, None))
+    from services.llm_safety import wrap_external_data
+    told = "Is TCS expensive or cheap?\n\n" + wrap_external_data(va.facts, source="visual_answer")
+    out = asyncio.run(node.stock_node(_stock_state(told)))
+    system, user = seen[0][0]["content"], seen[0][1]["content"]
+    assert "A research card built from the" in system and "never describe a valuation as cheap" in system
+    assert "Section: **Technical**" not in system and "TOOL_DATA:\n" not in system
+    assert user == told and node.RESEARCH_CARD_MARK in user
+    assert out["response"].text == "MOCK explanation" and getattr(out["response"].widget_type, "value", out["response"].widget_type) == "none" and out["tool_results"] == []
+    from services.copilot_visual.research_intents import WORDING_RULE
+    assert WORDING_RULE.startswith(node.RESEARCH_CARD_MARK)
+
+
+def test_b11_the_explanation_request_names_advice_words_only_to_forbid_them(src, monkeypatch):
+    """The lint over what the explanation step is given: apart from the user's own question and the two instructions that forbid
+    the words (WORDING_RULE and the system prompt's wording bullet), nothing in the request carries an advice word."""
+    from services import copilot_visual as cv
+    from services.llm_safety import wrap_external_data
+    from services.copilot_visual.research_intents import WORDING_RULE
+    from nidp.services.copilot_agent._llm import ANTI_HALLUCINATION_RULES
+    from nidp.services.copilot_agent.nodes import stock as node
+    seen: List[Any] = []
+    monkeypatch.setattr(node, "make_chat_llm", lambda *a, **k: _FakeLLM(seen))
+    for q, name, params in (("What is the financial trend of ACME?", "financial_trend", {}), ("Is ACME expensive or cheap?", "valuation_view", {}),
+                            ("Has promoter holding of ACME changed?", "ownership_trend", {}), ("Compare ACME with its peers", "peer_compare",
+                            {"symbols": ["ACME"]}), ("What are the biggest risks for ACME?", "company_risks", {})):
+        p = build(name, **params)
+        va_facts = facts(p, subject="ACME") + "\n" + WORDING_RULE                   # what copilot_visual.prepare sends
+        told = q + "\n\n" + wrap_external_data(va_facts, source="visual_answer")
+        asyncio.run(node.stock_node(_stock_state(told)))
+        system, user = seen[-1][0]["content"], seen[-1][1]["content"]
+        body = [ln for ln in user.splitlines()[1:] if "VISUAL_ANSWER for ACME" not in ln and WORDING_RULE not in ln]
+        assert advice_words(body) == [], (name, advice_words(body))
+        own = node._RESEARCH_SYSTEM.replace(ANTI_HALLUCINATION_RULES, "")
+        bullet = own[own.index("- Follow the WORDING RULE"):]
+        assert advice_words(own.replace(bullet, "").splitlines()) == []
+        assert all(w in bullet for w in ("bullish", "cheap", "expensive")) and system.endswith(node._RESEARCH_SYSTEM)
+
+
+def test_b11_an_ordinary_stock_question_keeps_the_usual_path(monkeypatch):
+    """No change to non-research stock answers: the original template, the node's own tools, no research instructions."""
+    from nidp.services.copilot_agent.nodes import stock as node
+    called, seen = [], []
+
+    async def tools(symbol):
+        called.append(symbol)
+        return []
+    monkeypatch.setattr(node, "_fetch_stock_data", tools)
+    monkeypatch.setattr(node, "make_chat_llm", lambda *a, **k: _FakeLLM(seen))
+    from services.copilot_tools import instrument_research
+
+    async def no_research(symbol):                                                 # MOCK: the research card read is not under test
+        return None
+    monkeypatch.setattr(instrument_research, "get_stock_research", no_research)
+    for msg in ("Analyse TCS", "Is TCS expensive or cheap?", "What is the trade plan for TCS?"):
+        asyncio.run(node.stock_node(_stock_state(msg)))
+        system = seen[-1][0]["content"]
+        assert node._SYSTEM in system and "A research card built from the" not in system, msg
+    assert called == ["TCS", "TCS", "TCS"]

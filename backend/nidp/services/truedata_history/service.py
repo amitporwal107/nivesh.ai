@@ -16,8 +16,11 @@ which deletes its earlier rows in the same transaction.
 
 The market-data switch (backend/nidp/shared/market_data_source.py): a load, and any path that would call TrueData, runs
 only when truedata_is_on(); at `current` it returns SWITCHED_OFF having called and written nothing. A dry run from files
-only (raw_dir AND overlap_dir) calls nothing and writes nothing, so it runs at any switch position. rollback() runs at any
-position: it is part of the way back.
+only (raw_dir AND overlap_dir) calls nothing and writes nothing, so it runs at any switch position.
+STAGING ONLY (owner, 3 Nov 2026: "keep on staging.. on prod please use our snapshot data"): after the switch, every mode
+but rollback asks nidp.shared.deploy_env.truedata_load_gate(); on production or an unknown environment it returns
+NOT_STAGING having called nothing and written no data (a real run records a SKIPPED job_log row, error_class NOT_STAGING).
+rollback() runs anywhere: it is part of the way back.
 """
 from __future__ import annotations
 
@@ -30,8 +33,9 @@ import uuid
 from collections import Counter
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from nidp.shared import deploy_env
 from nidp.shared import market_data_source as mds
 from nidp.shared.sources import truedata as td
 
@@ -199,7 +203,7 @@ async def load(symbols: Optional[Sequence[str]] = None, *, raw_dir: Optional[str
                overlap_dir: Optional[str] = None, client: Optional[td.TrueDataClient] = None,
                dry_run: bool = False, replace: bool = False, batch_size: int = BATCH_SIZE,
                switch: Optional[Callable[[], mds.Resolution]] = None, pool=None,
-               job_run_factory=None) -> Dict[str, Any]:
+               job_run_factory=None, env: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
     """Backfill. Returns a JSON-able report (status counts, flagged symbols, factor stats, run id)."""
     resolution = (switch or mds.resolve)()
     report: Dict[str, Any] = {"ingester": INGESTER, "dry_run": dry_run, "market_data_source": resolution.effective,
@@ -207,14 +211,27 @@ async def load(symbols: Optional[Sequence[str]] = None, *, raw_dir: Optional[str
                               "overlap": overlap_dir or "TrueData, one call per symbol"}
     if (not dry_run or _needs_truedata(raw_dir, overlap_dir)) and not mds.truedata_is_on(resolution):
         return {**report, "verdict": "SWITCHED_OFF", "message": mds.truedata_off_message(resolution)}
+
+    if pool is None:
+        from nidp.shared.storage.pg import get_pool
+        pool = await get_pool()
+    if job_run_factory is None and not dry_run:
+        from nidp.shared.storage.job_log import JobRun as job_run_factory
+    async with pool.acquire() as conn:
+        gate = await deploy_env.truedata_load_gate(conn, env)
+    report["environment"] = gate.environment
+    if not gate.allowed:                                   # production / unknown: no TrueData call, no data written
+        report.update(verdict=deploy_env.NOT_STAGING, message=gate.reason)
+        if not dry_run:
+            async with job_run_factory(INGESTER, target_date=HISTORY_END) as run:
+                await run.finalize("SKIPPED", error_message=gate.reason[:500], error_class=deploy_env.NOT_STAGING)
+            report["job_status"] = "SKIPPED"
+        return report
     if _needs_truedata(raw_dir, overlap_dir) and client is None:
         client = td.TrueDataClient()
 
     if symbols is None:
         symbols = list_raw_symbols(raw_dir) if raw_dir else None
-    if pool is None:
-        from nidp.shared.storage.pg import get_pool
-        pool = await get_pool()
     async with pool.acquire() as conn:
         if symbols is None:
             symbols = [r["symbol"] for r in await conn.fetch(
@@ -251,8 +268,6 @@ async def load(symbols: Optional[Sequence[str]] = None, *, raw_dir: Optional[str
     if dry_run:
         await run_batches(None)
     else:
-        if job_run_factory is None:
-            from nidp.shared.storage.job_log import JobRun as job_run_factory
         # An exception finalizes the job FAILED (JobRun.__aexit__); batches committed before it keep this run id, so
         # rollback(run_id) removes them.
         async with job_run_factory(INGESTER, target_date=HISTORY_END) as run:

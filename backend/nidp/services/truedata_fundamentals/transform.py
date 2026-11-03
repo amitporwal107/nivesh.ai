@@ -478,9 +478,9 @@ def cash_flow_offer(filing: Filing, cf: Mapping[str, Any], al: Optional[Mapping[
         why.append("no CFO")
     if cfo is not None and cfi is not None and cff is not None and net is not None:
         scale = max(abs(cfo), abs(cfi), abs(cff), 1.0)
-        target = before if before is not None else net - fx
-        if abs((cfo + cfi + cff) - target) > max(IDENTITY_TOLERANCE * scale, 2.0):
-            why.append(f"CFO+CFI+CFF {cfo + cfi + cff:.0f} != net change before FX {target:.0f}")
+        expected = before if before is not None else net - fx
+        if abs((cfo + cfi + cff) - expected) > max(IDENTITY_TOLERANCE * scale, 2.0):
+            why.append(f"CFO+CFI+CFF {cfo + cfi + cff:.0f} != net change before FX {expected:.0f}")
     if why:
         out.rejects.append(Reject("cash_flow", filing.symbol, period_end, filing.id, "; ".join(why)))
         return None
@@ -553,24 +553,24 @@ def fy_pnl_candidates(all_filings: Sequence[Filing], keys: Iterable[Tuple[str, s
     return out
 
 
-def statements_needed(targets: Sequence[Filing], all_filings: Sequence[Filing], finance_costs: bool = True,
+def statements_needed(window_filings: Sequence[Filing], all_filings: Sequence[Filing], finance_costs: bool = True,
                       rank: Optional[Mapping[str, int]] = None) -> List[Tuple[str, int]]:
     """(kind, filing id) to have in the cache, in fetch order. Company by company (`rank`: lower first, e.g. largest
     market cap): its latest FY P&L (unit anchor), then the balance sheet and cash flow of each half-year / fiscal-year
     filing; after every company, the quarter-only P&Ls (finance costs). A run cut short has the most useful part."""
     rank = rank or {}
     last = len(rank) + 1
-    fy = fy_pnl_candidates(all_filings, {f.key for f in targets})
+    fy = fy_pnl_candidates(all_filings, {f.key for f in window_filings})
     first: List[Tuple[int, str, int, Tuple[str, int]]] = []
     for key, cands in fy.items():
         first.append((rank.get(key[0], last), key[0], 0, ("pl", cands[0].id)))
-    for f in targets:
+    for f in window_filings:
         if f.quarter in H1_FY:
             first.append((rank.get(f.symbol, last), f.symbol, 1, ("al", f.id)))
             first.append((rank.get(f.symbol, last), f.symbol, 2, ("cf", f.id)))
     need = [n for *_, n in sorted(first, key=lambda x: x[:3] + (x[3][1],))]
     if finance_costs:
-        need += [("plq", f.id) for f in sorted(targets, key=lambda f: (rank.get(f.symbol, last), f.symbol, f.id))
+        need += [("plq", f.id) for f in sorted(window_filings, key=lambda f: (rank.get(f.symbol, last), f.symbol, f.id))
                  if f.quarter in QUARTER_LABELS]
     seen, ordered = set(), []
     for n in need:
@@ -580,15 +580,15 @@ def statements_needed(targets: Sequence[Filing], all_filings: Sequence[Filing], 
     return ordered
 
 
-def build(targets: Sequence[Filing], all_filings: Sequence[Filing], get: Getter, ours: OurFinancials,
+def build(window_filings: Sequence[Filing], all_filings: Sequence[Filing], get: Getter, ours: OurFinancials,
           shares: Mapping[str, float], finance_costs: bool = True) -> TransformResult:
-    """Offers for the target filings. `all_filings` (deduped, nature-filtered) supplies the fiscal-year P&Ls that
+    """Offers for the load window's filings. `all_filings` (deduped, nature-filtered) supplies the fiscal-year P&Ls that
     anchor each company's unit. A statement `get` returns None for (not fetched) is counted, never guessed."""
     out = TransformResult()
-    cands = fy_pnl_candidates(all_filings, {f.key for f in targets})
+    cands = fy_pnl_candidates(all_filings, {f.key for f in window_filings})
     fy_pnls = {k: [(f, get("pl", f.id)) for f in v] for k, v in cands.items()}
     out.units, out.unit_notes = infer_units(fy_pnls, ours, shares)
-    for f in targets:
+    for f in window_filings:
         out.counts["filings"] += 1
         if f.quarter in H1_FY:
             al = get("al", f.id)
