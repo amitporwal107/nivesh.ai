@@ -76,8 +76,10 @@ def test_intraday_lines_say_whether_they_were_applied():
     assert [ln for ln in off if ln["text"].startswith("Close > 15-minute EMA")][0]["note"] == "not applied — no Kite login"
     on = MD.criteria_lines(W("n50_gainers"), True)
     assert all(ln["applied"] for ln in on)
-    nc = MD.criteria_lines(W("vol_10x_5min"))
-    assert [ln["applied"] for ln in nc] == [True, False, True, True, False]
+    v10 = MD.criteria_lines(W("vol_10x_5min"))
+    assert [ln["text"] for ln in v10][:3] == ["Universe: All NSE stocks", "Volume > 10,00,000", "Open ≥ 50"]
+    assert [ln["applied"] for ln in v10] == [True, True, True, False, False]          # 5-minute + trade-side not run yet
+    assert all(ln["applied"] for ln in MD.criteria_lines(W("vol_10x_5min"), True, None, True, None))
 
 
 BANNED = re.compile(r"\b(buy\w*|sell\w*|target\w*|stop ?loss|sl|pick|picks|recommend\w*|entry|exit)\b", re.I)
@@ -164,7 +166,9 @@ def test_results_widgets_wait_for_results_and_intraday_widgets_fall_back_to_part
     assert lbu["status"] == "partial" and [r[0] for r in lbu["rows"]] == ["AAA"]
     assert [ln["applied"] for ln in lbu["criteria"] if ln["text"].startswith("1-hour")] == [False, False, False]
     assert "15-minute candles are loading" in lbu["criteria"][-1]["note"]
-    assert w["vol_10x_5min"]["status"] == "not_computed" and "initiated at the ask" in w["vol_10x_5min"]["note"]
+    # 10x volume: no stock trades 10 lakh shares in the hand-made market, so nothing reaches the 5-minute or trade-side parts.
+    assert w["vol_10x_5min"]["status"] == "ok" and w["vol_10x_5min"]["rows"] == []
+    assert all(ln["applied"] for ln in w["vol_10x_5min"]["criteria"])
     # Index stats: Kite rows, Ltp descending (Chartink ORDER BY 1 desc), not links.
     assert w["index_stats"]["rows"] == [["BANKNIFTY", 55000.0, -0.25], ["NIFTY", 23000.0, 0.5]]
     assert w["index_stats"]["row_kind"] == "index"
@@ -259,7 +263,7 @@ def test_route_answers_the_dashboard_and_a_typed_503(monkeypatch, tmp_path):
         return {"ok": True, "widgets": [], "cached": False}
     monkeypatch.setattr(rsb.market_dashboard, "get_dashboard", fake)
     r = client.get("/api/scan-builder/market-dashboard", headers=H())
-    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.status_code == 200 and r.json()["ok"] is True and r.json()["ideas"] == {} and r.json()["ideas_meta"] is None
     assert client.get("/api/scan-builder/market-dashboard", headers=H("other")).status_code == 403   # flag: owner only
 
     async def down(data, **kw):
@@ -287,10 +291,156 @@ def test_candidates_still_without_candles_make_the_widget_partial(tmp_path, monk
 
     async def half(symbols, interval, needs, *, lookback_days, **kw):
         assert sorted(symbols) == ["AAA", "CCC"]
-        return _Intra(values={"AAA": {"ema21": 1.0}}, as_of="09:30")    # CCC's candles have not arrived
+        return _Intra(values={"AAA": {"ema21": 1.0}}, as_of="09:30", missing=["CCC"])   # CCC's candles have not arrived
 
     out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=half, index_result=_indices))
     t = out["widgets"][0]
     assert t["status"] == "partial" and [r[0] for r in t["rows"]] == ["AAA"]
     assert t["note"].startswith("1 of 2 stocks have no 15-minute candles yet")
     assert all(ln["applied"] for ln in t["criteria"])            # applied to every stock that has candles
+
+
+
+# ── 10x volume first 5 min: Kite 5-minute candles, then TrueData trade sides ────────────────────────────────────────
+
+def _v10_any_volume():
+    """The real widget with its daily part relaxed so both hand-made stocks reach the 5-minute stage."""
+    w = W("vol_10x_5min")
+    return MD.Widget(w.id, w.chartink_id, w.title, w.kind, w.universe,
+                     spec=MD._spec("v10", "cash", [MD._f("a", MD.x(MD.m("volume")), "gt", MD.x(MD.n(0)))]),
+                     intraday=w.intraday, flow=w.flow)
+
+
+@dataclass
+class _Flow:
+    values: dict = field(default_factory=dict)
+    as_of: str = None
+    source: str = "MOCK ticks"
+    warnings: list = field(default_factory=list)
+    missing: list = field(default_factory=list)
+
+
+def test_ten_x_volume_runs_the_5_minute_test_then_the_trade_sides(tmp_path, monkeypatch):
+    monkeypatch.setattr(MD, "WIDGETS", [_v10_any_volume()])
+    asked = {}
+
+    async def candles(symbols, interval, needs, *, lookback_days, **kw):
+        asked["candles"] = (sorted(symbols), interval, lookback_days, [n[1] for n in needs])
+        return _Intra(values={"AAA": {"first_vol": 100.0, "sma1000": 5.0},       # 100 > 10 × 5: passes
+                              "CCC": {"first_vol": 40.0, "sma1000": 5.0}},       # 40 < 50: fails
+                      as_of="2026-11-03T12:45:00+05:30")
+
+    async def sides(symbols):
+        asked["ticks"] = list(symbols)
+        return _Flow(values={"AAA": {"buy_trades": 30.0, "sell_trades": 10.0}}, as_of="2026-11-03T12:50:01+05:30")
+
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=candles, index_result=_indices,
+                                 tick_flow=sides))
+    t = out["widgets"][0]
+    assert asked["candles"] == (["AAA", "CCC"], "5minute", 15, ["first_volume", "sma"])
+    assert asked["ticks"] == ["AAA"]                              # TrueData is asked only about the 5-minute survivors
+    assert t["status"] == "ok" and [r[0] for r in t["rows"]] == ["AAA"]
+    assert all(ln["applied"] for ln in t["criteria"])
+    assert "5-minute candles to" in t["as_of"] and "ticks to 12:50:01 IST" in t["as_of"]
+
+    async def more_bid(symbols):
+        return _Flow(values={"AAA": {"buy_trades": 10.0, "sell_trades": 10.0}})  # ratio 1: not > 1
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=candles, index_result=_indices,
+                                 tick_flow=more_bid))
+    assert out["widgets"][0]["rows"] == []
+
+
+def test_ten_x_volume_says_partial_when_the_ticks_are_not_there(tmp_path, monkeypatch):
+    monkeypatch.setattr(MD, "WIDGETS", [_v10_any_volume()])
+
+    async def candles(symbols, interval, needs, *, lookback_days, **kw):
+        return _Intra(values={"AAA": {"first_vol": 100.0, "sma1000": 5.0}, "CCC": {"first_vol": 40.0, "sma1000": 5.0}})
+
+    async def no_login(symbols):
+        return _Flow(warnings=["No TrueData login"])
+
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=candles, index_result=_indices,
+                                 tick_flow=no_login))
+    t = out["widgets"][0]
+    assert t["status"] == "partial" and [r[0] for r in t["rows"]] == ["AAA"]
+    flow_line = [ln for ln in t["criteria"] if ln["text"].startswith("Trades initiated at the ask")][0]
+    assert flow_line["applied"] is False and flow_line["note"] == "not applied — No TrueData login"
+    assert "passes the other conditions only" in t["note"]
+
+
+def test_ten_x_volume_never_asks_truedata_before_the_5_minute_candles(tmp_path, monkeypatch):
+    monkeypatch.setattr(MD, "WIDGETS", [_v10_any_volume()])
+    called = []
+
+    async def loading(symbols, interval, needs, *, lookback_days, **kw):
+        return _Intra(warnings=["5-minute candles are loading"])
+
+    async def sides(symbols):
+        called.append(symbols)
+        return _Flow()
+
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=loading, index_result=_indices,
+                                 tick_flow=sides))
+    t = out["widgets"][0]
+    assert called == [] and t["status"] == "partial"
+    flow_line = [ln for ln in t["criteria"] if ln["text"].startswith("Trades initiated at the ask")][0]
+    assert flow_line["applied"] is False and "5-minute condition" in flow_line["note"]
+
+
+
+def test_too_little_history_is_not_partial(tmp_path, monkeypatch):
+    w = MD.Widget("t_all", "0", "Test", "scan", "cash", spec=MD._spec("t", "cash", []),
+                  intraday=MD.IntradayRule("5minute", 15, [("sma1000", "sma", {"source": "volume", "period": 1000}, 1)],
+                                           ["x"], lambda v, c, p: True))
+    monkeypatch.setattr(MD, "WIDGETS", [w])
+
+    async def short(symbols, interval, needs, *, lookback_days, **kw):
+        return _Intra(values={"AAA": {"sma1000": 5.0}, "CCC": {"sma1000": None}})     # CCC: candles read, < 1,000 of them
+
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=short, index_result=_indices))
+    t = out["widgets"][0]
+    assert t["status"] == "ok" and [r[0] for r in t["rows"]] == ["AAA"]
+    assert t["note"] == "1 stock(s) have too little 5-minute history for these conditions and cannot pass."
+
+
+
+# ── strategy ideas, per user, attached after the shared computation ─────────────────────────────────────────────────
+
+@dataclass
+class _Ideas:
+    values: dict = field(default_factory=dict)
+    pending: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+    source: str = "MOCK strategy builder"
+    note: str = "MOCK note"
+    as_of: str = None
+
+
+def _dash():
+    return {"widgets": [
+        {"row_kind": "symbol", "rows": [["AAA", 1.0, 2.0, 3], ["BBB", 1.0, 2.0, 3]]},
+        {"row_kind": "group", "rows": [["Largecap", 50.0, 50.0]]},
+        {"row_kind": "symbol", "rows": [["CCC", 1.0, 2.0, 3], ["AAA", 1.0, 2.0, 3]]}]}
+
+
+def test_ideas_are_attached_for_every_shown_stock_never_for_groups():
+    asked = {}
+
+    async def ideas(symbols, user_id):
+        asked["symbols"], asked["user"] = list(symbols), user_id
+        return _Ideas(values={"AAA": {"structure": "Bull call spread", "reward_risk": 2.1, "max_loss_inr": 4200.0,
+                                      "plan_inputs": {"big": "x"}, "legs_text": "NOV 100 CE / 110 CE"},
+                              "BBB": None},
+                      pending=["CCC"])
+    out = asyncio.run(MD.attach_ideas(_dash(), "u1", ideas_for=ideas))
+    assert asked == {"symbols": ["AAA", "BBB", "CCC"], "user": "u1"}          # each stock once, symbol rows only
+    assert out["ideas"]["AAA"]["structure"] == "Bull call spread" and "plan_inputs" not in out["ideas"]["AAA"]
+    assert out["ideas"]["BBB"] is None and "CCC" not in out["ideas"]           # None = not favorable; absent = being built
+    assert out["ideas_meta"]["built"] == 2 and out["ideas_meta"]["pending"] == 1
+
+
+def test_ideas_failing_leave_the_dashboard_standing():
+    async def broken(symbols, user_id):
+        raise RuntimeError("builder down")
+    out = asyncio.run(MD.attach_ideas(_dash(), "u1", ideas_for=broken))
+    assert out["ideas"] == {} and out["ideas_meta"]["pending"] == 3 and out["widgets"] == _dash()["widgets"]

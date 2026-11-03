@@ -1,12 +1,12 @@
 """Intraday candle values for the realtime scan dashboard (docs/scan_builder/DESIGN.md §8): the 15-minute and 1-hour
 conditions of the Chartink-style widgets, computed on today's Kite candles.
 
-    await intraday_values(symbols, "15minute" | "60minute", needs, lookback_days=N) -> IntradayResult
+    await intraday_values(symbols, "5minute" | "15minute" | "60minute", needs, lookback_days=N) -> IntradayResult
 
 `needs` are (key, measure, params, offset) tuples, e.g. ("ema21", "ema", {"source": "close", "period": 21}, 0). Offset 0 is the
 latest candle (the one in progress during the session), 1 the one before. Measures: open, high, low, close, volume, ema / sma
-(source, period), rsi (period), adx / di_plus / di_minus (period), supertrend (period, multiplier), first_high (the high of the
-latest session's FIRST candle; offset ignored) and close_in_range ((close − low) ÷ (high − low) × 100 of the candle at the offset;
+(source, period), rsi (period), adx / di_plus / di_minus (period), supertrend (period, multiplier), first_high / first_volume
+(the high / volume of the latest session's FIRST candle; offset ignored) and close_in_range ((close − low) ÷ (high − low) × 100 of the candle at the offset;
 missing when high = low). Every indicator is services/scan_builder/indicators.py on right-aligned (K, N) arrays, so the daily
 engine and this module share one definition. Wilder indicators need history: for ADX(14) on 1-hour candles ask for ≥ 20 sessions
 (7 candles a session; the seed's weight after 140 candles is < 0.03 %).
@@ -57,18 +57,21 @@ logger = logging.getLogger(__name__)
 Need = Tuple[str, str, Dict[str, Any], int]
 
 # our interval name -> (the app reader's interval key, minutes per candle)
-INTERVALS: Dict[str, Tuple[str, int]] = {"15minute": ("15m", 15), "60minute": ("60m", 60)}
-INTERVAL_LABEL = {"15minute": "15-minute", "60minute": "1-hour"}
-FRESH_OPEN_S: Dict[str, float] = {"15minute": 60.0, "60minute": 300.0}
+INTERVALS: Dict[str, Tuple[str, int]] = {"5minute": ("5m", 5), "15minute": ("15m", 15), "60minute": ("60m", 60)}
+INTERVAL_LABEL = {"5minute": "5-minute", "15minute": "15-minute", "60minute": "1-hour"}
+# 5-minute candles serve "10x volume first 5 min": today's first candle is fixed after 09:20 and a 1,000-candle average
+# moves well under 1 % in 30 minutes, so they are re-read every 30 minutes (many symbols, the budget is shared).
+FRESH_OPEN_S: Dict[str, float] = {"5minute": 1800.0, "15minute": 60.0, "60minute": 300.0}
 CLOSED_MAX_AGE_S = 6 * 3600.0
 AFTER_CLOSE_SETTLE_S = 120.0          # candles read in the 2 minutes after 15:30 may still lack the last one
 SPACING_S = 1 / 1.5                   # this feature's Kite historical calls, all workers together
 LOCAL_SPACING_S = SPACING_S * 4       # no Redis: each of the 4 workers paces itself
 CLAIM_S = 20
 FIRST_WAIT_S = 3.0
-INTERVAL_RANK = {"15minute": 0, "60minute": 1}     # read order among equally overdue candles
+INTERVAL_RANK = {"15minute": 0, "60minute": 1, "5minute": 2}     # read order among equally overdue candles (bulk 5-minute last)
 TOKEN_REFRESH_S = 300.0               # reload the day's stored Kite login into this worker at most this often
 CACHE_TTL_S = 2 * 86400
+CACHE_TTL_BY_INTERVAL = {"5minute": 86400}   # ~1,100 candles a symbol: kept one day only (Redis is shared)
 LIVE_QUOTE_MAX_AGE_S = 120.0
 MAX_LOOKBACK = 30                     # the app reader's own cap (MAX_SESSIONS)
 PREFIX = "nivesh:sb:intraday:"
@@ -76,7 +79,8 @@ SOURCE = ("Kite intraday candles (raw prices, not split/bonus adjusted); during 
           "candle still in progress")
 
 _PRICE = ("open", "high", "low", "close", "volume")
-MEASURES = set(_PRICE) | {"ema", "sma", "rsi", "adx", "di_plus", "di_minus", "supertrend", "first_high", "close_in_range"}
+MEASURES = set(_PRICE) | {"ema", "sma", "rsi", "adx", "di_plus", "di_minus", "supertrend", "first_high", "first_volume",
+                          "close_in_range"}
 
 
 @dataclass
@@ -354,12 +358,13 @@ def compute(bars_by_symbol: Dict[str, List[list]], needs: Sequence[Need]) -> Dic
     out: Dict[str, Dict[str, Optional[float]]] = {s: {} for s in syms}
     memo: Dict[Tuple[str, str], np.ndarray] = {}
     for key, measure, params, offset in needs:
-        if measure == "first_high":
+        if measure in ("first_high", "first_volume"):
+            col = 2 if measure == "first_high" else 5               # [t, open, high, low, close, volume]
             for s in syms:
                 b = bars_by_symbol[s]
                 day = b[-1][0][:10] if b else None
                 first = next((x for x in b if x[0][:10] == day), None) if day else None
-                out[s][key] = float(first[2]) if first else None
+                out[s][key] = float(first[col]) if first and first[col] is not None else None
             continue
         mk = (measure, json.dumps(params or {}, sort_keys=True))
         if mk not in memo:
@@ -486,7 +491,7 @@ class IntradayValues:
             return                              # never replace good candles with an empty answer
         entry = Entry(fetched_at=self._wall(), bars=[list(b) for b in raw.get("bars") or []], availability=availability)
         self._local[k] = entry
-        await self._store.put(PREFIX + "bars:" + k, _encode(entry), CACHE_TTL_S)
+        await self._store.put(PREFIX + "bars:" + k, _encode(entry), CACHE_TTL_BY_INTERVAL.get(interval, CACHE_TTL_S))
 
     async def values(self, symbols: Sequence[str], interval: str, needs: Sequence[Need], *, lookback_days: int,
                      live_prices: Optional[Dict[str, float]] = None) -> IntradayResult:

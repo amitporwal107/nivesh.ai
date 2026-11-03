@@ -251,7 +251,11 @@ Realtime: today's candle = Kite live (feed ~1 s; REST quotes for the rest, ≤30
 1-hour) from Kite historical candles, cached across workers and rate-limited (≤1.5 calls/s for this feature), refreshed every
 1–5 min, each widget saying the candle time it used. Company results (quarterly/annual net profit, EPS, PBDT) from DaaS
 /v1/financials/{symbol}, loaded once a day in the background (status `pending` until loaded). One computation per ~8 s per
-worker is shared by every viewer. Not computable: "10x volume first 5 min" (needs buyer/seller-initiated trade counts, which no
-feed of ours carries). Titles/labels avoid "buy" (owner 3 Nov): TODAYS TOP BUY → Today's strong movers; BUY% → 15m pos %;
+worker is shared by every viewer. "10x volume first 5 min" (owner 3 Nov 12:40: "fix this using kite or true data"): daily
+part (volume > 10 lakh, open ≥ 50) → Kite 5-minute candles (15 sessions; today's first candle volume > 10 × SMA(volume, 1000) as
+of the candle before the latest; re-read every 30 min, ~250 stocks) → for the survivors only, TrueData tick history with best
+bid/ask (tick_flow.py): each print classified by the quote rule (at/above the ask = initiated at the ask, at/below the bid = at
+the bid, inside the spread by the mid, at the mid by the tick test; the opening-auction print and 1-share markers skipped);
+condition: ask-side prints > bid-side prints (ratio > 1). TrueData counts snapshot prints (~1 a second), not every exchange trade. Titles/labels avoid "buy" (owner 3 Nov): TODAYS TOP BUY → Today's strong movers; BUY% → 15m pos %;
 DBUY → Day pos % ((Close − Low) ÷ (High − Low) × 100); OPEN INTEREST BUY7 → Open interest 7; Copy - supertrend rsi scan →
 Supertrend RSI scan.

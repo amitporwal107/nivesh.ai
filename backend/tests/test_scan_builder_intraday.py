@@ -559,3 +559,22 @@ def test_never_read_15_minute_candles_go_before_a_one_hour_backlog():
         assert order[0] == "H0" and order[1:3] == ["Q1", "Q2"] and sorted(order[3:]) == hourly[1:]
         return True
     assert run(go())
+
+
+
+def test_first_volume_is_the_volume_of_the_latest_sessions_first_candle_and_5_minute_candles_are_read():
+    clock = Clock(OPEN_1005)
+    days = sessions(OPEN_1005.date(), 2)
+    bars = make_bars(days, 5, 7, last_day_upto=OPEN_1005)
+    first_today = next(b for b in bars if b[0][:10] == OPEN_1005.date().isoformat())
+    v = iv.compute({"AAA": bars}, [("fv", "first_volume", {}, 0), ("fv1", "first_volume", {}, 3)])
+    assert v["AAA"]["fv"] == float(first_today[5]) == v["AAA"]["fv1"]         # offset ignored
+    assert iv.INTERVALS["5minute"] == ("5m", 5) and iv.CACHE_TTL_BY_INTERVAL["5minute"] == 86400
+
+    async def go():
+        f = FakeFetcher({"AAA": bars}, clock)
+        svc = service(clock, f)
+        r = await svc.values(["AAA"], "5minute", [("fv", "first_volume", {}, 0)], lookback_days=15)
+        assert f.log[0][1:3] == ("5m", 15) and r.values["AAA"]["fv"] == float(first_today[5])
+        return True
+    assert run(go())
