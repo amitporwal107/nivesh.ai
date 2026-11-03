@@ -709,7 +709,7 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         dirn, stated = direction_of(ctx.get("message") or "")
         if not stated:
             blocks.append(notice(f"Direction assumed {('long' if dirn == 'bullish' else dirn)}: the question did not say. "
-                                 f"Ask for a bearish plan to see the other side.", "info", "assumed"))
+                                 f"Ask for a short plan to see the other side.", "info", "assumed"))
     levels: List[Dict[str, Any]] = []
     if tp:
         e, s = tp.get("entry") or {}, tp.get("stop") or {}
@@ -771,8 +771,8 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         if reasons:
             blocks.append(block("list", "why", "Why there is no setup", None, items=[{"text": r, "tone": "warn"} for r in reasons[:5]]))
     title = f"{sym} · reference price, risk and reward levels" if tp else f"{sym} · is there a setup?"
-    fu = [f"Plan a bearish trade for {sym} instead" if direction_of(ctx.get("message") or "")[0] == "bullish"
-          else f"Plan a bullish trade for {sym} instead", "What is the market view today?", "Which breakouts are confirmed?",
+    fu = [f"Plan a short trade for {sym} instead" if direction_of(ctx.get("message") or "")[0] == "bullish"
+          else f"Plan a long trade for {sym} instead", "What is the market view today?", "Which breakouts are confirmed?",
           "Today's top 5 opportunities"]
     return assemble("stock_decision", title, as_of or (bars[-1][0] if bars and not e_bars else None), head, tone, blocks, src,
                     follow(*fu), decision=decision, now=ctx.get("now"))

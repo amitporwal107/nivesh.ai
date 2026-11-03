@@ -29,6 +29,7 @@ TRIP_ROWS = 15
 RULE_ITEMS = 12
 SIDE = {"long": "Long", "short": "Short"}
 PLAN_DIRECTION = {"long": "bullish", "short": "bearish"}
+PLAN_SIDE = {"bullish": "long", "bearish": "short"}                   # how a plan's stored direction is shown (owner wording rule, 3 Nov)
 
 
 def _dt(iso: Any) -> Optional[datetime]:
@@ -89,10 +90,10 @@ def adherence(trip: Dict[str, Any], levels: Optional[Dict[str, Any]], plan: Opti
         elif trip.get("instrument") == "CE":
             want = "bullish" if long else "bearish"
         if pl.get("direction") and pl["direction"] not in (want, "neutral"):
-            facts.append({"text": f"{name}: opened {trip['direction']} against a {pl['direction']} plan recorded {day_text(iso_day(pl.get('created_at')))}.", "tone": "warn"})
+            facts.append({"text": f"{name}: opened {trip['direction']} against a {PLAN_SIDE.get(pl['direction'], pl['direction'])} plan recorded {day_text(iso_day(pl.get('created_at')))}.", "tone": "warn"})
             cell = cell if cell != "No plan recorded" else "Against the plan"
         elif pl.get("direction"):
-            facts.append({"text": f"{name}: opened {trip['direction']}, the same way as the {pl['direction']} plan recorded {day_text(iso_day(pl.get('created_at')))}.", "tone": None})
+            facts.append({"text": f"{name}: opened {trip['direction']}, the same way as the {PLAN_SIDE.get(pl['direction'], pl['direction'])} plan recorded {day_text(iso_day(pl.get('created_at')))}.", "tone": None})
         if levelled and pl.get("entry"):
             off = (en - pl["entry"]) / pl["entry"] * 100
             facts.append({"text": f"{name}: opened at {price(en)}, {abs(off):.2f}% {'above' if off > 0 else 'below'} the plan's reference price ({price(pl['entry'])}).", "tone": None})

@@ -40,7 +40,7 @@ LABELS = {"scan_confluence": "Scan confluence", "trend": "Trend (EMA)", "momentu
 TONE = {"supports": "up", "neutral": "flat", "conflicts": "down", "unavailable": "na", "not_applicable": "na"}
 CREDIT = {"supports": 1.0, "neutral": CFG["neutral_credit"], "conflicts": 0.0, "unavailable": 0.0}
 ACTION = {"long": "Long idea: the long side of the plan below (cash, futures, defined-risk options, combinations).",
-          "short": "Avoid new longs. Short side only through futures or defined-risk options (no naked short options); the plan below lists what the evidence supports."}
+          "short": "Short-side idea: no new longs in this view. Short side only through futures or defined-risk options (no naked short options); the plan below lists what the evidence supports."}
 DIRECTIONS = ("all", "long", "short")
 RANKING_NOTE = (CFG["rule"] + " The score ranks the evidence; it is not a probability, not a forecast and not a promise. Your Chartink scans are your own screens and have "
                 "not been validated.")

@@ -894,16 +894,16 @@ def test_cm1_a_results_card_carries_five_lines_and_a_signal_from_the_stored_read
     t = {l["label"]: l["text"] for l in c["lines"]}
     assert t["What happened"] == "STRONG revenue rose 80% YoY."                                    # the stored text, first sentence, verbatim
     assert t["Why it matters"] == "Margins widened to 31%. Order book up 40%."                    # the stored positives
-    assert t["Market impact"].startswith("Bullish") and "strongly positive" in t["Market impact"] and "above expectation" in t["Market impact"].lower()
+    assert t["Market impact"].startswith("Positive tone") and "strongly positive" in t["Market impact"] and "above expectation" in t["Market impact"].lower()
     assert t["What to watch"] == "Whether the margin gain is sustainable; Guidance for H2"
     assert t["AI take"].startswith("Strongly positive · High impact · confidence 82%") and "not advice" in t["AI take"].lower()
     assert c["signal"] == {"label": "Strongly positive", "tone": "up", "impact": "High", "confidence": 82}
 
 
 @pytest.mark.parametrize("band, tone, label, view", [
-    ("extremely_positive", "up", "Extremely positive", "Bullish"), ("moderately_positive", "up", "Moderately positive", "Bullish"),
-    ("slightly_positive", "up", "Slightly positive", "Bullish"), ("neutral_mixed", "warn", "Mixed or neutral", "Mixed"),
-    ("slightly_negative", "down", "Slightly negative", "Bearish"), ("strongly_negative", "down", "Strongly negative", "Bearish"),
+    ("extremely_positive", "up", "Extremely positive", "Positive tone"), ("moderately_positive", "up", "Moderately positive", "Positive tone"),
+    ("slightly_positive", "up", "Slightly positive", "Positive tone"), ("neutral_mixed", "warn", "Mixed or neutral", "Mixed"),
+    ("slightly_negative", "down", "Slightly negative", "Negative tone"), ("strongly_negative", "down", "Strongly negative", "Negative tone"),
     (None, "neutral", "Informational", "Neutral"),
 ])
 def test_cm2_the_signal_and_the_view_follow_the_stored_band(ev, band, tone, label, view):
@@ -951,7 +951,7 @@ def test_cm7_a_feed_event_gets_the_five_lines_from_the_classifiers_one_line_sent
     c = blk(p, "events")["items"][0]["commentary"]
     t = {l["label"]: l["text"] for l in c["lines"]}
     assert [l["label"] for l in c["lines"]] == LABELS
-    assert t["What happened"] == "ORDR won a Rs 500 Cr order from a state utility." and t["Market impact"].startswith("Bullish")
+    assert t["What happened"] == "ORDR won a Rs 500 Cr order from a state utility." and t["Market impact"].startswith("Positive tone")
     assert t["Why it matters"] == NOT_STATED and t["What to watch"] == NOT_STATED          # the classifier stores no factors or open questions
     assert c["signal"] == {"label": "Positive", "tone": "up", "impact": "High", "confidence": None}
 

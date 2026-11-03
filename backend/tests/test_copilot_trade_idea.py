@@ -167,7 +167,7 @@ def test_ti4_a_plan_gives_the_card_the_stored_plans_and_the_facts(builder):
     c = idea.context
     assert c.startswith("TRADE_PLAN:") and "ASSUMED" in c and "A card with this plan is shown above the answer." in c
     assert "STRATEGY PLAN plan_mock" in c and "Status: plan" in c                        # the desk's own facts text
-    assert "reference price: 1840 (stop_trigger; desk entry rule break_above; valid for 3 sessions)" in c
+    assert "reference price: 1840 (stop_trigger; desk reference-price rule break_above; valid for 3 sessions)" in c
     assert "risk level: 1790 (method structural) — invalidation: MOCK: a close back below the breakout base" in c
     assert "reward level t1: 1940 (2R) — primary — 2R" in c
     assert "evidence Trend (supports): MOCK: above a rising 50-day average" in c and "evidence Volume" not in c

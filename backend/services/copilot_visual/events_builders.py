@@ -162,13 +162,13 @@ def _unrated_reason(row: Dict[str, Any]) -> Optional[str]:
 COMMENTARY_LABELS = ("What happened", "Why it matters", "Market impact", "What to watch", "AI take")
 NOT_STATED = "Not stated in the stored AI read."
 BAND_SIGNAL = {
-    "extremely_positive": ("Extremely positive", "up", "Bullish"), "strongly_positive": ("Strongly positive", "up", "Bullish"),
-    "moderately_positive": ("Moderately positive", "up", "Bullish"), "slightly_positive": ("Slightly positive", "up", "Bullish"),
+    "extremely_positive": ("Extremely positive", "up", "Positive tone"), "strongly_positive": ("Strongly positive", "up", "Positive tone"),
+    "moderately_positive": ("Moderately positive", "up", "Positive tone"), "slightly_positive": ("Slightly positive", "up", "Positive tone"),
     "neutral_mixed": ("Mixed or neutral", "warn", "Mixed"),
-    "slightly_negative": ("Slightly negative", "down", "Bearish"), "moderately_negative": ("Moderately negative", "down", "Bearish"),
-    "strongly_negative": ("Strongly negative", "down", "Bearish"), "extremely_negative": ("Extremely negative", "down", "Bearish"),
+    "slightly_negative": ("Slightly negative", "down", "Negative tone"), "moderately_negative": ("Moderately negative", "down", "Negative tone"),
+    "strongly_negative": ("Strongly negative", "down", "Negative tone"), "extremely_negative": ("Extremely negative", "down", "Negative tone"),
 }
-FEED_SIGNAL = {"positive": ("Positive", "up", "Bullish"), "negative": ("Negative", "down", "Bearish"), "mixed": ("Mixed", "warn", "Mixed"),
+FEED_SIGNAL = {"positive": ("Positive", "up", "Positive tone"), "negative": ("Negative", "down", "Negative tone"), "mixed": ("Mixed", "warn", "Mixed"),
                "neutral": ("Neutral", "neutral", "Neutral")}
 INFORMATIONAL = ("Informational", "neutral", "Neutral")
 IMPACT_HIGH_AT, IMPACT_MEDIUM_AT = 70.0, 45.0           # the stored materiality score (0-100)

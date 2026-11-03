@@ -182,7 +182,7 @@ def trade_plan_lines(tp: Dict[str, Any], label: Optional[str]) -> List[str]:
     e, s = tp.get("entry") or {}, tp.get("stop") or {}
     out = [f"TradePlan {tp.get('plan_id')} ({label or 'candidate'}):"]
     out.append(f"  reference price: {_num(e.get('price')) or 'unavailable'} ({e.get('order_type') or 'order type unavailable'}"
-               + (f"; desk entry rule {e.get('desk_entry_rule')}" if e.get("desk_entry_rule") else "")
+               + (f"; desk reference-price rule {e.get('desk_entry_rule')}" if e.get("desk_entry_rule") else "")
                + (f"; valid for {e.get('valid_for_sessions')} sessions" if e.get("valid_for_sessions") else "") + ")"
                + (f" — {e.get('logic')}" if e.get("logic") else ""))
     out.append(f"  risk level: {_num(s.get('price')) or _num(s.get('premium_stop')) or 'unavailable'} (method {s.get('method') or 'unknown'})"

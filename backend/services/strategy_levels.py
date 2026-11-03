@@ -18,8 +18,8 @@ S = {"debit_stop_keep": 0.70, "debit_t1": 0.30, "debit_t2": 0.60, "credit_stop_s
 SCENARIOS = [("Bullish", 2.0, -3.0, 1), ("Sideways", 0.0, -5.0, 1), ("Bearish", -2.0, 4.0, 1), ("Expiry day, small rise", 1.0, 0.0, None)]
 CAVEATS = [
     "Rule-based, hypothetical levels from fixed research settings. They are not predictions or advice, and no accuracy or hit rate is claimed: tests of these signals found no skill beyond chance.",
-    "A stop is a theoretical level, not an executable price: a stop order can fill worse in a sharp move or a liquidity gap.",
-    "No entry range is given: bid and ask are not in end-of-day data. Values at a price are the engine's model estimate for the data date, not quotes.",
+    "A risk level is a theoretical level, not an executable price: an order at it can fill worse in a sharp move or a liquidity gap.",
+    "No reference-price range is given: bid and ask are not in end-of-day data. Values at a price are the engine's model estimate for the data date, not quotes.",
 ]
 
 
@@ -128,7 +128,7 @@ def compute(body: Dict[str, Any], refs: Optional[Dict[str, Any]] = None, today: 
         stop_u = _solve(req, today, prem["planned_stop"], adverse[0], adverse[1], unit, credit, entry)
         t1_u = _solve(req, today, prem["target_1"], favour[0], favour[1], unit, credit, entry)
         t2_u = _solve(req, today, prem["target_2"], favour[0], favour[1], unit, credit, entry)
-        und.update(stop=stop_u, target=t1_u, target_2=t2_u, basis="the underlying price at which the structure reaches its planned stop and targets")
+        und.update(stop=stop_u, target=t1_u, target_2=t2_u, basis="the underlying price at which the structure reaches its planned risk level and reward levels")
         und["wall_stop"], und["wall_target"] = (lo, hi) if view == "bullish" else (hi, lo)
     elif view == "bullish" or view == "bearish":
         und.update(stop=None, target=None, target_2=None, basis=None)
@@ -144,9 +144,9 @@ def compute(body: Dict[str, Any], refs: Optional[Dict[str, Any]] = None, today: 
     greek: Dict[str, Any] = {"net_delta_per_share": _r(d0, 3), "gamma": _r(_n(greeks.get("gamma")) and greeks["gamma"] / unit, 4) if greeks else None,
                              "theta_per_day_per_share": _r(_n(greeks.get("theta")) and greeks["theta"] / unit, 3) if greeks else None, "vega_per_point_per_share": _r(_n(greeks.get("vega")) and greeks["vega"] / unit, 3) if greeks else None}
     if d0 is not None and view in ("bullish", "bearish"):
-        greek["review_when"] = f"net delta falls below {_r(S['delta_keep'] * d0, 3)} (30% of the entry delta {_r(d0, 3)})" if view == "bullish" else f"net delta rises above {_r(S['delta_keep'] * d0, 3)} (30% of the entry delta {_r(d0, 3)})"
+        greek["review_when"] = f"net delta falls below {_r(S['delta_keep'] * d0, 3)} (30% of the opening delta {_r(d0, 3)})" if view == "bullish" else f"net delta rises above {_r(S['delta_keep'] * d0, 3)} (30% of the opening delta {_r(d0, 3)})"
     elif d0 is not None:
-        greek["review_when"] = f"|net delta| exceeds {S['neutral_delta_limit']} (entry {_r(d0, 3)})"
+        greek["review_when"] = f"|net delta| exceeds {S['neutral_delta_limit']} (at opening {_r(d0, 3)})"
     else:
         greek["review_when"] = None
     expiry = next((l.get("expiry") for l in legs if l.get("expiry")), None)

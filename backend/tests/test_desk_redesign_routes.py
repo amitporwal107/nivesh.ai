@@ -349,7 +349,7 @@ def test_ex1_ok_names_the_session_that_was_checked(h, monkeypatch):
     body = h.get("/api/desk/exit-job-status").json()
     assert body["last_checked"]["session"] == "2026-10-27"
     assert body["last_checked"]["started_at"] == TUE_OK["started_at"]
-    assert body["message"] == "Exits were checked after the 2026-10-27 close."
+    assert body["message"] == "Paper trades were checked after the 2026-10-27 close."
 
 
 def test_ex2_late_names_the_slot_that_is_due(h, monkeypatch):
@@ -364,7 +364,7 @@ def test_ex4_no_heartbeat_has_no_last_checked(h, monkeypatch):
     monkeypatch.setattr(job_runs, "utcnow", lambda: ist(2026, 10, 27, 21, 50))
     body = h.get("/api/desk/exit-job-status").json()
     assert body["last_checked"] is None and body["latest_run"] is None
-    assert body["message"] == "No evening exit check has been recorded."
+    assert body["message"] == "No evening check has been recorded."
 
 
 def test_ex8_every_heartbeat_read_is_an_allow_list_projection(h, monkeypatch):
