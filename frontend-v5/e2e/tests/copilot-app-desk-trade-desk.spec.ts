@@ -267,7 +267,7 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
       await expect(page.getByTestId("td-open-risk")).toHaveText("Open risk 1.2% of 3%");
       await expect(page.getByTestId("td-open-risk")).toHaveAttribute("data-pct", (12000 / PROFILE.live.equity.equity_rs * 100).toFixed(2));
       await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "ok");
-      await expect(page.getByTestId("td-exit-job")).toContainText("Exits checked after the 26 Oct close");
+      await expect(page.getByTestId("td-exit-job")).toContainText("Paper trades checked after the 26 Oct close");
       await expect(page.getByTestId("desk-paper-real-line")).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio");
     }
   });
@@ -276,12 +276,12 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
     await setup(page, { exit: { status: 200, body: EXIT_MISSED } });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "missed", SLOW);
-    await expect(page.getByTestId("td-exit-job")).toContainText("Exit check missed: No evening exit check has been recorded.");
+    await expect(page.getByTestId("td-exit-job")).toContainText("Evening check missed: No evening exit check has been recorded.");
     await page.unroute("**/api/desk/exit-job-status");
     await page.route("**/api/desk/exit-job-status", (r) => json(r, EXIT_LATE));
     await page.reload();
     await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "late", SLOW);
-    await expect(page.getByTestId("td-exit-job")).toContainText("Exit check late: The exit check due at Mon 27 Oct 20:45 IST has not been recorded yet.");
+    await expect(page.getByTestId("td-exit-job")).toContainText("Evening check late: The exit check due at Mon 27 Oct 20:45 IST has not been recorded yet.");
     await page.unroute("**/api/desk/exit-job-status");
     await page.route("**/api/desk/exit-job-status", (r) => json(r, { detail: "MOCK: down" }, 500));
     await page.reload();
@@ -377,10 +377,10 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
   test("TD-8 / TD-9 pending entries with rule and validity; open positions with state, net P/L and plan id", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
-    await expect(page.getByTestId("td-open-lead")).toHaveText("2 cash positions and 1 F&O structure open, 1 entry pending.", SLOW);
+    await expect(page.getByTestId("td-open-lead")).toHaveText("2 cash positions and 1 F&O structure open, 1 opening pending.", SLOW);
     const pend = page.getByTestId("td-pending");
     await expect(pend.getByTestId("td-pending-rule")).toHaveText(`Break above ₹${n2(1655)} · valid 3 sessions`);
-    await expect(pend.getByTestId("td-pending-state")).toHaveText(/waiting for entry/i);
+    await expect(pend.getByTestId("td-pending-state")).toHaveText(/waiting for the reference price/i);
     await expect(pend.getByTestId("td-row-plan")).toHaveText("tp_pending0001");
     const pos = page.getByTestId("td-positions");
     const infy = pos.getByRole("row").filter({ hasText: "INFY" });
@@ -498,10 +498,10 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await page.getByTestId("td-closed").getByRole("row").filter({ hasText: "AXISBANK" }).click(SLOW);
     const d = page.getByTestId("td-journal");
     await expect(d.getByTestId("td-journal-flag")).toHaveAttribute("data-code", "both_in_range");
-    await expect(d.getByTestId("td-journal-flag")).toContainText(`Stop and target both touched on 24 Oct: stop assumed. ${BOTH}`);
+    await expect(d.getByTestId("td-journal-flag")).toContainText(`Risk level and reward level both touched on 24 Oct: risk level assumed. ${BOTH}`);
     await expect(d).not.toContainText(/ambiguous/i);
     await page.getByTestId("td-closed").getByRole("row").filter({ hasText: "TCS" }).click();
-    await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the stop: filled at the open. ${GAP}`);
+    await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the risk level: filled at the open. ${GAP}`);
   });
 
   test("TD-20 the journal links to Chart Analysis › Live chart and to the plan's decision card", async ({ page }) => {

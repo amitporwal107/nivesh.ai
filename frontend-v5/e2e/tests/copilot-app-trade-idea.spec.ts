@@ -112,8 +112,8 @@ test.describe("MOCK — not real data: the Copilot's trade idea card", () => {
     await inThread(page);
     const plan = page.getByTestId("tpc-plan");
     await expect(plan).toHaveAttribute("data-variant", "row", SLOW);
-    await expect(plan.getByTestId("dc-entry")).toContainText("Enter ");
-    await expect(plan.getByTestId("dc-stop")).toContainText("Exit if wrong");
+    await expect(plan.getByTestId("dc-entry")).toContainText("Reference price ");
+    await expect(plan.getByTestId("dc-stop")).toContainText("Risk level");
     await expect(plan.getByTestId("dc-sections")).toHaveCount(0);
     await expect(plan).not.toContainText(/×ATR|\(\d+\.\d+R\)|of equity|sessions\b|risk service|Provisional|tp_[0-9a-f]{6}/);
     await page.getByTestId("tpc-full").click();

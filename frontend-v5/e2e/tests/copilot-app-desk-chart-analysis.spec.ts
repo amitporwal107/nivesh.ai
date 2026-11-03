@@ -282,8 +282,8 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     await page.getByTestId("ca-expiry-consolidated").click();
     await expect.poll(() => seen.chain).toContain("consolidated");
     await expect(page.getByTestId("ca-stat-pcr")).toContainText("0.91");
-    await expect(page.getByTestId("ca-stat-atm-iv")).toContainText("pick an expiry");
-    await expect(page.getByTestId("ca-stat-exp-move")).toContainText("pick an expiry");
+    await expect(page.getByTestId("ca-stat-atm-iv")).toContainText("choose an expiry");
+    await expect(page.getByTestId("ca-stat-exp-move")).toContainText("choose an expiry");
     await expect(page.locator('[data-testid="ca-ladder-row"][data-strike="1240"]')).toHaveAttribute("data-call", String(CONSOLIDATED.strikes.find((s) => s.strike === 1240)!.call.oi));
     await expect(page.getByTestId("ca-sum-buildup")).toContainText("Consolidated");
   });

@@ -64,7 +64,7 @@ test.describe("Open positions workspace (MOCK payload)", () => {
     await open(page);
     const s = BOOK.summary;
     await expect(page.getByTestId("screen-page-positions")).toBeVisible(SLOW);
-    await expect(page.getByTestId("positions-headline")).toContainText(`${s.near_stop} ${s.near_stop === 1 ? "position is" : "positions are"} near their stops`);
+    await expect(page.getByTestId("positions-headline")).toContainText(`${s.near_stop} ${s.near_stop === 1 ? "position is" : "positions are"} near their risk levels`);
     await expect(page.getByTestId("positions-open-risk")).toHaveText(rupees(s.open_risk_at_stops_rs));
     await expect(page.getByTestId("positions-near")).toHaveText(String(s.near_stop + s.stop_breached));
     await expect(page.getByTestId("positions-day-realised")).toHaveText("—");
@@ -79,7 +79,7 @@ test.describe("Open positions workspace (MOCK payload)", () => {
     const paper = BOOK.groups.filter((g: any) => g.source === "paper");
     await expect(page.getByTestId("positions-broker-table").getByTestId("positions-row")).toHaveCount(broker.length, SLOW);
     await expect(page.getByTestId("positions-paper-table").getByTestId("positions-row")).toHaveCount(paper.length);
-    for (const h of ["Position", "Qty", "Avg", "LTP", "P&L", "Stop", "Target", "Risk left"]) {
+    for (const h of ["Position", "Qty", "Avg", "LTP", "P&L", "Risk level", "Reward level", "Risk left"]) {
       await expect(page.getByTestId("positions-broker-table").getByRole("columnheader", { name: h, exact: true })).toBeVisible();
     }
     const son = group("broker:SONACOMS");
@@ -108,7 +108,7 @@ test.describe("Open positions workspace (MOCK payload)", () => {
   test("OP-5 shares with no stop say so instead of showing a loss", async ({ page }) => {
     await open(page);
     await page.locator('[data-key="broker:RELIANCE"]').click();
-    await expect(page.getByTestId("positions-loss-at-stop-none")).toContainText("Set a stop");
+    await expect(page.getByTestId("positions-loss-at-stop-none")).toContainText("Set a risk level");
     await expect(page.getByTestId("positions-warnings").locator('[data-code="no_stop"]')).toBeVisible();
   });
 

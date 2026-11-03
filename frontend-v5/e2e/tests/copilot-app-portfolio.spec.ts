@@ -122,7 +122,7 @@ test.describe("Portfolio analysis — target mix and icons", () => {
     await expect(page.getByTestId("analysis-target-hybrid-drift")).toHaveText("—");
     await expect(page.getByTestId("analysis-target-outside")).toHaveText("Hybrid");
     // the class furthest from its target: debt, 21 points under
-    await expect(page.getByTestId("analysis-target-headline")).toHaveText("Debt is 21.0 points below the target.");
+    await expect(page.getByTestId("analysis-target-headline")).toHaveText("Debt is 21.0 points below the planned mix.");
     await expect(target.getByTestId("analysis-target-class")).toHaveText(["Equity", "Debt", "Gold", "Cash", "Hybrid"]);
 
     await target.getByRole("row").filter({ hasText: "Equity" }).click();
@@ -136,7 +136,7 @@ test.describe("Portfolio analysis — target mix and icons", () => {
     await json(page, "**/api/user/risk-profile", { risk_profile: null });
     await page.goto(`${APP}/tool/analysis`);
     await page.getByTestId("analysis-tab-assets").click();
-    await expect(page.getByTestId("analysis-target-empty")).toContainText("No target mix yet");
+    await expect(page.getByTestId("analysis-target-empty")).toContainText("No planned mix yet");
     await expect(page.getByTestId("analysis-target-empty").getByRole("button", { name: "Set up risk profile" })).toBeVisible();
     await expect(page.getByTestId("analysis-target")).toHaveCount(0);
 
@@ -149,7 +149,7 @@ test.describe("Portfolio analysis — target mix and icons", () => {
     await fail(page, "**/api/user/risk-profile");
     await page.reload();
     await page.getByTestId("analysis-tab-assets").click();
-    await expect(page.getByTestId("analysis-table-assets").getByRole("alert")).toContainText("Your target mix didn’t load", SLOW);
+    await expect(page.getByTestId("analysis-table-assets").getByRole("alert")).toContainText("Your planned mix didn’t load", SLOW);
     await expect(page.getByTestId("analysis-target")).toHaveCount(0);
     // the asset-class table above it is unaffected
     await expect(page.getByTestId("analysis-asset-name")).toHaveCount(4);
@@ -229,13 +229,13 @@ test.describe("Recommendations — the original page's figures, step status, reb
     // groups: TRIM and EXIT reduce, ADD adds, nothing to hold
     await expect(page.getByTestId("recommend-filter-tab-all")).toHaveText("All · 3");
     await expect(page.getByTestId("recommend-filter-tab-reduce")).toHaveText("Reduce · 2");
-    await expect(page.getByTestId("recommend-filter-tab-add")).toHaveText("Add · 1");
+    await expect(page.getByTestId("recommend-filter-tab-add")).toHaveText("Raise · 1");
     await expect(page.getByTestId("recommend-filter-tab-hold")).toHaveText("Hold or switch · 0");
 
     const trim = page.getByTestId("recommend-card").nth(0);
-    await expect(trim.getByTestId("recommend-card-title")).toHaveText("Trim Axis Fixture Bluechip Fund - Direct Growth");
+    await expect(trim.getByTestId("recommend-card-title")).toHaveText("Lower weight in Axis Fixture Bluechip Fund - Direct Growth");
     await expect(trim.getByTestId("recommend-card-amount")).toHaveText("₹1.20 L");
-    await expect(trim.getByTestId("recommend-card-verb")).toHaveText("TRIM");
+    await expect(trim.getByTestId("recommend-card-verb")).toHaveText("LOWER");
     await expect(trim.getByTestId("recommend-card-severity")).toHaveText("Mismatch");
     await expect(trim.getByTestId("recommend-card-execution")).toHaveText("Stagger");
     // tax_impact: liability 1200, stcg 3000, ltcg 9600, exit load 150, held 412 days
@@ -244,7 +244,7 @@ test.describe("Recommendations — the original page's figures, step status, reb
     await expect(trim.locator(`${icon("fund-house")}[data-key="Axis"]`)).toHaveCount(1);
 
     const add = page.getByTestId("recommend-card").nth(1);
-    await expect(add.getByTestId("recommend-card-title")).toHaveText("Add Fixture Steel Ltd");
+    await expect(add.getByTestId("recommend-card-title")).toHaveText("Raise weight in Fixture Steel Ltd");
     await expect(add.getByTestId("recommend-card-execution")).toHaveText("Redirect new money");
     await expect(add.getByTestId("recommend-card-tax")).toHaveText("Tax not estimated");
     // the step names a stock; its symbol comes from the user's holdings
@@ -252,7 +252,7 @@ test.describe("Recommendations — the original page's figures, step status, reb
 
     // the exit carries no asset type: the fund house icon comes from the matching holding
     const exit = page.getByTestId("recommend-card").nth(2);
-    await expect(exit.getByTestId("recommend-card-title")).toHaveText("Exit SBI Fixture Midcap Fund - Regular Growth");
+    await expect(exit.getByTestId("recommend-card-title")).toHaveText("Close out SBI Fixture Midcap Fund - Regular Growth");
     await expect(exit.locator(`${icon("fund-house")}[data-key="SBI"]`)).toHaveCount(1);
     await expect(exit.getByTestId("recommend-card-deferred")).toHaveText("Flagged, not for now — Exit load applies until 30 Nov 2026.");
     // a deferred step cannot be decided or marked done, only declined or moved back
@@ -267,7 +267,7 @@ test.describe("Recommendations — the original page's figures, step status, reb
 
     await page.getByTestId("recommend-filter-tab-add").click();
     await expect(page.getByTestId("recommend-card")).toHaveCount(1);
-    await expect(page.getByTestId("recommend-card-title")).toHaveText("Add Fixture Steel Ltd");
+    await expect(page.getByTestId("recommend-card-title")).toHaveText("Raise weight in Fixture Steel Ltd");
     await page.getByTestId("recommend-filter-tab-hold").click();
     await expect(page.getByTestId("recommend-card")).toHaveCount(0);
     await expect(page.getByTestId("recommend-filter-empty")).toBeVisible();
@@ -304,7 +304,7 @@ test.describe("Recommendations — the original page's figures, step status, reb
     // the backend finds the step by action_id ("act_fix_1"), not by the display id ("rec_fix_1")
     expect(new URL(patches[0].url()).pathname).toBe("/api/plans/plan_fixture_v2/actions/act_fix_1");
     expect(patches[0].postDataJSON()).toEqual({ status: "COMPLETED", completion_note: "Redeemed through my broker" });
-    await expect(page.getByTestId("recommend-card-title").first()).toHaveText("Add Fixture Steel Ltd");
+    await expect(page.getByTestId("recommend-card-title").first()).toHaveText("Raise weight in Fixture Steel Ltd");
   });
 
   test("a status change that fails says so and leaves the step where it was", async ({ page }) => {
@@ -356,7 +356,7 @@ test.describe("Action plan — board, track record, expected and observed", () =
     await expect(page.getByTestId("plan-card")).toHaveCount(4); // the declined step is in the track record, not on the board
 
     const considering = page.getByTestId("plan-column-considering").getByTestId("plan-card");
-    await expect(considering.nth(0).getByTestId("plan-card-title")).toHaveText("Trim Axis Fixture Bluechip Fund - Direct Growth");
+    await expect(considering.nth(0).getByTestId("plan-card-title")).toHaveText("Lower weight in Axis Fixture Bluechip Fund - Direct Growth");
     await expect(considering.nth(0).getByTestId("plan-card-severity")).toHaveText("Mismatch");
     await expect(considering.nth(0).getByTestId("plan-card-execution")).toHaveText("Stagger");
     await expect(considering.nth(0).getByTestId("plan-card-tax")).toContainText("long-term gain ₹9,600");
@@ -618,18 +618,18 @@ test.describe("Portfolio ledger — holdings, what is on record, corrections", (
     await expect(steel.getByTestId("ledger-correct")).toHaveText("Add cost basis");
     await steel.getByTestId("ledger-correct").click();
     const form = steel.getByTestId("ledger-correct-form");
-    await expect(form.getByLabel("Average buy price per share (₹)")).toHaveValue("");
+    await expect(form.getByLabel("Average purchase price per share (₹)")).toHaveValue("");
     await expect(form.getByLabel("Shares held")).toHaveValue("400");
     await expect(form.getByTestId("ledger-correct-review")).toBeDisabled(); // nothing changed yet
 
     await form.getByTestId("ledger-correct-price").fill("-5");
-    await expect(form.getByTestId("ledger-correct-problem")).toHaveText("The buy price must be a number above zero.");
+    await expect(form.getByTestId("ledger-correct-problem")).toHaveText("The purchase price must be a number above zero.");
     await expect(form.getByTestId("ledger-correct-review")).toBeDisabled();
     await form.getByTestId("ledger-correct-price").fill("250");
     await expect(form.getByTestId("ledger-correct-problem")).toHaveCount(0);
     await form.getByTestId("ledger-correct-review").click();
     // 400 shares × ₹250
-    await expect(form.getByTestId("ledger-correct-summary")).toContainText("Average buy price per share: Not on record → ₹250");
+    await expect(form.getByTestId("ledger-correct-summary")).toContainText("Average purchase price per share: Not on record → ₹250");
     await expect(form.getByTestId("ledger-correct-invested")).toHaveText("₹1,00,000");
     await expect(form).toContainText("The next statement you import replaces your holdings");
     expect(puts).toHaveLength(0); // nothing is sent before the user saves
@@ -659,7 +659,7 @@ test.describe("Portfolio ledger — holdings, what is on record, corrections", (
     const bank = page.getByTestId("ledger-holding").filter({ hasText: "Fixture Bank Ltd" });
     await bank.getByTestId("ledger-correct").click();
     const form = bank.getByTestId("ledger-correct-form");
-    await expect(form.getByLabel("Average buy price per share (₹)")).toHaveValue("160");
+    await expect(form.getByLabel("Average purchase price per share (₹)")).toHaveValue("160");
     await form.getByTestId("ledger-correct-quantity").fill("0");
     await expect(form.getByTestId("ledger-correct-problem")).toHaveText("The number of shares must be above zero.");
     await form.getByTestId("ledger-correct-quantity").fill("1200");

@@ -273,7 +273,7 @@ test.describe("Smart trading desk · Historical Smart Money Movement", () => {
     await expect(note).toContainText("explains the past");
     await expect(note).toContainText("does not predict");
     await expect(note).toContainText("co-occurrence, not cause");
-    await expect(note).toContainText("not a reason to buy or sell");
+    await expect(note).toContainText("not a trading call");
 
     // Nothing in THIS panel may read as a call or a score. Scoped to the panel, because the host
     // tab's own footer legitimately contains the words "not a buy signal" — as a disclaimer.
@@ -413,7 +413,7 @@ test.describe("Smart trading desk · Historical Smart Money Movement", () => {
 
     // The legend must describe Reversal Watch as a watch item and NOT as a risk.
     const legend = page.getByTestId("or-status-legend");
-    await expect(legend).toContainText("buying into weakness");
+    await expect(legend).toContainText("holdings raised into weakness");
     await expect(legend).toContainText("A watch item, not a risk");
 
     // Colour: the risk chip and the watch chip must not share a border colour.

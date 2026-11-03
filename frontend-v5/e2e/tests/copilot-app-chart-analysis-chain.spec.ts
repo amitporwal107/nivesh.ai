@@ -145,10 +145,10 @@ test.describe("logic: analysis/reco-data.ts (pure)", () => {
     const r = (k: number) => ANALYSIS.rows.find((x) => x.strike === k)!;
     expect(pickBlock({ chain: ANALYSIS, side: r(1200).call, kind: "CE", strike: 1200, price: 52, live: false })).toBeNull();
     expect(pickBlock({ chain: { ...ANALYSIS, tradable: false, expiry: null }, side: r(1200).call, kind: "CE", strike: 1200, price: null, live: false }))
-      .toBe("Pick an expiry to trade: legs need one expiry.");
+      .toBe("Choose an expiry to trade: legs need one expiry.");
     expect(pickBlock({ chain: ANALYSIS, side: null, kind: "PE", strike: 1200, price: null, live: false })).toBe("No 1200 PE contract is listed in this expiry.");
     expect(pickBlock({ chain: { ...ANALYSIS, lotSize: null }, side: r(1200).call, kind: "CE", strike: 1200, price: 52, live: false })).toMatch(/no lot size/);
-    expect(pickBlock({ chain: ANALYSIS, side: r(1500).put, kind: "PE", strike: 1500, price: null, live: false })).toBe("There is no close for the 1500 PE on 2026-10-28, so there is no price to pick it at.");
+    expect(pickBlock({ chain: ANALYSIS, side: r(1500).put, kind: "PE", strike: 1500, price: null, live: false })).toBe("There is no close for the 1500 PE on 2026-10-28, so there is no price to add it at.");
     expect(pickBlock({ chain: ANALYSIS, side: r(1450).call, kind: "CE", strike: 1450, price: 4, live: false })).toBe("The 1450 CE did not trade on 2026-10-28: its close is not a market price.");
     expect(pickBlock({ chain: ANALYSIS, side: r(1450).call, kind: "CE", strike: 1450, price: 4.5, live: true })).toBeNull();   // traded today (live)
   });
@@ -172,9 +172,9 @@ test.describe("logic: analysis/reco-data.ts (pure)", () => {
     const [a, b, c] = topActionable(PLAN_ALL);
     expect([cardTag(0, a), cardTag(1, b), cardTag(2, c)]).toEqual(["PRIMARY", "ALTERNATE", "DIRECTIONAL"]);
     expect(cardTag(2, { segment: "options" })).toBe("ALTERNATE");
-    expect(legsText(a.legs)).toBe("BUY 1200 CE · SELL 1250 CE");
-    expect(legsText(b.legs)).toBe("BUY SHARES");
-    expect(legsText(c.legs)).toBe("BUY FUT");
+    expect(legsText(a.legs)).toBe("LONG 1200 CE · SHORT 1250 CE");
+    expect(legsText(b.legs)).toBe("LONG SHARES");
+    expect(legsText(c.legs)).toBe("LONG FUT");
     expect(cardWhy(a)).toBe("Long the ATM 1200, short 1250: the call wall, inside the expected move, so the short leg sits where the market has the most open interest.");
     expect(cardWhy(c)).toBe("Futures OI build-up is long buildup, confirmed by the cash market (a heuristic, not proof of intent). Contract 2026-10-27, lot size 250, basis 3.0.");
     expect(cardExpiry(a)).toBe(EXPIRY);
@@ -195,7 +195,7 @@ test.describe("logic: analysis/reco-data.ts (pure)", () => {
     const g = cardFigures(PLAN_ALL, cash);
     const alt = PLAN_ALL.alternatives.find((x) => x.id === cash.id)!;
     expect(g.maxProfit).toEqual({ kind: "unlimited" });                                                 // profit_unbounded: true
-    expect(g.lossLabel).toBe("LOSS AT STOP");
+    expect(g.lossLabel).toBe("LOSS AT RISK LEVEL");
     expect(g.maxLoss).toEqual({ kind: "value", value: alt.max_loss });
     expect(g.lossBasis).toBe(alt.max_loss_basis);
     expect(g.premium).toEqual({ kind: "entry", value: cash.legs[0].entry_price });
@@ -210,7 +210,7 @@ test.describe("logic: analysis/reco-data.ts (pure)", () => {
     expect(row.max_loss_at).toBe("stop");
     expect(row.max_loss).toBe(cc.risk_reward!.risk_net);                                               // the loss the R : R divides by
     const f = cardFigures(PLAN_COMBO, cc);
-    expect(f.lossLabel).toBe("LOSS AT STOP");
+    expect(f.lossLabel).toBe("LOSS AT RISK LEVEL");
     expect(f.maxLoss).toEqual({ kind: "value", value: row.max_loss });
     expect(f.stop).toBe(1160);
     expect(cc.payoff!.expiry!.max_loss).toBe(-290500 * 4);                                             // (1200 − 38) × 1,000 at zero: not shown
@@ -425,7 +425,7 @@ test.describe("page: Chart Analysis › option chain and strategy cards (MOCK �
     await expect(chainRow(page, 1200).locator('[data-col="call-oi"]')).toHaveText("5.00 L");
     await expect(page.getByTestId("ca-chain-mode-greeks")).toBeDisabled();
     await expect(chainRow(page, 1200).getByTestId("ca-chain-b-ce")).toBeDisabled();
-    await expect(page.getByTestId("ca-chain-untradable")).toHaveText("Pick an expiry to trade: legs need one expiry.");
+    await expect(page.getByTestId("ca-chain-untradable")).toHaveText("Choose an expiry to trade: legs need one expiry.");
     await expect(chainRow(page, 1200).getByTestId("ca-chain-ltp-ce")).toHaveText("—");
   });
 
@@ -440,7 +440,7 @@ test.describe("page: Chart Analysis › option chain and strategy cards (MOCK �
     await expect(page.getByTestId("ca-reco-name")).toHaveText([cand(PLAN_ALL, "options:bull_call_spread").label, cand(PLAN_ALL, "cash:breakout_continuation").label, cand(PLAN_ALL, "futures:long_buildup_continuation").label]);
     await expect(page.getByTestId("ca-reco-tag")).toHaveText(["PRIMARY", "ALTERNATE", "DIRECTIONAL"]);
     const first = page.getByTestId("ca-reco-card").first();
-    await expect(first.getByTestId("ca-reco-legs")).toHaveText("BUY 1200 CE · SELL 1250 CE");
+    await expect(first.getByTestId("ca-reco-legs")).toHaveText("LONG 1200 CE · SHORT 1250 CE");
     await expect(first.getByTestId("ca-reco-max-profit")).toContainText("₹45,000.00");
     await expect(first.getByTestId("ca-reco-max-loss")).toContainText("₹17,500.00");
     await expect(first.getByTestId("ca-reco-rr")).toContainText("2.54 : 1");
@@ -510,10 +510,10 @@ test.describe("page: Chart Analysis › option chain and strategy cards (MOCK �
     // U2: LOSS AT STOP = the engine's row (the stop scenario after costs), with the stop; not (1200 − 38) × 1,000 at zero
     const cc = cand(plan, "combination:covered_call");
     const row = plan.alternatives.find((x) => x.id === cc.id)!;
-    await expect(card(0).getByTestId("ca-reco-max-loss")).toContainText("LOSS AT STOP");
+    await expect(card(0).getByTestId("ca-reco-max-loss")).toContainText("LOSS AT RISK LEVEL");
     await expect(card(0).getByTestId("ca-reco-max-loss")).toContainText(rs(row.max_loss!));
     await expect(card(0).getByTestId("ca-reco-max-loss")).not.toContainText(rs(1162000));
-    await expect(card(0).getByTestId("ca-reco-max-loss-sub")).toHaveText("stop 1,160.00");
+    await expect(card(0).getByTestId("ca-reco-max-loss-sub")).toHaveText("risk level 1,160.00");
     await expect(card(0).getByTestId("ca-reco-max-loss")).toHaveAttribute("title", /gross if the price falls to zero/);
 
     // U1: each F&O card shows Kite's figure; the covered call adds its shares, paid in full
@@ -524,7 +524,7 @@ test.describe("page: Chart Analysis › option chain and strategy cards (MOCK �
     await expect(card(1).getByTestId("ca-reco-max-loss")).toContainText("MAX LOSS");
     await expect(card(1).getByTestId("ca-reco-max-loss-sub")).toHaveCount(0);
     await expect(card(1).getByTestId("ca-reco-margin")).toContainText(rs(36533), SLOW);
-    await expect(card(1).getByTestId("ca-reco-margin-sub")).toHaveText("Kite's margin calculator for BUY 1200 CE · SELL 1250 CE.");
+    await expect(card(1).getByTestId("ca-reco-margin-sub")).toHaveText("Kite's margin calculator for LONG 1200 CE · SHORT 1250 CE.");
 
     // U4: shares only: nothing asked, paid in full
     const sh = cardShares(cand(plan, "cash:breakout_continuation"))!;

@@ -249,7 +249,7 @@ test.describe("MOCK — not real data: Market Overview · the market strip", () 
     const row = page.getByTestId("mo-regime");
     await expect(row).toHaveAttribute("data-state", "stale", SLOW);
     await expect(row.getByTestId("mo-regime-stale-pill")).toHaveText("Stale");
-    await expect(row.getByTestId("mo-regime-stale")).toHaveText(`Stale: ${reason}. The risk service blocks new paper entries while this input is stale.`);
+    await expect(row.getByTestId("mo-regime-stale")).toHaveText(`Stale: ${reason}. The risk service blocks new paper positions while this input is stale.`);
   });
 
   test("MO-7 the freshness route failing leaves the rest of the strip in place", async ({ page }) => {
@@ -341,8 +341,8 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     const card = stockRow(page).getByTestId("desk-top10-card");
     await ready(card);
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id);
-    await expect(card.getByTestId("dc-entry")).toHaveText(`Enter at the close, ${rs(CASH.entry.price)}`);
-    await expect(card.getByTestId("dc-stop")).toHaveText(`Exit if wrong ${rs(CASH.stop.price)}`);
+    await expect(card.getByTestId("dc-entry")).toHaveText(`Reference price at the close, ${rs(CASH.entry.price)}`);
+    await expect(card.getByTestId("dc-stop")).toHaveText(`Risk level ${rs(CASH.stop.price)}`);
     await expect(card.getByTestId("dc-targets")).toHaveText(`Targets ${targets(CASH)}`);
     await expect(card.getByTestId("dc-size")).toHaveText(`Size ${int(A.quantity)} shares`);
     await expect(card.getByTestId("dc-risk")).toHaveText(`Max loss ${rs(A.estimated_risk_rs.total)} (${n2(A.risk_pct_of_equity)}% of your capital)`);
@@ -511,7 +511,7 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     await setup(page);
     await page.goto(DESK);
     const foot = page.getByTestId("desk-top10-footer");
-    await expect(foot).toHaveText("Ideas, not recommendations. The rank orders ideas; our test found no measurable ranking skill. Scorecard →", SLOW);
+    await expect(foot).toHaveText("Ideas, not advice. The rank orders ideas; our test found no measurable ranking skill. Scorecard →", SLOW);
     await foot.getByTestId("desk-top10-scorecard").click();
     await expect.poll(() => params(page).get("tab")).toBe("trade");
     await expect.poll(() => params(page).get("view")).toBe("scanner");

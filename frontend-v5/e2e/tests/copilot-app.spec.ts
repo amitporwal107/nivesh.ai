@@ -205,7 +205,7 @@ test.describe("Copilot app — desktop", () => {
     await expect(cards.nth(1)).toContainText("6 actions identified");
     // holdings-enriched.json equity 69.4% vs the 65% target for "Moderately Aggressive"
     // (risk-profile.json) — the dashboard's drift signal, same wording.
-    await expect(cards.nth(2)).toContainText("Portfolio drift: equity 69% vs target 65%");
+    await expect(cards.nth(2)).toContainText("Portfolio drift: equity 69% vs planned 65%");
     // suggested-prompts.json: the prompts that carry a computed badge.
     await expect(cards.nth(3)).toContainText("Fix overlap in my funds");
     await expect(cards.nth(3)).toContainText("Top pair 97% overlap");

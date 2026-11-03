@@ -227,7 +227,7 @@ test.describe("Markets → Market", () => {
     // Tape: Nifty +1.0%, 1500 advances / 900 declines, breadth tone POSITIVE, VIX −3.85% FALLING, FII net −1500.5.
     await expect(page.getByTestId("markets-read")).toContainText("Markets closed higher, with breadth positive. The Nifty 50 is +1.00%, on 1,500 advances against 900 declines.");
     await expect(page.getByTestId("markets-read")).toContainText("India VIX −3.85%, cooling");
-    await expect(page.getByTestId("markets-read")).toContainText("FIIs were net sellers in the cash market on 8 Jan");
+    await expect(page.getByTestId("markets-read")).toContainText("FIIs had a net outflow in the cash market on 8 Jan");
     await expect(page.getByTestId("markets-read")).toContainText("Fixture Sector A is the strongest sector at +1.50%");
     // The backend's verdict text is printed as sent.
     await expect(page.getByTestId("markets-verdict")).toHaveText("Rules-based read · normal: FIXTURE verdict reason, shown exactly as sent");
@@ -508,7 +508,7 @@ test.describe("Markets → Earnings Tracker", () => {
     await expect(quarter.nth(2)).toContainText("Reported · no year-ago quarter");
     await expect(quarter.nth(3)).toContainText("Fixture Loser Ltd.");
     await expect(quarter.nth(3)).toContainText("Not yet reported");
-    await expect(page.getByTestId("markets-earnings-holdings-outside")).toHaveText("1 of your stocks is not in the Fixture Index 100. Pick a wider index above to check it.");
+    await expect(page.getByTestId("markets-earnings-holdings-outside")).toHaveText("1 of your stocks is not in the Fixture Index 100. Choose a wider index above to check it.");
     // The fixture portfolio also has two mutual funds and one ETF.
     await expect(page.getByTestId("markets-earnings-holdings-scope")).toHaveText(
       "Only stocks you hold directly are checked. Stocks held through your 3 mutual funds and ETFs are not included.",
@@ -590,7 +590,7 @@ test.describe("Markets → FII / DII", () => {
     await openTab(page, "flows");
     // Latest session: FII −1000, DII +500; FIIs sold on the even sessions → 5 of the latest 10.
     await expect(page.getByTestId("markets-flows-read")).toContainText(
-      "FIIs sold a net ₹1,000 Cr in cash on 20 Jan, and were net sellers in 5 of the last 10 sessions; DIIs bought a net ₹500 Cr.",
+      "FIIs had a net outflow of ₹1,000 Cr in cash on 20 Jan, with a net outflow in 5 of the last 10 sessions; DIIs had a net inflow of ₹500 Cr.",
     );
     await expect(page.getByTestId("markets-flows-bar")).toHaveCount(12);
     const table = page.getByTestId("markets-flows-table");
@@ -609,7 +609,7 @@ test.describe("Markets → FII / DII", () => {
     await expect(page.getByTestId("markets-fii-net").first()).toHaveText("−6,000");
     await expect(page.getByTestId("markets-combined-net").first()).toHaveText("+2,000");
     await expect(page.getByTestId("markets-flows-read")).toContainText(
-      "FIIs sold a net ₹6,000 Cr in cash in Jan 2026, and were net sellers in 1 of the last 2 months; DIIs bought a net ₹8,000 Cr.",
+      "FIIs had a net outflow of ₹6,000 Cr in cash in Jan 2026, with a net outflow in 1 of the last 2 months; DIIs had a net inflow of ₹8,000 Cr.",
     );
 
     // Holdings by sector: FII B 4000 > C 2000 > A 1000; DII A 5000 first; both A 6000 first.

@@ -781,7 +781,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.goto(DESK_SCAN);
     await expect(page.getByTestId("desk-scan-table")).toHaveAttribute("data-layout", "table");
     expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual([
-      "#", "Stock", "Score", "P(+5% next session)", "Model rank", "Pattern / catalyst", "Confirmation", "Liquidity · risk", "To target", "24 sessions", "Action",
+      "#", "Stock", "Score", "P(+5% next session)", "Model rank", "Pattern / catalyst", "Confirmation", "Liquidity · risk", "To reward level", "24 sessions", "Action",
     ]);
     for (const sym of ALL_SYMS) {
       const row = page.getByTestId(`desk-scan-row-${sym}`);
@@ -868,7 +868,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     const p = PICKS.picks[0];
     // paper_fills_pnl TESTCASES ER-4: the pick's entry 505 is under the watchlist close 510, so it waits for a pullback.
     // p2_exits_backtest TC-70: the pick's holding window (timeframe_days_max 15) is the time exit, sent and said.
-    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)} (filled when a later session pulls back to it), stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}; exits after ${p.timeframe_days_max} sessions held. No order is placed and nothing is sent to a broker`);
+    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`reference price ${inr2(p.entry_price)} (filled when a later session pulls back to it), risk level ${inr2(p.stoploss)}, reward level ${inr2(p.target_price)}; closes after ${p.timeframe_days_max} sessions held. No order is placed and nothing is sent to a broker`);
     await panel.getByTestId("desk-scan-paper-add").click();
     await expect(panel.getByTestId("desk-scan-paper-done")).toHaveText(`Paper trade added: 12 FIXBRK at ${inr2(p.entry_price)}. No order is placed.`);
     expect(paperPosts.map((x) => x.body)).toEqual([{
@@ -880,7 +880,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     // A universe-only stock has no plan: no paper trade, and it says why.
     await page.getByTestId("desk-scan-row-UVOL1").getByTestId("desk-scan-act").click();
     const uvol = page.getByTestId("desk-scan-actions-UVOL1");
-    await expect(uvol.getByTestId("desk-scan-paper-none")).toContainText("needs a scanner setup with an entry and a stop below it");
+    await expect(uvol.getByTestId("desk-scan-paper-none")).toContainText("needs a scanner setup with a reference price and a risk level below it");
     expect(writes.map((w) => w.split(" ")[0])).toEqual(["POST", "POST"]);
 
     // Open analysis: the Chart tab with that stock.
@@ -976,7 +976,7 @@ test.describe("Smart trading desk · AI scanner", () => {
   test("TC-17 one scanner route fails → the other's rows and a note naming the route", async ({ page }) => {
     await scanMocks(page, { picksStatus: 500 });
     await page.goto(DESK_SCAN);
-    await expect(page.getByTestId("desk-scan-partial")).toContainText("The scanner’s target list did not answer", SLOW);
+    await expect(page.getByTestId("desk-scan-partial")).toContainText("The scanner’s ideas list did not answer", SLOW);
     const watchOnly = BUCKETS.flatMap((b) => (WATCHLIST.buckets[b] as Watch[]).map((w) => w.nse_symbol));
     await expect(page.getByTestId("desk-scan-row-FIXPICK")).toHaveCount(0);
     for (const s of watchOnly) await expect(page.getByTestId(`desk-scan-row-${s}`).getByTestId("desk-scan-target")).toHaveText("—");
@@ -1586,12 +1586,12 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-chart-symbol")).toHaveText(top.symbol);
 
     const p = PICKS.picks[0];
-    await expect(page.getByTestId("desk-level-target")).toContainText(`Target ${inr2(p.target_price)}`);
-    await expect(page.getByTestId("desk-level-entry")).toContainText(`Entry ${inr2(p.entry_price)}`);
-    await expect(page.getByTestId("desk-level-stop")).toContainText(`Stop ${inr2(p.stoploss)}`);
-    await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Entry ${inr2(p.entry_price)}`);
-    await expect(page.getByTestId("desk-risk-stop")).toHaveText(`Stop ${inr2(p.stoploss)}`);
-    await expect(page.getByTestId("desk-risk-target")).toHaveText(`Target ${inr2(p.target_price)}`);
+    await expect(page.getByTestId("desk-level-target")).toContainText(`Reward level ${inr2(p.target_price)}`);
+    await expect(page.getByTestId("desk-level-entry")).toContainText(`Ref price ${inr2(p.entry_price)}`);
+    await expect(page.getByTestId("desk-level-stop")).toContainText(`Risk level ${inr2(p.stoploss)}`);
+    await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Reference price ${inr2(p.entry_price)}`);
+    await expect(page.getByTestId("desk-risk-stop")).toHaveText(`Risk level ${inr2(p.stoploss)}`);
+    await expect(page.getByTestId("desk-risk-target")).toHaveText(`Reward level ${inr2(p.target_price)}`);
     await expect(page.getByTestId("desk-risk-rr")).toHaveText(`${p.risk_reward.toFixed(1)} : 1`);
     await expect(page.getByTestId("desk-hist-rr")).toHaveText(`${p.risk_reward.toFixed(1)} : 1`);
     await expect(page.getByTestId("desk-hist-conf")).toHaveText("High");
@@ -1631,7 +1631,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-check-resistance")).toHaveText(`Next resistance${inr2(w.resistance_level)} · ${from(w.resistance_level)}`);
     await expect(page.getByTestId("desk-setup-check").locator('[data-testid^="desk-check-"]')).toHaveCount(7);
     await expect(page.getByTestId("desk-why-catalyst")).toContainText(`${o.events_on_record} events on record; latest: Fixture filing 3 (NSE filing, 13 Oct 2026)`);
-    await expect(page.getByTestId("desk-why-risk")).toContainText(`Stop ${inr2(p.stoploss)} is ${(((p.entry_price - p.stoploss) / p.entry_price) * 100).toFixed(1)}% below the entry`);
+    await expect(page.getByTestId("desk-why-risk")).toContainText(`Risk level ${inr2(p.stoploss)} is ${(((p.entry_price - p.stoploss) / p.entry_price) * 100).toFixed(1)}% below the reference price`);
   });
 
   test("a stock with no events and a thin traded value fails two gate checks; its estimate is not shown as high-confidence", async ({ page }) => {
@@ -1673,7 +1673,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     // No scanner levels: the calculator is open for the user's own levels, and the card says why none are suggested.
     await expect(page.getByTestId("desk-risk-nolevels")).toContainText("nothing is made up");
     await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
-    await expect(page.getByTestId("desk-scn-problems")).toContainText("Enter an entry price.");
+    await expect(page.getByTestId("desk-scn-problems")).toContainText("Enter a reference price.");
     expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
   });
 
@@ -1761,8 +1761,8 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     expect(a0.outcomes!.loss_at_stop_net).toBe(5_138.5);
     expect(a0.outcomes!.profit_at_target_net).toBe(9_854);
     await tiles(a0);
-    await expect(page.getByTestId("desk-risk-maxloss-tile-note")).toHaveText(`at the stop, after costs (${inr0(a0.outcomes!.loss_at_stop)} before)`);
-    await expect(page.getByTestId("desk-risk-chk-size")).toContainText(`${inr0(5_000)} at risk (1% of ${inr0(500_000)}); max loss ${inr0(a0.outcomes!.loss_at_stop_net)} at the stop after costs.`);
+    await expect(page.getByTestId("desk-risk-maxloss-tile-note")).toHaveText(`at the risk level, after costs (${inr0(a0.outcomes!.loss_at_stop)} before)`);
+    await expect(page.getByTestId("desk-risk-chk-size")).toContainText(`${inr0(5_000)} at risk (1% of ${inr0(500_000)}); max loss ${inr0(a0.outcomes!.loss_at_stop_net)} at the risk level after costs.`);
     await expect(page.getByTestId("desk-risk-stopnote")).toHaveText(STOP_CAVEAT);
 
     // Presets: ₹2L at 2% → the 25% cap binds (99 shares), and the concentration check names the portfolio weight.
@@ -1773,7 +1773,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     expect(a1.sizing!.binding).toBe("max_allocation");
     await tiles(a1);
     await expect(page.getByTestId("desk-risk-qty-tile-note")).toHaveText("shares · limited by the maximum allocation");
-    await expect(page.getByTestId("desk-risk-chk-concentration")).toContainText(`${a1.portfolio!.stock_weight_after_pct.toFixed(1)}% of your portfolio after the buy (0.0% now), within the 25% limit.`);
+    await expect(page.getByTestId("desk-risk-chk-concentration")).toContainText(`${a1.portfolio!.stock_weight_after_pct.toFixed(1)}% of your portfolio after this position (0.0% now), within the 25% limit.`);
 
     // Every input is editable: levels, capital, risk, cap, costs, max shares and lot size.
     if ((await page.getByTestId("desk-risk-editor-toggle").getAttribute("aria-expanded")) !== "true") await page.getByTestId("desk-risk-editor-toggle").click();
@@ -1794,7 +1794,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     // No costs: net equals gross.
     expect(a2.outcomes!.loss_at_stop_net).toBe(a2.outcomes!.loss_at_stop);
     await expect(page.getByTestId("desk-scn-out-loss-v")).toHaveText(`−${inr0(a2.outcomes!.loss_at_stop_net)} after costs`);
-    await expect(page.getByTestId("desk-scn-out-costs-v")).toHaveText(`${inr0(0)} at the stop · ${inr0(0)} at the target`);
+    await expect(page.getByTestId("desk-scn-out-costs-v")).toHaveText(`${inr0(0)} at the risk level · ${inr0(0)} at the reward level`);
     await page.getByTestId("desk-scn-maxQty").fill("50");
     await page.getByTestId("desk-scn-lotSize").fill("30");
     await expect.poll(() => lastQuery(scenario)).toMatchObject({ max_qty: "50", lot_size: "30" });
@@ -1832,13 +1832,13 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-pf-existing-v")).toHaveText(inr0(50_000));
     await expect(page.getByTestId("desk-pf-existing")).toContainText("5.00% of the portfolio, all accounts");
     await expect(page.getByTestId("desk-pf-sector-v")).toHaveText("15.00%");
-    await expect(page.getByTestId("desk-pf-sector")).toContainText(`${a.portfolio!.sector_weight_after_pct!.toFixed(2)}% after the buy`);
+    await expect(page.getByTestId("desk-pf-sector")).toContainText(`${a.portfolio!.sector_weight_after_pct!.toFixed(2)}% after this position`);
     await expect(page.getByTestId("desk-pf-related-FIXCAP")).toContainText("Fixture Capital Ltd");
     await expect(page.getByTestId("desk-pf-related")).not.toContainText("Other Bank");
     await expect(page.getByTestId("desk-pf-incremental-v")).toHaveText(`5.00% → ${a.portfolio!.stock_weight_after_pct.toFixed(2)}%`);
-    await expect(page.getByTestId("desk-pf-impact-v")).toHaveText(`${pctD(a.portfolio!.impact_at_stop_pct!, 2)} at the stop · +${a.portfolio!.impact_at_target_pct!.toFixed(2)}% at the target`);
+    await expect(page.getByTestId("desk-pf-impact-v")).toHaveText(`${pctD(a.portfolio!.impact_at_stop_pct!, 2)} at the risk level · +${a.portfolio!.impact_at_target_pct!.toFixed(2)}% at the reward level`);
     await expect(page.getByTestId("desk-pf-limits")).toContainText("nothing is rebalanced or traded");
-    await expect(page.getByTestId("desk-risk-chk-concentration")).toContainText(`${a.portfolio!.stock_weight_after_pct.toFixed(1)}% of your portfolio after the buy (5.0% now)`);
+    await expect(page.getByTestId("desk-risk-chk-concentration")).toContainText(`${a.portfolio!.stock_weight_after_pct.toFixed(1)}% of your portfolio after this position (5.0% now)`);
   });
 
   test("PRD §8.6 with no portfolio on record the block says so and sends no portfolio figures", async ({ page }) => {
@@ -1862,7 +1862,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
     await expect(paper).toBeEnabled();
     await expect(page.getByTestId("desk-risk-paper-note")).toHaveText(
-      `Simulated: 200 shares at ${inr2(p.entry_price)}, stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}; exits after ${p.timeframe_days_max} sessions held. No order is placed; it is marked against end-of-day closes.`,
+      `Simulated: 200 shares at ${inr2(p.entry_price)}, risk level ${inr2(p.stoploss)}, reward level ${inr2(p.target_price)}; closes after ${p.timeframe_days_max} sessions held. No order is placed; it is marked against end-of-day closes.`,
     );
     await paper.click();
     await expect(paper).toBeDisabled();
@@ -1928,7 +1928,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await page.goto(`${DESK}?tab=market&view=research&sym=OTHERSYM`);
     await expect(page.getByTestId("desk-risk-paper")).toBeDisabled();
     await expect(page.getByTestId("desk-risk-alert")).toBeDisabled();
-    await expect(page.getByTestId("desk-risk-paper-note")).toHaveText("Needs a scanner setup: this stock has no entry or stop.");
+    await expect(page.getByTestId("desk-risk-paper-note")).toHaveText("Needs a scanner setup: this stock has no reference price or risk level.");
     await page.getByTestId("desk-risk-paper").click({ force: true });
     await page.getByTestId("desk-risk-alert").click({ force: true });
     await expect(page.getByTestId("desk-risk-note")).toHaveText("Paper trade only. Nivesh reads broker positions and cannot place orders.");
@@ -1962,7 +1962,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXTRD`);
     await expect(page.getByTestId("desk-risk-paper")).toBeDisabled();
-    await expect(page.getByTestId("desk-risk-paper-note")).toHaveText("Needs an entry with a stop below it; this setup does not have both.");
+    await expect(page.getByTestId("desk-risk-paper-note")).toHaveText("Needs a reference price with a risk level below it; this setup does not have both.");
     await expect(page.getByTestId("desk-risk-alert")).toBeDisabled();
   });
 
@@ -2197,7 +2197,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await expect(page.getByTestId("desk-scan-trust")).toBeVisible();
     await expect(page.getByTestId("desk-scan-trust-model")).toBeVisible();
     expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual([
-      "#", "Stock", "Score", "P(+5% next session)", "Model rank", "Pattern / catalyst", "Confirmation", "Liquidity · risk", "To target", "24 sessions", "Action",
+      "#", "Stock", "Score", "P(+5% next session)", "Model rank", "Pattern / catalyst", "Confirmation", "Liquidity · risk", "To reward level", "24 sessions", "Action",
     ]);
     expect(await texts(page, '[data-testid^="desk-scan-rank-"]:not([data-testid="desk-scan-rank"])')).toEqual(["Score", "Model rank +5%", "Model rank +10%"]);
     expect(await texts(page, '[data-testid^="desk-scan-cat-"][aria-pressed]')).toEqual([
@@ -2222,7 +2222,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await page.getByTestId("desk-persona-investor").click();
     await expect(page).toHaveURL(/[?&]persona=investor/);
     expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual([
-      "#", "Stock", "Score", "Chance +5% next day", "Model rank", "Why it shows up", "What backs it", "Easy to trade · risk", "To target", "24 sessions", "Action",
+      "#", "Stock", "Score", "Chance +5% next day", "Model rank", "Why it shows up", "What backs it", "Easy to trade · risk", "To reward level", "24 sessions", "Action",
     ]);
     expect(await texts(page, '[data-testid^="desk-scan-rank-"]:not([data-testid="desk-scan-rank"])')).toEqual(["Score", "Model rank +5% day", "Model rank +10% day"]);
     expect(await texts(page, '[data-testid^="desk-scan-cat-"][aria-pressed]')).toEqual([
@@ -2289,7 +2289,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     expect(await risk.locator('[data-testid^="desk-risk-chk-"] .cp-eyebrow').allTextContents()).toEqual(["Position size", "Concentration", "Correlation", "Gap risk"]);
     expect(await texts(page, '[data-testid^="desk-risk-capital-"]')).toEqual(["₹2L", "₹5L", "₹10L"]);
     expect(await texts(page, '[data-testid^="desk-risk-pct-"]')).toEqual(["0.5%", "1%", "2%"]);
-    expect(await page.getByTestId("desk-risk-size").locator(".cp-eyebrow").allTextContents()).toEqual(["Position size", "Quantity", "Capital used", "Max loss", "At target"]);
+    expect(await page.getByTestId("desk-risk-size").locator(".cp-eyebrow").allTextContents()).toEqual(["Position size", "Quantity", "Capital used", "Max loss", "At reward level"]);
     await expect(page.getByTestId("desk-risk-paper")).toHaveText("Add to paper trades");
     await expect(page.getByTestId("desk-risk-alert")).toHaveText("Alert on trigger");
     await expect(page.getByTestId("desk-risk-gate").locator("li")).toHaveCount(5);
@@ -2299,7 +2299,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK&persona=investor`);
     await expect(page.getByTestId("desk-candle")).toHaveCount(63);
-    await expect(page.getByTestId("desk-chart-legend")).toHaveText("20-day avg50-day avg200-day avgMonth’s avgTargetBuy aboveExitFilingDaily · 3 months");
+    await expect(page.getByTestId("desk-chart-legend")).toHaveText("20-day avg50-day avg200-day avgMonth’s avgReward levelLong aboveRisk levelFilingDaily · 3 months");
     expect(await page.getByTestId("desk-indicators").locator(".cp-eyebrow").allTextContents()).toEqual(["Trend", "Momentum", "Daily swing", "Month’s avg", "Activity"]);
     await expect(page.getByTestId("desk-setup-check")).toContainText("What the chart shows");
     expect(await page.locator('[data-testid^="desk-why-"] > .cp-eyebrow').allTextContents()).toEqual(["Trend", "Strength", "News", "Watch"]);
@@ -2309,11 +2309,11 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await expect(risk).toContainText("Chance of +5%");
     await expect(risk).toContainText("Past trades that worked");
     await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
-    expect(await page.getByTestId("desk-risk-size").locator(".cp-eyebrow").allTextContents()).toEqual(["How much to buy", "Shares", "Money used", "If wrong", "If right"]);
+    expect(await page.getByTestId("desk-risk-size").locator(".cp-eyebrow").allTextContents()).toEqual(["How much to put in", "Shares", "Money used", "If wrong", "If right"]);
     expect(await risk.locator('[data-testid^="desk-risk-chk-"] .cp-eyebrow').allTextContents()).toEqual(["Size", "One-stock share", "Moves with", "Sudden jumps"]);
     const p = PICKS.picks[0];
-    await expect(page.getByTestId("desk-risk-stop")).toHaveText(`Exit if wrong ${inr2(p.stoploss)}`);
-    await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Buy above ${inr2(p.entry_price)}`);
+    await expect(page.getByTestId("desk-risk-stop")).toHaveText(`Risk level ${inr2(p.stoploss)}`);
+    await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Reference price ${inr2(p.entry_price)}`);
     await expect(page.getByTestId("desk-risk-scenario")).toHaveText("Broke above a recent high");
     // The figures are the same as the trader's.
     await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");

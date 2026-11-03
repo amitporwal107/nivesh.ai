@@ -34,7 +34,7 @@ const SV = load("copilot-workspace-saved.json");                // /api/screener
 
 const BANKS = "wl_fixturebanks";       // five stocks, one of each kind of quote
 const READ_UP = "wl_fixturereadup";    // no stocks
-const STARTER_NOTE = "Example list, copied from the research watchlist of 12 Oct 2026. It is yours to edit or delete. A research list is not a recommendation.";
+const STARTER_NOTE = "Example list, copied from the research watchlist of 12 Oct 2026. It is yours to edit or delete. A research list is not advice.";
 
 const reply = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -295,7 +295,7 @@ test.describe("Your lists — the example list", () => {
     await expect(stock(page, "FIXCHARLIE").getByTestId("mylist-change")).toHaveText("+0.67%");
     await expect(page.getByTestId("mylist-quotes")).toContainText("Live prices · 2 of 3");
     await expect(page.getByTestId("mylist-quotes-checked")).toHaveText(/^Fetched \d{1,2}:\d{2}/);
-    await expect(panel).toContainText("A list is your own note of stocks to follow, not advice to buy or sell.");
+    await expect(panel).toContainText("A list is your own note of stocks to follow, not advice or a trading call.");
 
     // The rest of the screen is as it was.
     await expect(page.getByTestId("watchlist-name")).toHaveText(["Fixture Alpha Industries Ltd", "Fixture Bravo Pharma Ltd", "Fixture Charlie Power Ltd"]);

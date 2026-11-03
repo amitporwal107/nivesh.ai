@@ -325,7 +325,7 @@ function expectedAll(): string[] {
   return out.sort(newestFirst).map((e) => e.id);
 }
 const flowCr = (n: number) => `₹${int(Math.abs(n))} Cr`;
-const flowWords = (who: string, n: number) => (n > 0 ? `${who} net bought ${flowCr(n)}` : n < 0 ? `${who} net sold ${flowCr(n)}` : `${who} flat`);
+const flowWords = (who: string, n: number) => (n > 0 ? `${who} net inflow ${flowCr(n)}` : n < 0 ? `${who} net outflow ${flowCr(n)}` : `${who} flat`);
 const lakhQty = (n: number) => (n >= 1e5 ? `${(n / 1e5).toFixed(2)} L` : int(n));
 /** TESTPICK with daily closes, so its 1-day change can be shown (routes/positional.py :: get_picks spark fields). */
 const PICKS_SPARK = { ...PICKS, picks: PICKS.picks.map((p) => ({ ...p, spark_closes: [498.0, 505.0, 512.4], spark_end: "2026-10-13" })) };
@@ -571,7 +571,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     const deal = evRow(page, `deal-${d0.date}-${d0.kind}-${d0.symbol}-0`);
     await expect(deal.getByTestId("desk-event-type")).toHaveText("Block deal");
     expect(await deal.getByTestId("desk-event-type").getAttribute("style")).toContain("var(--rose)");
-    await expect(deal.getByTestId("desk-event-title")).toHaveText(`${d0.client_name} sold ${lakhQty(d0.quantity)} shares`);
+    await expect(deal.getByTestId("desk-event-title")).toHaveText(`${d0.client_name} disposed of ${lakhQty(d0.quantity)} shares`);
     await expect(deal.getByTestId("desk-event-sub")).toHaveText(`Block deal · ₹${d0.value_cr.toFixed(2)} Cr · at ₹${level(d0.avg_price)} average`);
 
     // The card's trust line: the sources, delayed (filings are fetched on a schedule), as reported, the last ingestion.
@@ -611,7 +611,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(ai).toContainText("AI read · not verified");
     await expect(ai.getByTestId("desk-event-why")).toHaveText(R_EARN.one as string);
     await expect(ai.getByTestId("desk-event-ai-extracted")).toHaveText(`Extracted by AI: Period ${R_EARN.period} · Headline figure ${R_EARN.metric}`);
-    await expect(ai.getByTestId("desk-event-ai-labels")).toHaveText("Tone: Positive · Importance: High · labels from the announcement classifier, not checked against the price and not a buy or sell direction.");
+    await expect(ai.getByTestId("desk-event-ai-labels")).toHaveText("Tone: Positive · Importance: High · labels from the announcement classifier, not checked against the price and not a trading direction.");
     await expect(ai.getByTestId("desk-event-ai-trust")).toHaveAttribute("data-maker", "ai");
     // The facts carry none of the AI's words; the plain "why" is rules text.
     await expect(detail.getByTestId("desk-event-facts")).not.toContainText(R_EARN.one as string);
@@ -671,7 +671,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await evRow(page, `deal-${d.date}-${d.kind}-${d.symbol}-0`).click();
     const box = page.getByTestId("desk-event-detail").getByTestId("desk-event-deal");
     await expect(box.getByTestId("desk-deal-confirmed")).toHaveText("Confirmed · exchange disclosure");
-    await expect(box).toContainText("Seller");
+    await expect(box).toContainText("Client · sale");
     await expect(box.getByTestId("desk-deal-client")).toHaveText(d.client_name);
     await expect(box.getByTestId("desk-deal-qty")).toHaveText(`${int(d.quantity)} shares`);
     await expect(box.getByTestId("desk-deal-price")).toHaveText(`₹${level(d.avg_price)}`);

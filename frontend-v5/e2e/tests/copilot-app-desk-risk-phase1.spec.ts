@@ -138,7 +138,7 @@ test.describe("MOCK — not real data: Phase 1 universal risk · paper-trade ref
     await expect(offer).toHaveAttribute("data-approved", "95");
     await expect(offer.getByTestId("desk-top10-paper-reduce-accept")).toHaveText("Paper trade 95 shares instead");
     await expect(offer.getByTestId("desk-top10-paper-reduce-note")).toHaveText(
-      "Same entry, stop and target; ₹1,14,000 at the planned entry. The risk policy checks it again. Simulated; nothing is sent to a broker.");
+      "Same reference price, risk level and reward level; ₹1,14,000 at the planned reference price. The risk policy checks it again. Simulated; nothing is sent to a broker.");
     expect(posts).toHaveLength(1);
 
     await offer.getByTestId("desk-top10-paper-reduce-accept").click();
@@ -376,7 +376,7 @@ test.describe("MOCK — not real data: Phase 1 universal risk · 05 Risk profile
 
     await expect(card.getByTestId("risk-profile-admin-note")).toHaveText("Only an admin can loosen a limit; you can tighten any limit.");
     await expect(card.getByTestId("risk-profile-estimate")).toHaveText(
-      "A share entry’s estimated risk is its loss at the stop plus round-trip costs (desk-cost-v2) and a gap of 1% of the stop price through the stop (research constant, not calibrated; est-risk-v1).");
+      "A share position’s estimated risk is its loss at the risk level plus round-trip costs (desk-cost-v2) and a gap of 1% of the stop price through the stop (research constant, not calibrated; est-risk-v1).");
     await expect(card.getByTestId("risk-trust-profile")).toContainText("universal-risk-v1");
   });
 
