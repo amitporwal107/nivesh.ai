@@ -582,6 +582,96 @@ test.describe("MOCK — not real data: Chart Analysis timeframes, chart tools an
     await expect(drawings).toHaveCount(1);
   });
 
+  test("G1–G7 drawing gestures: press-drag-release, two clicks with a dot at once, a release past the edge, Esc", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    const hit = page.getByTestId("ca-price-hit");
+    await expect(hit).toBeVisible(SLOW);
+    await hit.scrollIntoViewIfNeeded();
+    const box = (await hit.boundingBox())!;
+    const P = (fx: number, fy: number) => [box.x + box.width * fx, box.y + box.height * fy] as const;
+    const dragFromTo = async (a: readonly [number, number], b: readonly [number, number]) => {
+      await page.mouse.move(...a);
+      await page.mouse.down();
+      await page.mouse.move(...b, { steps: 8 });
+      await page.mouse.up();
+    };
+    const drawings = page.getByTestId("ca-drawing");
+    const kind = (k: string) => page.locator(`[data-testid="ca-drawing"][data-kind="${k}"]`);
+
+    // G1 trend by press, drag, release (the preview follows the drag; nothing is left pending)
+    await page.getByTestId("ca-tool-trend").click();
+    await page.mouse.move(...P(0.2, 0.7));
+    await page.mouse.down();
+    await page.mouse.move(...P(0.4, 0.5), { steps: 6 });
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(1);
+    await page.mouse.move(...P(0.6, 0.3), { steps: 6 });
+    await page.mouse.up();
+    await expect(kind("trend")).toHaveCount(1);
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(0);
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(0);
+
+    // G2 rect, Fib and measure by drag
+    await page.getByTestId("ca-tool-rect").click();
+    // a second drag right after the first: without `user-select: none` the first drag selected chart text, and a press on
+    // the selection started the browser's own drag, which cancelled this pointer (pointercancel) and nothing was drawn
+    await dragFromTo(P(0.3, 0.3), P(0.5, 0.6));
+    await expect(kind("rect")).toHaveCount(1);
+    await page.getByTestId("ca-tool-fib").click();
+    await dragFromTo(P(0.3, 0.8), P(0.7, 0.2));
+    await expect(page.getByTestId("ca-fib-level")).toHaveCount(7);
+    await page.getByTestId("ca-tool-measure").click();
+    await dragFromTo(P(0.25, 0.7), P(0.75, 0.3));
+    const label = page.getByTestId("ca-measure-label");
+    await expect(label).toHaveCount(1);
+    expect(Number(await label.getAttribute("data-change"))).toBeGreaterThan(0);
+    expect(Number(await label.getAttribute("data-bars"))).toBeGreaterThan(10);
+    await expect(drawings).toHaveCount(4);
+
+    // G3 two clicks still work, and the first point shows at once
+    await page.getByTestId("ca-tool-trend").click();
+    await page.mouse.click(...P(0.15, 0.4));
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(1);
+    await page.mouse.click(...P(0.45, 0.2));
+    await expect(kind("trend")).toHaveCount(2);
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(0);
+
+    // G4 H and V by one click; H by a short drag lands at the release
+    await page.getByTestId("ca-tool-h").click();
+    await page.mouse.click(...P(0.5, 0.25));
+    await expect(kind("h")).toHaveCount(1);
+    await page.getByTestId("ca-tool-v").click();
+    await page.mouse.click(...P(0.55, 0.5));
+    await expect(kind("v")).toHaveCount(1);
+    await page.getByTestId("ca-tool-h").click();
+    await dragFromTo(P(0.5, 0.5), P(0.5, 0.75));
+    await expect(kind("h")).toHaveCount(2);
+    await expect(drawings).toHaveCount(8);
+
+    // G5 a release past the plot's right edge ends on the last bar in view
+    await page.getByTestId("ca-tool-clear").click();
+    await expect(drawings).toHaveCount(0);
+    await page.getByTestId("ca-tool-trend").click();
+    await dragFromTo(P(0.4, 0.5), [box.x + box.width + 60, box.y + box.height * 0.3]);
+    await expect(kind("trend")).toHaveCount(1);
+    const chart = page.getByTestId("ca-chart");
+    const lastI = Number(await chart.getAttribute("data-end")) - 1;
+    const lastX = Number(await page.locator(`[data-testid="ca-candle"][data-i="${lastI}"] line`).getAttribute("x1"));
+    const endX = Number(await kind("trend").locator("line").getAttribute("x2"));
+    expect(Math.abs(endX - lastX)).toBeLessThan(0.5);
+
+    // G7 Esc after the first click: no dot, no preview, nothing drawn
+    await page.mouse.click(...P(0.3, 0.4));
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(0);
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(0);
+    await expect(drawings).toHaveCount(1);
+    await expect(page.getByTestId("ca-tool-trend")).toHaveAttribute("title", /click two points or drag/);
+    await page.getByTestId("ca-tool-rect").click();
+    await expect(page.getByTestId("ca-tool-hint")).toContainText("CLICK TWO POINTS ON THE PRICE PANE, OR DRAG");
+  });
+
   test("F11–F12 crosshair price tag; wheel zoom, drag pan and Reset view", async ({ page }) => {
     await setupTf(page);
     await page.goto(CHART("FIXFNO"));

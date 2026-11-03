@@ -117,8 +117,11 @@ export function AnalysisChart(p: AnalysisChartProps) {
   const [off, setOff] = useState(0);                           // bars hidden on the right (0 = the latest bar in view)
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [pending, setPending] = useState<{ t1: string; p1: number } | null>(null);
-  useEffect(() => { setSpan(null); setOff(0); setPending(null); }, [p.viewKey]);
-  useEffect(() => { setPending(null); }, [tool]);
+  // a drawing gesture: the press (bar time + price), and whether it has moved (a drag) or not (a click)
+  const press = useRef<{ x: number; y: number; t: string; p: number; moved: boolean } | null>(null);
+  const [dragFrom, setDragFrom] = useState<{ t1: string; p1: number } | null>(null);
+  useEffect(() => { setSpan(null); setOff(0); setPending(null); setDragFrom(null); press.current = null; }, [p.viewKey]);
+  useEffect(() => { setPending(null); setDragFrom(null); press.current = null; }, [tool]);
 
   // ── geometry ──
   const ladderW = !compact && p.ladder ? Math.round(Math.min(240, Math.max(190, W * 0.22))) : 0;
@@ -182,10 +185,30 @@ export function AnalysisChart(p: AnalysisChartProps) {
     return i >= start && i < end ? i : null;
   };
   const inPlot = (pt: { x: number; y: number }) => pt.x >= plotL && pt.x <= plotR && pt.y >= topPad && pt.y <= vBot;
+  const inPrice = (pt: { x: number; y: number }) => pt.x >= plotL && pt.x <= plotR && pt.y >= topPad && pt.y <= priceBot;
+  /** The bar and price under a point, the point held to the price pane (a release past its edge ends on the edge bar). */
+  const pointAt = (pt: { x: number; y: number }) => {
+    const i = barAt(Math.min(plotR - 0.01, Math.max(plotL, pt.x)));
+    return i == null ? null : { t: p.bars[i].day, p: Math.round(pf(Math.min(priceBot, Math.max(topPad, pt.y))) * 100) / 100 };
+  };
   const onDown = (e: PointerEvent<SVGSVGElement>) => {
     justPanned.current = false;                                // a new press: the previous gesture's pan no longer swallows a click
-    if (tool !== "cursor" || drag.current) return;
+    if (drag.current) return;
     const pt = toLocal(e);
+    if (tool !== "cursor") {
+      // a drawing gesture: a click (no move) or a press-drag-release; the pointer is captured so a release outside counts
+      if (!p.onDraw || e.button > 0 || !inPrice(pt)) return;
+      const at = pointAt(pt);
+      if (!at) return;
+      // no text selection and no native drag of one: a press on selected chart text would start the browser's drag,
+      // which cancels the pointer (pointercancel) and the drawing with it
+      e.preventDefault();
+      window.getSelection?.()?.removeAllRanges();
+      svgRef.current?.focus({ preventScroll: true });           // Esc cancels a first click
+      press.current = { x: pt.x, y: pt.y, t: at.t, p: at.p, moved: false };
+      try { svgRef.current?.setPointerCapture?.(e.pointerId); } catch { /* capture is best effort */ }
+      return;
+    }
     if (!inPlot(pt)) return;
     pan.current = { x: pt.x, off: offC, moved: false };
   };
@@ -193,6 +216,11 @@ export function AnalysisChart(p: AnalysisChartProps) {
     const pt = toLocal(e);
     setHover(pt);
     if (drag.current && p.onDrag) { p.onDrag(drag.current, Math.round(pf(Math.min(priceBot, Math.max(topPad, pt.y))) * 20) / 20); return; }
+    const pr = press.current;
+    if (pr && !pr.moved && Math.hypot(pt.x - pr.x, pt.y - pr.y) > 4) {
+      pr.moved = true;
+      if (TWO_CLICK.has(tool) && !pending) setDragFrom({ t1: pr.t, p1: pr.p });   // the dashed preview while dragging
+    }
     if (pan.current) {
       const dx = pt.x - pan.current.x;
       if (!pan.current.moved && Math.abs(dx) > 4) {
@@ -203,30 +231,36 @@ export function AnalysisChart(p: AnalysisChartProps) {
     }
     p.onActive(barAt(pt.x));
   };
-  const onUp = () => {
+  const onUp = (e: PointerEvent<SVGSVGElement>) => {
     drag.current = null;
     if (pan.current?.moved) justPanned.current = true;
     pan.current = null;
+    const pr = press.current;
+    press.current = null;
+    setDragFrom(null);
+    if (!pr || tool === "cursor" || !p.onDraw) return;
+    const at = pr.moved ? pointAt(toLocal(e)) : { t: pr.t, p: pr.p };
+    if (!at) return;
+    if (tool === "h") p.onDraw({ kind: "h", p1: at.p });
+    else if (tool === "v") p.onDraw({ kind: "v", t1: at.t, p1: at.p });
+    else if (pending) { p.onDraw({ kind: tool, t1: pending.t1, p1: pending.p1, t2: at.t, p2: at.p }); setPending(null); }
+    else if (pr.moved) p.onDraw({ kind: tool, t1: pr.t, p1: pr.p, t2: at.t, p2: at.p });   // press, drag, release
+    else setPending({ t1: at.t, p1: at.p });                                                 // the first of two clicks
   };
+  const onCancel = () => { drag.current = null; pan.current = null; press.current = null; setDragFrom(null); };
   const onKey = (e: KeyboardEvent<SVGSVGElement>) => {
-    if (e.key === "Escape") { setPending(null); return; }
+    if (e.key === "Escape") { setPending(null); setDragFrom(null); press.current = null; return; }
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
     const cur = p.active ?? end - 1;
     p.onActive(Math.min(end - 1, Math.max(start, cur + (e.key === "ArrowLeft" ? -1 : 1))));
   };
+  /** A click with the crosshair tool: the cash entry (drawing tools are handled by the pointer events above). */
   const onPlotClick = (e: { clientX: number; clientY: number }) => {
     if (justPanned.current) { justPanned.current = false; return; }
+    if (tool !== "cursor" || !p.onPriceClick) return;
     const pt = toLocal(e);
-    const price = Math.round(pf(Math.min(priceBot, Math.max(topPad, pt.y))) * 100) / 100;
-    if (tool === "cursor") { if (p.onPriceClick) p.onPriceClick(Math.round(price * 20) / 20); return; }
-    const i = barAt(pt.x);
-    if (i == null || !p.onDraw) return;
-    const t = p.bars[i].day;
-    if (tool === "h") p.onDraw({ kind: "h", p1: price });
-    else if (tool === "v") p.onDraw({ kind: "v", t1: t, p1: price });
-    else if (!pending) setPending({ t1: t, p1: price });
-    else { p.onDraw({ kind: tool, t1: pending.t1, p1: pending.p1, t2: t, p2: price }); setPending(null); }
+    p.onPriceClick(Math.round(pf(Math.min(priceBot, Math.max(topPad, pt.y))) * 20) / 20);
   };
 
   // the wheel zooms over the price and volume panes (a native listener: React's wheel handler cannot stop the page scroll)
@@ -369,18 +403,20 @@ export function AnalysisChart(p: AnalysisChartProps) {
       </g>
     );
   };
-  const preview: Drawing | null = pending && hover && TWO_CLICK.has(tool) && tool !== "cursor" ? (() => {
-    const i = barAt(hover.x);
-    return i == null ? null : { kind: tool as Drawing["kind"], t1: pending.t1, p1: pending.p1, t2: p.bars[i].day, p2: pf(Math.min(priceBot, Math.max(topPad, hover.y))) };
+  const from = pending ?? dragFrom;
+  const preview: Drawing | null = from && hover && TWO_CLICK.has(tool) && tool !== "cursor" ? (() => {
+    const at = pointAt(hover);
+    return at == null ? null : { kind: tool as Drawing["kind"], t1: from.t1, p1: from.p1, t2: at.t, p2: at.p };
   })() : null;
+  const anchorX = from && TWO_CLICK.has(tool) ? xt(from.t1) : null;   // the first point, shown at once
 
   return (
     <div ref={ref} data-testid="ca-chart" data-bars={n} data-start={start} data-end={end} data-tool={tool} data-type={chartType} className="min-w-0" style={{ width: "100%", position: "relative" }}>
       <svg ref={svgRef} data-testid="ca-chart-svg" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" tabIndex={0}
         aria-label="Price, volume, futures open interest, build-up and the strike ladder; use the left and right arrow keys to move the cursor"
-        style={{ display: "block", touchAction: drag.current ? "none" : "pan-y", outline: "none", fontFamily: MONO, cursor: tool === "cursor" ? undefined : "crosshair" }}
+        style={{ display: "block", touchAction: drag.current || tool !== "cursor" ? "none" : "pan-y", userSelect: "none", WebkitUserSelect: "none", outline: "none", fontFamily: MONO, cursor: tool === "cursor" ? undefined : "crosshair" }}
         onPointerDown={onDown} onPointerMove={onMove} onPointerLeave={() => { setHover(null); if (!drag.current) p.onActive(null); }}
-        onPointerUp={onUp} onPointerCancel={onUp} onKeyDown={onKey}>
+        onPointerUp={onUp} onPointerCancel={onCancel} onKeyDown={onKey}>
         <defs>
           <clipPath id={`${uid}-plot`}><rect x={plotL} y={topPad} width={plotW} height={priceH} /></clipPath>
           <linearGradient id={`${uid}-area`} x1="0" y1="0" x2="0" y2="1">
@@ -503,6 +539,7 @@ export function AnalysisChart(p: AnalysisChartProps) {
         <g clipPath={`url(#${uid}-plot)`} style={{ pointerEvents: "none" }}>
           {(p.drawings ?? []).map((d, k) => drawing(d, `dw-${k}`))}
           {preview && drawing(preview, "dw-preview", true)}
+          {anchorX != null && from && <circle data-testid="ca-draw-anchor" cx={anchorX} cy={py(from.p1)} r={3.5} style={{ fill: "var(--cp-indigo)" }} />}
         </g>
 
         {/* trade lines, the tag at the right of the plot; STOP and TGT drag (with the crosshair tool only) */}

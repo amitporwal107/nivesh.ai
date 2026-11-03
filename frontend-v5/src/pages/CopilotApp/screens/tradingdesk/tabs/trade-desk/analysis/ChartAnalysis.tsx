@@ -54,9 +54,9 @@ const quiet = { fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" } as c
 export const TWO_COLUMN_MIN = 1000;
 const TONE_VAR: Record<SignalTone, string> = { mint: "var(--mint)", indigo: "var(--cp-indigo)", amber: "var(--amber)", danger: "var(--cp-danger)" };
 const TOOLS: Array<{ id: DrawTool | "undo" | "clear"; glyph: string; label: string }> = [
-  { id: "cursor", glyph: "＋", label: "Crosshair: hover for the price, drag to pan" }, { id: "trend", glyph: "╱", label: "Trend line (two clicks)" },
-  { id: "h", glyph: "─", label: "Horizontal line" }, { id: "v", glyph: "│", label: "Vertical line" }, { id: "rect", glyph: "▭", label: "Rectangle (two clicks)" },
-  { id: "fib", glyph: "☰", label: "Fib retracement (two clicks)" }, { id: "measure", glyph: "↔", label: "Measure (two clicks)" },
+  { id: "cursor", glyph: "＋", label: "Crosshair: hover for the price, drag to pan" }, { id: "trend", glyph: "╱", label: "Trend line (click two points or drag)" },
+  { id: "h", glyph: "─", label: "Horizontal line" }, { id: "v", glyph: "│", label: "Vertical line" }, { id: "rect", glyph: "▭", label: "Rectangle (click two points or drag)" },
+  { id: "fib", glyph: "☰", label: "Fib retracement (click two points or drag)" }, { id: "measure", glyph: "↔", label: "Measure (click two points or drag)" },
   { id: "undo", glyph: "↶", label: "Undo the last drawing" }, { id: "clear", glyph: "✕", label: "Clear the drawings" },
 ];
 const TOOL_NAME: Record<DrawTool, string> = { cursor: "", trend: "TREND LINE", h: "HORIZONTAL LINE", v: "VERTICAL LINE", rect: "RECTANGLE", fib: "FIB RETRACEMENT", measure: "MEASURE" };
@@ -483,7 +483,7 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
       </div>
       {!mobile && tool !== "cursor" && (
         <div data-testid="ca-tool-hint" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-indigo)" }}>
-          {TOOL_NAME[tool]}: {TWO_CLICK.has(tool) ? "CLICK TWO POINTS ON THE PRICE PANE · ESC CANCELS" : "CLICK THE PRICE PANE"} · ＋ RETURNS TO THE CROSSHAIR
+          {TOOL_NAME[tool]}: {TWO_CLICK.has(tool) ? "CLICK TWO POINTS ON THE PRICE PANE, OR DRAG · ESC CANCELS" : "CLICK THE PRICE PANE"} · ＋ RETURNS TO THE CROSSHAIR
         </div>
       )}
       <div data-testid="ca-legend" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-4)", lineHeight: 1.6 }}>
