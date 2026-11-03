@@ -23,6 +23,11 @@
  *                                                  our data (the old view=scanbuilder URL lands here)
  *                                     dashboard and builder need the `scan_builder` flag (the switcher hides them otherwise; each
  *                                     says it is not enabled)
+ *   recovery    Market Recovery       market-recovery/MarketRecovery.tsx (owner, 3 Nov; docs/market_recovery/DESIGN.md): the recovery
+ *                                     check and Nifty 500 breadth, the sector leaders, the recovery candidates with their plans, and
+ *                                     the high scorers left out as possible false signals. Needs the `market_recovery` flag (the
+ *                                     switcher hides it otherwise; the view says it is not enabled). Its plan labels are the
+ *                                     owner's standard words (Entry zone · Stop loss · Target 1 · Target 2), on this view only.
  *
  * Watchlists and the Idea scorecard are Trade Desk's in the owner's design (27 Oct 19:40 IST): the scorecard component is
  * tradingdesk/scorecard/IdeaScorecard.tsx, for the Trade Desk tab to mount; ?tab=market&view=watchlists|scorecard opens
@@ -55,11 +60,12 @@ const SectorHeatmap = lazy(() => import("../../../SectorHeatmap"));
 const Screener = lazy(() => import("../../../Screener"));
 const ScanBuilder = lazy(() => import("./scan-builder/ScanBuilder"));
 const ScanDashboard = lazy(() => import("./scan-dashboard/ScanDashboard"));
+const MarketRecovery = lazy(() => import("./market-recovery/MarketRecovery"));
 
 /** The F&O lab's views on Smart Money: build-up, candidates, indices and the option chain. */
 const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
 
-export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener";
+export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener" | "recovery";
 
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)", textAlign: "left" };
 
@@ -176,7 +182,7 @@ function useGoView() {
 export default function MarketDesk({ view, sub = null }: { view: string | null; sub?: string | null }) {
   const desk = useDesk();
   const goView = useGoView();
-  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener"] as const).find((x) => x === view) ?? "intel";
+  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener", "recovery"] as const).find((x) => x === view) ?? "intel";
   const jump = (section: string, go: () => void) => () => { go(); scrollTo(section); };
 
   switch (v) {
@@ -204,6 +210,18 @@ export default function MarketDesk({ view, sub = null }: { view: string | null; 
             elsewhere={<>Sector flows from disclosed mutual-fund holdings are in <button type="button" data-testid="md-to-smartmoney" onClick={() => goView("smartmoney")} style={linkBtn}>Smart Money ›</button></>}
           />
           <Hosted id="sectors" name="Sector Rotation"><SectorHeatmap /></Hosted>
+        </>
+      );
+    case "recovery":
+      return (
+        <>
+          <ViewHead
+            view={v}
+            label="Market Recovery"
+            line="Is the market recovering, which sectors lead, and which Nifty 500 stocks are recovering faster than the market."
+            elsewhere={<>The sector heatmap and rotation matrix are in <button type="button" data-testid="md-to-sectors" onClick={() => goView("sectors")} style={linkBtn}>Sector Rotation ›</button></>}
+          />
+          <Hosted id="recovery" name="Market Recovery"><MarketRecovery /></Hosted>
         </>
       );
     case "research":

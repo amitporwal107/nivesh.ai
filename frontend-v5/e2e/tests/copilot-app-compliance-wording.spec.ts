@@ -110,6 +110,9 @@ async function deskMocks(page: Page) {
 }
 
 // Every place of desk-nav.ts SECTION_VIEWS / SUB_VIEWS, plus My portfolio.
+// Not here: tab=market&view=recovery (Market Recovery, flag market_recovery). The owner chose the standard plan words for that
+// view (3 Nov: "Entry zone · Stop loss · Target 1 / Target 2"), so copilot-app-market-recovery.spec.ts TC-E5 lints it with this
+// same list, removing exactly those four labels and nothing else.
 const PLACES = [
   "tab=overview",
   "tab=trade&view=scanner&sub=ranked", "tab=trade&view=scanner&sub=library", "tab=trade&view=scanner&sub=scorecard",
