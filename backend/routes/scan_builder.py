@@ -10,12 +10,14 @@ Endpoints (signed-in user, behind the `scan_builder` feature flag; every saved s
     PUT    /api/scan-builder/scans/{id} {spec} -> {scan}
     POST   /api/scan-builder/scans/{id}/copy  -> {scan}
     DELETE /api/scan-builder/scans/{id}       -> {ok: true}
-    GET    /api/scan-builder/market-dashboard -> the realtime scan dashboard (DESIGN.md §8): the 17 widgets of Chartink
-                                              dashboard 247498 on our data, each with its criteria; one computation per
+    GET    /api/scan-builder/market-dashboard[?dashboard=atlas|daytrade]
+                                           -> a realtime scan dashboard (DESIGN.md §8, §9): atlas (default) = the 17 widgets
+                                              of Chartink dashboard 247498, daytrade = the 20 widgets of 503347, on our
+                                              data, each with its criteria; one computation per dashboard per
                                               market_dashboard.CACHE_S per worker, shared by every viewer
 
 Typed errors: {"detail": {"code", "message", ...}} plus status/error/code/message at the top level (the desk client reads
-detail): invalid_spec (422, with `path`), run_too_soon (429, retry_after_s), data_unavailable (503), scan_not_found (404),
+detail): invalid_spec (422, with `path`), unknown_dashboard (422), run_too_soon (429, retry_after_s), data_unavailable (503), scan_not_found (404),
 too_many_scans (409). The flag dependency answers 403 when the feature is off for the user. Reads market data only; no order
 is ever placed. Writes pass the app's CSRF middleware like every other write.
 """
@@ -108,10 +110,13 @@ async def run(request: Request):
 
 
 @router.get("/market-dashboard")
-async def market_dashboard_view(request: Request):
+async def market_dashboard_view(request: Request, dashboard: str = market_dashboard.DEFAULT_DASHBOARD):
     uid = await _user_id(request)
+    if dashboard not in market_dashboard.DASHBOARDS:
+        return _answer(422, "unknown_dashboard",
+                       f"There is no scan dashboard '{dashboard[:40]}'; use one of: {', '.join(market_dashboard.DASHBOARDS)}.")
     try:
-        dash = await market_dashboard.get_dashboard(get_data())
+        dash = await market_dashboard.get_dashboard(get_data(), dashboard=dashboard)
     except DataUnavailable as e:
         return _answer(503, "data_unavailable", e.message)
     return await market_dashboard.attach_ideas(dash, uid)

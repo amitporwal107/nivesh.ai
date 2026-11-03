@@ -1,8 +1,14 @@
 /**
- * Market Desk › Screener › Scan dashboard (docs/scan_builder/DESIGN.md §8). The owner's "simple dashboard": the 17 widgets of
- * Chartink dashboard 247498 computed on our own data (Kite live quotes over NSE end-of-day bars, fundamentals and company
- * results from our data platform), each card with its criteria always visible and its table. Real time: asked again every
- * 10 s while the market is open and the tab is visible (useMarketDashboard).
+ * Market Desk › Screener › Scan dashboard (docs/scan_builder/DESIGN.md §8). The owner's "simple dashboard": the widgets of a
+ * Chartink dashboard computed on our own data (Kite live quotes over NSE end-of-day bars, fundamentals and company results
+ * from our data platform), each card with its criteria always visible and its table. Real time: asked again every 10 s while
+ * the market is open and the tab is visible (useMarketDashboard).
+ *
+ * Two dashboards, one tab each (owner 3 Nov, "add another chartink scan in another tab"): "Atlas fresh" (247498, 17 widgets)
+ * and "Day trade" (503347, 20 widgets). The tab is `dash=` in the URL (absent = atlas), so a link or a reload keeps it; the
+ * labels come from the answer's `dashboards`, the static pair before the first answer. Only the open tab is asked again.
+ * An answer for another dashboard than the tab asked for (a backend from before the second dashboard ignores the parameter
+ * and answers 247498) is never drawn under that tab: it says the dashboard is not available on the server yet.
  *
  * A criterion the server could not apply (applied=false, e.g. a 15-minute condition) is dimmed with its reason in amber, so a
  * list is never mistaken for the full scan. Widgets the server marks pending or not computed show its note instead of a table.
@@ -14,16 +20,19 @@
  * has a favorable reward : risk; "…" while it is being built. They are rules-based fits from the strategy builder, shown with
  * that caveat; never "recommended".
  */
-import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
-import { useHref, useLocation } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import { useHref, useLocation, useSearchParams } from "react-router-dom";
 import { useMe } from "@/hooks/use-auth";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "../../../../../components/ui";
 import { useCopilotShell } from "../../../../../lib/shell-context";
 import { useDesk } from "../../../context";
+import { canonical } from "../../../desk-nav";
+import { UnderlineTabs } from "../../../fno-parts";
 import { scanProblem, type ScanProblem } from "../scan-builder/scan-builder-data";
 import {
-  useMarketDashboard, type DashboardCell, type DashboardColumn, type DashboardCriterion, type DashboardIdea, type DashboardIdeas,
-  type DashboardWidget, type IdeasMeta, type MarketDashboard,
+  DEFAULT_DASHBOARD, STATIC_DASHBOARDS, dashboardTabs, servedKey, useMarketDashboard, type DashboardCell, type DashboardColumn,
+  type DashboardCriterion, type DashboardIdea, type DashboardIdeas, type DashboardRef, type DashboardWidget, type IdeasMeta,
+  type MarketDashboard,
 } from "./market-dashboard-data";
 
 const DASH = "–";
@@ -123,11 +132,68 @@ export default function ScanDashboard() {
 function problemTitle(p: ScanProblem | null): string {
   if (p?.code === "data_unavailable") return "The market data could not be loaded";
   if (p?.code === "feature_disabled") return "The Scan dashboard is not enabled for your account";
+  if (p?.code === "unknown_dashboard") return "This dashboard is not available on the server";
   return "The scan dashboard did not load";
 }
 
+/** The URL param naming the open dashboard (absent = atlas). */
+export const DASH_PARAM = "dash";
+const DASH_KEY_RE = /^[a-z0-9_]{1,40}$/i;
+
+/** The open dashboard and the way to open another: `dash=` in the URL, every other param kept. */
+function useDashboardKey(): [string, (key: string) => void] {
+  const [params, setParams] = useSearchParams();
+  const raw = params.get(DASH_PARAM);
+  const key = raw && DASH_KEY_RE.test(raw) ? raw : DEFAULT_DASHBOARD;
+  const pick = useCallback((k: string) => {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev);
+      if (k === DEFAULT_DASHBOARD) p.delete(DASH_PARAM); else p.set(DASH_PARAM, k);
+      return canonical(p);
+    }, { replace: true });
+  }, [setParams]);
+  return [key, pick];
+}
+
+/** The dashboards' tab row: the desk's underline tabs (tablist, arrow keys); the Chartink id in each tab's tooltip. */
+function DashTabs({ tabs, value, onChange }: { tabs: readonly DashboardRef[]; value: string; onChange: (k: string) => void }) {
+  return (
+    <div data-testid="sd-dashes" data-value={value} className="min-w-0">
+      <UnderlineTabs<string>
+        label="Scan dashboards"
+        idPrefix="sd-dash"
+        value={value}
+        onChange={onChange}
+        tabs={tabs.map((t) => ({ key: t.key, label: <span title={t.chartink_id ? `Chartink dashboard ${t.chartink_id}` : undefined}>{t.title}</span> }))}
+      />
+    </div>
+  );
+}
+
 function DashboardOn() {
-  const q = useMarketDashboard();
+  const [key, pickKey] = useDashboardKey();
+  const q = useMarketDashboard(key);
+  // The tabs follow the server's list from the last answer that was for the dashboard it was asked for.
+  const [tabs, setTabs] = useState<readonly DashboardRef[]>(STATIC_DASHBOARDS);
+  const own = q.data && servedKey(q.data) === key ? q.data : undefined;
+  useEffect(() => {
+    if (!own?.dashboards?.length) return;
+    const next = dashboardTabs(own);
+    setTabs((prev) => (sameTabs(prev, next) ? prev : next));
+  }, [own]);
+  return (
+    <div data-testid="sd-root" data-dashboard={key} className="flex min-w-0 flex-col" style={{ gap: 14 }}>
+      <DashTabs tabs={tabs} value={key} onChange={pickKey} />
+      {/* keyed: a card's sort and the header's "+N more" never carry over to another dashboard */}
+      <DashboardBody key={key} q={q} asked={key} />
+    </div>
+  );
+}
+
+const sameTabs = (a: readonly DashboardRef[], b: readonly DashboardRef[]) =>
+  a.length === b.length && a.every((x, i) => x.key === b[i].key && x.title === b[i].title && (x.chartink_id ?? null) === (b[i].chartink_id ?? null));
+
+function DashboardBody({ q, asked }: { q: ReturnType<typeof useMarketDashboard>; asked: string }) {
   const desk = useDesk();
   const { mobile } = useCopilotShell();
   const visible = useVisible();
@@ -147,16 +213,36 @@ function DashboardOn() {
   }
   if (!q.data) {
     const p = scanProblem(q.error);
+    const final = p?.code === "feature_disabled" || p?.code === "unknown_dashboard";
     return (
       <div data-testid="sd-error" data-code={p?.code ?? "unexpected"}>
-        <ErrorBlock title={problemTitle(p)} error={p?.message ?? q.error} onRetry={p?.code === "feature_disabled" ? undefined : () => { void q.refetch(); }} />
+        <ErrorBlock title={problemTitle(p)} error={p?.message ?? q.error} onRetry={final ? undefined : () => { void q.refetch(); }} />
       </div>
     );
   }
   const d = q.data;
+  const served = servedKey(d);
+  if (served !== asked) {
+    // Deploy-order trap: the server answered another dashboard (a backend that predates this one ignores ?dashboard= and
+    // answers 247498). Its widgets are never drawn under this tab; the next refresh shows the right one once the server has it.
+    return (
+      <div data-testid="sd-unavailable" data-asked={asked} data-served={served}>
+        <EmptyBlock
+          title="This dashboard is not available on the server yet."
+          body="The server answered with a different dashboard, so nothing is shown under this tab. Try again in a few minutes."
+          action={(
+            <button type="button" data-testid="sd-unavailable-retry" onClick={() => { void q.refetch(); }} disabled={q.isFetching}
+              style={{ border: 0, background: "none", padding: 0, cursor: "pointer", font: "inherit", fontSize: 13, color: "var(--mint)" }}>
+              {q.isFetching ? "Asking again…" : "Ask again ›"}
+            </button>
+          )}
+        />
+      </div>
+    );
+  }
   const refreshProblem = q.isError ? scanProblem(q.error) : null;
   return (
-    <div data-testid="scan-dashboard" data-mode={d.basis.mode} className="flex min-w-0 flex-col" style={{ gap: 14 }}>
+    <div data-testid="scan-dashboard" data-mode={d.basis.mode} data-dashboard={served} className="flex min-w-0 flex-col" style={{ gap: 14 }}>
       <DashHeader d={d} visible={visible} refreshing={q.isFetching} problem={refreshProblem} onRetry={() => { void q.refetch(); }} />
       <div data-testid="sd-grid" style={{ display: "grid", gridTemplateColumns: mobile ? "minmax(0, 1fr)" : "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, alignItems: "start" }}>
         {d.widgets.map((w) => (
