@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # interval -> (Kite name, minutes, max calendar days Kite allows per request)
 INTERVALS: Dict[str, Tuple[str, int, int]] = {
-    "5m": ("5minute", 5, 100), "15m": ("15minute", 15, 200), "30m": ("30minute", 30, 100), "60m": ("60minute", 60, 400),
+    "1m": ("minute", 1, 60), "3m": ("3minute", 3, 100), "5m": ("5minute", 5, 100), "15m": ("15minute", 15, 200), "30m": ("30minute", 30, 100), "60m": ("60minute", 60, 400),
 }
 SOURCE = "Kite intraday"
 PROVIDER = "kite-connect-v3"

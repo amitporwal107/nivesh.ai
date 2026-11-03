@@ -4,6 +4,10 @@ the bars the chart shows (GET /api/desk/live-chart/{symbol}, routes/desk_live_ch
     ema_series     EMA 20 of the closes, the indicator engine's own formula (nidp technical_indicator_engine
                    calculator._ema_series: seeded with the first close, k = 2 / (n + 1)); null for the first n − 1 bars,
                    where the engine gives no value either
+    sma_series     SMA 20: the mean of the last 20 closes; null for the first 19 bars
+    weekly_bars    daily bars → one bar per ISO week (Monday–Sunday) of the sessions present: time = the week's first
+                   session, open = its open, high = the highest high, low = the lowest low, close = the last close, volume =
+                   the sum. A week is built only from the days the data has (a holiday is absent, never filled)
     rvol_series    volume ÷ the mean volume of the PREVIOUS 20 bars (null until 20 bars exist or when that mean is 0).
                    On 15m bars this compares a bar with the 20 bars before it, not with the same time of day
     conditions     each one evaluated on the last COMPLETED bar (an in-progress candle is never judged), with its rule in
@@ -27,7 +31,7 @@ FILL MODEL). Long setups only (paper cash trades are long only).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 EMA_PERIOD = 20
 RVOL_BARS = 20
@@ -47,6 +51,41 @@ def ema_series(closes: Sequence[float], period: int = EMA_PERIOD) -> List[Option
     for i, c in enumerate(closes):
         prev = float(c) if i == 0 else float(c) * k + prev * (1.0 - k)
         out.append(round(prev, 2) if i >= period - 1 else None)
+    return out
+
+
+def sma_series(closes: Sequence[float], period: int = EMA_PERIOD) -> List[Optional[float]]:
+    out: List[Optional[float]] = []
+    run = 0.0
+    for i, c in enumerate(closes):
+        run += float(c)
+        if i >= period:
+            run -= float(closes[i - period])
+        out.append(round(run / period, 2) if i >= period - 1 else None)
+    return out
+
+
+def week_key(day: str) -> Tuple[int, int]:
+    """(ISO year, ISO week) of a YYYY-MM-DD day."""
+    y, w, _ = date.fromisoformat(day[:10]).isocalendar()
+    return y, w
+
+
+def weekly_bars(daily: Sequence[Sequence[Any]]) -> List[List[Any]]:
+    """[[first session of the week, open, high, low, close, volume]] from daily [[day, o, h, l, c, v]] (oldest first)."""
+    out: List[List[Any]] = []
+    key = None
+    for b in daily:
+        k = week_key(str(b[0]))
+        if k != key:
+            out.append([str(b[0])[:10], float(b[1]), float(b[2]), float(b[3]), float(b[4]), float(b[5] or 0)])
+            key = k
+            continue
+        w = out[-1]
+        w[2] = max(w[2], float(b[2]))
+        w[3] = min(w[3], float(b[3]))
+        w[4] = float(b[4])
+        w[5] += float(b[5] or 0)
     return out
 
 

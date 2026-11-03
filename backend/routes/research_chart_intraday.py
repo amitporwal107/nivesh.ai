@@ -18,7 +18,11 @@ from feature_gate import require_feature
 from services.kite_live_feed import config as cfg
 from services.kite_live_feed import gateway as gw
 from services.kite_live_feed.feed import get_feed
-from services.kite_live_feed.intraday import INTERVALS, IntradayService
+from services.kite_live_feed.intraday import IntradayService
+
+# The Research chart's intervals. Kite's service also serves 1m and 3m (Trade Desk › Chart Analysis asks for them through
+# /api/desk/live-chart); this route keeps its own set, so its 30-session reads stay at 5m and up.
+INTERVALS = ("5m", "15m", "30m", "60m")
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/research/chart-intraday", tags=["research_chart_intraday"])
