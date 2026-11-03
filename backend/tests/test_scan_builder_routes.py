@@ -234,3 +234,31 @@ def test_the_101st_scan_is_409(monkeypatch, tmp_path):
                                   for i in range(store.MAX_SCANS_PER_USER)]
     r = c.post("/api/scan-builder/scans", json={"spec": specmod.default_spec()}, headers=H())
     assert r.status_code == 409 and r.json()["detail"]["code"] == "too_many_scans"
+
+
+# ── the cached panel is shared by every run (no copy for All NSE stocks): a run must never change it ────────────────
+def test_a_run_never_changes_the_cached_panel(tmp_path):
+    import asyncio
+    import numpy as np
+    from services.scan_builder import service
+
+    async def day_quotes(symbols, now=None):
+        return {"source": None, "day": None, "as_of": None, "quotes": {}, "why": None}
+
+    async def hol(a, b):
+        return None
+    daas = FakeDaas(rows=ROWS)
+    d = sd.ScanData(daas_get=daas.get, daas_post=daas.post, cache_dir=tmp_path, now=lambda: IST_PREOPEN,
+                    day_quotes=day_quotes, holidays=hol, rest=StubRest({}), probe_symbols=("AAA", "CCC"))
+    base = asyncio.run(d.panel())
+    before = {k: getattr(base, k).copy() for k in ("open", "high", "low", "close", "volume")}
+    spec = specmod.default_spec()
+    m = lambda meas, **p: {"terms": [{"op": None, "operand": {"kind": "measure", "tf": "1d", "offset": 0, "measure": meas,
+                                                                "params": p}}]}
+    spec["filters"]["children"] = [
+        {"id": "f1", "kind": "filter", "left": m("close"), "op": "gt", "right": m("supertrend", period=2, multiplier=1)},
+        {"id": "f2", "kind": "filter", "left": m("close"), "op": "gt", "right": m("psar")},
+        {"id": "f3", "kind": "filter", "left": m("rsi", period=2), "op": "gt", "right": m("cci", period=2)}]
+    asyncio.run(service.run(specmod.validate(spec), d))
+    for k, a in before.items():
+        assert np.array_equal(a, getattr(base, k), equal_nan=True), k

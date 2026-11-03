@@ -14,6 +14,8 @@
  *                                     symbol strip: the stock shown, its option chain in Smart Money › F&O, and the full
  *                                     chart workspace
  *   screener    Screener              the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
+ *   scanbuilder Scan Builder          scan-builder/ScanBuilder.tsx: your own scans (filters · columns · group/sort) run on our data;
+ *                                     flag `scan_builder` (the switcher hides it otherwise; the view says it is not enabled)
  *
  * Watchlists and the Idea scorecard are Trade Desk's in the owner's design (27 Oct 19:40 IST): the scorecard component is
  * tradingdesk/scorecard/IdeaScorecard.tsx, for the Trade Desk tab to mount; ?tab=market&view=watchlists|scorecard opens
@@ -44,11 +46,12 @@ const FnoTab = lazy(() => import("../../FnoTab"));
 const ChartTab = lazy(() => import("../../ChartTab"));
 const SectorHeatmap = lazy(() => import("../../../SectorHeatmap"));
 const Screener = lazy(() => import("../../../Screener"));
+const ScanBuilder = lazy(() => import("./scan-builder/ScanBuilder"));
 
 /** The F&O lab's views on Smart Money: build-up, candidates, indices and the option chain. */
 const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
 
-export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener";
+export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener" | "scanbuilder";
 
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)", textAlign: "left" };
 
@@ -165,7 +168,7 @@ function useGoView() {
 export default function MarketDesk({ view }: { view: string | null }) {
   const desk = useDesk();
   const goView = useGoView();
-  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener"] as const).find((x) => x === view) ?? "intel";
+  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener", "scanbuilder"] as const).find((x) => x === view) ?? "intel";
   const jump = (section: string, go: () => void) => () => { go(); scrollTo(section); };
 
   switch (v) {
@@ -219,6 +222,18 @@ export default function MarketDesk({ view }: { view: string | null }) {
             parts={[{ id: "chartink", label: "Chartink sources (Trade Desk › AI Scanner) ›", onClick: () => desk.openChartink() }]}
           />
           <Hosted id="screener" name="the Screener"><Screener /></Hosted>
+        </>
+      );
+    case "scanbuilder":
+      return (
+        <>
+          <ViewHead
+            view={v}
+            label="Scan Builder"
+            line="Build your own stock scans on our live data: Kite quotes over NSE end-of-day bars, with fundamentals."
+            elsewhere="Daily, weekly and monthly candles today; 5-minute, 15-minute and hourly candles are the next step."
+          />
+          <Hosted id="scanbuilder" name="the Scan Builder"><ScanBuilder /></Hosted>
         </>
       );
     default:

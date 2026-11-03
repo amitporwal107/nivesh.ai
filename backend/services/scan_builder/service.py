@@ -47,8 +47,10 @@ def universe_sizes(base: Optional[BasePanel], ref: Reference) -> Dict[str, Optio
 
 def assemble(base: BasePanel, cols: List[int], overlay: TodayOverlay) -> engine.Panel:
     """The engine's panel: the universe's columns, plus today's row when the overlay has candles for a new day."""
+    whole = len(cols) == len(base.symbols) and all(i == j for i, j in enumerate(cols))
+
     def take(a: np.ndarray) -> np.ndarray:
-        return a[:, cols]
+        return a if whole else a[:, cols]          # All NSE stocks: no 70 MB copy on every 10-second refresh
 
     o, h, l, c, v = (take(base.open), take(base.high), take(base.low), take(base.close), take(base.volume))
     dates = base.dates

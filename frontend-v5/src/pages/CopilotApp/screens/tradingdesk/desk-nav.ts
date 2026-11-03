@@ -16,7 +16,7 @@
  *                                         Live chart with its sym and tp (LAB_TO_CHART). The old Trade Desk views land in their
  *                                         sections: view=open / paper → paper live, closed → paper journal, new → the chart;
  *                                         Market Desk's watchlists → here.
- *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener
+ *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener · scanbuilder (flagged: Scan Builder)
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
  *   04 Risk Desk         tab=risk         limits · controls · log · hedge (flagged: Portfolio hedge)
@@ -64,6 +64,9 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" },
     { key: "screener", label: "Screener" },
+    // Scan Builder (docs/scan_builder/DESIGN.md): the owner's Chartink-inspired scan editor on our own data. Listed last so the
+    // other views keep their places; shown only when the `scan_builder` flag is on for the account (FLAGGED_VIEWS).
+    { key: "scanbuilder", label: "Scan Builder" },
   ],
   risk: [
     { key: "limits", label: "Exposure & limits" },
@@ -76,7 +79,7 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
 };
 
 /** Views that exist but are shown in the switcher only when the account has the named feature flag. */
-export const FLAGGED_VIEWS: Readonly<Record<string, string>> = { "risk/hedge": "portfolio_hedge" };
+export const FLAGGED_VIEWS: Readonly<Record<string, string>> = { "risk/hedge": "portfolio_hedge", "market/scanbuilder": "scan_builder" };
 
 /** The sub-views of a view ("<tab>/<view>"), the default first. A view with none is one page. */
 export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
@@ -140,6 +143,8 @@ export const VIEW_PARAMS = [
   "lab", "lab_sym", "lab_focus", "in_chip", "in_ev",
   // Trade Desk: the sub-view, the chart's plan (?tp=) and the journal's trade (Paper Trading)
   "sub", "tp", "trade",
+  // Market Desk › Scan Builder: the open saved scan
+  "scan",
 ];
 
 /** The Strategy Lab's own params (its wizard, the Strategy Builder, the F&O lab's hand-off), dropped when a lab URL opens the chart. */
