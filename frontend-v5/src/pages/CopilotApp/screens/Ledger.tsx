@@ -117,7 +117,7 @@ function RealisedGains() {
   }
   const total = g.stcgRs + g.ltcgRs;
   return (
-    <Section title={`Realised gains${g.fy ? ` · ${g.fy}` : ""}`} note={`${g.lots} sold ${g.lots === 1 ? "lot" : "lots"} · FIFO`}>
+    <Section title={`Realised gains${g.fy ? ` · ${g.fy}` : ""}`} note={`${g.lots} realised ${g.lots === 1 ? "lot" : "lots"} · FIFO`}>
       <div className="flex flex-col" style={{ gap: 12 }}>
         <div data-testid="ledger-realised" className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 14 }}>
           <Metric k="Total realised" value={fmtINR(total, { signed: true })} tone={signTone(total)} testId="ledger-realised-total" />
@@ -260,7 +260,7 @@ function LedgerBody({ data }: { data: EnrichedHoldingsRes }) {
       <NotConnected
         testId="ledger-corrections-not-connected"
         title="A log of corrections is not kept"
-        body="You can correct a holding’s buy price, purchase date or units from its row above. What is not there yet: a list of the corrections you made with a way to undo one, matching a holding to a different fund or stock, and merging two rows that are the same holding."
+        body="You can correct a holding’s purchase price, purchase date or units from its row above. What is not there yet: a list of the corrections you made with a way to undo one, matching a holding to a different fund or stock, and merging two rows that are the same holding."
         needs={[
           "A corrections log written by PUT /api/portfolio/holdings/{id} (what changed, when, the value before) and an endpoint to list and undo entries",
           "Corrections that survive the next statement import: an import replaces every holding row, edits included",

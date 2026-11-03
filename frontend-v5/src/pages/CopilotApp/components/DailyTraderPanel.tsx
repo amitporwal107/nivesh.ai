@@ -30,16 +30,16 @@ export const DAILY_TILES: DailyTile[] = [
     "Which sectors are leading and lagging?",
   ] },
   { key: "opportunities", label: "Find opportunities", icon: ScanSearch, questions: [
-    "Find today's top 5 trading opportunities with entry, stop-loss and targets",
+    "Find today's top 5 trading opportunities with their reference price and reward and risk levels",
     "Which breakouts are confirmed?",
     "Which stocks have unusual volume?",
-    "Is this stock a buy now?",
-    "What is the entry, target and stop-loss for this stock?",
+    "What does the setup look like for this stock now?",
+    "What are the reference price and the reward and risk levels for this stock?",
   ] },
   { key: "positions", label: "My positions", icon: BriefcaseBusiness, questions: [
     "What are my open trades doing?",
     "Is my existing trade still valid?",
-    "Should I book profits or hold?",
+    "Where does my trade stand: close it or hold?",
   ] },
   { key: "fno", label: "F&O strategies", icon: BarChart3, questions: [
     "Which F&O setups are attractive?",
@@ -55,7 +55,7 @@ export const DAILY_TILES: DailyTile[] = [
   ] },
   { key: "review", label: "Daily review", icon: NotepadText, questions: [
     "What did I learn from today's trades?",
-    "Did I follow my entry, stop-loss and exit rules?",
+    "Did I follow my reference-price, risk-level and close rules?",
   ] },
 ];
 
@@ -161,7 +161,7 @@ export function DailyTraderPanel({ onAsk, eyebrow, mobile }: { onAsk: (question:
       )}
 
       <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-        Answers use the latest market data available and show its date. Ideas to review, not recommendations; nothing is sent to a broker.
+        Answers use the latest market data available and show its date. Ideas to review, not advice; nothing is sent to a broker.
       </span>
     </section>
   );

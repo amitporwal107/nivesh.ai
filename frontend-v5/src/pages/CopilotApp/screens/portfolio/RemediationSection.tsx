@@ -153,7 +153,7 @@ function RemCard({ rec, top }: { rec: Remediation; top: boolean }) {
             >
               Ask Copilot about this step
             </Btn>
-            <Btn onClick={() => go("tool/recommend")}>Open recommendations</Btn>
+            <Btn onClick={() => go("tool/recommend")}>Open portfolio ideas</Btn>
             <Btn variant="ghost" onClick={() => go("page/plan")}>Open full action plan</Btn>
           </div>
         </div>
@@ -193,7 +193,7 @@ function AllApplied({ read }: { read: RemediationRead }) {
 export function RemediationSection() {
   const { mobile } = useCopilotShell();
   const q = useRemediation();
-  if (q.isPending) return <LoadingBlock label="Computing remediation recommendations" rows={4} />;
+  if (q.isPending) return <LoadingBlock label="Computing remediation steps" rows={4} />;
   if (q.isError) return <ErrorBlock title="The remediation plan didn’t load" error={loadError(q.error)} onRetry={() => q.refetch()} />;
   // useRemediation does not validate its response, so read it defensively.
   const read = readRemediation(q.data);

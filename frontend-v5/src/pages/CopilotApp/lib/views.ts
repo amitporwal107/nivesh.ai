@@ -40,7 +40,7 @@ export const STRATEGY_BUILDER_VIEW = "trader/strategy";
 
 const INVESTOR_TOOLS: NavItem[] = [
   { view: "tool/analysis", label: "Portfolio analysis" },
-  { view: "tool/recommend", label: "Recommendations" },
+  { view: "tool/recommend", label: "Portfolio ideas" },
   // The original v5 dashboards, mounted inside the shell.
   { view: "tool/risk", label: "Risk" },
   { view: "tool/goals", label: "Goals" },

@@ -68,7 +68,7 @@ export default function ResearchScreen() {
           ? <StockResearch key={stock.symbol} stock={stock} onClear={() => setStock(null)} />
           : (
             <EmptyBlock
-              title="Pick a stock to research"
+              title="Choose a stock to research"
               body="Search by company name or symbol above. You get its price history, key figures, quarterly results, scores and technicals, shareholding, corporate actions and filings here."
             />
           )
@@ -79,7 +79,7 @@ export default function ResearchScreen() {
           ? <FundResearch key={fund.scheme_code ?? fund.name} fund={fund} onClear={() => setFund(null)} />
           : (
             <EmptyBlock
-              title="Pick a mutual fund to research"
+              title="Choose a mutual fund to research"
               body="Search by scheme or fund-house name above. You get its NAV, size and cost, returns against its category, risk measures, holdings and managers here."
             />
           )

@@ -191,7 +191,7 @@ export function HeldResultsBlock({ index, quarter, quarterLabel, sectors }: {
           )}
           {results.outside.length > 0 && (
             <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }} data-testid="markets-earnings-holdings-outside">
-              {plural(results.outside.length, "of your stocks is", "of your stocks are")} not in the {index}. Pick a wider index above to check {results.outside.length === 1 ? "it" : "them"}.
+              {plural(results.outside.length, "of your stocks is", "of your stocks are")} not in the {index}. Choose a wider index above to check {results.outside.length === 1 ? "it" : "them"}.
             </span>
           )}
         </div>

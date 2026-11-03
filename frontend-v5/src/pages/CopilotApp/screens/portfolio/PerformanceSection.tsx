@@ -273,7 +273,7 @@ function Drill({ fp, tiles, tab, onPick }: { fp: FundPerformance; tiles: Heatmap
       </div>
       {drill.mergedFolios > 0 && (
         <div style={{ ...quiet, padding: "0 16px 10px" }}>
-          Showing {plural(drill.rows.length, "consolidated fund", "consolidated funds")} from {plural(drill.folios, "folio", "folios")}. The same fund bought in different folios is merged, and its values and returns are the combined total.
+          Showing {plural(drill.rows.length, "consolidated fund", "consolidated funds")} from {plural(drill.folios, "folio", "folios")}. The same fund purchased in different folios is merged, and its values and returns are the combined total.
         </div>
       )}
       <DataTable
@@ -392,9 +392,9 @@ function CategoryLeaders({ holding }: { holding: FundRating }) {
 }
 
 function RecFact({ recs, name }: { recs: UseQueryResult<HoldingRecs>; name: string }) {
-  if (recs.isPending) return <span style={quiet}>Loading the recommendation…</span>;
+  if (recs.isPending) return <span style={quiet}>Loading the holding’s score…</span>;
   const rec = recs.data?.holdings.find((h) => h.name === name);
-  if (!rec) return <span style={quiet}>No recommendation data available.</span>;
+  if (!rec) return <span style={quiet}>No score data available.</span>;
   const meta = actionMeta(rec.action);
   return (
     <div data-testid="analysis-holding-rec" className="flex flex-col items-start" style={{ gap: 6 }}>
@@ -497,7 +497,7 @@ function HoldingDetail({ name, fp, tiles, recs, onClose }: { name: string; fp: F
       )}
       <CategoryLeaders holding={holding} />
       <div className="flex flex-col" style={{ gap: 8 }}>
-        <Eyebrow>Recommendation</Eyebrow>
+        <Eyebrow>Engine view</Eyebrow>
         <RecFact recs={recs} name={name} />
       </div>
       <div>
@@ -717,13 +717,13 @@ function RecsBlock({ recs, tab }: { recs: HoldingRecs; tab: AssetTab }) {
   const { go } = useCopilotShell();
   const rows = recsForTab(recs, tab);
   return (
-    <Section flush title="Recommendations" note={tab === "all" ? "Most actionable across classes" : assetTabLabel(tab)}>
+    <Section flush title="Holding scores" note={tab === "all" ? "Most actionable across classes" : assetTabLabel(tab)}>
       {rows.length === 0
         ? <div data-testid="analysis-recs-empty" style={{ ...body, padding: 16 }}>No scoring data yet for this asset class.</div>
         : rows.map((r, i) => <RecRow key={`${r.name}-${i}`} rec={r} />)}
       <div className="flex flex-col items-start" style={{ gap: 10, padding: "12px 16px" }}>
         <span style={quiet}>{QUALITY_SCORE_EXPLANATION}</span>
-        <Btn onClick={() => go("tool/recommend")}>Open recommendations ›</Btn>
+        <Btn onClick={() => go("tool/recommend")}>Open portfolio ideas ›</Btn>
       </div>
     </Section>
   );
@@ -810,7 +810,7 @@ export function PerformanceSection() {
             </Loaded>
           )}
 
-          <Loaded q={recs} label="Loading recommendations" title="Recommendations didn’t load">
+          <Loaded q={recs} label="Loading holding scores" title="Holding scores didn’t load">
             {(data) => <RecsBlock recs={data} tab={tab} />}
           </Loaded>
 

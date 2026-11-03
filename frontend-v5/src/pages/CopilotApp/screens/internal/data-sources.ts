@@ -132,7 +132,7 @@ const POOL = [
     id: "plan-engine",
     name: "Plan engine",
     provider: "Nivesh plan engine, from the holdings, goals and risk profile",
-    what: "The active action plan and its steps, the record of past decisions, what the plan would change, and the top recommendations for each asset class.",
+    what: "The active action plan and its steps, the record of past decisions, what the plan would change, and the top fund ideas for each asset class.",
     endpoints: [
       "GET /api/plans/active",
       "GET /api/plans/history",
@@ -149,7 +149,7 @@ const POOL = [
     id: "goals-risk-profile",
     name: "Goals and risk profile",
     provider: "Entered by the user",
-    what: "The user's goals with their targets and dates, and the risk profile from the assessment they answered.",
+    what: "The user's goals with their amounts and dates, and the risk profile from the assessment they answered.",
     endpoints: [
       "GET /api/goals",
       "POST /api/goals",
@@ -177,7 +177,7 @@ const POOL = [
     id: "tax",
     name: "Capital gains and tax",
     provider: "Nivesh tax engine, from the holdings and the statement's transactions",
-    what: "Realised short-term and long-term gains for the financial year, the tax they lead to, and loss-making lots that could be sold to offset gains.",
+    what: "Realised short-term and long-term gains for the financial year, the tax they lead to, and loss-making lots whose sale would offset gains.",
     endpoints: ["GET /api/dashboards/tax", "GET /api/portfolio/capital-gains-statement"],
     freshness: "When a statement is imported",
     status: "connected",
@@ -385,7 +385,7 @@ const POOL = [
     id: "positional",
     name: "Positional scanner, watch levels and trade journal",
     provider: "Nivesh positional engine; the journal is the user's own log",
-    what: "The scanner's scored signals, setups to watch with trigger and stop levels, and the trades the user has logged with their results.",
+    what: "The scanner's scored signals, setups to watch with trigger and risk levels, and the trades the user has logged with their results.",
     endpoints: [
       "GET /api/positional/picks",
       "GET /api/positional/watchlist",
@@ -431,7 +431,7 @@ const POOL = [
     endpoints: ["GET /api/public/research-watchlist"],
     freshness: "A new list when research publishes one; quotes are live, or the last stored price when Yahoo Finance does not answer",
     status: "connected",
-    note: "A public route that needs no sign-in. Internal research, not a recommendation.",
+    note: "A public route that needs no sign-in. Internal research, not advice.",
   },
   {
     // backend/routes/watchlists.py · screens/workspace/personal-lists.ts

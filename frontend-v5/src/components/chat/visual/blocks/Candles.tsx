@@ -16,9 +16,9 @@ import { quiet, type BlockProps } from "./common";
 export const LEVEL_STYLE: Record<string, { name: string; color: string }> = {
   support: { name: "Support", color: "var(--mint)" },
   resistance: { name: "Resistance", color: "var(--cp-danger)" },
-  entry: { name: "Entry", color: "var(--cp-ink-2)" },
-  stop: { name: "Stop", color: "var(--cp-danger)" },
-  target: { name: "Target", color: "var(--mint)" },
+  entry: { name: "Reference price", color: "var(--cp-ink-2)" },
+  stop: { name: "Risk level", color: "var(--cp-danger)" },
+  target: { name: "Reward level", color: "var(--mint)" },
   wall_call: { name: "Call OI wall", color: "var(--rose)" },
   wall_put: { name: "Put OI wall", color: "var(--cp-indigo)" },
   max_pain: { name: "Max pain", color: "var(--amber)" },

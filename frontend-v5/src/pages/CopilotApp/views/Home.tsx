@@ -55,7 +55,7 @@ const STARTERS: Record<Mode, string[]> = {
     "Explain how position sizing with 1% risk works",
   ],
   advisor: [
-    "Which clients are off their target allocation?",
+    "Which clients are off their planned allocation?",
     "Which clients have missed SIP instalments?",
     "Which clients are most concentrated in one holding?",
     "Who should I review first this week?",
@@ -239,7 +239,7 @@ function usePortfolioCards(enabled: boolean): { cards: Card[]; settling: boolean
       tone: "amber",
       title: `${fmtNum(pending)} ${pending === 1 ? "action" : "actions"} identified`,
       fact: typeof plan.data?.plan_summary === "string" ? plan.data.plan_summary : undefined,
-      cta: "See the recommendations",
+      cta: "See the portfolio ideas",
       onOpen: () => go("tool/recommend"),
     });
   }
@@ -254,10 +254,10 @@ function usePortfolioCards(enabled: boolean): { cards: Card[]; settling: boolean
       key: "drift",
       tag: Math.abs(equity.pct - target.equity) > 15 ? "Watch" : "Signal",
       tone: "amber",
-      title: `Portfolio drift: equity ${equity.pct.toFixed(0)}% vs target ${target.equity}%`,
-      fact: "Rebalance to align with your risk profile target allocation.",
+      title: `Portfolio drift: equity ${equity.pct.toFixed(0)}% vs planned ${target.equity}%`,
+      fact: "Your equity share differs from the planned allocation for your risk profile.",
       cta: "Ask Nivesh",
-      onOpen: () => ask(`My equity allocation is ${equity.pct.toFixed(0)}% against a target of ${target.equity}% for my risk profile. How should I rebalance?`),
+      onOpen: () => ask(`My equity allocation is ${equity.pct.toFixed(0)}% against a planned ${target.equity}% for my risk profile. How should I rebalance?`),
     });
   }
 
@@ -322,10 +322,10 @@ export default function Home() {
   const showNews = !settling && cards.length === 0 && news.length > 0;
 
   const sub = pf.status === "ready"
-    ? `Ask in plain English. Nivesh picks the tools, runs the numbers on your ${pf.holdingsCount} holdings and shows you the evidence behind every answer.`
+    ? `Ask in plain English. Nivesh chooses the tools, runs the numbers on your ${pf.holdingsCount} holdings and shows you the evidence behind every answer.`
     : noPf
-      ? "Ask in plain English. Nivesh picks the tools and shows the evidence behind every answer. Connect a portfolio to make answers about your money."
-      : "Ask in plain English. Nivesh picks the tools and shows you the evidence behind every answer.";
+      ? "Ask in plain English. Nivesh chooses the tools and shows the evidence behind every answer. Connect a portfolio to make answers about your money."
+      : "Ask in plain English. Nivesh chooses the tools and shows you the evidence behind every answer.";
 
   // Trader mode: the Daily Trader Copilot's six entry points (DailyTraderPanel) in place of the headline and the
   // starter questions; the market strip, the statement bar and the cards stay as in the other modes.

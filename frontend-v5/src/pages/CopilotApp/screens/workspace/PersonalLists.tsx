@@ -290,7 +290,7 @@ function OpenList({ list, limits }: { list: ListSummary; limits: ListIndex["limi
             data-testid="mylist-starter-note"
             style={{ padding: "10px 14px", borderRadius: 12, border: "1px solid var(--amber-line)", background: "var(--amber-soft)", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}
           >
-            Example list, copied from the research watchlist{copiedFrom ? ` of ${copiedFrom}` : ""}. It is yours to edit or delete. A research list is not a recommendation.
+            Example list, copied from the research watchlist{copiedFrom ? ` of ${copiedFrom}` : ""}. It is yours to edit or delete. A research list is not advice.
           </div>
         )}
         <AddStock list={list} full={full} maxSymbols={limits.max_symbols} have={stocks.map((s) => s.symbol)} />
@@ -328,7 +328,7 @@ function OpenList({ list, limits }: { list: ListSummary; limits: ListIndex["limi
       <div style={{ padding: "12px 16px" }}>
         <Footnote>
           Live prices are from Yahoo Finance and are read again every 30 seconds; when the market is shut they are the last close.
-          A stored price is the last end-of-day close, on the date shown. A list is your own note of stocks to follow, not advice to buy or sell.
+          A stored price is the last end-of-day close, on the date shown. A list is your own note of stocks to follow, not advice or a trading call.
         </Footnote>
       </div>
     </div>

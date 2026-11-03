@@ -49,7 +49,7 @@ const VIEWS: Array<{ value: PaperView; label: string }> = [
 /** Offered only to accounts with the sim_lab feature — the gate the original Research page uses. */
 const LAB_VIEW: { value: PaperView; label: string } = { value: "lab", label: "Simulation lab" };
 const VIEW_NOTE: Record<PaperView, string> = {
-  summary: "Full record adds the ranked universe, each trade’s path, every exit mode and the benchmarks",
+  summary: "Full record adds the ranked universe, each trade’s path, every close mode and the benchmarks",
   record: "The engine’s own screen, with every stored figure",
   lab: "The engine’s frozen simulation runs, trade by trade",
 };
@@ -61,10 +61,10 @@ const SAMPLES: Array<{ value: PaperSample; label: string }> = [
 
 /** What each exit mode means, as the engine defines it. */
 const MODE_RULE: Record<string, string> = {
-  "EOD-1": "close of the entry day",
+  "EOD-1": "close of the day the position opens",
   "EOD-3": "close of day 2",
   "EOD-5": "close of day 4",
-  FIXED: "close of day 5, no early exit",
+  FIXED: "close of day 5, no early close",
   TARGET_STOP: "first level touched, else the day 5 close",
 };
 const WAITING = new Set(["PENDING_ENTRY", "ENTERED", "MONITORING"]);
@@ -172,9 +172,9 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
 
   const openCols: Column<PaperPosition>[] = [
     { key: "pos", header: "Position", width: "minmax(0,1.8fr)", render: (p) => <SymbolCell symbol={p.symbol} name={p.company_name} sub={p.company_name} testId="paper-open-row">{positionLabel(p)}</SymbolCell> },
-    { key: "entry", header: "Entry", num: true, render: (p) => (p.entry_price != null ? fmtPrice(p.entry_price) : `Open of ${fmtDay(p.intended_entry_date)}`) },
-    { key: "stop", header: "Stop", num: true, render: (p) => fmtPrice(p.stop_loss_price) },
-    { key: "target", header: "Target", num: true, render: (p) => fmtPrice(targetOf(p, s)) },
+    { key: "entry", header: "Reference price", num: true, render: (p) => (p.entry_price != null ? fmtPrice(p.entry_price) : `Open of ${fmtDay(p.intended_entry_date)}`) },
+    { key: "stop", header: "Risk level", num: true, render: (p) => fmtPrice(p.stop_loss_price) },
+    { key: "target", header: "Reward level", num: true, render: (p) => fmtPrice(targetOf(p, s)) },
     {
       key: "unreal", header: "Unrealised", num: true,
       render: (p) => {
@@ -182,7 +182,7 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
         return toned(pct(r, { signed: true, digits: 2 }), signTone(r));
       },
     },
-    { key: "day", header: "Session", num: true, render: (p) => (p.entry_price == null ? "Awaiting entry" : `${fmtNum(p.sessions_observed ?? p.observations.length)} of ${SESSIONS}`) },
+    { key: "day", header: "Session", num: true, render: (p) => (p.entry_price == null ? "Awaiting the reference price" : `${fmtNum(p.sessions_observed ?? p.observations.length)} of ${SESSIONS}`) },
   ];
   if (live) {
     openCols.push({
@@ -197,8 +197,8 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
 
   const closedCols: Column<PaperPosition>[] = [
     { key: "pos", header: "Trade", width: "minmax(0,1.8fr)", render: (p) => <SymbolCell symbol={p.symbol} name={p.company_name} sub={p.company_name} testId="paper-closed-row">{positionLabel(p)}</SymbolCell> },
-    { key: "entry", header: "Entry", num: true, render: (p) => fmtPrice(p.entry_price) },
-    { key: "exit", header: "Exit", num: true, render: (p) => fmtPrice(p.exits[mode]?.exit_price) },
+    { key: "entry", header: "Reference price", num: true, render: (p) => fmtPrice(p.entry_price) },
+    { key: "exit", header: "Closed at", num: true, render: (p) => fmtPrice(p.exits[mode]?.exit_price) },
     {
       key: "reason", header: "Reason", width: "minmax(0,1.4fr)",
       render: (p) => {
@@ -216,7 +216,7 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
     },
   ];
 
-  const note = `Predicted ${fmtDay(s.prediction_date)} · entry ${fmtDay(s.provenance.next_trading_session)}`;
+  const note = `Predicted ${fmtDay(s.prediction_date)} · positions open ${fmtDay(s.provenance.next_trading_session)}`;
   return (
     <>
       <Section title="Open positions" note={note} flush>
@@ -224,8 +224,8 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
         {live && <LiveNote live={live} />}
         {liveProblem && <div style={{ padding: "0 16px 14px" }}>{liveProblem}</div>}
       </Section>
-      <Section title={`Closed · ${mode}, ${MODE_RULE[mode] ?? "headline exit"}`} note={note} flush>
-        <DataTable columns={closedCols} rows={closed} rowKey={(p) => String(p.trade_id)} minWidth={660} empty="Nothing in this session has reached its headline exit yet." />
+      <Section title={`Closed · ${mode}, ${MODE_RULE[mode] ?? "headline close"}`} note={note} flush>
+        <DataTable columns={closedCols} rows={closed} rowKey={(p) => String(p.trade_id)} minWidth={660} empty="Nothing in this session has reached its headline close yet." />
       </Section>
       {other.length > 0 && (
         <Footnote>
@@ -248,9 +248,9 @@ function Assumptions({ s, ev }: { s: PaperPortfolioData; ev: PaperEvaluation | n
     <Section title={`Fill assumptions · rules ${rules}${p.rules ? ` · ${p.rules.git_sha}` : ""} · frozen`}>
       <div data-testid="paper-assumptions" className="flex flex-col cp-pretty" style={{ gap: 6, fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
         <span>
-          Entries at the next session’s official open. Target +{c.target_pct}% from entry. Stop {c.atr_multiplier} × ATR(14) below entry, or the 10-session support when that is lower,
-          never more than {c.stop_cap_pct}% below entry. Costs {c.cost_pct}% round trip{c.cost_sensitivity_pct.length ? `, re-run at ${c.cost_sensitivity_pct.map((x) => `${x}%`).join(" and ")}` : ""}.
-          Headline exit {c.headline_mode}: {MODE_RULE[c.headline_mode] ?? "pre-registered"}.
+          Reference price: the next session’s official open. Reward level +{c.target_pct}% from the reference price. Risk level {c.atr_multiplier} × ATR(14) below the reference price, or the 10-session support when that is lower,
+          never more than {c.stop_cap_pct}% below the reference price. Costs {c.cost_pct}% round trip{c.cost_sensitivity_pct.length ? `, re-run at ${c.cost_sensitivity_pct.map((x) => `${x}%`).join(" and ")}` : ""}.
+          Headline close {c.headline_mode}: {MODE_RULE[c.headline_mode] ?? "pre-registered"}.
         </span>
         <span>
           Engine capital {fmtINR(c.capital_inr)} in {fmtNum(c.positions)} equal positions. Model {p.model_version}, features {p.feature_version}, frozen {fmtDay(p.prediction_timestamp)} {clock(p.prediction_timestamp)};
@@ -369,7 +369,7 @@ export default function PaperScreen() {
                 <select data-testid="paper-session" value={session.prediction_date} onChange={(e) => setDate(e.target.value)} style={{ ...INPUT_STYLE, width: "auto", maxWidth: "100%" }}>
                   {session.dates.map((d) => (
                     <option key={d.prediction_date} value={d.prediction_date}>
-                      {fmtDay(d.prediction_date)} → entry {fmtDay(d.entry_session)}{sample === "forward" && !d.counts ? " · not counted" : ""}
+                      {fmtDay(d.prediction_date)} → opens {fmtDay(d.entry_session)}{sample === "forward" && !d.counts ? " · not counted" : ""}
                     </option>
                   ))}
                 </select>

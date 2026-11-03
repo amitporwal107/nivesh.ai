@@ -24,7 +24,7 @@ type Suggestion =
 const TILES: Record<"stock" | "fund", { id: string; label: string; icon: string }[]> = {
   stock: [
     { id: "overview", label: "Full overview", icon: "🔎" },
-    { id: "buy_verdict", label: "Worth buying now?", icon: "📈" },
+    { id: "buy_verdict", label: "Scores today", icon: "📈" },
     { id: "performance", label: "Track record", icon: "📊" },
     { id: "valuation", label: "Cheap or pricey?", icon: "⚖️" },
     { id: "risk", label: "How risky?", icon: "🎯" },
@@ -35,7 +35,7 @@ const TILES: Record<"stock" | "fund", { id: string; label: string; icon: string 
   ],
   fund: [
     { id: "overview", label: "Full overview", icon: "🔎" },
-    { id: "buy_verdict", label: "Worth buying now?", icon: "📈" },
+    { id: "buy_verdict", label: "Scores today", icon: "📈" },
     { id: "performance", label: "Track record", icon: "📊" },
     { id: "valuation", label: "Cheap or pricey?", icon: "⚖️" },
     { id: "risk", label: "How risky?", icon: "🎯" },
@@ -54,7 +54,7 @@ const TILES: Record<"stock" | "fund", { id: string; label: string; icon: string 
 function tilePrompt(picked: Picked, lensId: string): string {
   const { kind, name, code } = picked;
   if (kind === "stock") {
-    if (lensId === "buy_verdict") return `Should I buy ${name}?`;
+    if (lensId === "buy_verdict") return `How does ${name} score today?`;
     if (lensId === "performance") return `How has ${name} performed?`;
     return `Tell me about ${name}`; // card carries the full lens rail
   }

@@ -205,7 +205,7 @@ const BUY_COLUMNS: Array<Column<Buy>> = [
     key: "name", header: "Holding", width: "minmax(0,2fr)",
     render: (b) => <AssetName testId="client360-buy-name" name={(b.name ?? "").trim() || "Unnamed holding"} assetType={b.asset_type} />,
   },
-  { key: "date", header: "Bought on", width: "110px", render: (b) => fmtDate(b.buy_date) },
+  { key: "date", header: "Purchased on", width: "110px", render: (b) => fmtDate(b.buy_date) },
   { key: "units", header: "Units", width: "90px", align: "right", num: true, render: (b) => fmtNum(b.quantity, 3) },
   { key: "value", header: "Value", width: "100px", align: "right", num: true, render: (b) => fmtINR(b.value_rs, { compact: true }) },
 ];
@@ -289,7 +289,7 @@ function Gains({ profileId }: { profileId: string }) {
           stats.push({ k: "No purchase date", v: <span data-testid="client360-undated">{fmtINR(t.undated_gain_rs, { compact: true, signed: true })}</span>, s: `${fmtNum(t.undated_count)} ${t.undated_count === 1 ? "lot" : "lots"} that can’t be placed yet` });
         }
         stats.push({
-          k: "Tax if all were sold today",
+          k: "Tax if all were realised today",
           v: <span data-testid="client360-est-tax">{dated ? fmtINR(t.est_tax_if_realized_rs, { compact: true }) : "—"}</span>,
           s: dated ? "On the lots that have a purchase date" : "Needs purchase dates",
         });
@@ -497,7 +497,7 @@ function Detail({ p, session }: { p: AdvisorProfile; session: AdvisorSession }) 
       {!isSelf && (
         <AskChips
           title="Ask about this client"
-          items={[{ label: `Draft a review for ${p.name}`, query: `Draft a portfolio review for my client ${p.name}: what changed, the top issue and the recommended next step.` }]}
+          items={[{ label: `Draft a review for ${p.name}`, query: `Draft a portfolio review for my client ${p.name}: what changed, the top issue and the next step to consider.` }]}
         />
       )}
 

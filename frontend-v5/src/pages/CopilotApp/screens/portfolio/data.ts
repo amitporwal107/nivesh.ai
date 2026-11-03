@@ -391,16 +391,16 @@ export interface PlanStep {
 }
 
 const VERBS: Record<string, { label: string; tone: Tone }> = {
-  EXIT: { label: "Exit", tone: "danger" },
-  SELL: { label: "Sell", tone: "danger" },
-  TRIM: { label: "Trim", tone: "danger" },
+  EXIT: { label: "Close out", tone: "danger" },
+  SELL: { label: "Lower holding in", tone: "danger" },
+  TRIM: { label: "Lower weight in", tone: "danger" },
   REDUCE: { label: "Reduce", tone: "danger" },
   SIP_DECREASE: { label: "Lower the SIP in", tone: "danger" },
   SWITCH: { label: "Switch", tone: "amber" },
   MERGE: { label: "Merge", tone: "amber" },
   CONSOLIDATE: { label: "Consolidate", tone: "amber" },
-  ADD: { label: "Add", tone: "indigo" },
-  BUY: { label: "Buy", tone: "indigo" },
+  ADD: { label: "Raise weight in", tone: "indigo" },
+  BUY: { label: "Invest in", tone: "indigo" },
   REDIRECT: { label: "Redirect new money to", tone: "indigo" },
   DIVERSIFY: { label: "Diversify with", tone: "indigo" },
   RAISE_SIP: { label: "Raise the SIP in", tone: "indigo" },
@@ -443,7 +443,7 @@ export const EXECUTION_LABEL: Record<string, string> = {
   redirect: "Redirect new money",
   harvest: "Harvest",
   stagger: "Stagger",
-  "sell-now": "Sell now",
+  "sell-now": "All at once",
 };
 
 export function toPlanStep(a: PlanActionC): PlanStep {

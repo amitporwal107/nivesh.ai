@@ -40,11 +40,11 @@ const ASSET_LABEL: Record<string, string> = {
   equity: "Equity", debt: "Debt", hybrid: "Hybrid", gold: "Gold", cash: "Liquid / Cash",
 };
 
-const STEPS = ["Goal", "Money", "Risk", "Mix", "Pick", "Done"] as const;
+const STEPS = ["Goal", "Money", "Risk", "Mix", "Choose", "Done"] as const;
 
 const GOALS = [
   { id: "retire", label: "Retirement", emoji: "🌅", years: 20, hint: "Long-term wealth for after work" },
-  { id: "home", label: "Buy a home", emoji: "🏠", years: 7, hint: "Down payment or full purchase" },
+  { id: "home", label: "Own a home", emoji: "🏠", years: 7, hint: "Down payment or full purchase" },
   { id: "child", label: "Child's future", emoji: "🎓", years: 12, hint: "Education or marriage" },
   { id: "wealth", label: "Grow wealth", emoji: "📈", years: 10, hint: "No fixed deadline" },
   { id: "safety", label: "Safety net", emoji: "🛡️", years: 2, hint: "Emergency / rainy-day fund" },
@@ -524,7 +524,7 @@ function DoneStep({
       </div>
       <p className="mt-3 text-[11.5px] text-ink-4 leading-relaxed">
         {sleeve.compliance?.disclaimer
-          ?? "Model and category-level guidance, not a recommendation of specific schemes or stocks. Projections use house capital-market assumptions and ignore taxes; mutual funds are subject to market risk."}
+          ?? "Model and category-level guidance, not advice on specific schemes or stocks. Projections use house capital-market assumptions and ignore taxes; mutual funds are subject to market risk."}
       </p>
     </Section>
   );

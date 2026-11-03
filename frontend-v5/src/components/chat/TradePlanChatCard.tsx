@@ -118,7 +118,7 @@ export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onA
 
       <span data-testid="tpc-foot" style={{ ...quiet, fontSize: 11 }}>
         Built by the desk&rsquo;s rules from end-of-day prices ({fmtDay(asOf.price)}{asOf.fno ? `; options ${fmtDay(asOf.fno)}` : ""}) and sized by your risk profile.
-        Enter only when the entry condition is met. An idea to review, not a recommendation; nothing is sent to a broker.
+        The plan starts only when its reference-price condition is met. An idea to review, not advice; nothing is sent to a broker.
       </span>
     </div>
   );
