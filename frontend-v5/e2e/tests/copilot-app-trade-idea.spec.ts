@@ -103,7 +103,7 @@ test.describe("MOCK — not real data: the Copilot's trade idea card", () => {
     await expect(plan.getByTestId("dc-stop")).not.toHaveText(/unavailable/);
     await expect(page.getByTestId("tpc-other")).toHaveText(["Bull call spread (options) ›"]);
     await expect(page.getByTestId("tpc-foot")).toContainText("Built by the desk’s rules from end-of-day prices");
-    await expect(page.getByTestId("tpc-foot")).toContainText("An idea to review, not a recommendation; nothing is sent to a broker.");
+    await expect(page.getByTestId("tpc-foot")).toContainText("An idea to review, not advice; nothing is sent to a broker.");
     await expect(page.getByTestId("tpc")).not.toContainText(/\b(pick|recommended|suggested trade|buy now)\b/i);
     await expect(page.getByTestId("answer-text")).toContainText("How to trade it (an idea, not a recommendation)");
   });
@@ -134,10 +134,10 @@ test.describe("MOCK — not real data: the Copilot's trade idea card", () => {
     await expect(page.getByTestId("tpc-other")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=chart&sub=live&sym=FIXCO&tp=${FNO_ID}`);
   });
 
-  test("TI-15 'Plan a bearish trade instead' asks the Copilot again in words", async ({ page }) => {
+  test("TI-15 'Plan a short trade instead' asks the Copilot again in words", async ({ page }) => {
     const seen = await inThread(page);
     await page.getByTestId("tpc-flip").click();
-    await expect.poll(() => seen.streams.map((s) => s.message)).toEqual(["Plan a breakout trade for FIXCO", "Plan a bearish trade for FIXCO instead"]);
+    await expect.poll(() => seen.streams.map((s) => s.message)).toEqual(["Plan a breakout trade for FIXCO", "Plan a short trade for FIXCO instead"]);
   });
 
   test("TI-16 a setup waiting for confirmation says so, with the reasons and what would change", async ({ page }) => {
@@ -165,6 +165,6 @@ test.describe("MOCK — not real data: the Copilot's trade idea card", () => {
     await expect(dock).not.toContainText("This answer has a result card");
     expect(seen.streams[0].surface).toBe("trading_desk");
     await dock.getByTestId("tpc-flip").click();
-    await expect.poll(() => seen.streams.map((s) => s.message)).toEqual(["Plan a breakout trade for FIXCO", "Plan a bearish trade for FIXCO instead"]);
+    await expect.poll(() => seen.streams.map((s) => s.message)).toEqual(["Plan a breakout trade for FIXCO", "Plan a short trade for FIXCO instead"]);
   });
 });

@@ -44,7 +44,7 @@ export interface TradeIdeaData {
 }
 
 const VIEW: Record<string, string> = { bullish: "Long view", bearish: "Short view", neutral: "Range-bound view" };
-const OTHER: Record<string, string> = { bullish: "bearish", bearish: "bullish", neutral: "bullish" };
+const OTHER: Record<string, string> = { bullish: "short", bearish: "long", neutral: "long" };
 const SEGMENT: Record<string, string> = { cash: "shares", futures: "futures", options: "options", combination: "shares + options" };
 
 /** The desk's chart for one TradePlan (Trade Desk › Chart Analysis with the plan's levels and its paper basket; Strategy Lab was removed on 29 Oct). */

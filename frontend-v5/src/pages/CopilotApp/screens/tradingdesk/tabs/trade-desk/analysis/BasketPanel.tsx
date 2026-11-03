@@ -169,8 +169,8 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
     lossLabel = "LOSS AT RISK LEVEL"; profitLabel = "PROFIT AT REWARD LEVEL"; basis = "at the risk / reward level, after costs";
     loss = b.levels.stop != null ? scen(STOP_SCENARIO)?.net ?? null : null;
     profit = b.levels.target != null ? scen(TARGET_SCENARIO)?.net ?? null : null;
-    lossText = b.levels.stop == null ? "no stop" : rs(loss, 0);
-    profitText = b.levels.target == null ? "no target" : rs(profit, 0);
+    lossText = b.levels.stop == null ? "no risk level" : rs(loss, 0);
+    profitText = b.levels.target == null ? "no reward level" : rs(profit, 0);
   } else if (ex) {
     loss = ex.loss_unbounded ? null : ex.max_loss;
     profit = ex.profit_unbounded ? null : ex.max_profit;

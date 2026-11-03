@@ -1146,7 +1146,7 @@ function liveIndicators(symbol: string, bars: Bar[] = BARS) {
 const LIVE = liveIndicators("FIXBRK");
 // MOCK — not real data: the server's rule-based hypothetical levels (ATR 2x stop, 2R target).
 const HYPO = {
-  rule: "ATR_2X_STOP", version: "1", label: "Rule-based hypothetical levels, not a scanner pick and not a recommendation",
+  rule: "ATR_2X_STOP", version: "1", label: "Rule-based hypothetical levels, not a scanner idea and not advice",
   constants: { atr_multiple: 2, min_stop_atr: 0.5, reward_multiple: 2, atr_period: 14 },
   entry: 500, stop: 480, target: 540, risk_reward: 2, stop_basis: "atr", reason: null, source: "fixture",
 };
@@ -1702,7 +1702,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
   test("not on the scanner: the rule's levels fill the section, the calculator and the full-chart link, labelled; the scanner's win when present", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=HYPOSYM`);
-    await expect(page.getByTestId("desk-risk-rule")).toContainText("Rule-based hypothetical levels, not a scanner pick and not a recommendation");
+    await expect(page.getByTestId("desk-risk-rule")).toContainText("Rule-based hypothetical levels, not a scanner idea and not advidation");
     await expect(page.getByTestId("desk-risk-rule")).toContainText("ATR_2X_STOP v1");
     await expect(page.getByTestId("desk-risk-rr")).toHaveText("2.0 : 1");
     await expect(page.getByTestId("desk-scn-entry")).toHaveValue("500");
