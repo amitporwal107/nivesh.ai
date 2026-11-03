@@ -472,7 +472,7 @@ async def build(request: Any, db, user: Dict[str, Any]) -> Dict[str, Any]:
         "summary": summarise(groups, waiting),
         "groups": groups,
         "method": {"near_stop_pct": analytics.NEAR_STOP_PCT, "expiry_soon_days": analytics.EXPIRY_SOON_DAYS,
-                   "gross": "Payoff, scenarios and the loss at a stop are gross: before brokerage, taxes and slippage.",
+                   "gross": "Payoff, scenarios and the loss at a risk level are gross: before brokerage, taxes and slippage.",
                    "rate": option_pricing.RISK_FREE_RATE},
     }
 

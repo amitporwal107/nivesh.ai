@@ -87,7 +87,7 @@ def test_covered_call_row_is_the_loss_at_the_stop_not_the_shares_at_zero():
     # (1200 - 1160 - 38) x 250 = 500 a lot before costs; after costs it is the stop scenario's net, the risk the R : R already divides by
     assert stop["gross"] == -500.0 * lots and r["max_loss"] == c["risk_reward"]["risk_net"] == -stop["net"] > 500.0 * lots
     assert r["max_loss_at"] == "stop" and r["max_loss"] < 290500.0 * lots
-    assert r["max_loss_basis"].startswith("loss at the stop (net), where the plan exits; gaps can exceed it")
+    assert r["max_loss_basis"].startswith("loss at the risk level (net), where the plan closes; gaps can exceed it")
     assert f"(held to expiry, {290500.0 * lots:,.2f} gross if the price falls to zero)" in r["max_loss_basis"]
     # cash and futures: unchanged, and marked "stop"; options: unchanged, "expiry"
     for cid in ("cash:breakout_continuation", "futures:long_buildup_continuation"):
@@ -123,7 +123,7 @@ def test_protective_put_with_event_risk_closed_form():
     assert (e["max_loss"], e["breakevens"], e["profit_unbounded"], e["max_profit"]) == (-18000.0 * lots, [1222.0], True, None)
     assert c["status"] == "candidate" and "Results are scheduled on 2026-10-28" in c["why_qualifies"][0]
     # results inside the horizon do not block a structure with a long put (its downside is defined): a warning, not a no-trade
-    assert any("long put defines the downside" in w for w in c["warnings"]) and "event_in_horizon" not in codes(c)
+    assert any("long put defines the loss" in w for w in c["warnings"]) and "event_in_horizon" not in codes(c)
 
 
 def test_collar_closed_form():
@@ -401,7 +401,7 @@ SYMS = ["ICICIBANK", "TCS", "INFY", "HDFCBANK", "SBIN", "AXISBANK"]
 
 def fake_selection(n=6, empty=None):
     w = watch_body(*[witem(s, 0.9 - i * 0.05) for i, s in enumerate(SYMS[:n])])
-    return {"source": "AI scanner (watchlist + picks), end of day", "rule": sel.SELECTION_RULE, "limit": 8, "scan_date": ASOF, "watchlist_as_of": ASOF,
+    return {"source": "AI scanner (watchlist + signals), end of day", "rule": sel.SELECTION_RULE, "limit": 8, "scan_date": ASOF, "watchlist_as_of": ASOF,
             "watchlist_version": "smart_v2", "signal_date": ASOF, "considered": n + 2,
             "selected": n, "excluded": [{"symbol": "ZZZ", "code": "illiquid", "reason": "thin"}], "setups": sel.merge_setups(w, None)[:n],
             "empty_reason": empty, "source_failures": [], "gate": "scan snapshot eligibility gates", "gate_as_of": ASOF}

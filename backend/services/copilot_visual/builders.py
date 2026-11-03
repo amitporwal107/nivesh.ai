@@ -51,7 +51,7 @@ SRC_RISK_PROFILE = "Your risk profile (risk_profiles)"
 SRC_RISK_BOOK = "Your paper account's risk book (equity, day/week P&L, open risk)"
 SRC_TRADE_PLANS = "A plan recorded earlier (trade_plans)"
 SRC_CLOSED = "Your closed paper trades (desk_paper_trades)"
-SRC_DECISIONS = "Your entry risk checks (risk_decisions)"
+SRC_DECISIONS = "Your paper-trade risk checks (risk_decisions)"
 
 
 async def _try(coro) -> Tuple[Any, Optional[BaseException]]:
@@ -203,7 +203,7 @@ async def market_view(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         head.append(f"the market regime reads {regime_word}")
     if flows:
         blocks.append(block("bars", "flows", "Net cash flows, last session",
-                            f"Net buy − sell, ₹ crore, {day_text(iso_day(flows_day))} (NSE provisional)." if iso_day(flows_day) else "Net buy − sell, ₹ crore (NSE provisional).",
+                            f"Net purchases − sales, ₹ crore, {day_text(iso_day(flows_day))} (NSE provisional)." if iso_day(flows_day) else "Net purchases − sales, ₹ crore (NSE provisional).",
                             unit="₹ Cr", orientation="h", items=flows, baseline=0))
     moves_block = heat_block = None
     if e_s:
@@ -266,7 +266,7 @@ async def smart_money(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         for who, key in (("FII", "fii_net"), ("DII", "dii_net")):
             items = [{"label": short_day(d["date"]), "value": r2(d.get(key)), "tone": tone_of(d.get(key)), "sub": None} for d in days]
             if items:
-                blocks.append(block("bars", who.lower(), f"{who} cash, last {len(items)} sessions", "Net buy − sell, ₹ crore (NSE provisional).",
+                blocks.append(block("bars", who.lower(), f"{who} cash, last {len(items)} sessions", "Net purchases − sales, ₹ crore (NSE provisional).",
                                     unit="₹ Cr", orientation="v", items=items, baseline=0))
             vals = [num(d.get(key)) for d in days]
             last = vals[-1] if vals else None
@@ -278,8 +278,8 @@ async def smart_money(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         last = days[-1] if days else {}
         fii, dii = num(last.get("fii_net")), num(last.get("dii_net"))
         if fii is not None and dii is not None:
-            head.append(f"FIIs {'bought' if fii > 0 else 'sold'} a net {crore(abs(fii)).lstrip('+')} and DIIs "
-                        f"{'bought' if dii > 0 else 'sold'} a net {crore(abs(dii)).lstrip('+')} in cash on {short_day(last['date'])}")
+            head.append(f"FIIs had a net {'inflow' if fii > 0 else 'outflow'} of {crore(abs(fii)).lstrip('+')} and DIIs a net "
+                        f"{'inflow' if dii > 0 else 'outflow'} of {crore(abs(dii)).lstrip('+')} in cash on {short_day(last['date'])}")
     if e_b:
         src.miss(SRC_BUILDUP, why(e_b))
     else:
@@ -409,7 +409,7 @@ async def sector_rotation(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
     blocks = [block("kpis", "summary", "Sector leaders and laggards", None, items=kpis),
               block("heatmap", "rotation", "Sector rotation · 1 week",
                     f"Sector index returns over 1 week, best first. Select a sector for its top {SECTOR_MEMBERS_SHOWN} stocks by the day's move "
-                    "(with index weight): a rank of today's move, not a recommendation.", unit="%", cells=cells)]
+                    "(with index weight): a rank of today's move, not advice.", unit="%", cells=cells)]
     head = (f"{lead['label']} leads the week ({pct(lead['value'])}) and {lag['label']} lags ({pct(lag['value'])})."
             if len(cells) > 1 else f"{lead['label']} is the only sector with a one-week return ({pct(lead['value'])}).")
     return assemble("sector_rotation", "Sector rotation", as_of, head, "neutral", blocks, src, follow_ups, now=ctx.get("now"))
@@ -419,6 +419,8 @@ async def sector_rotation(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
 
 _BUCKETS = {"breakout_confirmed": "Breakout", "pre_breakout": "Pre-breakout", "true_accumulation": "Accumulation",
             "trend_continuation": "Trend pullback"}
+# Display only (owner, 3 Nov 2026: no "T1"/"T2"): a plan's scenario name "t1" reads "Reward level 1"; the data keeps its name.
+_TARGET_NAME = {"t1": "1", "t2": "2", "T1": "1", "T2": "2"}
 
 
 def _primary(tp: Dict[str, Any]) -> Dict[str, Any]:
@@ -460,15 +462,15 @@ async def top_opportunities(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, An
         if rows:
             notes = day.get("notes") or {}
             blocks.append(block("ranked", "top", f"Top {len(rows)} by the scanner's score · {short_day(as_of)}",
-                                " ".join(x for x in ("Reward:risk is the first target's R multiple, before charges.",
+                                " ".join(x for x in ("Reward:risk is the first reward level's R multiple, before charges.",
                                                      notes.get("cash_ranking")) if x),
                                 columns=[{"key": "rank", "label": "#", "align": "right", "format": "int"},
                                          {"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
                                          {"key": "setup", "label": "Setup", "align": "left", "format": "text"},
                                          {"key": "status", "label": "Status", "align": "left", "format": "text"},
-                                         {"key": "entry", "label": "Entry", "align": "right", "format": "price"},
-                                         {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
-                                         {"key": "target", "label": "Target", "align": "right", "format": "price"},
+                                         {"key": "entry", "label": "Reference price", "align": "right", "format": "price"},
+                                         {"key": "stop", "label": "Risk level", "align": "right", "format": "price"},
+                                         {"key": "target", "label": "Reward level", "align": "right", "format": "price"},
                                          {"key": "rr", "label": "R:R", "align": "right", "format": "x"},
                                          {"key": "score", "label": "Score", "align": "right", "format": "text"}],
                                 rows=rows))
@@ -501,7 +503,7 @@ async def breakouts(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         rule = setup_rules.WATCHLIST["breakout_confirmed"]
         rule_note = (f"Rule ({setup_rules.WATCHLIST['classifier']}): close {rule['dist_breakout_pct_min']:g}–{rule['dist_breakout_pct_max']:g}% "
                      f"above the breakout level, 3-session volume ≥ {rule['volume_spike_min']:g}× the prior 20, stage "
-                     f"{' or '.join(rule['stages'])}, gap-up ≤ {rule['max_gap_up_pct']:g}%. Stop = level − "
+                     f"{' or '.join(rule['stages'])}, gap-up ≤ {rule['max_gap_up_pct']:g}%. Risk level = level − "
                      f"{setup_rules.WATCHLIST['stop_atr_multiple']:g} × ATR(14).")
         items = (wl.get("buckets") or {}).get("breakout_confirmed") or []
         if not items:
@@ -523,7 +525,7 @@ async def breakouts(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                                          {"key": "close", "label": "Close", "align": "right", "format": "price"},
                                          {"key": "above", "label": "Above level", "align": "right", "format": "pct"},
                                          {"key": "volx", "label": "Volume ×", "align": "right", "format": "x"},
-                                         {"key": "stop", "label": "Stop", "align": "right", "format": "price"}],
+                                         {"key": "stop", "label": "Risk level", "align": "right", "format": "price"}],
                                 rows=rows))
             first = items[0]
             sym = first.get("nse_symbol")
@@ -533,7 +535,7 @@ async def breakouts(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 src.add(SRC_BARS, bars[-1][0] if bars else None)
                 lv = [{"kind": "resistance", "price": num(first.get("trigger_price")), "label": f"Breakout level {price(first.get('trigger_price'))}"},
-                      {"kind": "stop", "price": num(first.get("stop_price")), "label": f"Stop {price(first.get('stop_price'))}"}]
+                      {"kind": "stop", "price": num(first.get("stop_price")), "label": f"Risk level {price(first.get('stop_price'))}"}]
                 chart = _chart(sym, bars, "first", f"{sym} · the breakout",
                                f"Scanner prices are {first.get('price_basis') or 'raw'}; the chart is split/bonus adjusted.",
                                spans=(20, 50), levels=lv)
@@ -545,7 +547,7 @@ async def breakouts(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                                     unit="×", orientation="h", items=vol, baseline=1.0))
             head = (f"{len(items)} stock{'s' if len(items) != 1 else ''} closed just above the breakout level on at least "
                     f"{rule['volume_spike_min']:g}× the usual volume on {short_day(as_of)}.")
-            follow_ups.insert(0, f"Entry, target and stop-loss for {sym}")
+            follow_ups.insert(0, f"Reference price, risk and reward levels for {sym}")
     return assemble("breakouts", "Confirmed breakouts", as_of, head, "up" if head else "neutral", blocks, src,
                     follow(*follow_ups), now=ctx.get("now"))
 
@@ -630,7 +632,7 @@ def _preferred_tp(plan: Dict[str, Any], widget: Optional[Dict[str, Any]]) -> Dic
 def _entry_text(e: Dict[str, Any]) -> Optional[str]:
     """A share plan's trigger price, or an option plan's net premium (its entry has no single price)."""
     if num(e.get("price")) is not None:
-        return f"entry {price(e['price'])}"
+        return f"reference price {price(e['price'])}"
     if num(e.get("net_premium_rs")) is not None:
         return f"net premium {price(e['net_premium_rs'])}"
     return None
@@ -644,7 +646,7 @@ def _decision(status: str, plan: Dict[str, Any], tp: Dict[str, Any]) -> Dict[str
         if num(e.get("price")) is not None and e.get("logic"):
             reason = f"{label}: {e['logic']}" if label else e["logic"]
         else:
-            bits = [x for x in (_entry_text(e), f"stop {price(s.get('price'))} ({s.get('method') or 'stop'})"
+            bits = [x for x in (_entry_text(e), f"risk level {price(s.get('price'))} ({s.get('method') or 'risk level'})"
                                 if num(s.get("price")) is not None else None) if x]
             reason = (f"{label}: " if label else "") + ", ".join(bits) + "." if bits else label
     else:
@@ -693,8 +695,8 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         if status == "setup_ready":
             tone = "up"
             parts = [x for x in ((tp.get("strategy") or {}).get("label"), _entry_text(e),
-                                 f"stop {price(s.get('price'))}" if num(s.get("price")) is not None else None,
-                                 f"first target {price(prim.get('price'))}" if num(prim.get("price")) is not None else None) if x]
+                                 f"risk level {price(s.get('price'))}" if num(s.get("price")) is not None else None,
+                                 f"first reward level {price(prim.get('price'))}" if num(prim.get("price")) is not None else None) if x]
             head = f"{sym}: the desk's rules find a setup — {', '.join(parts)}."
         elif status == "wait":
             head = f"{sym}: a setup is waiting for its confirmation — {decision['reason'] or 'see the conditions'}."
@@ -711,12 +713,12 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     levels: List[Dict[str, Any]] = []
     if tp:
         e, s = tp.get("entry") or {}, tp.get("stop") or {}
-        levels.append({"kind": "entry", "price": num(e.get("price")), "label": f"Entry {price(e.get('price'))}"})
-        levels.append({"kind": "stop", "price": num(s.get("price")), "label": f"Stop {price(s.get('price'))}"})
+        levels.append({"kind": "entry", "price": num(e.get("price")), "label": f"Reference price {price(e.get('price'))}"})
+        levels.append({"kind": "stop", "price": num(s.get("price")), "label": f"Risk level {price(s.get('price'))}"})
         for t in tp.get("targets") or []:
             if isinstance(t, dict) and num(t.get("price")) is not None:
                 levels.append({"kind": "target", "price": num(t["price"]),
-                               "label": f"Target {t.get('name') or ''} {price(t['price'])}".replace("  ", " ")})
+                               "label": f"Reward level {_TARGET_NAME.get(t.get('name'), t.get('name')) or ''} {price(t['price'])}".replace("  ", " ")})
     if e_bars:
         src.miss(f"{SRC_BARS} · {sym}", why(e_bars))
     else:
@@ -729,15 +731,15 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         e, s, prim = tp.get("entry") or {}, tp.get("stop") or {}, _primary(tp)
         sized = getattr(ti, "sized", None) or {}
         strat = tp.get("strategy") or {}
-        entry_kpi = (_kpi("Entry", price(e.get("price")), " · ".join(x for x in (e.get("order_type"), f"valid {e['valid_for_sessions']} sessions"
+        entry_kpi = (_kpi("Reference price", price(e.get("price")), " · ".join(x for x in (e.get("order_type"), f"valid {e['valid_for_sessions']} sessions"
                                                                                if e.get("valid_for_sessions") else None) if x) or None)
                      if num(e.get("price")) is not None or num(e.get("net_premium_rs")) is None else
                      _kpi("Net premium", price(e.get("net_premium_rs")), e.get("order_text") or e.get("order_type")))
         kpis = ([_kpi("Strategy", strat["label"], strat.get("segment"))] if strat.get("label") else []) + [entry_kpi,
-                _kpi("Stop", price(s.get("price") if num(s.get("price")) is not None else s.get("premium_stop")),
+                _kpi("Risk level", price(s.get("price") if num(s.get("price")) is not None else s.get("premium_stop")),
                      "underlying level" if s.get("method") == "underlying" else s.get("method")),
-                _kpi("First target", price(prim.get("price")), f"{num(prim.get('r_multiple')):.1f}R" if num(prim.get("r_multiple")) is not None else None),
-                _kpi("Reward:risk", times(prim.get("r_multiple")), "to the first target, before charges")]
+                _kpi("First reward level", price(prim.get("price")), f"{num(prim.get('r_multiple')):.1f}R" if num(prim.get("r_multiple")) is not None else None),
+                _kpi("Reward:risk", times(prim.get("r_multiple")), "to the first reward level, before charges")]
         if sized.get("status") in ("sized", "not_confirmed"):
             qty = sized.get("quantity") if sized.get("quantity") is not None else sized.get("lots")
             risk = (sized.get("estimated_risk_rs") or {}).get("total") if isinstance(sized.get("estimated_risk_rs"), dict) else None
@@ -768,7 +770,7 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         reasons = [r.get("message") for r in plan.get("status_reasons") or [] if isinstance(r, dict) and r.get("message")]
         if reasons:
             blocks.append(block("list", "why", "Why there is no setup", None, items=[{"text": r, "tone": "warn"} for r in reasons[:5]]))
-    title = f"{sym} · entry, stop and targets" if tp else f"{sym} · is there a setup?"
+    title = f"{sym} · reference price, risk and reward levels" if tp else f"{sym} · is there a setup?"
     fu = [f"Plan a bearish trade for {sym} instead" if direction_of(ctx.get("message") or "")[0] == "bullish"
           else f"Plan a bullish trade for {sym} instead", "What is the market view today?", "Which breakouts are confirmed?",
           "Today's top 5 opportunities"]
@@ -851,7 +853,7 @@ FNO_COLUMNS = [{"key": "symbol", "label": "Underlying", "align": "left", "format
                {"key": "fit", "label": "Fit", "align": "right", "format": "text"}]
 FNO_SECTIONS = (("index_options", "fno_index", "Index options"), ("stock_fno", "fno_stock", "Stock F&O"))
 FNO_NOTE = ("Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. "
-            "A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; "
+            "A long option's profit is not capped in practice, so the profit at the expected move is shown instead; "
             "R:R is measured at that move. Margin is Zerodha's calculator for the structure.")
 
 
@@ -1156,7 +1158,7 @@ async def trade_validity(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             changes.append({"text": f"Direction changed: recorded {o_dir}, today {n_dir}.", "tone": "warn"})
         o_stop, n_stop = num((orig.get("stop") or {}).get("price")), num(tp.get("stop", {}).get("price"))
         if o_stop is not None and n_stop is not None and r2(o_stop) != r2(n_stop):
-            changes.append({"text": f"Stop moved: recorded {price(o_stop)}, today {price(n_stop)}.", "tone": "warn"})
+            changes.append({"text": f"Risk level moved: recorded {price(o_stop)}, today {price(n_stop)}.", "tone": "warn"})
         if orig.get("plan_id") and orig.get("plan_id") == tp.get("plan_id"):
             changes.append({"text": "The recorded plan is still the one in force today.", "tone": None})
     elif orig and not tp:
@@ -1169,13 +1171,13 @@ async def trade_validity(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     if tp:
         e, s = tp.get("entry") or {}, tp.get("stop") or {}
         if num(e.get("price")) is not None:
-            levels.append({"kind": "entry", "price": num(e["price"]), "label": f"Today's entry {price(e['price'])}"})
+            levels.append({"kind": "entry", "price": num(e["price"]), "label": f"Today's reference price {price(e['price'])}"})
         if num(s.get("price")) is not None:
-            levels.append({"kind": "stop", "price": num(s["price"]), "label": f"Today's stop {price(s['price'])}"})
+            levels.append({"kind": "stop", "price": num(s["price"]), "label": f"Today's risk level {price(s['price'])}"})
     if orig:
         oe = orig.get("entry") or {}
         if num(oe.get("price")) is not None:
-            levels.append({"kind": "entry", "price": num(oe["price"]), "label": f"Recorded entry {price(oe['price'])}"})
+            levels.append({"kind": "entry", "price": num(oe["price"]), "label": f"Recorded reference price {price(oe['price'])}"})
     if e_bars:
         src.miss(f"{SRC_BARS} · {sym}", why(e_bars))
     else:
@@ -1192,7 +1194,7 @@ async def trade_validity(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         head = (f"{sym}: the setup is no longer there under today's rules ({DECISION_LABELS.get(status, status)})." if orig
                else f"{sym}: {DECISION_LABELS.get(status, status)} today.")
     return assemble("trade_validity", f"{sym} · is the setup still valid?", as_of, head, tone, blocks, src,
-                    follow(f"Should I book profits or hold {sym}?", "What are my open trades doing?",
+                    follow(f"Close or hold {sym}? Show my trade's levels", "What are my open trades doing?",
                            "What is the market view today?", f"What's the setup for {sym}?"),
                     decision=decision, now=ctx.get("now"))
 
@@ -1218,17 +1220,17 @@ async def exit_options(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     if trade:
         pnl = num(trade.get("unrealized_pnl_rs"))
         entry, last, stop, target = (num(trade.get(k)) for k in ("entry_price", "last_close", "stop_price", "target_price"))
-        kpis = [_kpi("Entry", price(entry), None), _kpi("Last close", price(last), f"as of {day_text(as_of)}" if as_of else None),
+        kpis = [_kpi("Reference price", price(entry), None), _kpi("Last close", price(last), f"as of {day_text(as_of)}" if as_of else None),
                 _kpi("Unrealised P&L", price(pnl), None, tone_of(pnl))]
         if last is not None and stop not in (None, 0):
-            kpis.append(_kpi("Distance to stop", pct((last - stop) / stop * 100), None, "warn"))
+            kpis.append(_kpi("Distance to risk level", pct((last - stop) / stop * 100), None, "warn"))
         if last not in (None, 0) and target is not None:
-            kpis.append(_kpi("Distance to target", pct((target - last) / last * 100), None, "up"))
+            kpis.append(_kpi("Distance to reward level", pct((target - last) / last * 100), None, "up"))
         blocks.append(block("kpis", "trade", f"Your open trade in {sym}", None, items=kpis))
         tone = tone_of(pnl)
         bits = [x for x in (f"unrealised {price(pnl)}" if pnl is not None else None,
-                            f"{price(last)} against stop {price(stop)}" if last is not None and stop is not None else None,
-                            f"target {price(target)}" if target is not None else None) if x]
+                            f"{price(last)} against risk level {price(stop)}" if last is not None and stop is not None else None,
+                            f"reward level {price(target)}" if target is not None else None) if x]
         head = f"{sym}: " + ", ".join(bits) + "." if bits else f"{sym}: your open trade."
     else:
         blocks.append(notice(f"No open paper trade in {sym} is on record here.", "info", "none"))
@@ -1240,15 +1242,15 @@ async def exit_options(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         levels = []
         if trade:
             if num(trade.get("stop_price")) is not None:
-                levels.append({"kind": "stop", "price": num(trade["stop_price"]), "label": f"Stop {price(trade['stop_price'])}"})
+                levels.append({"kind": "stop", "price": num(trade["stop_price"]), "label": f"Risk level {price(trade['stop_price'])}"})
             if num(trade.get("target_price")) is not None:
-                levels.append({"kind": "target", "price": num(trade["target_price"]), "label": f"Target {price(trade['target_price'])}"})
-        chart = _chart(sym, bars, "chart", f"{sym} · price against stop and target", None, spans=(20, 50), levels=levels)
+                levels.append({"kind": "target", "price": num(trade["target_price"]), "label": f"Reward level {price(trade['target_price'])}"})
+        chart = _chart(sym, bars, "chart", f"{sym} · price against risk and reward levels", None, spans=(20, 50), levels=levels)
         if chart:
             blocks.append(chart)
     blocks.append(notice("Ideas to review, not advice: this shows your trade's own levels and today's price; it does "
-                         "not tell you to exit or hold.", "info", "no-advice"))
-    return assemble("exit_options", f"{sym} · hold, trail or exit", as_of, head, tone, blocks, src,
+                         "not tell you to close or hold.", "info", "no-advice"))
+    return assemble("exit_options", f"{sym} · hold, trail or close", as_of, head, tone, blocks, src,
                     follow(f"Is my trade in {sym} still valid?", "What are my open trades doing?",
                            "What is the market view today?", "How much should I risk?"), now=ctx.get("now"))
 
@@ -1262,10 +1264,10 @@ REVIEW_ROWS = 15
 RULE_EXITS = ("stop", "trailing_stop", "target", "time", "trend", "premium_stop", "premium_target", "expiry")
 YOUR_EXITS = ("manual", "roll")
 NOT_ENTERED = ("entry_not_reached", "cancelled")
-EXIT_LABELS = {"stop": "Stop", "trailing_stop": "Trailing stop", "target": "Target", "time": "Max hold reached",
-               "trend": "Trend exit", "premium_stop": "Premium stop", "premium_target": "Premium target",
+EXIT_LABELS = {"stop": "Risk level", "trailing_stop": "Trailing risk level", "target": "Reward level", "time": "Max hold reached",
+               "trend": "Trend close", "premium_stop": "Premium risk level", "premium_target": "Premium reward level",
                "expiry": "Expiry", "manual": "Closed by you", "roll": "Rolled", "risk_control": "Risk control",
-               "entry_not_reached": "Entry not reached", "cancelled": "Cancelled"}
+               "entry_not_reached": "Reference price not reached", "cancelled": "Cancelled"}
 REFUSING = ("block", "halt", "reject", "defer")           # services/risk_gate/service.py BLOCKING
 HIT_RATE_NOTE = ("There is no live hit-rate for the desk's signals yet: no signal outcome has been recorded "
                  "(positional_outcomes is empty), and the idea scorecard is a static backtest, not a live figure. "
@@ -1384,15 +1386,15 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     if not e_c and trades:
         decided = wins + losses
         blocks.append(block("kpis", "record", f"The record · {period}", None, items=[
-            _kpi("Closed", str(len(entered)), f"{not_entered} not entered" if not_entered else None),
+            _kpi("Closed", str(len(entered)), f"{not_entered} not opened" if not_entered else None),
             _kpi("Wins / losses", f"{wins} / {losses}", "by net P&L"),
             _kpi("Win rate", f"{wins / decided * 100:.0f}%" if decided else None,
                  f"of {decided} trade{'s' if decided != 1 else ''} with a result" if decided else "no trade with a net result"),
             _kpi("Realised P&L", rupees(total), "net of estimated costs" + (
                 f"; {len(nets) - len(known)} without a net figure left out" if len(known) < len(nets) else ""), tone_of(total)),
             _kpi("Average R", _r_text(round(sum(rs) / len(rs), 2)) if rs else None,
-                 f"{len(rs)} of {len(entered)} had a stop to measure against, before costs" if rs
-                 else "no trade had a stop to measure against")]))
+                 f"{len(rs)} of {len(entered)} had a risk level to measure against, before costs" if rs
+                 else "no trade had a risk level to measure against")]))
         rows = []
         for t in trades[:REVIEW_ROWS]:
             sym = t.get("symbol")
@@ -1409,15 +1411,15 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                 "out": None if strategy else r2(t.get("exit_price")),
                 "r": _r_text(r), "pnl": r2(net)}})
         blocks.append(block("ranked", "plan_vs_actual", f"Plan vs actual · {len(trades)} closed",
-                            "Planned entry, stop and target against the fill and the exit. R = (exit − fill) ÷ (fill − stop), "
-                            "before costs; an F&O structure's stop and target are underlying levels and it has no R here.",
+                            "Planned reference price, risk level and reward level against the fill and the close. R = (close − fill) ÷ "
+                            "(fill − risk level), before costs; an F&O structure's risk and reward levels are underlying levels and it has no R here.",
                             columns=[{"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
-                                     {"key": "exit", "label": "Exit", "align": "left", "format": "text"},
-                                     {"key": "planned", "label": "Planned entry", "align": "right", "format": "price"},
+                                     {"key": "exit", "label": "Close", "align": "left", "format": "text"},
+                                     {"key": "planned", "label": "Planned reference price", "align": "right", "format": "price"},
                                      {"key": "fill", "label": "Fill", "align": "right", "format": "price"},
-                                     {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
-                                     {"key": "target", "label": "Target", "align": "right", "format": "price"},
-                                     {"key": "out", "label": "Exit price", "align": "right", "format": "price"},
+                                     {"key": "stop", "label": "Risk level", "align": "right", "format": "price"},
+                                     {"key": "target", "label": "Reward level", "align": "right", "format": "price"},
+                                     {"key": "out", "label": "Close price", "align": "right", "format": "price"},
                                      {"key": "r", "label": "R", "align": "right", "format": "text"},
                                      {"key": "pnl", "label": "Net P&L", "align": "right", "format": "price"}],
                             rows=rows))
@@ -1427,7 +1429,7 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             by_rule = sum(reasons[k] for k in RULE_EXITS)
             mine = [t.get("symbol") for t in entered if t.get("exit_reason") in YOUR_EXITS]
             parts = ", ".join(f"{reasons[k]} {EXIT_LABELS[k].lower()}" for k in RULE_EXITS if reasons[k])
-            facts_list.append({"text": f"{by_rule} of {len(entered)} exits came from the plan's own rules"
+            facts_list.append({"text": f"{by_rule} of {len(entered)} closes came from the plan's own rules"
                                        + (f" ({parts})" if parts else "") + f"; {len(mine)} "
                                        + ("was" if len(mine) == 1 else "were") + " closed by you"
                                        + (f" ({', '.join(s for s in mine if s)})" if mine else "") + ".", "tone": None})
@@ -1436,9 +1438,9 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             gaps = [t.get("symbol") for t in entered
                     if any(isinstance(f, dict) and f.get("code") == "gap_through_stop" for f in t.get("flags") or [])]
             if gaps:
-                facts_list.append({"text": f"{len(gaps)} stop exit{'s' if len(gaps) != 1 else ''} filled below the stop "
+                facts_list.append({"text": f"{len(gaps)} risk-level close{'s' if len(gaps) != 1 else ''} filled below the risk level "
                                            f"({', '.join(s for s in gaps if s)}): the session opened through it, so the loss "
-                                           "was larger than the stop distance.", "tone": "warn"})
+                                           "was larger than the distance to the risk level.", "tone": "warn"})
             scored = [(t.get("symbol"), num(t.get("net_pnl_rs"))) for t in entered if num(t.get("net_pnl_rs")) is not None]
             if scored:
                 best, worst = max(scored, key=lambda x: x[1]), min(scored, key=lambda x: x[1])
@@ -1447,10 +1449,10 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                                    "tone": None})
             held = [num(t.get("held_sessions")) for t in entered if num(t.get("held_sessions")) is not None]
             if held:
-                facts_list.append({"text": f"Held {sum(held) / len(held):.1f} sessions on average, entry to exit.", "tone": None})
+                facts_list.append({"text": f"Held {sum(held) / len(held):.1f} sessions on average, open to close.", "tone": None})
         if not_entered:
-            facts_list.append({"text": f"{not_entered} trade{'s' if not_entered != 1 else ''} closed without an entry "
-                                       "(the entry level was not reached, or it was cancelled): no P&L.", "tone": None})
+            facts_list.append({"text": f"{not_entered} trade{'s' if not_entered != 1 else ''} closed without opening "
+                                       "(the reference price was not reached, or it was cancelled): no P&L.", "tone": None})
         if facts_list:
             blocks.append(block("list", "exits", "How the trades ended", None, items=facts_list))
     elif not e_c:
@@ -1459,7 +1461,7 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     if not e_d:
         if period_decs:
             n = Counter(_outcome(d) for d in period_decs)
-            items = [{"text": f"{len(period_decs)} entry request{'s' if len(period_decs) != 1 else ''} checked: "
+            items = [{"text": f"{len(period_decs)} paper-trade request{'s' if len(period_decs) != 1 else ''} checked: "
                               f"{n['allowed']} allowed, {n['reduced']} reduced, {n['refused']} refused"
                               + (f", {n['other']} other" if n["other"] else "") + ".", "tone": None}]
             refusals: Counter = Counter()
@@ -1479,7 +1481,7 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                               "tone": "warn"})
             blocks.append(block("list", "risk_checks", "What the risk checks said", None, items=items))
         else:
-            blocks.append(notice(f"No entry request was checked by the risk rules {_on(mode, period)}.", "info", "no-checks"))
+            blocks.append(notice(f"No paper-trade request was checked by the risk rules {_on(mode, period)}.", "info", "no-checks"))
     bsent = None
     if e_b:
         src.miss(broker_review.SRC_TRADES, why(e_b))
@@ -1487,7 +1489,7 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         traded = sorted({t["underlying"] for t in bm["trips"] if t.get("underlying") and s_iso <= t["exit_day"] <= e_iso})
         refs, e_r = await _try(rd.broker_review_refs(uid, traded)) if traded else ({"levels": {}, "plans": {}}, None)
         if e_r:
-            src.miss("Your stops and recorded plans (for the broker review)", why(e_r))
+            src.miss("Your risk levels and recorded plans (for the broker review)", why(e_r))
             refs = {"levels": {}, "plans": {}}
         bblocks, bsent = broker_review.section(bdata, bm, start, end, refs["levels"], refs["plans"], src, period, mode)
         blocks += bblocks
@@ -1511,7 +1513,7 @@ async def daily_review(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     blocks.append(notice(HIT_RATE_NOTE, "info", "hit-rate"))
 
     refused = sum(1 for d in period_decs if _outcome(d) == "refused")
-    checks = (f"the risk checks refused {refused} of {len(period_decs)} entry request{'s' if len(period_decs) != 1 else ''}"
+    checks = (f"the risk checks refused {refused} of {len(period_decs)} paper-trade request{'s' if len(period_decs) != 1 else ''}"
               if period_decs else None)
     when = "" if fell_back else " " + _on(mode, period, this=True)
     if e_c and e_d:
@@ -1556,8 +1558,8 @@ def _hedge_structure(mode: Dict[str, Any], lot: int) -> str:
     lots = int(legs[0]["qty"] // lot) if legs and lot else 0
     plural = "lots" if lots != 1 else "lot"
     if mode.get("structure") == "put_spread" and len(legs) == 2:
-        return f"Buy {lots} {plural} of the {legs[0]['strike']:,.0f} put, sell the {legs[1]['strike']:,.0f} put"
-    return f"Buy {lots} {plural} of the {legs[0]['strike']:,.0f} put" if legs else "—"
+        return f"Long {lots} {plural} of the {legs[0]['strike']:,.0f} put, short the {legs[1]['strike']:,.0f} put"
+    return f"Long {lots} {plural} of the {legs[0]['strike']:,.0f} put" if legs else "—"
 
 
 def _hedge_row(mode: Dict[str, Any], lot: int, fall_pct: float) -> Dict[str, Any]:
@@ -1682,7 +1684,7 @@ async def portfolio_hedge(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]
             _kpi("Covered", f"{num(ex.get('protected_pct')):.0f}%", None),
             _kpi("Left uncovered", f"{num(ex.get('residual_pct')):.0f}%", None, "warn" if (num(ex.get("residual_pct")) or 0) > 25 else None)]))
         blocks.append(block("ranked", "choices", f"Your three choices · expiry {day_text(mk.get('expiry'))}", "Tap a row to see its scenarios.",
-                            columns=[{"key": "choice", "label": "Choice", "format": "text"}, {"key": "structure", "label": "What you would buy", "format": "text"},
+                            columns=[{"key": "choice", "label": "Choice", "format": "text"}, {"key": "structure", "label": "Structure", "format": "text"},
                                      {"key": "starts", "label": "Protection starts", "format": "text"}, {"key": "cost", "label": "Cost", "format": "text", "align": "right"},
                                      {"key": "at_fear", "label": f"If Nifty falls {fall:g}%", "format": "text", "align": "right"}],
                             rows=[_hedge_row(modes[k], lot, fall) for k in HEDGE_ORDER if k in modes]))

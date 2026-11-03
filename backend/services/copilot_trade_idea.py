@@ -181,18 +181,18 @@ def trade_plan_lines(tp: Dict[str, Any], label: Optional[str]) -> List[str]:
     and the evidence and warnings it carries. Missing values say "unavailable"."""
     e, s = tp.get("entry") or {}, tp.get("stop") or {}
     out = [f"TradePlan {tp.get('plan_id')} ({label or 'candidate'}):"]
-    out.append(f"  entry: {_num(e.get('price')) or 'unavailable'} ({e.get('order_type') or 'order type unavailable'}"
+    out.append(f"  reference price: {_num(e.get('price')) or 'unavailable'} ({e.get('order_type') or 'order type unavailable'}"
                + (f"; desk entry rule {e.get('desk_entry_rule')}" if e.get("desk_entry_rule") else "")
                + (f"; valid for {e.get('valid_for_sessions')} sessions" if e.get("valid_for_sessions") else "") + ")"
                + (f" — {e.get('logic')}" if e.get("logic") else ""))
-    out.append(f"  stop: {_num(s.get('price')) or _num(s.get('premium_stop')) or 'unavailable'} (method {s.get('method') or 'unknown'})"
+    out.append(f"  risk level: {_num(s.get('price')) or _num(s.get('premium_stop')) or 'unavailable'} (method {s.get('method') or 'unknown'})"
                + (f" — invalidation: {s.get('invalidation')}" if s.get("invalidation") else "")
                + (f" — {s.get('rationale')}" if s.get("rationale") else ""))
     if _num(tp.get("r_per_unit")):
-        out.append(f"  risk per unit (|entry − stop|): {_num(tp.get('r_per_unit'))}")
+        out.append(f"  risk per unit (|reference price − risk level|): {_num(tp.get('r_per_unit'))}")
     for t in tp.get("targets") or []:
         if isinstance(t, dict) and _num(t.get("price")):
-            out.append(f"  target {t.get('name')}: {_num(t.get('price'))}"
+            out.append(f"  reward level {t.get('name')}: {_num(t.get('price'))}"
                        + (f" ({_num(t.get('r_multiple'))}R)" if _num(t.get("r_multiple")) else "")
                        + (" — primary" if t.get("primary") else "") + (f" — {t.get('rule')}" if t.get("rule") else ""))
     elig = tp.get("eligibility") or {}
@@ -279,8 +279,8 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
     except Exception as exc:  # noqa: BLE001 — the answer goes on without a plan, and says so
         logger.warning("copilot trade idea: plan for %s could not be built: %s", symbol, exc)
         return TradeIdea(widget=None, status=None, context=(
-            "TRADE_PLAN: the desk's plan for this stock could not be built just now. Do not describe entry, stop or "
-            "target levels; say a plan was not available and suggest opening the Strategy Builder on the trading desk."))
+            "TRADE_PLAN: the desk's plan for this stock could not be built just now. Do not describe a reference price, "
+            "risk level or reward level; say a plan was not available and suggest opening the Strategy Builder on the trading desk."))
     widget = widget_for(plan, stated)
     extra: List[str] = []
     sized: Optional[Dict[str, Any]] = None

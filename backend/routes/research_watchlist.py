@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/public/research-watchlist", tags=["research-watchlist-public"])
 
 DISCLAIMER = (
-    "Personal / internal equity research only. Not investment advice, not a product "
-    "recommendation, and not a buy or sell call. Figures are point-in-time and will "
+    "Personal / internal equity research only. Not investment advice and not a "
+    "trading call. Figures are point-in-time and will "
     "drift — re-verify before acting on anything here."
 )
 

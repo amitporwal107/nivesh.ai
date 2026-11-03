@@ -34,7 +34,7 @@ CASE A — get_user_goals is OK and has a primary_goal:
 Lead with that goal. Show on their own lines (use the primary_goal / SIP_PROJECTION
 numbers verbatim — never invent or round):
 - Goal: {goal name}
-- Target: {target_rs}
+- Goal amount: {target_rs}
 - Current corpus: {corpus_rs, or portfolio total if the goal has none earmarked}
 - Gap: {shortfall from SIP_PROJECTION}
 - Monthly SIP needed: {sip_needed from SIP_PROJECTION}
@@ -42,10 +42,10 @@ Then one line on whether they're on track (goal_feasible / on_track_pct) and one
 concrete next step.
 
 CASE B — get_user_goals is NOT ok / no goals recorded:
-Do NOT print a "Goal: data unavailable / Target: data unavailable" table — that
+Do NOT print a "Goal: data unavailable / Goal amount: data unavailable" table — that
 reads as broken. Instead:
 1. Say plainly they haven't set up a goal yet, so you'll show an illustrative
-   projection, and invite them to add a goal (name, target amount, time horizon)
+   projection, and invite them to add a goal (name, goal amount, time horizon)
    for a tailored plan.
 2. Show the SIP_PROJECTION numbers that ARE available (the ₹/month → corpus line).
 3. Show their portfolio context (total, equity/debt split) if present.
@@ -149,7 +149,7 @@ async def _run_sip_projection(
     summary = result.summary
     d = result.data or {}
     if d.get("sip_needed") is not None:
-        feas = "on track" if d.get("goal_feasible") else "short of target"
+        feas = "on track" if d.get("goal_feasible") else "short of the goal amount"
         summary += (
             f" | GOAL GAP: to hit ₹{goal:,.0f} in {years}y you need ₹{d['sip_needed']:,.0f}/month"
             f"; current-path shortfall ₹{d.get('shortfall', 0):,.0f} ({feas})."
@@ -389,7 +389,7 @@ async def goal_node(state: CopilotState) -> dict:
             "monthly_budget": monthly,
             "allocations": [
                 {
-                    "scheme_name": "Recommended SIP allocation",
+                    "scheme_name": "Illustrative SIP allocation",
                     "monthly_amount": monthly,
                     "rationale": f"Equity fund → {fv_lakh} in {years_val}yr @ {rate_pct:.0f}% CAGR",
                 }

@@ -464,7 +464,7 @@ def test_cash_incomplete_sizing_shows_formula_and_missing_inputs_never_a_guess()
     s = cand(p, "cash:breakout_continuation")["sizing"]
     assert s["status"] == "incomplete" and s["quantity"] is None and "capital" in s["missing"]
     # The formula now names the costs it sizes with (paper_fills_pnl TESTCASES C-1).
-    assert any("risk_budget_inr" in m for m in s["missing"]) and "estimated round-trip costs at the stop" in s["formula"]
+    assert any("risk_budget_inr" in m for m in s["missing"]) and "estimated round-trip costs at the risk level" in s["formula"]
     c = cand(p, "cash:breakout_continuation")
     assert c["legs"][0]["quantity"] == 1 and any("Sizing is incomplete" in w for w in c["warnings"])
 

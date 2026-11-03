@@ -84,7 +84,7 @@ def _score_exit(ctx: Dict[str, Any]) -> tuple:
     if total <= 0:
         return (0, None)
     if has_exit_actions:
-        return (80, "Tax-optimised exits available")
+        return (80, "Tax-aware redemption plan available")
     return (40, None)
 
 
@@ -166,7 +166,7 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
         "bucket": "fix",
         "tier": "secondary",
         "label": "Fix overlap in my funds",
-        "outcome": "Find duplicate funds and which to exit with lowest tax hit",
+        "outcome": "Find duplicate funds and the lowest-tax way to consolidate",
         "query": "Which funds or stocks in my portfolio are overlapping the most, and which ones should I remove with minimal tax impact?",
         "icon": "Layers",
         "color": "purple",
@@ -191,9 +191,9 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
         "intent_category": "tax",
         "bucket": "exit",
         "tier": "secondary",
-        "label": "Which fund should I exit first",
-        "outcome": "Rank my funds by exit-priority and show tax savings",
-        "query": "If I want to exit some investments, which ones should I sell first with the lowest tax impact? Show tax-aware analysis.",
+        "label": "Which fund to review first",
+        "outcome": "Rank my funds by review priority and show tax savings",
+        "query": "If I redeploy some of my investments, which holdings come out first with the lowest tax impact? Show tax-aware analysis.",
         "icon": "ArrowRightCircle",
         "color": "amber",
         "scorer": _score_exit,
@@ -205,7 +205,7 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
         "bucket": "add",
         "tier": "secondary",
         "label": "Where should I invest ₹1L",
-        "outcome": "Get a specific fund suggestion that fills my portfolio gaps",
+        "outcome": "See funds that fit my portfolio gaps",
         "query": "Based on my current portfolio gaps, where should I invest ₹1 lakh of fresh money to improve diversification?",
         "icon": "TrendingUp",
         "color": "emerald",
@@ -245,7 +245,7 @@ _PROMPT_TEMPLATES: List[Dict[str, Any]] = [
         "tier": "advanced",
         "label": "Simulate my plan",
         "outcome": "Preview how my portfolio changes if I follow every action",
-        "query": "What happens if I follow your recommended actions? How will my portfolio look after — show before vs after allocation, risk, and expected returns.",
+        "query": "What happens if I follow the top actions? How will my portfolio look after — show before vs after allocation, risk, and expected returns.",
         "icon": "Zap",
         "color": "indigo",
         "scorer": _score_what_if,
@@ -550,10 +550,10 @@ def _build_viz_for_prompt(prompt_id: str, ctx: Dict[str, Any]) -> Optional[Dict[
             "kind": "gauge",
             "series": [
                 {"label": "Debt today", "value": dt_r, "color": _VIZ_PALETTE["debt"]},
-                {"label": "Gap to target", "value": gap, "color": _VIZ_PALETTE["muted"]},
+                {"label": "Gap to plan", "value": gap, "color": _VIZ_PALETTE["muted"]},
             ],
             "headline": f"{dt_r:.0f}%",
-            "caption": f"Debt today · target {target:.0f}%",
+            "caption": f"Debt today · planned {target:.0f}%",
         }
 
     if prompt_id == "exit_lowest_tax":
@@ -564,7 +564,7 @@ def _build_viz_for_prompt(prompt_id: str, ctx: Dict[str, Any]) -> Optional[Dict[
             "kind": "stat",
             "series": [],
             "headline": f"{actions}",
-            "caption": "Tax-smart exits ready",
+            "caption": "Tax-aware redemption plan ready",
         }
 
     if prompt_id == "performance":
@@ -619,8 +619,8 @@ def _advisor_prompts() -> Dict[str, Any]:
     primary = [{
         "id": "advisor_call_today", "tier": "primary", "bucket": "advisor_today",
         "label": "Which clients should I call today?",
-        "outcome": "Top 10 high-priority clients with the recommended action for each.",
-        "query": "Give me my top 10 high-priority clients today — for each, name, the issue, and the recommended action.",
+        "outcome": "Top 10 high-priority clients with the next step for each.",
+        "query": "Give me my top 10 high-priority clients today — for each, name, the issue, and the next step.",
         "icon": "Phone", "color": "indigo", "badge": "Daily brief",
     }]
     secondary = [
@@ -636,8 +636,8 @@ def _advisor_prompts() -> Dict[str, Any]:
          "icon": "TrendingDown", "color": "rose", "badge": None},
         {"id": "advisor_rebalance", "tier": "secondary", "bucket": "advisor_rebalance",
          "label": "Who needs rebalancing now?",
-         "outcome": "Clients deviating >10% from their target allocation.",
-         "query": "Which clients are deviating more than 10% from their target allocation? List the bucket that is off.",
+         "outcome": "Clients deviating >10% from their planned allocation.",
+         "query": "Which clients are deviating more than 10% from their planned allocation? List the bucket that is off.",
          "icon": "Scale", "color": "amber", "badge": None},
     ]
     advanced = [
@@ -685,7 +685,7 @@ _TRADER_QUESTIONS = (
     ("sector_rotation", "market_pulse", "Which sectors are leading and lagging?", "Sector heatmap, each sector's strongest stocks", "Activity", "mint"),
     ("results_calendar", "market_pulse", "Which companies report results this week?", "Declared results with AI summaries, management commentary and source filings", "NotepadText", "indigo"),
     ("event_intelligence", "market_pulse", "Any order wins this week?", "Order wins, M&A, ownership, bulk and block deals from the exchange filings", "Activity", "mint"),
-    ("breakouts", "opportunities", "Which breakouts are confirmed?", "Entry zone, volume confirmation, invalidation", "Rocket", "indigo"),
+    ("breakouts", "opportunities", "Which breakouts are confirmed?", "Reference price zone, volume confirmation, invalidation", "Rocket", "indigo"),
     ("unusual_volume", "opportunities", "Which stocks have unusual volume?", "Relative volume, price change, delivery data", "BarChart3", "indigo"),
     ("expected_move", "fno", "What is the expected move in Nifty?", "Options-implied move and relevant levels", "Target", "amber"),
     ("avoid_today", "risk", "What should I avoid today?", "Event risks, weak setups, overexposure", "AlertTriangle", "rose"),

@@ -82,5 +82,5 @@ def compute_payoff(body: Any, today: Optional[date] = None) -> Dict[str, Any]:
             "costs": po.costs_block(legs, ref, model, src),
             "margin": None, "margin_reason": MARGIN_REASON,
             "capital_at_risk": po.r2(car),
-            "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+            "capital_at_risk_basis": "worst net loss over all prices, every leg charged opening and closing costs; null when the loss is unbounded",
             "loss_can_exceed_margin": has_future, "caveats": caveats, "sent_to_broker": False}

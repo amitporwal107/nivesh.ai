@@ -18,6 +18,21 @@ from ..schemas import AgentResponse, CopilotState, ToolResult
 
 logger = logging.getLogger(__name__)
 
+# ── Wording rule (owner, 3 Nov 2026: "do not use words like buy, stop loss, target") ─────────────────────
+# Nivesh is not a SEBI-registered Research Analyst, so no answer may read like a trading call. One instruction, shared by
+# every answer prompt (persona_framing.frame_for_persona adds it to each specialist node's system prompt); _ADVICE_RE
+# below is the deterministic backstop for the imperative forms. Each line that names a word to avoid says "never use",
+# so the prompt lint (tests/test_chat_compliance_delivery.py cc6) can tell a ban from a demand.
+VOCABULARY_RULE = (
+    "WORDING RULE (Nivesh is not a SEBI-registered Research Analyst, so nothing may read like a trading call):\n"
+    "- Never use these words as calls or labels: buy, sell, stop loss, SL, target, T1, T2, entry, exit, book profits, "
+    "accumulate, trim, upside, downside, price target, recommend, recommendation, pick, suggested trade, best trade.\n"
+    "- Say instead: 'long' / 'short' for a side or a leg (e.g. 'Long 1 NIFTY 24000 CE'); 'reference price' for an entry "
+    "level; 'risk level' for a stop; 'reward level' (reward level 1 / 2) for a target; 'loss at risk level' for the loss "
+    "at a stop; 'close' only for the user's own paper position.\n"
+    "- Call candidates ideas that fit the rules, ordered for review; describe, never instruct."
+)
+
 _DISCLAIMER = (
     "\n\n---\n*⚠️ DISCLAIMER: AI-generated analysis for educational purposes only. "
     "Past performance does not guarantee future results. "
@@ -59,9 +74,9 @@ _DEFAULT_FOLLOW_UPS = {
         "Show me a goal trade-off",
     ],
     "recommendation": [
-        "Show one-click SIP for the top pick",
-        "Compare the top 3 picks",
-        "Why this and not the second pick?",
+        "Show one-click SIP for the first idea",
+        "Compare the top 3 ideas",
+        "Why this and not the second idea?",
     ],
 }
 
@@ -151,11 +166,18 @@ _ADVICE_RE = re.compile(
     r"|\b(?:we|i)\s+recommend\b|\brecommend\s+(?:buy|sell|hold|ing|ed)\b"
     r"|\bwill\s+(?:likely\s+)?(?:rise|fall|go\s+up|go\s+down|drop|surge|rally|crash|decline|climb)\b"
     r"|\b(?:looks?|is|are|turning|remains?)\s+(?:bullish|bearish)\b|\bbullish\b|\bbearish\b"
-    r"|\bgood\s+time\s+to\s+(?:buy|sell|enter|exit)\b|\bwhether\s+to\s+(?:buy|sell)\b",
+    r"|\bgood\s+time\s+to\s+(?:buy|sell|enter|exit)\b|\bwhether\s+to\s+(?:buy|sell)\b"
+    # Added 3 Nov 2026 (wording rule): imperative levels and calls the patterns above missed.
+    r"|\bprice\s+targets\b|\b(?:buy|sell)\s+signals?\b|\b(?:buy|sell)\s+(?:now|today|here|on\s+dips?)\b"
+    r"|\b(?:buy|sell|enter|exit|accumulate)\s+(?:at|above|below|near|around|on\s+dips?)\b"
+    r"|\bstop[- ]?loss\s*(?:at|of|near|around|below|above|is|[:=@])\s*(?:₹|rs\.?|inr)?\s*\d"
+    r"|\b(?:sl|t1|t2|target)\s*(?:at|of|is|[:=@])?\s*(?:₹|rs\.?|inr)\s*\d|\b(?:sl|t1|t2)\s*[:=@]\s*\d"
+    r"|\b(?:place|keep|set|put|use)\s+(?:a\s+|your\s+|the\s+)?(?:stop[- ]?loss|sl)\b"
+    r"|\bbook(?:ing)?\s+(?:your\s+|some\s+|partial\s+)?profits?\b|\bexit\s+(?:now|today|here)\b",
     re.IGNORECASE,
 )
-_ADVICE_NOTE = ("\n\n*Factual filings/data only — Nivesh Copilot does not give buy/sell/hold "
-                "advice, price targets, or price predictions.*")
+_ADVICE_NOTE = ("\n\n*Factual filings/data only — Nivesh Copilot does not give investment advice, "
+                "trading calls, price levels to act on or price predictions.*")
 
 
 def _scrub_advice(text: str) -> tuple[str, bool]:
@@ -163,7 +185,7 @@ def _scrub_advice(text: str) -> tuple[str, bool]:
     Returns (scrubbed_text, had_advice)."""
     if not _ADVICE_RE.search(text):
         return text, False
-    return _ADVICE_RE.sub("[factual data only — no recommendation]", text), True
+    return _ADVICE_RE.sub("[factual data only — not advice]", text), True
 
 
 async def compliance_node(state: CopilotState) -> dict:

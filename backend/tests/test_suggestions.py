@@ -343,10 +343,10 @@ def test_sg_e6_trades_near_their_stop_or_target(world):
     alerts = [c for c in out["per_tab"]["my_trades"] if c["rule_id"] == "near_stop"]
     assert sorted(c["symbol"] for c in alerts) == ["SHORTCO", "SONACOMS"]
     s = next(c for c in alerts if c["symbol"] == "SONACOMS")
-    assert s["class"] == "risk_alert" and s["title"] == "SONACOMS is near its stop-loss"
-    assert s["why"] == "Last close ₹834.00 on 30 Oct 2026; stop ₹824.60, 1.13% away."
-    assert s["query"] == "Should I book profits or hold SONACOMS?" and s["intent"] == "exit_options"
-    assert s["footer"] == "About your own trade's levels and limits. It does not tell you to exit or hold."
+    assert s["class"] == "risk_alert" and s["title"] == "SONACOMS is near its risk level"
+    assert s["why"] == "Last close ₹834.00 on 30 Oct 2026; risk level ₹824.60, 1.13% away."
+    assert s["query"] == "Close or hold SONACOMS? Show my trade's levels" and s["intent"] == "exit_options"
+    assert s["footer"] == "About your own trade's levels and limits. It does not tell you to close or hold."
     tgt = card(out, "near_target")
     assert tgt["symbol"] == "COFORGE" and tgt["class"] == "informational"
     assert card(out, "open_trades_check")["why"] == "6 open paper trades, marked at the close of 30 Oct 2026."  # not GONECO

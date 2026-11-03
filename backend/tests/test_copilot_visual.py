@@ -706,7 +706,7 @@ def test_b14_open_trades(src):
     assert [row["symbol"] for row in r["rows"]] == ["AAA", "BBB"]
     assert r["rows"][0]["cells"] == {"symbol": "AAA", "qty": 10, "entry": 100.0, "last": 108.0, "stop": 92.0,
                                      "target": 120.0, "pnl": 80.0}
-    assert r["rows"][0]["ask"] == "Should I book profits or hold AAA?"
+    assert r["rows"][0]["ask"] == "Close or hold AAA? Show my trade's levels"
     assert p["headline"]["text"] == "2 open paper trades, unrealised ₹30.00."
 
 
@@ -815,7 +815,7 @@ def test_b24_an_open_trade_shows_its_own_levels_and_pnl(src):
     assert kp["Entry"] == "₹100.00" and kp["Unrealised P&L"] == "₹80.00"
     assert "Distance to stop" in kp and "Distance to target" in kp
     assert "unrealised ₹80.00" in p["headline"]["text"]
-    assert any("does not tell you to exit or hold" in n["text"] for n in blocks(p, "notice"))
+    assert any("does not tell you to close or hold" in n["text"] for n in blocks(p, "notice"))
     c = blocks(p, "candles")[0]
     assert {lv["kind"] for lv in c["levels"]} == {"stop", "target"}
 
@@ -1728,7 +1728,7 @@ def test_sc10_the_answer_reads_the_rules_first_then_what_was_not_used_then_the_m
     first = ranked["rows"][0]
     assert first["symbol"] == "FX000" and first["ask"] == "Trade plan for FX000"
     assert first["cells"] == {"rank": 1, "symbol": "FX000", "sector": "Banks", "mcap": "1,00,000", "roe": "30.0", "de": "0.00"}
-    assert "Showing 25 of 103 matching stocks, largest companies first." in ranked["note"] and "not recommendations" in ranked["note"]
+    assert "Showing 25 of 103 matching stocks, largest companies first." in ranked["note"] and "not advice" in ranked["note"]
     assert p["headline"]["text"] == "103 stocks match your filters."
     sent = [a for n, a in src.calls if n == "screen_run"][0][0]
     assert sent == {"conditions": [{"key": "roe", "op": "over", "value": 20.0}, {"key": "de", "op": "under", "value": 0.5}], "bucket": "large"}

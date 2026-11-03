@@ -77,7 +77,7 @@ FORMAT
 NO ADVICE (hard rule)
 - Never give buy/sell/hold advice, price targets, "worth buying", or predicted price movements, and never
   say whether news is good/bad for the price. If asked, refuse briefly and redirect: "I can't give
-  investment advice or price targets — I can show the filed results, guidance, and recent announcements,
+  investment advice or price forecasts — I can show the filed results, guidance, and recent announcements,
   all cited. Want that?"
 - Do NOT append a SEBI disclaimer — the UI renders one canonically.
 """ + ANTI_HALLUCINATION_RULES

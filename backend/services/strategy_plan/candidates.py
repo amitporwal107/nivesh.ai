@@ -68,7 +68,7 @@ def scenario_levels(entry: float, up: bool, stop: float, atr: Optional[float], n
     risk = abs(entry - stop)
     use_override = base_override is not None and (base_override - entry) * sg > 0
     base = base_override if use_override else entry + sg * T["base_reward_multiple"] * risk
-    base_rule = "the wall / expected-move target (FnoStrategies rule 2)" if use_override else f"{T['base_reward_multiple']:g} x the stop distance"
+    base_rule = "the wall / expected-move level (FnoStrategies rule 2)" if use_override else f"{T['base_reward_multiple']:g} x the risk-level distance"
     d_base = abs(base - entry)
     near_ok = (near_level is not None and (near_level - entry) * sg > 0
                and abs(near_level - entry) >= T["min_resistance_atr"] * (atr or 0.0) and abs(near_level - entry) < d_base)
@@ -84,7 +84,7 @@ def scenario_levels(entry: float, up: bool, stop: float, atr: Optional[float], n
         opt_price = base
     return [{"name": "conservative", "price": r2(cons), "rule": cons_rule, "gate": gate_cons},
             {"name": "base", "price": r2(base), "rule": base_rule, "gate": not gate_cons},
-            {"name": "optimistic", "price": r2(opt_price), "rule": f"{T['optimistic_reward_multiple']:g} x the stop distance", "gate": False}]
+            {"name": "optimistic", "price": r2(opt_price), "rule": f"{T['optimistic_reward_multiple']:g} x the risk-level distance", "gate": False}]
 
 
 # ── sizing (PRD §16.5) ───────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ def size_position(inputs: Dict[str, Any], *, risk_per_unit: Optional[float], val
     if not capital:
         out["missing"].append("capital")
     if risk_per_unit is None or risk_per_unit <= 0:
-        out["missing"].append("risk per unit (a stop distance or a defined max loss)")
+        out["missing"].append("risk per unit (a risk-level distance or a defined max loss)")
     if value_per_unit is None or value_per_unit <= 0:
         out["missing"].append("value per unit")
     if out["missing"]:
@@ -197,7 +197,7 @@ def reward_risk(res: Dict[str, Any], linear: bool, gate: str = "base") -> Dict[s
     g = _scn(res, gate)
     return {"gross": ratio(g["gross"], rg), "net": ratio(g["net"], rn), "level": gate, "reward_gross": g["gross"], "reward_net": g["net"],
             "risk_gross": r2(rg), "risk_net": r2(rn), "by_level": by,
-            "basis": f"reward = P&L at the {gate} scenario level; risk = loss at the stop (cash, futures) or the max loss (options); expiry payoff; "
+            "basis": f"reward = P&L at the {gate} scenario level; risk = loss at the risk level (cash, futures) or the max loss (options); expiry payoff; "
                      "the gate uses the net ratio when costs are known"}
 
 
@@ -218,7 +218,7 @@ def apply_rr_gate(c: Dict[str, Any], inputs: Dict[str, Any]) -> None:
     lvl = rr.get("level")
     if got is None:
         c["status"] = "insufficient_data"
-        c["reasons"].append(reason("risk_not_calculable", "Reward : risk could not be calculated (no valid payoff, stop or conservative level)."))
+        c["reasons"].append(reason("risk_not_calculable", "Reward : risk could not be calculated (no valid payoff, risk level or conservative level)."))
     elif got < inputs["min_reward_risk"]:
         c["status"] = "no_trade"
         c["reasons"].append(reason("reward_risk_below_minimum", f"Reward : risk {got:g} at the {lvl} level is below the minimum {inputs['min_reward_risk']:g}"
@@ -246,7 +246,7 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     d = ctx["direction"]
     if d == "bearish":
         return [not_viable("cash", "avoid", "Avoid / bearish watch", d, "avoid",
-                           reason("long_only", "Cash plans are long only in this release (short cash needs a valid instrument and workflow). The bearish view is recorded as avoid / watch; no cash entry."))]
+                           reason("long_only", "Cash plans are long only in this release (short cash needs a valid instrument and workflow). The bearish view is recorded as avoid / watch; no cash position."))]
     if d != "bullish":
         return [not_viable("cash", "none", "No cash strategy", d, "no_trade",
                            reason("no_cash_strategy", f"A {d} view has no cash-equity strategy (cash is long only)."))]
@@ -261,7 +261,7 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
         # BREAKOUT is confirmed, EARLY_BREAKOUT is awaiting, anything else is forming). The bucket is not invented: the note says so.
         st = str(sb["data"]["pick_stage"]).upper()
         bucket = {"BREAKOUT": "breakout_confirmed", "EARLY_BREAKOUT": "pre_breakout"}.get(st, "true_accumulation")
-        stage_note = f"The stock is a scanner pick (stage {st}) that is not in the watchlist buckets; its stage is read as {bucket.replace('_', ' ')}."
+        stage_note = f"The stock is a scanner idea (stage {st}) that is not in the watchlist buckets; its stage is read as {bucket.replace('_', ' ')}."
     if bucket is None:
         bull = chartink_bullish_hits(ctx)
         if bull:
@@ -287,7 +287,7 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
             return [c]
         meta = scanner_stop_meta(sbd, bucket, it, trig, stop, atr)
         order = order_type_for_setup(trig, spot, bucket, pick.get("stage"))
-        c = linear_candidate(ctx, "cash", "breakout_watch", "Wait for breakout confirmation", True, trig, stop, stop_basis_text(meta, stop, "the scanner's stop"),
+        c = linear_candidate(ctx, "cash", "breakout_watch", "Wait for breakout confirmation", True, trig, stop, stop_basis_text(meta, stop, "the scanner's risk level"),
                              None, logic, unit_kind="cash", lot=1, expiry=None, price_source="the scanner's trigger (not yet traded)",
                              why=[f"Scanner bucket {bucket.replace('_', ' ')} (rules {ctx.get('scan_rules_version')}).", f"Trigger {trig:g}."]
                              + ([stage_note] if stage_note else []), stop_meta=meta, order_type=order, setup=setup, logic_exact=True)
@@ -298,17 +298,17 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     family = "breakout_continuation" if bucket == "breakout_confirmed" else "pullback_in_uptrend"
     label = "Breakout continuation (long)" if family == "breakout_continuation" else "Pullback in an uptrend (long)"
     if spot is None:
-        return [not_viable("cash", family, label, d, "insufficient_data", reason("no_price", "No last close: the entry cannot be set."))]
+        return [not_viable("cash", family, label, d, "insufficient_data", reason("no_price", "No last close: the reference price cannot be set."))]
     stop = num(it.get("stop_price"))
     meta = scanner_stop_meta(sbd, bucket, it, spot, stop, atr) if stop is not None else None
-    stop_basis = stop_basis_text(meta, stop, "the scanner's stop") if meta else None
+    stop_basis = stop_basis_text(meta, stop, "the scanner's risk level") if meta else None
     if stop is None or stop <= 0 or stop >= spot:
         hyp = ctx["hyp"]
         stop = num(hyp.get("stop")) if hyp else None
         meta = chart_stop_meta(hyp, spot, atr)
-        stop_basis = "the chart engine's ATR stop (2 x ATR(14), or 20-session support when closer but at least 0.5 ATR away)"
+        stop_basis = "the chart engine's ATR risk level (2 x ATR(14), or 20-session support when closer but at least 0.5 ATR away)"
         if stop is None or stop >= spot:
-            return [not_viable("cash", family, label, d, "insufficient_data", reason("risk_not_calculable", "No stop below the price could be derived (scanner stop and ATR stop are both missing)."))]
+            return [not_viable("cash", family, label, d, "insufficient_data", reason("risk_not_calculable", "No risk level below the price could be derived (the scanner's and the ATR risk levels are both missing)."))]
     return [linear_candidate(ctx, "cash", family, label, True, spot, stop, stop_basis, None, f"Last close {spot:g} ({ctx['spot_source']})",
                              unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
                              why=[f"Scanner bucket {bucket.replace('_', ' ')} (rules {ctx.get('scan_rules_version')}).",
@@ -357,7 +357,7 @@ def scanner_stop_meta(sbd: Dict[str, Any], bucket: Optional[str], it: Dict[str, 
         a = (ref - stop) / mult if ref is not None and ref > stop else None
         m = {"method": "atr" if a else "unknown", "atr_multiple": mult if a else None, "atr": r2(a), "swing_ref": None,
              "measured_from": ref, "measured_from_name": name,
-             "rule": f"{name} minus {mult:g} x ATR(14) (the scanner's {bucket or 'watchlist'} rule; the ATR is the one the stop implies)"}
+             "rule": f"{name} minus {mult:g} x ATR(14) (the scanner's {bucket or 'watchlist'} rule; the ATR is the one the risk level implies)"}
     m["distance_atr"] = round((entry - stop) / a, 3) if a else None
     return m
 
@@ -400,18 +400,18 @@ def chartink_cash_candidate(ctx: Dict[str, Any], hits: List[Dict[str, Any]]) -> 
     d, spot, hyp = ctx["direction"], ctx["spot"], ctx["hyp"]
     family, label = C["cash_family"], "Chartink screen signal (long)"
     if spot is None:
-        return not_viable("cash", family, label, d, "insufficient_data", reason("no_price", "No last close: the entry cannot be set."))
+        return not_viable("cash", family, label, d, "insufficient_data", reason("no_price", "No last close: the reference price cannot be set."))
     stop = num(hyp.get("stop")) if hyp else None
     if stop is None or stop <= 0 or stop >= spot:
-        return not_viable("cash", family, label, d, "insufficient_data", reason("risk_not_calculable", "No stop below the price could be derived (the ATR rule needs 15 usable sessions)."))
+        return not_viable("cash", family, label, d, "insufficient_data", reason("risk_not_calculable", "No risk level below the price could be derived (the ATR rule needs 15 usable sessions)."))
     ck = snap(ctx["snaps"], "chartink")["data"] or {}
     rule = f"{hyp.get('rule')} v{hyp.get('version')}" if hyp.get("rule") else "ATR_2X_STOP"
-    stop_basis = f"the chart engine's ATR stop (rule {rule}: 2 x ATR(14), or 20-session support when closer but at least 0.5 ATR away); {C['levels_label']}"
+    stop_basis = f"the chart engine's ATR risk level (rule {rule}: 2 x ATR(14), or 20-session support when closer but at least 0.5 ATR away); {C['levels_label']}"
     names = ", ".join(str(h.get("name")) for h in hits)
     c = linear_candidate(ctx, "cash", family, label, True, spot, stop, stop_basis, None, f"Last close {spot:g} ({ctx['spot_source']})",
                          unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
                          why=[f"Listed by {len(hits)} enabled bullish Chartink scan(s): {names} (fetched {ck.get('fetched_at')}).",
-                              "The AI scanner lists the stock in none of its buckets; the entry is the last close and the levels follow the ATR rule."],
+                              "The AI scanner lists the stock in none of its buckets; the reference price is the last close and the levels follow the ATR rule."],
                          stop_meta=chart_stop_meta(hyp, spot, ctx["atr"]), order_type="at_close",
                          setup={"source": "chartink", "bucket": None, "stage": None, "signal_date": None, "trigger": None,
                                 "scans": [h.get("name") for h in hits], "fetched_at": ck.get("fetched_at")})
@@ -437,7 +437,7 @@ def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str,
         return desk_costs.round_trip_cost(units, entry, stop, model, segment=segment, long=up)
 
     sizing = size_position(inputs, risk_per_unit=risk_unit, value_per_unit=entry, unit=unit_name + "s", lot_units=lot,
-                           per_unit_label=("entry minus stop, per unit, plus the estimated round-trip costs at the stop "
+                           per_unit_label=("reference price minus risk level, per unit, plus the estimated round-trip costs at the risk level "
                                            "(brokerage, STT, exchange charge, SEBI fee, stamp duty, GST and slippage, as "
                                            "the paper trade records them); DP charges, income tax and gap slippage are "
                                            "not included"),
@@ -459,7 +459,7 @@ def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str,
              invalidation={"technical": {"price": r2(stop), "basis": stop_basis, "meaning": "the thesis is wrong if price closes beyond this level",
                                          **({k: stop_meta.get(k) for k in ("method", "atr", "atr_multiple", "distance_atr", "swing_ref", "measured_from", "rule")}
                                             if stop_meta else {"method": "unknown"})},
-                           "execution_stop": {"price": r2(stop), "note": "A stop order does not guarantee the fill: a gap or thin trading can fill beyond it, so the loss can exceed the figure shown."}},
+                           "execution_stop": {"price": r2(stop), "note": "A risk level does not guarantee the fill: a gap or thin trading can fill beyond it, so the loss can exceed the figure shown."}},
              risk_reward=reward_risk(res, True, _gate(levels)))
     if not res.get("valid"):
         c["status"] = "insufficient_data"
@@ -472,7 +472,7 @@ def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str,
             c["status"] = "no_trade"
             c["reasons"].append(reason("sizing_zero", sizing["reason"]))
         if risk_unit < RULES["targets"]["min_stop_atr"] * (atr or 0):
-            c["warnings"].append(f"The stop is closer than {RULES['targets']['min_stop_atr']:g} x ATR to the entry: it may sit inside normal noise.")
+            c["warnings"].append(f"The risk level is closer than {RULES['targets']['min_stop_atr']:g} x ATR to the reference price: it may sit inside normal noise.")
         if segment == "futures":
             c["warnings"].append("Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap.")
     if c["status"] == "candidate":
@@ -550,12 +550,12 @@ def futures_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
                              "rule": f"{lv['stop_from']} (FnoStrategies rule 2)"}
     if stop is None and ctx["hyp"] and spot is not None and num(ctx["hyp"].get("stop")) is not None:
         off = spot - ctx["hyp"]["stop"]
-        stop, stop_basis = (entry - off if up else entry + off), "the chart engine's 2 x ATR stop distance applied to the futures price"
+        stop, stop_basis = (entry - off if up else entry + off), "the chart engine's 2 x ATR risk-level distance applied to the futures price"
         fmeta = {**chart_stop_meta(ctx["hyp"], spot, atr), "measured_from": entry}
     if stop is not None and atr:
         fmeta["distance_atr"] = round(abs(entry - stop) / atr, 3)
     if stop is None or (stop >= entry if up else stop <= entry):
-        return [not_viable("futures", fam, label, d, "insufficient_data", reason("risk_not_calculable", "No stop on the correct side of the entry could be derived."))]
+        return [not_viable("futures", fam, label, d, "insufficient_data", reason("risk_not_calculable", "No risk level on the correct side of the reference price could be derived."))]
     c = linear_candidate(ctx, "futures", fam, label, up, entry, stop, stop_basis, lv["target"],
                          f"Futures settle {entry:g} ({near['expiry']} contract, NSE F&O bhavcopy {fu['as_of']})",
                          unit_kind="future", lot=int(lot), expiry=near["expiry"], price_source=f"NSE F&O bhavcopy settle, {fu['as_of']}",
@@ -855,14 +855,14 @@ def one_options_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], ex: Dict[s
         stop = lv["stop"]
         stop_basis = f"{lv['stop_from']} (FnoStrategies rule 2)"
         if stop is None and ctx["hyp"] and num(ctx["hyp"].get("stop")) is not None:
-            stop, stop_basis = (ctx["hyp"]["stop"] if up else 2 * spot - ctx["hyp"]["stop"]), "the chart engine's 2 x ATR stop distance"
+            stop, stop_basis = (ctx["hyp"]["stop"] if up else 2 * spot - ctx["hyp"]["stop"]), "the chart engine's 2 x ATR risk-level distance"
         if stop is not None and (stop >= spot if up else stop <= spot):
             stop = None
         if stop is not None:
             levels = scenario_levels(spot, up, stop, ctx["atr"], ctx["resistance"] if up else ctx["support"], lv["target"])
     if not levels:
         c["status"] = "insufficient_data"
-        c["reasons"].append(reason("risk_not_calculable", "No underlying stop or scenario levels could be derived (no spot, walls or expected move)."))
+        c["reasons"].append(reason("risk_not_calculable", "No underlying risk level or scenario levels could be derived (no spot, walls or expected move)."))
         return c
     # pre-expiry block date: the end of the horizon, only before expiry
     pre = None
@@ -886,10 +886,10 @@ def one_options_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], ex: Dict[s
     c.update(options_selection=selection, targets=levels, legs=pref["legs"])
     if stop is not None:
         c["invalidation"] = {"technical": {"price": r2(stop), "basis": stop_basis, "meaning": "the directional thesis is wrong beyond this underlying level"},
-                             "execution_stop": {"price": None, "note": "A long option's loss is limited to the premium; a defined-risk spread's to its max loss. No stop order is assumed."}}
+                             "execution_stop": {"price": None, "note": "A long option's loss is limited to the premium; a defined-risk spread's to its max loss. No risk-level order is assumed."}}
     elif family == "iron_condor":
         c["invalidation"] = {"technical": {"price": None, "basis": "a close beyond either short strike", "short_put": plans["preferred"]["short_put"], "short_call": plans["preferred"]["short_call"], "meaning": "the range thesis is wrong"},
-                             "execution_stop": {"price": None, "note": "Max loss is defined by the wings; no stop order is assumed."}}
+                             "execution_stop": {"price": None, "note": "Max loss is defined by the wings; no risk-level order is assumed."}}
     c["entry"] = {"trigger": r2(spot), "zone": None, "logic": f"Premiums are the {chain['asof']} closes (end of day, never live); re-price before acting. Debits/credits shown are per unit."}
     c["why_qualifies"] = [plans["why"]]
     c["warnings"].append("Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.")
@@ -944,7 +944,7 @@ def one_options_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], ex: Dict[s
     return c
 
 
-FLAG_TEXT = {"low_oi": "open interest is below the chain's typical strike; exits may be hard.",
+FLAG_TEXT = {"low_oi": "open interest is below the chain's typical strike; closing may be hard.",
              "low_volume": "volume is below the chain's typical strike; the close may not be representative.",
              "missing_iv": "no implied volatility could be worked out; no pre-expiry estimate for this leg.",
              "missing_greeks": "Greeks are missing.",
@@ -983,10 +983,10 @@ def scanner_stop(ctx: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
     it = ((sb["data"] or {}).get("item") or {}) if sb["ok"] else {}
     stop = num(it.get("stop_price"))
     if spot is not None and stop is not None and 0 < stop < spot:
-        return stop, f"the scanner's stop ({stop:g})"
+        return stop, f"the scanner's risk level ({stop:g})"
     stop = num(ctx["hyp"].get("stop")) if ctx["hyp"] else None
     if spot is not None and stop is not None and 0 < stop < spot:
-        return stop, "the chart engine's ATR stop (2 x ATR(14), or 20-session support when closer)"
+        return stop, "the chart engine's ATR risk level (2 x ATR(14), or 20-session support when closer)"
     return None, None
 
 
@@ -1086,7 +1086,7 @@ def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str)
         return fail("insufficient_data", reason("no_price", "No last close: the shares leg cannot be priced."))
     stop, stop_basis = scanner_stop(ctx)
     if stop is None:
-        return fail("insufficient_data", reason("risk_not_calculable", "No stop below the price could be derived (scanner stop and ATR stop are both missing)."))
+        return fail("insufficient_data", reason("risk_not_calculable", "No risk level below the price could be derived (the scanner's and the ATR risk levels are both missing)."))
     fu = snap(snaps, "futures")
     lot = chain.get("lot_size") or ((fu["data"] or {}).get("lot_size") if fu["ok"] else None)
     if not lot:
@@ -1106,7 +1106,7 @@ def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str)
     if family in ("protective_put", "collar", "futures_protective_put"):
         kp = long_put_strike(chain, stop)
         if kp is None:
-            return fail("no_trade", reason("no_put_strike", "The chain lists no out-of-the-money put to buy."))
+            return fail("no_trade", reason("no_put_strike", "The chain lists no out-of-the-money put for the long leg."))
         plan["long_put"] = kp
         specs.insert(0, (kp, "put", "buy"))
     views, blockers, flags = [], [], []
@@ -1148,9 +1148,9 @@ def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str)
         return fail("insufficient_data", reason("payoff_invalid", "The payoff could not be calculated: " + "; ".join(p["code"] for p in res1.get("problems", []))))
     st1 = _scn(res1, "stop")
     loss1 = -st1["net"] if st1 else None
-    basis = "loss of one lot if the price reaches the stop, from the payoff calculation (costs included)"
+    basis = "loss of one lot if the price reaches the risk level, from the payoff calculation (costs included)"
     if loss1 is None or loss1 <= 0:
-        loss1, basis = (spot - stop) * lot, "the cash stop distance x lot size (the premium received covers the loss at the stop, so it is not counted against the budget)"
+        loss1, basis = (spot - stop) * lot, "the cash risk-level distance x lot size (the premium received covers the loss at the risk level, so it is not counted against the budget)"
     sizing = size_position(inputs, risk_per_unit=loss1, value_per_unit=_deployed(legs1), unit="lots", lot_units=1, per_unit_label=basis)
     lots = sizing["quantity"] if sizing["status"] == "complete" else 1
     legs = make_legs(lots) if lots != 1 else legs1
@@ -1161,15 +1161,15 @@ def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str)
     prem = {(v["option_type"], v["side"]): v["close"] for v in views}
     shares = f"{lots * lot} shares"
     why_by = {
-        "covered_call": f"Bullish-to-neutral view: sell the {plan.get('short_call', 0):g} call ({plan.get('short_call_from')}) against {shares} to collect {prem.get(('call', 'sell'), 0):g} a share; the upside is capped at that strike.",
-        "protective_put": f"{why_need}: buy the {plan.get('long_put', 0):g} put (nearest the stop, {stop_basis}) so the loss on {shares} cannot go below that strike.",
-        "collar": f"{why_need}: buy the {plan.get('long_put', 0):g} put and sell the {plan.get('short_call', 0):g} call ({plan.get('short_call_from')}); the call premium offsets part of the put's cost, and the upside is capped.",
+        "covered_call": f"Bullish-to-neutral view: short the {plan.get('short_call', 0):g} call ({plan.get('short_call_from')}) against {shares} to collect {prem.get(('call', 'sell'), 0):g} a share; the gain is capped at that strike.",
+        "protective_put": f"{why_need}: long the {plan.get('long_put', 0):g} put (nearest the risk level, {stop_basis}) so the loss on {shares} cannot go below that strike.",
+        "collar": f"{why_need}: long the {plan.get('long_put', 0):g} put and short the {plan.get('short_call', 0):g} call ({plan.get('short_call_from')}); the call premium offsets part of the put's cost, and the gain is capped.",
         "futures_protective_put": f"The futures build-up is long and confirmed by the cash market, and {why_need[0].lower() + why_need[1:]}: the {plan.get('long_put', 0):g} put limits the future's loss, a synthetic long call.",
     }
     c.update(legs=legs, targets=levels, payoff=res, sizing=sizing, risk_reward=rr, why_qualifies=[why_by[family]],
              entry={"trigger": r2(spot), "zone": None, "logic": f"{'Futures' if fut is not None else 'Shares'} at {r2(fut['settle'] if fut is not None else spot):g} ({legs[0]['price_source']}); premiums are the {asof} closes (end of day, never live); re-price before acting."},
              invalidation={"technical": {"price": r2(stop), "basis": stop_basis, "meaning": "the thesis is wrong if price closes beyond this level"},
-                           "execution_stop": {"price": None, "note": "A long put defines the downside at its strike; a sold call caps the upside. No stop order is assumed."}},
+                           "execution_stop": {"price": None, "note": "A long put defines the loss at its strike; a short call caps the gain. No risk-level order is assumed."}},
              options_selection={"expiry": S["expiry"], "days_to_expiry": S.get("days_to_expiry"), "expiry_why": ctx.get("expiry_why"), "eligible_expiries": None,
                                 "eligible_expiries_note": "See the options candidates for the listed expiries.",
                                 "eligible_strikes": [r["strike"] for r in rows], "strikes_source": f"NSE F&O bhavcopy via /api/fno/{ctx['symbol']}/chain, as of {asof} (end of day)",
@@ -1193,7 +1193,7 @@ def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str)
     stop_s = _scn(res, "stop")
     if c["status"] == "candidate":
         if stop_s is not None and stop_s["net"] >= 0:
-            c["warnings"].append("Reward : risk is undefined here: the premium received covers the loss at the stop, so there is no loss to divide by. The gate is not applied; read max loss and capital at risk.")
+            c["warnings"].append("Reward : risk is undefined here: the premium received covers the loss at the risk level, so there is no loss to divide by. The gate is not applied; read max loss and capital at risk.")
         else:
             apply_rr_gate(c, inputs)
     if c["status"] == "candidate" and delayed:

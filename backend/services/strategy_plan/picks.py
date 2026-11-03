@@ -169,7 +169,7 @@ def atr_factor(it: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return factor("atr_risk", "unavailable", (it or {}).get("interpretation") or "ATR(14) needs 15 usable sessions.", None, (it or {}).get("source"), (it or {}).get("source_as_of"))
     cls = setup_rules.risk_class(pct)
     state = {"low": "supports", "medium": "neutral", "high": "conflicts"}[cls]
-    return factor("atr_risk", state, f"ATR(14) is {pct:.2f}% of the close: {cls} gap and stop risk (bands {setup_rules.RISK_BANDS['low_below_pct']:g}% and {setup_rules.RISK_BANDS['high_above_pct']:g}%).",
+    return factor("atr_risk", state, f"ATR(14) is {pct:.2f}% of the close: {cls} gap risk around the risk level (bands {setup_rules.RISK_BANDS['low_below_pct']:g}% and {setup_rules.RISK_BANDS['high_above_pct']:g}%).",
                   {"atr_pct": pct, "risk_class": cls}, it.get("source"), it.get("source_as_of"))
 
 

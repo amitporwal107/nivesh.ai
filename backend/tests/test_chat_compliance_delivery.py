@@ -50,7 +50,7 @@ def engine(monkeypatch):
 def test_cc1_the_scrub_changes_the_draft():
     final = _complied(DRAFT)
     assert "bullish" not in final.text.lower() and "you should buy" not in final.text.lower()
-    assert "[factual data only — no recommendation]" in final.text
+    assert "[factual data only — not advice]" in final.text
     assert final.text != DRAFT
 
 
@@ -110,4 +110,4 @@ def test_cc6_the_prompts_no_longer_ask_for_words_the_scrub_removes():
                    and "never write" not in line.lower() and "never use" not in line.lower()]
         assert demands == [], (name, demands)
     assert "**Trend** — up / down / sideways" in stock._SYSTEM
-    assert "4) Upside factors and downside factors." in persona_framing.DESK_ANSWER_STRUCTURE
+    assert "4) Factors for and factors against." in persona_framing.DESK_ANSWER_STRUCTURE

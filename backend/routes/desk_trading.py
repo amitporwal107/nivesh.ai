@@ -839,7 +839,7 @@ async def roll_paper_trade(request: Request, response: Response, trade_id: str) 
     sim = strat.simulate_strategy(old, bars, rows)
     ruled = roll.exit_before_roll(sim, session)
     if ruled is not None:
-        raise await ref.refuse(409, {"code": "exit_rule_fired", "message": f"The trade's own {ruled['exit_reason']} exit fired on "
+        raise await ref.refuse(409, {"code": "exit_rule_fired", "message": f"The trade's own {ruled['exit_reason']} close rule fired on "
                                      f"{ruled['exit_session'].isoformat()}; it closes by that rule, not by a roll."})
     try:
         new_doc = strat.new_strategy_trade(uid, preview["body"], now=svc.utcnow())
@@ -856,7 +856,7 @@ async def roll_paper_trade(request: Request, response: Response, trade_id: str) 
     tp = tpm.structure_plan(
         underlying=new_doc["underlying"], reference=float(new_doc["reference_price"]), direction=new_doc["direction"],
         family=new_doc["family"], label=strat.FAMILIES.get(new_doc["family"]), legs=[{**l, "quantity": l["lots"]} for l in new_doc["legs"]],
-        levels=None, levels_error="computed at entry (exit_plan.options)", as_of=preview["session"],
+        levels=None, levels_error="computed when the trade was recorded (exit_plan.options)", as_of=preview["session"],
         data_as_of={"chain": preview["session"]}, rules={"board": roll.ROLL_RULES_VERSION, "levels": None},
         candidate_id=f"roll:{old['_id']}", status="candidate", reasons=[],
         source={"kind": "roll", "rolled_from_trade_id": old["_id"]},
@@ -962,7 +962,7 @@ def _cash_events(trade: Dict[str, Any]) -> List[Dict[str, Any]]:
     events = [{"type": "created", "at": trade["opened_at"], "session": None, "text": "Paper trade recorded."}]
     if trade.get("entry_status") in svc.ENTERED:
         events.append({"type": "entered", "at": trade.get("entry_session") or trade["opened_at"], "session": trade.get("entry_session"),
-                       "text": "Entry assumed when recorded." if trade["entry_status"] == "assumed" else "Entry level reached."})
+                       "text": "Reference price taken as reached when recorded." if trade["entry_status"] == "assumed" else "Reference price reached."})
     if trade["status"] == "closed":
         events.append({"type": "closed", "at": trade.get("closed_at"), "session": trade.get("exit_session"), "reason": trade.get("exit_reason"),
                        "text": trade.get("exit_note") or f"Closed ({trade.get('exit_reason')})."})

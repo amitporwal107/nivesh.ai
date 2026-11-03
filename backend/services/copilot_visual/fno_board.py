@@ -68,7 +68,7 @@ def profit_cell(structure: Optional[str], f: Dict[str, Any]) -> Tuple[Any, Optio
     if structure in NOT_CAPPED or f.get("profit_unbounded"):
         if structure == "long_put" and top is not None:
             return NOT_CAPPED_TEXT, (f"The theoretical top is {price(top)}, with the index at zero. That is not a realistic "
-                                     "target, so the profit at the expected move is shown instead.")
+                                     "level, so the profit at the expected move is shown instead.")
         return NOT_CAPPED_TEXT, "The profit has no upper limit; the profit at the expected move is shown instead."
     return (round(top, 2) if top is not None else None), None
 

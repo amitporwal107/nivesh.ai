@@ -217,7 +217,7 @@ def test_sc3_the_verdict_and_the_rs63_status_and_the_wording():
     assert body["rs63"]["arm"] == "A2" and body["rs63"]["adopted"] is False
     text = json.dumps({k: v for k, v in body.items() if k != "disclaimer"}).lower()
     assert "pick" not in text and "recommend" not in text and "suggest" not in text
-    assert body["disclaimer"].startswith("Ideas, not recommendations.")
+    assert body["disclaimer"].startswith("Ideas, not advice.")
 
 
 def test_sc4_every_present_source_carries_the_sha256_of_its_bytes():

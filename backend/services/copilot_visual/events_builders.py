@@ -49,7 +49,7 @@ SRC_FEED = "Exchange filings feed (NSE, AI-read by Nivesh)"
 SRC_DEALS = "NSE bulk and block deals"
 SRC_CIRCULARS = "SEBI circulars"
 
-AI_NOTE = "AI summary of the filing. Not a recommendation."
+AI_NOTE = "AI summary of the filing. Not advice."
 NOT_ANALYSED = "Not analysed yet"
 KIND_LABEL = {"earnings_call": "Earnings call", "presentation": "Investor presentation", "business_update": "Business update",
               "press_release": "Press release"}
@@ -92,7 +92,7 @@ def _band_tone(band: Optional[str]) -> str:
 
 def _finish(p: Dict[str, Any], as_of: Optional[str]) -> Dict[str, Any]:
     p["caveat"] = (f"Built from exchange filings and board-meeting dates, data of {day_text(as_of)}. " if as_of else "Built from exchange filings and board-meeting dates. ") \
-        + "AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+        + "AI summaries are Nivesh's stored analyses of each filing, not advice; nothing is sent to a broker."
     return p
 
 
@@ -217,7 +217,7 @@ def _commentary(text: Any, signal: Tuple[str, str, str], basis: str, materiality
     watch = "; ".join(str(x).strip().rstrip(" .") for x in (unk or []) if x and str(x).strip())
     watch = "; ".join(watch.split("; ")[:2]) if watch else None
     take = " · ".join(x for x in (label, f"{impact} impact" if impact else None, f"confidence {conf}%" if conf is not None else None) if x)
-    lines = [happened, why or NOT_STATED, market, watch or NOT_STATED, f"{take} — an analysis of the filing, not a recommendation."]
+    lines = [happened, why or NOT_STATED, market, watch or NOT_STATED, f"{take} — an analysis of the filing, not advice."]
     return {"signal": {"label": label, "tone": tone, "impact": impact, "confidence": conf},
             "lines": [{"label": l, "text": t} for l, t in zip(COMMENTARY_LABELS, lines)]}
 
@@ -319,7 +319,7 @@ def _calendar_card(row: Dict[str, Any], file: Optional[Dict[str, Any]], analyses
         band = f", filing read: {_plain(ol.get('net_band'))}" if ol.get("net_band") else ""
         stamp = _ist_day(ol.get("analyzed_at"))
         body = ol["summary"]
-        note = f"AI summary of the results filing{', analysed ' + day_text(stamp) if stamp else ''}{band}. Not a recommendation."
+        note = f"AI summary of the results filing{', analysed ' + day_text(stamp) if stamp else ''}{band}. Not advice."
     else:
         body, note = None, (NOT_ANALYSED if analyses_ok else "AI summary could not be read just now (the stored analyses were unavailable).")
     card = {"title": row.get("name") or row["symbol"], "symbol": row["symbol"], "sub": sub, "badge": badge, "tone": tone, "body": body,
@@ -417,7 +417,7 @@ async def results_calendar(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any
             f"Showing {len(cards)} of {len(decl)} declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result "
             "Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so "
             "nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and "
-            "confidence are the analysis's, not recommendations.", items=cards))
+            "confidence are the analysis's, not advice.", items=cards))
     waiting = sorted(held + due, key=lambda r: (0 if r.get("fno") else 1, str(r.get("event_date")), r["symbol"]))
     if waiting:
         shown = waiting[:LIST_CAP]
@@ -644,7 +644,7 @@ async def _company_file_answer(intent: Intent, ctx: Dict[str, Any], fu) -> Dict[
     blocks = [block("briefs", "events", f"{name} · latest results", "The badge rates the result Below, Meets or Above expectation where the desk has rated it "
                     "(expectation = the company's own baseline from its past quarters; no analyst consensus is held, so nothing here is a beat or a miss against the street); "
                     "without a desk rating it is an AI classifier's reading of the filing. The five-line commentary and the summaries are Nivesh's stored AI "
-                    "analyses of the filings, not recommendations.", items=[card]),
+                    "analyses of the filings, not advice.", items=[card]),
               _open_intel("The company's full results file, with the price reaction and open interest, is in Market Intelligence.")]
     return _finish(assemble("event_intelligence", title, as_of, None, "neutral", blocks, src, fu, now=ctx.get("now")), as_of)
 

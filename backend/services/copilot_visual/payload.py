@@ -21,7 +21,7 @@ MINUS = "−"
 TONES = ("up", "down", "neutral", "warn")
 DECISION_LABELS = {"setup_ready": "Setup ready", "wait": "Wait", "avoid": "Avoid", "no_setup": "No setup yet",
                    "info": "For information"}
-CAVEAT_TAIL = "Ideas to review, not recommendations; nothing is sent to a broker."
+CAVEAT_TAIL = "Ideas to review, not advice; nothing is sent to a broker."
 LEVEL_KINDS = ("support", "resistance", "entry", "stop", "target", "wall_call", "wall_put", "max_pain")
 RANKED_FORMATS = ("price", "pct", "x", "int", "text")
 COMMENTARY_TONES = ("up", "down", "warn", "neutral")          # 🟢 positive · 🔴 negative · 🟡 mixed · ⚪ informational
@@ -468,7 +468,8 @@ def facts(p: Dict[str, Any], subject: Optional[str] = None) -> str:
         head + ": a visual dashboard built from the platform's own end-of-day data is shown above this answer. These "
         "figures are the tool data for this question. Explain what the dashboard shows in a few short lines: quote only "
         "figures below with their dates, do not invent or compute new levels, say plainly what is missing or stale, and "
-        "never say \"buy now\", \"recommend\" or \"pick\" (they are ideas to review).",
+        "follow the WORDING RULE of the system prompt (long / short, reference price, risk level, reward level; these are "
+        "ideas to review, never a call).",
         f"Title: {p.get('title')} · as of {p.get('as_of') or 'unknown'} · mode {p.get('mode')}",
     ]
     if p.get("headline"):

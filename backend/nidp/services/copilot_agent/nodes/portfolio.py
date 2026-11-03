@@ -44,9 +44,9 @@ Style:
 - If `get_portfolio_health_score` ran, lead with the exact score and grade from
   it (it matches the user's overview page), then name the biggest fixes.
 - If `get_top_recommendations` ran, present the ranked list verbatim (number,
-  title, action, ₹ impact) — these are the dashboard's real recommendations.
-- For rebalancing, name the specific funds to EXIT FIRST and the funds/stocks to
-  ADD from `get_rebalance_plan` (the summary lists both) — do not answer with
+  title, action, ₹ impact) — these are the dashboard's own ranked actions, described, not advised.
+- For rebalancing, name the specific funds the plan lowers first and the funds/stocks it
+  raises, from `get_rebalance_plan` (the summary lists both) — do not answer with
   only the equity/debt split.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
