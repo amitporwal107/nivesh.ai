@@ -37,8 +37,13 @@ Everything is the staging design with the names changed; the differences that ma
   `data.niveshcopilot.com`. The backend reaches NIDP over its public HTTPS URL, exactly as staging does.
 - **No default for `PI_PAN_ENCRYPTION_KEY`** — a missing key fails the deploy instead of silently using a dev key.
 - **Fresh internal secrets.** DB passwords, `NIDP_QUERY_API_TOKEN`, `NIDP_DAAS_INTERNAL_TOKEN` and
-  `PI_ADMIN_TOKEN` are new; external credentials and the two data-encryption keys
-  (`PI_PAN_ENCRYPTION_KEY`, `PII_ENCRYPTION_KEY`) are copied from staging because cloned rows are encrypted with them.
+  `PI_ADMIN_TOKEN` are new; external credentials are copied from staging. The two data-encryption keys
+  (`PI_PAN_ENCRYPTION_KEY`, `PII_ENCRYPTION_KEY`) were copied too and were **rotated to prod-only keys on 2 Nov 2026**
+  (`rotate-data-keys.sh`; the new keys are in `/root/nivesh-keys/` and the owner's password manager).
+- **Mongo app login from `.env.prod`** (3 Nov 2026): `MONGO_URL` is built from `NIVESH_MONGO_USER` /
+  `NIVESH_MONGO_PASSWORD` (hex, no URL escaping) and the compose file refuses to start without them. The old user
+  `nivesh`, whose password was hard-coded here and is in git history, is removed with `drop-legacy-mongo-user.sh` once
+  this compose file is on `main` and deployed. (Staging still uses that old password: its own change.)
 - `COPILOT_LLM_PROVIDER=openai`: the Claude Code gateway (`deploy/cloudpe/app/claude-gateway`) needs a Claude login
   on the VM and is not installed here.
 

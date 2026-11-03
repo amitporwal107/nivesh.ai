@@ -105,7 +105,8 @@ services:
       APP_ENV: production
       # Main app connects as the `nivesh` user created by mongo-init.js (same user
       # staging and the original prod use — "apply original scripts unchanged").
-      MONGO_URL:    mongodb://nivesh:Niv3shApp2026!@mongo:27017/nivesh_prod?authSource=nivesh_prod
+      # The app's Mongo login comes from /opt/nivesh/.env.prod (never from git). Hex password: no URL escaping needed.
+      MONGO_URL:    mongodb://${NIVESH_MONGO_USER:?set NIVESH_MONGO_USER in /opt/nivesh/.env.prod}:${NIVESH_MONGO_PASSWORD:?set NIVESH_MONGO_PASSWORD in /opt/nivesh/.env.prod}@mongo:27017/nivesh_prod?authSource=nivesh_prod
       POSTGRES_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
       REDIS_URL:    redis://:${PI_REDIS_PASSWORD}@redis:6379/0
       DB_NAME:      nivesh_prod
