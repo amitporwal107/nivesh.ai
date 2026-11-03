@@ -312,6 +312,7 @@ jobs:
           tests/test_scan_builder_market_dashboard.py
           tests/test_scan_builder_results.py
           tests/test_scan_builder_routes.py
+          tests/test_scan_builder_signals.py
           tests/test_scan_builder_strategy_ideas.py
           tests/test_scan_builder_tick_flow.py
           tests/test_scan_rules_v2.py

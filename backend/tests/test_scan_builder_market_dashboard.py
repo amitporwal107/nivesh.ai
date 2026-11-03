@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 
 import numpy as np
+from datetime import datetime, timezone
 import pytest
 
 from services.scan_builder import data as sd
@@ -19,8 +20,13 @@ from tests.test_scan_builder_routes import ROWS, H, _client, _reset  # noqa: F40
 
 @pytest.fixture(autouse=True)
 def _fresh_cache():
+    from services.scan_builder import signals as SIG
     MD._cache.update(at=float("-inf"), value=None)
+    saved, SIG._store = SIG._store, SIG.LocalSignalStore()          # signals never touch Redis in these tests
+    SIG._seen.clear()
     yield
+    SIG._store = saved
+    SIG._seen.clear()
     MD._cache.update(at=float("-inf"), value=None)
 
 
@@ -444,3 +450,22 @@ def test_ideas_failing_leave_the_dashboard_standing():
         raise RuntimeError("builder down")
     out = asyncio.run(MD.attach_ideas(_dash(), "u1", ideas_for=broken))
     assert out["ideas"] == {} and out["ideas_meta"]["pending"] == 3 and out["widgets"] == _dash()["widgets"]
+
+
+
+def test_the_dashboard_carries_todays_signals_and_says_when_it_is_not_recording(tmp_path):
+    from services.scan_builder import signals as SIG
+    pre = [{"id": "n50_gainers", "title": "Nifty 50", "row_kind": "symbol", "status": "ok", "rows": [["AAA", 1, 2, 3]],
+            "criteria": [{"applied": True}]}]
+
+    def inp(syms):
+        return {"AAA": {"close": 100.0, "low": 98.0, "high": 101.0, "atr": 3.0, "swing_high": 120.0, "swing_low": 80.0,
+                        "chg": 1.0}}
+    when = datetime(2026, 11, 3, 2, 0, tzinfo=timezone.utc)                         # 07:30 IST, the same day
+    asyncio.run(SIG.record(pre, inp, when))
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=lambda *a, **k: _none(),
+                                 index_result=_indices, now=lambda: when))
+    assert out["signals_meta"]["recording"] is False and out["signals_meta"]["count"] == 1     # pre-open: EOD basis
+    s = out["signals"][0]
+    assert s["symbol"] == "AAA" and s["entry"] == 100.0 and s["price_now"] == 106.0 and s["move_since_pct"] == 6.0
+    assert "Stop loss" in out["signals_meta"]["rules"] and out["signals_meta"]["caveat"]

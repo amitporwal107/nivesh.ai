@@ -482,10 +482,23 @@ async def startup_seed():
         await truedata_live.start(db)
     except Exception as e:
         logger.warning("truedata shadow did not start: %s", type(e).__name__)
+    # Scan dashboard early signals (services/scan_builder/signals.py): one worker (Redis lock) computes the dashboard every
+    # 15 s in the session so signals are recorded even when nobody has the page open. On where APP_ENV=staging;
+    # SCAN_SIGNALS_ENABLED=0 turns it off, =1 turns it on elsewhere.
+    try:
+        from services.scan_builder import signals as scan_signals
+        scan_signals.start()
+    except Exception as e:
+        logger.warning("scan signals did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        from services.scan_builder import signals as scan_signals
+        scan_signals.stop()
+    except Exception as e:
+        logger.warning("scan signals did not stop cleanly: %s", type(e).__name__)
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)

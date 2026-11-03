@@ -23,6 +23,7 @@ import numpy as np
 
 from . import engine
 from . import service as SV
+from . import signals as SIG
 from . import spec as S
 from .data import SOURCE_PRICES, SOURCE_TODAY, DataUnavailable, ScanData
 
@@ -538,7 +539,8 @@ async def _apply_flow(w: Widget, order: List[int], symbols: Sequence[str], intra
 async def compute(data: ScanData, *,
                   intraday_values: Optional[Callable[..., Awaitable[Any]]] = None,
                   index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
-                  tick_flow: Optional[Callable[..., Awaitable[Any]]] = None) -> Dict[str, Any]:
+                  tick_flow: Optional[Callable[..., Awaitable[Any]]] = None,
+                  now: Optional[Callable[[], datetime]] = None) -> Dict[str, Any]:
     """The whole dashboard once. Raises DataUnavailable when prices cannot be read at all."""
     t0 = time.monotonic()
     intraday_values = intraday_values or _default_intraday
@@ -692,6 +694,20 @@ async def compute(data: ScanData, *,
 
     if intra_tasks:                      # a widget that failed before reading its task: collect it (its error is logged above)
         await asyncio.gather(*intra_tasks.values(), return_exceptions=True)
+
+    # Early signals (signals.py): record the stocks newly in a fully applied list, only on live data in the session; then
+    # today's list with each stock's price now.
+    at = (now or (lambda: datetime.now(timezone.utc)))()
+    recording = overlay.mode == "live" and bool(overlay.session_open)
+    if recording:
+        try:
+            await SIG.record(out_widgets, lambda syms: SIG.plan_inputs(panel, syms), at)
+        except Exception:  # noqa: BLE001 — the dashboard stands without new signals this round; logged with its trace
+            logger.exception("market dashboard: recording signals failed")
+    prices = {s: float(c0[i]) for s, i in pos.items() if np.isfinite(c0[i])}
+    sig_today = await SIG.today(at, prices)
+    if sig_today["error"]:
+        warnings.append(sig_today["error"])
     no_today = int(len(panel.symbols) - int(eligible.sum()))
     if overlay.mode == "eod" and no_today:
         warnings.append(f"{no_today} stock(s) have no candle on {overlay.day.isoformat()} (suspended, or not traded) and are left out.")
@@ -719,6 +735,9 @@ async def compute(data: ScanData, *,
                                "101–250 Midcap, 251+ Smallcap (AMFI ranks on a six-month average)")},
         "warnings": warnings,
         "widgets": out_widgets,
+        "signals": sig_today["signals"],
+        "signals_meta": {"day": at.astimezone(SIG.IST).date().isoformat(), "count": len(sig_today["signals"]),
+                         "recording": recording, "rules": SIG.RULES_TEXT, "caveat": SIG.CAVEAT},
     }
 
 
@@ -736,8 +755,9 @@ async def attach_ideas(dash: Dict[str, Any], user_id: str, *,
     cache (strategy_ideas.py): never waits for a build. ideas[SYMBOL] = a compact idea, or None when no structure has a
     favorable reward : risk; a symbol still being built is absent. Per user, so it is added after the shared computation."""
     ideas_for = ideas_for or _default_ideas
-    syms = list(dict.fromkeys(r[0] for w in dash.get("widgets") or [] if w.get("row_kind") == "symbol"
-                              for r in w.get("rows") or [] if r and isinstance(r[0], str)))
+    syms = list(dict.fromkeys([r[0] for w in dash.get("widgets") or [] if w.get("row_kind") == "symbol"
+                               for r in w.get("rows") or [] if r and isinstance(r[0], str)]
+                              + [g["symbol"] for g in dash.get("signals") or [] if isinstance(g.get("symbol"), str)]))
     out = dict(dash)
     if not syms:
         out["ideas"], out["ideas_meta"] = {}, None

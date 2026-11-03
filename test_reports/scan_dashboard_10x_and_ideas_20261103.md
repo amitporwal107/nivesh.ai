@@ -71,3 +71,16 @@ the existing strategy builder (owner's compliance wording rules of 25 Oct and 3 
 - TC-S1: after merge + deploy, the route with `ideas` over HTTP and the page in a browser (needs the owner's staging session token).
 
 ## Verdict: IN PROGRESS — verified up to deployment; staging HTTP/browser check pending merge and the owner's session token
+
+### Early signals, alerts and trading plans (DESIGN.md §9, owner decisions 3 Nov ~17:15 IST) — branch feat/scan-dashboard-signals
+| ID | Area | Scenario | Type | Expected | Result |
+|----|------|----------|------|----------|--------|
+| TC-P1 | backend | plan: long stop = lower of day low / entry − ATR; T1 2R capped at the 20-session high; T2 3R; R:R1 < 1.5 → no plan with the reason; short mirror; no price / no room | unit | exact numbers | 12 passed (signals suite) |
+| TC-P2 | backend | plan inputs = engine's ATR(14) at offset 1 and the previous 20 sessions' high/low | unit | equal to indicators.py | passed |
+| TC-P3 | backend | record only fully applied stock lists; once per (day, widget, stock); first writer wins across workers; at open ≤ 09:20; falling OI stock short | unit | exact | passed |
+| TC-P4 | backend | today(): newest first, price now, move since; unreadable store → empty list + reason; dashboard carries signals + signals_meta (recording false outside the session) | unit | exact | passed |
+| TC-P5 | backend | leader loop: one worker, session only (09:15–15:30 IST weekdays); enabled on APP_ENV=staging, SCAN_SIGNALS_ENABLED switch | unit | exact | passed |
+| TC-P6 | data | plans on today's real lists (staging container, Kite close, local stores) | data | levels by the rule | 180 signals, 107 with plans; MARICO entry 878.40 / stop loss 826.05 (today's low) / T1 983.10 / T2 1,035.45; ANGELONE no plan (20-session high only 0.63 × risk away) |
+| TC-P7 | staging | live recording at the open on 4 Nov (after merge + deploy) | live | signals with first_seen from 09:15 | NOT RUN — needs the merge and a market session |
+
+- Backend scan-builder suite on this branch: `255 passed` (20:23 IST); pyflakes clean; `import server` ok.
