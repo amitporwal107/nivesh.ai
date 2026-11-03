@@ -57,6 +57,12 @@ INDEX_NAMES: Dict[str, str] = {
 SOURCE_PRICES = "NSE end-of-day bars (split/bonus adjusted), NIDP warehouse"
 SOURCE_TODAY = {"live": "Kite live", "kite_close": "Kite close (provisional until the exchange's end-of-day file)", "eod": None}
 
+# F&O fields (DESIGN.md §7.3): stock futures from the NSE F&O bhavcopy, via DaaS /v1/desk/fno-buildup.
+FNO_TTL_S = 600
+FNO_PREV_WALK_DAYS = 7                  # calendar days walked back from the latest session to find the one before
+FNO_ROW_FIELDS = (("fno_price_chg_pct", "price_chg_pct"), ("fno_oi_chg_pct", "oi_chg_pct"))
+FNO_PREV_FIELDS = (("fno_prev_price_chg_pct", "price_chg_pct"), ("fno_prev_oi_chg_pct", "oi_chg_pct"))
+
 
 class DataUnavailable(Exception):
     """The price panel or the reference data could not be read and there is no earlier copy to fall back on."""
@@ -93,6 +99,16 @@ class Reference:
     fundamentals: Dict[str, Dict[str, float]]       # field -> symbol -> value
     fundamentals_as_of: Optional[str]
     recent: Dict[str, str]                           # symbol -> last_price_date (ISO)
+
+
+@dataclass
+class FnoFields:
+    """Per-stock futures figures for the `fno_*` fields: field -> symbol -> value. A null in the bhavcopy stays missing."""
+    values: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    as_of: Optional[str] = None                      # the latest F&O session read (ISO day)
+    prev_as_of: Optional[str] = None                 # the session before it
+    source: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -277,6 +293,34 @@ class RestQuotes:
 DaasGet = Callable[..., Awaitable[Any]]
 
 
+async def _market_window(now: datetime) -> Any:
+    from services import market_freshness   # lazy: its holiday reader imports the app's routes
+    return await market_freshness.window(now)
+
+
+def _iso(v: Any) -> Optional[str]:
+    if isinstance(v, str) and len(v) >= 10:
+        try:
+            return date.fromisoformat(v[:10]).isoformat()
+        except ValueError:
+            return None
+    return None
+
+
+def _fill_fno(values: Dict[str, Dict[str, float]], rows: Iterable[Dict[str, Any]], pairs: Sequence[Tuple[str, str]]) -> None:
+    """Copy each row's figures into values[field][symbol]; a null or non-number is left out (missing, never 0)."""
+    for fld, _ in pairs:
+        values.setdefault(fld, {})
+    for r in rows:
+        sym = r.get("symbol") if isinstance(r, dict) else None
+        if not isinstance(sym, str) or not sym:
+            continue
+        for fld, key in pairs:
+            v = r.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and np.isfinite(v):
+                values[fld][sym] = float(v)
+
+
 class ScanData:
     """The per-process holder of the panel and reference data, plus today's candles. One instance per worker (`get_data`)."""
 
@@ -285,7 +329,8 @@ class ScanData:
                  now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
                  day_quotes: Callable[..., Awaitable[Dict[str, Any]]] = dq.day_quotes,
                  holidays: Callable[[str, str], Awaitable[Optional[Set[date]]]] = dq.holidays_between,
-                 rest: Optional[RestQuotes] = None, probe_symbols: Sequence[str] = PROBE_SYMBOLS):
+                 rest: Optional[RestQuotes] = None, probe_symbols: Sequence[str] = PROBE_SYMBOLS,
+                 freshness: Optional[Callable[[datetime], Awaitable[Any]]] = None):
         if daas_get is None or daas_post is None:
             from services.copilot_tools import daas_client
             daas_get, daas_post = daas_get or daas_client._get, daas_post or daas_client._post
@@ -302,6 +347,10 @@ class ScanData:
         self._ref_lock = asyncio.Lock()
         self._warm_task: Optional[asyncio.Task] = None
         self.panel_source: Optional[str] = None          # "memory" | "file" | "daas" — how the last panel() call was served
+        self._freshness = freshness or _market_window
+        self._fno: Optional[FnoFields] = None
+        self._fno_at = float("-inf")
+        self._fno_lock = asyncio.Lock()
 
     @property
     def loaded_panel(self) -> Optional[BasePanel]:
@@ -323,6 +372,62 @@ class ScanData:
                 raise
             self._ref, self._ref_at = ref, self._clock()
             return ref
+
+    # ── F&O fields (DESIGN.md §7.3) ─────────────────────────────────────────────────────────────────────────────────
+    async def fno_fields(self) -> FnoFields:
+        """The `fno_*` fields of the latest F&O session and the one before, cached FNO_TTL_S. Never raises: a read failure or
+        a latest session older than the previous trading session answers no values and a warning (owner rule 28 Oct)."""
+        async with self._fno_lock:
+            if self._fno is not None and self._clock() - self._fno_at < FNO_TTL_S:
+                return self._fno
+            out = await self._load_fno()
+            self._fno, self._fno_at = out, self._clock()
+            return out
+
+    async def _load_fno(self) -> FnoFields:
+        try:
+            latest = await self._get("/desk/fno-buildup", timeout=30.0)
+        except Exception as e:  # noqa: BLE001 — the scan still runs; the F&O fields are missing and the warning says why
+            logger.warning("scan builder: F&O build-up unreadable (%s)", type(e).__name__)
+            return FnoFields(warnings=["The F&O fields are not available: the F&O data could not be read."])
+        rows = latest.get("rows") if isinstance(latest, dict) else None
+        as_of = _iso(latest.get("as_of")) if isinstance(latest, dict) else None
+        if not isinstance(rows, list) or not rows or as_of is None:
+            return FnoFields(as_of=as_of, warnings=["The F&O fields are not available: no stock-futures rows were found."])
+        window = await self._freshness(self._now())
+        if not window.current(as_of):
+            return FnoFields(as_of=as_of, warnings=[window.stale_reason("the F&O fields", as_of)])
+        out = FnoFields(as_of=as_of)
+        _fill_fno(out.values, rows, FNO_ROW_FIELDS)
+        for fld, _ in FNO_PREV_FIELDS:
+            out.values.setdefault(fld, {})                # all four fields present once the latest session is current
+        prev_day, prev_rows = await self._previous_fno(date.fromisoformat(as_of))
+        if prev_day is None:
+            out.warnings.append("The session before the latest F&O session could not be read; the 'session before' fields are missing.")
+        else:
+            out.prev_as_of = prev_day.isoformat()
+            _fill_fno(out.values, prev_rows, FNO_PREV_FIELDS)
+        latest_txt = date.fromisoformat(as_of).strftime("%d %b %Y")
+        out.source = (f"NSE F&O bhavcopy, {latest_txt} (stock futures; price of the nearest expiry, OI summed over expiries)"
+                      + (f"; session before: {prev_day.strftime('%d %b %Y')}" if prev_day else ""))
+        return out
+
+    async def _previous_fno(self, latest: date) -> Tuple[Optional[date], List[Dict[str, Any]]]:
+        """The F&O session before `latest`: weekdays walked back (at most FNO_PREV_WALK_DAYS calendar days) until DaaS has rows."""
+        d = latest
+        for _ in range(FNO_PREV_WALK_DAYS):
+            d -= timedelta(days=1)
+            if d.weekday() >= 5:
+                continue
+            try:
+                body = await self._get("/desk/fno-buildup", {"date": d.isoformat()}, timeout=30.0)
+            except Exception as e:  # noqa: BLE001 — the 'session before' fields are then missing, with a warning
+                logger.warning("scan builder: F&O build-up for %s unreadable (%s)", d.isoformat(), type(e).__name__)
+                return None, []
+            rows = body.get("rows") if isinstance(body, dict) else None
+            if isinstance(rows, list) and rows:
+                return d, rows
+        return None, []
 
     async def _load_reference(self) -> Reference:
         try:
