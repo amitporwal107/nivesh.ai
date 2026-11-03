@@ -269,7 +269,7 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
       await expect(panel.locator("h1")).toHaveCount(1);
       await expect(panel.getByTestId("rd-title")).toBeVisible();
       await expect(panel).toContainText(`Risk Desk · ${label}`);
-      await expect(panel.getByTestId("rd-paper-only")).toHaveText("Paper risk only: these limits and controls govern paper entries. Nothing is sent to a broker.");
+      await expect(panel.getByTestId("rd-paper-only")).toHaveText("Paper risk only: these limits and controls govern paper positions. Nothing is sent to a broker.");
       await expect(panel.getByTestId("rd-paper-pill")).toHaveText("Paper only");
     }
     await expect(page.getByTestId("desk-view-limits")).toHaveText("Exposure & limits");
@@ -312,10 +312,10 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     await expect(used("max_drawdown_pct")).toHaveText(`used ${p2(DRAWDOWN)} (below the peak)`);
     await expect(left("max_drawdown_pct")).toHaveText(`${p2(10 - DRAWDOWN)} left`);
     // Per-entry limits: their rule or rupee budget, no running use and no bar.
-    await expect(used("per_trade_risk_pct")).toHaveText("judged per entry");
+    await expect(used("per_trade_risk_pct")).toHaveText("judged per new position");
     await expect(left("per_trade_risk_pct")).toHaveText(`${inr(5_000)} risk per trade`);
     await expect(left("max_position_pct")).toHaveText(`${inr(100_000)} per position`);
-    await expect(left("min_reward_risk")).toHaveText("each entry needs 1.5 : 1 after costs");
+    await expect(left("min_reward_risk")).toHaveText("each new position needs 1.5 : 1 after costs");
     await expect(page.getByTestId("rd-limit-min_reward_risk").getByRole("img")).toHaveCount(0);
 
     await expect(page.getByTestId("rd-reserved")).toHaveText(`Open risk reserved ${inr(20_000)} of ${inr(30_000)} (3%)`);
@@ -328,7 +328,7 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     await expect(page.getByTestId("rd-kpi-drawdown-value")).toHaveText(`${DRAWDOWN.toFixed(1)}%`);
     await expect(page.getByTestId("rd-kpi-positions-value")).toHaveText("4 / 10");
     await expect(page.getByTestId("rd-kpi-entries-value")).toHaveText("Allowed");
-    await expect(page.getByTestId("rd-title")).toHaveText(`Open risk is ${openPct.toFixed(1)}% of paper equity, inside every limit, and new entries are allowed.`);
+    await expect(page.getByTestId("rd-title")).toHaveText(`Open risk is ${openPct.toFixed(1)}% of paper equity, inside every limit, and new positions are allowed.`);
     await expect(page.getByTestId("rd-limits-version")).toHaveText("owner-default-2026-10-27 · version 1 · rp-1-fixture");
   });
 
@@ -342,9 +342,9 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
   for (const [name, market, words, factor] of [
     ["BEAR and VIX 27", { regime: "BEAR", vix: 27 }, "BEAR regime and India VIX 27, at or above 25 (as of 23 Oct): size limits ×0.25.", "0.25"],
     ["BULL", { regime: "BULL", vix: 14.2 }, "BULL regime, India VIX 14.2 (as of 23 Oct): no size cut.", "1"],
-    ["VIX 36", { regime: "BULL", vix: 36 }, "India VIX 36 (as of 23 Oct) is at or above 35: new entries are deferred.", "deferred"],
+    ["VIX 36", { regime: "BULL", vix: 36 }, "India VIX 36 (as of 23 Oct) is at or above 35: new positions are deferred.", "deferred"],
     ["unknown", { regime: null, vix: null, ok: false, status: "unknown", reason: "no value could be read" },
-      "Market regime and India VIX are unknown: the regime rule is skipped, and new entries are blocked while the market state is not fresh.", "1"],
+      "Market regime and India VIX are unknown: the regime rule is skipped, and new positions are blocked while the market state is not fresh.", "1"],
   ] as const) {
     test(`RD-5 regime ${name}`, async ({ page }) => {
       await riskDesk(page, { market: market as Record<string, unknown> });
@@ -367,7 +367,7 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     await expect(page.getByTestId("rd-fresh-last_close-words")).toHaveText("as of 20 Oct · 4 sessions old (budget 2) · as of 2026-10-20, 4 sessions before 2026-10-27; the budget is 2");
     await expect(page.getByTestId("rd-fresh-sector")).toContainText("Metals");
     await expect(page.getByTestId("rd-fresh-sector-status")).toHaveText("ok");
-    await expect(page.getByTestId("rd-fresh-rule")).toContainText("A new paper entry is blocked when any of its inputs is not ok.");
+    await expect(page.getByTestId("rd-fresh-rule")).toContainText("A new paper position is blocked when any of its inputs is not ok.");
     await expect(page.getByTestId("rd-fresh-rule")).toContainText("TATASTEEL is your newest share decision.");
 
     await page.getByTestId("rd-fresh-symbol").fill("infy");
@@ -399,7 +399,7 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     await expect(page.getByTestId("rd-reserved")).toHaveText("Open risk reserved unknown of unknown (3%)");
     await expect(page.getByTestId("rd-positions")).toHaveText("Open positions unknown of 10 (fixed limit, not in your profile)");
     await expect(page.getByTestId("rd-kpi-open-value")).toHaveText("unknown");
-    await expect(page.getByTestId("rd-title")).toHaveText("Open risk is unknown, some figures are unknown, and new entries are allowed.");
+    await expect(page.getByTestId("rd-title")).toHaveText("Open risk is unknown, some figures are unknown, and new positions are allowed.");
     await expect(page.getByTestId("rd-limits-card")).not.toContainText("₹0");
   });
 
@@ -408,7 +408,7 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     const calls = await riskDesk(page);
     await page.goto(CONTROLS);
     await expect(page.getByTestId("rd-control-rule")).toHaveText(
-      "Anyone can switch the kill switch or the halt on, with a reason. Either one blocks new paper entries only: open positions are untouched and nothing is cancelled. Only an admin can switch them off.");
+      "Anyone can switch the kill switch or the halt on, with a reason. Either one blocks new paper positions only: open positions are untouched and nothing is cancelled. Only an admin can switch them off.");
     await expect(page.getByTestId("rd-title")).toHaveText("Kill switch and halt are off; your risk profile sets every limit.");
     await expect(page.getByTestId("risk-audit-event")).toHaveCount(2);
     const kill = page.getByTestId("risk-kill");
@@ -422,7 +422,7 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     await expect(kill.getByTestId("risk-kill-pill")).toHaveText("On");
     expect(calls.puts).toEqual([{ path: "/api/risk/kill-switch", body: { enabled: true, reason: "Three losers in a row" } }]);
     await expect(kill.getByTestId("risk-kill-admin-only")).toHaveText("Only an admin can turn the kill switch off.");
-    await expect(page.getByTestId("rd-title")).toHaveText("The kill switch is on: new paper entries are blocked.");
+    await expect(page.getByTestId("rd-title")).toHaveText("The kill switch is on: new paper positions are blocked.");
     await expect(page.getByTestId("risk-audit-event")).toHaveCount(3);
     await expect(page.getByTestId("risk-audit-change").first()).toHaveText("Kill switch: off → on");
     await expect(page.getByTestId("risk-audit-reason").first()).toHaveText("“Three losers in a row”");
@@ -487,10 +487,10 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
     await expect(page.getByTestId("rd-title")).toHaveText("Every risk decision is recorded: 1 allowed, 1 reduced and 1 blocked in the last 3.");
     const hdfc = rows.nth(1);
     await expect(hdfc.getByTestId("risk-decision-reasons")).toContainText("at most 62 shares fit.");
-    await expect(hdfc.getByTestId("risk-decision-estimate")).toHaveText(`80 → 62 shares · Estimated risk ${inr(4992.7)} (stop ${inr(4495)} + costs ${inr(190.2)} + gap ${inr(307.5)})`);
+    await expect(hdfc.getByTestId("risk-decision-estimate")).toHaveText(`80 → 62 shares · Estimated risk ${inr(4992.7)} (loss at risk level ${inr(4495)} + costs ${inr(190.2)} + gap ${inr(307.5)})`);
     await expect(hdfc.getByTestId("risk-decision-versions")).toHaveText("policy universal-risk-v1 · limits rp-1-fixture · est-risk-v1");
     await expect(rows.nth(0).getByTestId("risk-decision-estimate")).toHaveText("300 → 0 shares · Estimate: not sized");
-    await expect(rows.nth(2).getByTestId("risk-decision-estimate")).toHaveText(`30 shares · Estimated risk ${inr(1720)} (stop ${inr(1500)} + costs ${inr(80)} + gap ${inr(140)})`);
+    await expect(rows.nth(2).getByTestId("risk-decision-estimate")).toHaveText(`30 shares · Estimated risk ${inr(1720)} (loss at risk level ${inr(1500)} + costs ${inr(80)} + gap ${inr(140)})`);
 
     await hdfc.getByTestId("risk-decision-open").click();
     await expect(hdfc.getByTestId("risk-decision-open")).toHaveAttribute("aria-expanded", "true");

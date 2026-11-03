@@ -120,11 +120,11 @@ def validate_levels(body: Dict[str, Any]) -> Dict[str, Optional[float]]:
             raise ValueError(f"{k} must be above zero")
         out[k] = float(v)
     if all(v is None for v in out.values()):
-        raise ValueError("set a stop, a target or a trailing stop")
+        raise ValueError("set a risk level, a reward level or a trailing risk level")
     if out["trail_pct"] is not None and out["trail_pct"] > MAX_TRAIL_PCT:
         raise ValueError(f"trail_pct must be at most {MAX_TRAIL_PCT:g}")
     if out["stop"] is not None and out["target"] is not None and out["stop"] == out["target"]:
-        raise ValueError("the stop and the target cannot be the same price")
+        raise ValueError("the risk level and the reward level cannot be the same price")
     return out
 
 

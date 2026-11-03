@@ -56,7 +56,7 @@ const VALIDATION = "Research · validation";
 const WORKSPACE = "Workspace";
 
 const NOT_ADVICE = "Educational, not investment advice";
-const NO_ORDERS = "No order placement: nothing here buys, sells or moves money";
+const NO_ORDERS = "No order placement: nothing here places a trade or moves money";
 const EOD_LABELLED = "End-of-day data is labelled as end of day";
 const NEVER_ESTIMATED = "A figure that is missing is shown as missing, never estimated";
 const OWN_DATA = "Reads only the signed-in user's own portfolio";
@@ -100,7 +100,7 @@ const SPECS: TemplateSpec[] = [
       { source: "cas-holdings", need: "required", freshness: "The latest imported statement" },
       { source: "exposure", need: "required", freshness: "Worked out again on each open" },
       { source: "performance", need: "required", freshness: "The latest imported statement" },
-      { source: "goals-risk-profile", need: "optional", freshness: "The saved risk profile, for the target mix" },
+      { source: "goals-risk-profile", need: "optional", freshness: "The saved risk profile, for the planned mix" },
       { source: "plan-engine", need: "optional", freshness: "The active plan" },
       { source: "mf-rankings", need: "optional", freshness: "Daily" },
     ],
@@ -126,7 +126,7 @@ const SPECS: TemplateSpec[] = [
     outputs: [
       "Value, invested, unrealised gain and XIRR",
       "Exposure by sector, company, fund house, group, fund and asset class",
-      "The asset mix against the target for the user's risk category",
+      "The asset mix against the planned mix for the user's risk category",
       "Performance for the period: monthly returns against the benchmark, value history, best and worst performers",
       "Concentration ladder and the fund pairs that hold the same stocks",
       "What to fix: ranked actions with their projected impact",
@@ -136,7 +136,7 @@ const SPECS: TemplateSpec[] = [
       NO_ORDERS,
       OWN_DATA,
       "Figures are based on the statement's values; XIRR and alpha are shown as still calculating until they are ready",
-      "The target mix is the one for the user's saved risk category; an asset class outside it is listed with no target",
+      "The planned mix is the one for the user's saved risk category; an asset class outside it is listed with no planned share",
     ],
     triggers: [
       ON_OPEN,
@@ -147,12 +147,12 @@ const SPECS: TemplateSpec[] = [
   {
     id: "recommendations",
     view: "tool/recommend",
-    name: "Recommendations",
+    name: "Portfolio ideas",
     answerClass: PERSONAL,
     objective: "List the open steps of the investor's active plan, what doing all of them would change, and let them record what they decide.",
     questions: [
       "What should I do first, and why?",
-      "What is each recommendation based on?",
+      "What is each idea based on?",
       "How would my portfolio's health change if I did all of this?",
       "How much tax would these steps cost me?",
     ],
@@ -176,7 +176,7 @@ const SPECS: TemplateSpec[] = [
     ],
     outputs: [
       "The open steps of the active plan, filtered by reduce, add or hold",
-      "On each step: its verb, severity, suggested route, amount, reason, tax breakdown and expected effect",
+      "On each step: its verb, severity, route, amount, reason, tax breakdown and expected effect",
       "Before and after: portfolio health, volatility and fund costs",
       "Estimated tax and the capital the steps would free",
       "What the plan was built from: goals, risk profile and holdings",
@@ -186,7 +186,7 @@ const SPECS: TemplateSpec[] = [
       NOT_ADVICE,
       NO_ORDERS,
       OWN_DATA,
-      "Marking a step records the user's decision; nothing is bought or sold",
+      "Marking a step records the user's decision; nothing is traded",
       "Tax is shown as an estimate",
     ],
     triggers: [
@@ -216,7 +216,7 @@ const SPECS: TemplateSpec[] = [
     services: ["GET /api/dashboards/risk", "GET /api/user/risk-profile", "POST /api/user/risk-profile"],
     outputs: [
       "Value at risk over a year, volatility, maximum drawdown and beta",
-      "The user's risk profile and its target mix",
+      "The user's risk profile and its planned mix",
       "What is making the portfolio risky",
       "Stress scenarios with their simulated impact",
       "A warning when the risk figures are missing or out of date",
@@ -249,7 +249,7 @@ const SPECS: TemplateSpec[] = [
       "The projected path to the goals",
       "A focus goal with a what-if simulation",
       "A table of every goal",
-      "Suggested moves",
+      "Possible moves",
     ],
     guardrails: [NOT_ADVICE, NO_ORDERS, OWN_DATA, "Projections are labelled as projected"],
     triggers: [ON_OPEN],
@@ -263,7 +263,7 @@ const SPECS: TemplateSpec[] = [
     objective: "Show an investor the capital gains tax they face this year and the losses they could book to lower it.",
     questions: [
       "How much capital gains tax do I owe this year?",
-      "Which holdings could I sell at a loss to lower my tax?",
+      "Which of my holdings carry losses that could lower my tax?",
       "How are my gains split between short term and long term?",
     ],
     data: [{ source: "tax", need: "required", freshness: "The latest imported statement" }],
@@ -273,7 +273,7 @@ const SPECS: TemplateSpec[] = [
       "The tax timeline for the financial year",
       "A harvest plan: the loss-making lots flagged, and the net saving",
       "Tax split by long-term and short-term gains",
-      "Suggested moves",
+      "Possible moves",
     ],
     guardrails: [NOT_ADVICE, NO_ORDERS, OWN_DATA, "Tax figures are approximate and are shown as approximate"],
     triggers: [ON_OPEN],
@@ -390,7 +390,7 @@ const SPECS: TemplateSpec[] = [
       NOT_ADVICE,
       NO_ORDERS,
       EOD_LABELLED,
-      "Screen matches are candidates, not recommendations",
+      "Screen matches are candidates, not advice",
       "A rule on a metric the day's data does not carry is named as a data gap, not shown as a result",
     ],
     triggers: [
@@ -409,7 +409,7 @@ const SPECS: TemplateSpec[] = [
     questions: [
       "How is the market doing today?",
       "Which sectors are leading and which are lagging?",
-      "What are foreign and domestic institutions buying and selling?",
+      "What are foreign and domestic institutional flows doing?",
       "Which corporate actions are coming up?",
       "What happened in the market today?",
     ],
@@ -464,17 +464,17 @@ const SPECS: TemplateSpec[] = [
     view: "trader/strategy",
     name: "Strategy builder",
     answerClass: VALIDATION,
-    objective: "Let a trader pick a stock universe and a rule template, see which stocks pass today, backtest the rules and save the strategy.",
+    objective: "Let a trader choose a stock universe and a rule template, see which stocks pass today, backtest the rules and save the strategy.",
     questions: [
       "Which stocks pass this strategy today?",
       "How would this strategy have done over a past period?",
-      "What are the entry and exit rules of this strategy?",
+      "What are the selection and close rules of this strategy?",
       "Which universe of stocks should I run it on?",
     ],
     data: [{ source: "strategy-builder", need: "required", freshness: "End of day" }],
     inputs: [
       { field: "universe", type: "a catalogue universe, or the user's own list of symbols", fallback: "", rule: "the stocks the strategy runs on" },
-      { field: "template", type: "one of the built-in rule templates", fallback: "", rule: "sets the entry and exit rules; they can be edited" },
+      { field: "template", type: "one of the built-in rule templates", fallback: "", rule: "sets the selection and close rules; they can be edited" },
       { field: "from_date, to_date", type: "dates", fallback: "", rule: "the backtest period" },
       { field: "name", type: "text", fallback: "", rule: "needed to save the strategy" },
     ],
@@ -559,13 +559,13 @@ const SPECS: TemplateSpec[] = [
       "The user's own lists: the stocks in each, with a live price, a stored price and its date, or no quote",
       "The research watchlist for a date: each stock's place in the list, its price against the day it was added, and the research behind it",
       "A watchlist for each saved screen, rule screens and ready-made ones: the stocks that pass it today",
-      "The scanner's setups to watch, each with its close, the level to cross and a stop",
+      "The scanner's setups to watch, each with its close, the level to cross and a risk level",
       "The user's filing-alert choices, which can be changed here",
     ],
     guardrails: [
       NOT_ADVICE,
       NO_ORDERS,
-      "The research list carries its disclaimer: information only, not a recommendation or a buy or sell call",
+      "The research list carries its disclaimer: information only, not advice or a trading call",
       "The scanner's levels are end-of-day levels to look at, not alerts: nothing is sent when one is crossed",
       "A filing-alert switch moves only after the save has succeeded",
     ],
@@ -650,11 +650,11 @@ const SPECS: TemplateSpec[] = [
     ],
     outputs: [
       "The plan board: step counts, the yearly saving, and each step under its current state",
-      "On each card: the verb, the holding, the amount, the reason, severity, suggested route and tax",
+      "On each card: the verb, the holding, the amount, the reason, severity, route and tax",
       "The track record: what was done or declined, and when",
       "Expected and observed: what the plan expected against the portfolio's record as a whole",
     ],
-    guardrails: [NOT_ADVICE, NO_ORDERS, OWN_DATA, "Moving a step records the user's decision; nothing is bought or sold"],
+    guardrails: [NOT_ADVICE, NO_ORDERS, OWN_DATA, "Moving a step records the user's decision; nothing is traded"],
     triggers: [
       ON_OPEN,
       { type: "On demand", detail: "the user moves a step, or rebuilds the plan" },
@@ -684,7 +684,7 @@ const SPECS: TemplateSpec[] = [
     ],
     inputs: [
       SESSION_USER,
-      { field: "correction", type: "buy price, purchase date or units of one holding", fallback: "", rule: "typed by the user; saved to the holdings on record" },
+      { field: "correction", type: "purchase price, purchase date or units of one holding", fallback: "", rule: "typed by the user; saved to the holdings on record" },
     ],
     services: [
       "GET /api/portfolio/holdings-enriched",
@@ -763,7 +763,7 @@ const SPECS: TemplateSpec[] = [
       "The stored evaluation: net P&L, hit rate and the comparison with every eligible stock",
       "The delayed status of the latest forward session",
       "The fill assumptions the engine used",
-      "Full record: the ranked universe, sizing what-ifs, one trade's path and lifecycle, every exit mode, the benchmarks and the calibration buckets",
+      "Full record: the ranked universe, sizing what-ifs, one trade's path and lifecycle, every close mode, the benchmarks and the calibration buckets",
       "Simulation lab: the engine's frozen simulation runs, trade by trade",
     ],
     guardrails: [
@@ -849,7 +849,7 @@ const SPECS: TemplateSpec[] = [
     objective: "Show an advisor their whole book at a glance, who needs attention first, and the client list.",
     questions: [
       "Which clients need my attention first?",
-      "Which clients are off their target allocation?",
+      "Which clients are off their planned allocation?",
       "Which clients hold too much in one fund or stock?",
       "Which clients stopped their SIPs recently?",
     ],
@@ -983,7 +983,7 @@ const SPECS: TemplateSpec[] = [
     ],
     inputs: [
       SESSION_USER,
-      { field: "question", type: "text", fallback: "", rule: "typed, or picked from a suggested question" },
+      { field: "question", type: "text", fallback: "", rule: "typed, or chosen from a suggested question" },
       { field: "session_id", type: "thread id", fallback: "a new thread", rule: "continues the open thread when there is one" },
     ],
     services: [

@@ -757,9 +757,9 @@ export function useHoldingRecs() {
 }
 
 const ACTION_META: Record<string, { label: string; tone: Tone }> = {
-  BUY_MORE: { label: "Add", tone: "mint" },
+  BUY_MORE: { label: "Raise weight", tone: "mint" },
   HOLD: { label: "Hold", tone: "ink" },
-  EXIT: { label: "Exit", tone: "danger" },
+  EXIT: { label: "Close out", tone: "danger" },
   SWITCH: { label: "Switch", tone: "amber" },
   REVIEW: { label: "Review", tone: "amber" },
 };

@@ -48,7 +48,7 @@ const SORTS: Array<{ key: SortKey; label: string }> = [
 ];
 
 /** Shown when the response carries no disclaimer of its own. */
-const FALLBACK_DISCLAIMER = "Research for information only. Not investment advice and not a buy or sell call.";
+const FALLBACK_DISCLAIMER = "Research for information only. Not investment advice and not a trading call.";
 
 interface ListView {
   items: WatchlistPick[];

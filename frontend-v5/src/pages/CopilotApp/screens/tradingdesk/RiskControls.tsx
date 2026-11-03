@@ -586,7 +586,7 @@ export function ProfileBody({ q }: { q: UseQueryResult<RiskProfileView> }) {
 
       {est && (
         <span data-testid="risk-profile-estimate" style={{ ...quiet, overflowWrap: "anywhere" }}>
-          A share entry’s estimated risk is its loss at the stop plus round-trip costs{est.costModel ? ` (${est.costModel})` : ""}{est.gapStressText ? ` and ${est.gapStressText}` : est.gapStressPct != null ? ` and a ${plainNum(est.gapStressPct)}% gap stress` : ""}.
+          A share position’s estimated risk is its loss at the risk level plus round-trip costs{est.costModel ? ` (${est.costModel})` : ""}{est.gapStressText ? ` and ${est.gapStressText}` : est.gapStressPct != null ? ` and a ${plainNum(est.gapStressPct)}% gap stress` : ""}.
         </span>
       )}
       <TrustLine source={PROFILE_SOURCE} mode="eod" maker="rules" method={view.riskPolicyVersion} testId="risk-trust-profile" />
@@ -634,7 +634,7 @@ export default function RiskControls({ sections }: { sections?: readonly RiskSec
           Risk <em>controls</em>
         </h1>
         <p className="m-0" style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-          Stop new paper positions with the kill switch or a trading halt, see the limits the policy gate applies, and every decision and change on record.
+          Block new paper positions with the kill switch or a trading halt, see the limits the policy gate applies, and every decision and change on record.
         </p>
         {s?.scope && <p data-testid="risk-scope" className="m-0" style={quiet}>Covers: {s.scope}.</p>}
         {s?.notInScope && <p data-testid="risk-scope-note" role="note" className="m-0" style={quiet}>Not covered: {s.notInScope}.</p>}

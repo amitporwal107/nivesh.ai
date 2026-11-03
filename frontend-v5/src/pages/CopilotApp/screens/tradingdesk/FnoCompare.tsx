@@ -109,7 +109,7 @@ export function CompareView({ symbol, state }: { symbol: string; state: ChainSta
       </div>
       <div style={{ overflowX: "auto" }} className="cp-card">
         <table data-testid="desk-compare-table" style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
-          <thead><tr>{head("name", "Structure")}{head("entry", "Entry (net)")}{head("maxProfit", "Max profit")}{head("maxLoss", "Max loss")}{head("rr", "Reward : risk")}{head("delta", "Net delta")}{head("theta", "Theta / day")}{head("vega", "Vega")}{head("margin", "Margin")}{head("charges", "Charges")}</tr></thead>
+          <thead><tr>{head("name", "Structure")}{head("entry", "Reference price (net)")}{head("maxProfit", "Max profit")}{head("maxLoss", "Max loss")}{head("rr", "Reward : risk")}{head("delta", "Net delta")}{head("theta", "Theta / day")}{head("vega", "Vega")}{head("margin", "Margin")}{head("charges", "Charges")}</tr></thead>
           <tbody>
             {shown.map((r) => {
               const l = r.levels?.valid ? r.levels : null;

@@ -59,7 +59,7 @@ def _deploy_verdict(*,
     if nifty_trend == "DOWN":
         return {
             "verdict": "CAUTIOUS",
-            "reason": f"Nifty below 20-DMA · breadth {b20:.0f}% — no aggressive entries",
+            "reason": f"Nifty below 20-DMA · breadth {b20:.0f}% — no aggressive new positions",
         }
     if b20 >= 65.0 and hot_sectors >= 2:
         return {
@@ -69,7 +69,7 @@ def _deploy_verdict(*,
     if b20 >= 50.0:
         return {
             "verdict": "NORMAL",
-            "reason": f"Breadth {b20:.0f}% above 20EMA — selective entries, full size on A+ setups",
+            "reason": f"Breadth {b20:.0f}% above 20EMA — selective new positions, full size on A+ setups",
         }
     return {
         "verdict": "CAUTIOUS",

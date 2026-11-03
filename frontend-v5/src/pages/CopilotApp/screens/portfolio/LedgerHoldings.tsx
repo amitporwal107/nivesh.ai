@@ -42,7 +42,7 @@ interface Flag {
 /** What needs a look: the engine's verdict on the holding, or a gap in its record. */
 function flagFor(h: EnrichedHolding): Flag | null {
   const badge = holdingBadge(h);
-  if (badge?.action === "EXIT") return { label: "Exit signal", tone: "danger", reason: badge.reason, rank: 0 };
+  if (badge?.action === "EXIT") return { label: "Engine flag: close", tone: "danger", reason: badge.reason, rank: 0 };
   if (h.invested_rs == null) return { label: "No cost basis", tone: "amber", reason: "No purchase price on record, so gain and XIRR can’t be worked out.", rank: 1 };
   if (badge?.action === "SWITCH") return { label: "Switch signal", tone: "amber", reason: badge.reason, rank: 2 };
   if (badge?.action === "REVIEW") return { label: "Needs review", tone: "amber", reason: badge.reason, rank: 3 };
@@ -124,12 +124,12 @@ function CorrectionForm({ h, onClose, onSaved }: { h: EnrichedHolding; onClose: 
   const correction: HoldingCorrection = { holdingId: h.holding_id };
   const changes: Change[] = [];
   const problems: string[] = [];
-  if (price.trim() !== "" && (priceN == null || priceN <= 0)) problems.push("The buy price must be a number above zero.");
+  if (price.trim() !== "" && (priceN == null || priceN <= 0)) problems.push("The purchase price must be a number above zero.");
   if (qtyN == null || qtyN <= 0) problems.push(`The number of ${unit}s must be above zero.`);
   if (date && date > today) problems.push("The purchase date cannot be in the future.");
   if (priceN != null && priceN > 0 && priceN !== (hadPrice ? h.buy_price : null)) {
     correction.buyPrice = priceN;
-    changes.push({ label: `Average buy price per ${unit}`, from: hadPrice ? fmtINR(h.buy_price) : "Not on record", to: fmtINR(priceN) });
+    changes.push({ label: `Average purchase price per ${unit}`, from: hadPrice ? fmtINR(h.buy_price) : "Not on record", to: fmtINR(priceN) });
   }
   if (date && date !== hadDate) {
     correction.buyDate = date;
@@ -152,7 +152,7 @@ function CorrectionForm({ h, onClose, onSaved }: { h: EnrichedHolding; onClose: 
         <>
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,180px),1fr))", gap: 12 }}>
             <div className="flex flex-col" style={{ gap: 4 }}>
-              <label htmlFor={priceId} style={quiet}>Average buy price per {unit} (₹)</label>
+              <label htmlFor={priceId} style={quiet}>Average purchase price per {unit} (₹)</label>
               <input id={priceId} data-testid="ledger-correct-price" type="number" inputMode="decimal" min="0" step="any" value={price} onChange={(e) => setPrice(e.target.value)} style={FIELD_STYLE} />
             </div>
             <div className="flex flex-col" style={{ gap: 4 }}>

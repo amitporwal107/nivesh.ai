@@ -187,5 +187,5 @@ def explain_position_size(
         sector_note = (
             " · sector also penalized" if sector_modifier and sector_modifier < -2 else ""
         )
-        return f"High-risk regime → {factor}× base size (trim){sector_note}"
+        return f"High-risk regime → {factor}× base size (smaller){sector_note}"
     return f"Neutral regime → {factor}× base size"

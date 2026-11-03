@@ -50,7 +50,7 @@ from . import gate
 
 ESTIMATE_VERSION = "est-risk-v1"
 GAP_STRESS_PCT = 1.0
-GAP_STRESS_TEXT = (f"a gap of {GAP_STRESS_PCT:g}% of the stop price through the stop (research constant, not "
+GAP_STRESS_TEXT = (f"a gap of {GAP_STRESS_PCT:g}% of the risk-level price through the risk level (research constant, not "
                    f"calibrated; {ESTIMATE_VERSION})")
 
 
@@ -65,7 +65,7 @@ def cash_risk(quantity: int, entry: float, stop: float, model: Optional[Dict[str
     costs = desk.round_trip_cost(q, entry, stop, model or desk.COST_MODEL) if q > 0 else 0.0
     gap = q * stop * GAP_STRESS_PCT / 100.0
     return {"gross": _r(gross), "costs": _r(costs), "gap_stress": _r(gap), "stop_based": _r(gross + costs),
-            "total": _r(gross + costs + gap), "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
+            "total": _r(gross + costs + gap), "basis": "shares: qty x (reference price - risk level) + round-trip costs + gap stress",
             "gap_stress_pct": GAP_STRESS_PCT, "version": ESTIMATE_VERSION}
 
 
@@ -157,7 +157,7 @@ def structure_risk(raw_legs: List[Dict[str, Any]], *, direction: Optional[str], 
                          "maximum loss already bounds any gap)",
                 "gap_stress_pct": 0.0, "version": ESTIMATE_VERSION}, None
     if stop_underlying is None or stop_underlying <= 0:
-        return None, "a structure with a futures leg needs a stop on the underlying to estimate its risk"
+        return None, "a structure with a futures leg needs a risk level on the underlying to estimate its risk"
     down = direction != "bearish"
     stressed = stop_underlying * (1 - GAP_STRESS_PCT / 100.0) if down else stop_underlying * (1 + GAP_STRESS_PCT / 100.0)
     at_stop = -_payoff(legs, stop_underlying, floor_short_at_entry=True)
@@ -173,8 +173,8 @@ def structure_risk(raw_legs: List[Dict[str, Any]], *, direction: Optional[str], 
     return {"gross": _r(gross), "costs": _r(costs), "gap_stress": _r(gap), "stop_based": _r(gross + costs),
             "total": _r(gross + costs + gap), "max_loss_at_expiry": None if bounded is None else _r(bounded),
             "capped_at_max_loss": capped,
-            "basis": "futures: payoff loss at the underlying stop (futures at the stop, options at intrinsic, short "
-                     "options at least at their entry premium) + round-trip costs + gap stress",
+            "basis": "futures: payoff loss at the underlying risk level (futures at the risk level, options at intrinsic, short "
+                     "options at least at their opening premium) + round-trip costs + gap stress",
             "gap_stress_pct": GAP_STRESS_PCT, "version": ESTIMATE_VERSION}, None
 
 
@@ -189,9 +189,9 @@ def structure_reward(raw_legs: List[Dict[str, Any]], *, direction: Optional[str]
     has_future = any(leg["kind"] == "future" for leg in legs)
     if has_future:
         if target_underlying is None:
-            return None, "no target"
+            return None, "no reward level"
         gain = _payoff(legs, target_underlying)
-        return _r(gain - _costs(legs, target_underlying, model, floor_short_at_entry=False)), "payoff at the target"
+        return _r(gain - _costs(legs, target_underlying, model, floor_short_at_entry=False)), "payoff at the reward level"
     up_slope = sum(leg["sign"] * leg["qty"] for leg in legs if leg["kind"] == "cash" or leg["option_type"] == "call")
     if up_slope > 0:
         return None, "unbounded gain (net long calls)"
@@ -242,7 +242,7 @@ def credit_terms(raw_legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     width = max(0.0, -min(_payoff(unpriced, s) for s in points))
     max_loss = max(0.0, -min(_payoff(legs, s) for s in points))
     return {"net_credit_rs": _r(net_credit), "width_rs": _r(width), "max_loss_at_expiry_rs": _r(max_loss),
-            "basis": "options net credit (sold premium - bought premium, x quantity); width = the maximum loss at "
+            "basis": "options net credit (short premium - long premium, x quantity); width = the maximum loss at "
                      "expiry before the premiums"}
 
 

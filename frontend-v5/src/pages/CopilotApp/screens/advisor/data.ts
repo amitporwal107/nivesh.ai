@@ -200,7 +200,7 @@ export function taxBucketLabel(bucket: string | null | undefined): string {
     case "equity_stcg": return "Short-term · equity";
     case "equity_ltcg": return "Long-term · equity";
     case "debt_slab": return "Taxed at slab rate";
-    case "debt_ltcg_legacy": return "Long-term · debt bought before April 2023";
+    case "debt_ltcg_legacy": return "Long-term · debt purchased before April 2023";
     case "undated": return "No purchase date";
     default: return humanise(bucket) || "—";
   }

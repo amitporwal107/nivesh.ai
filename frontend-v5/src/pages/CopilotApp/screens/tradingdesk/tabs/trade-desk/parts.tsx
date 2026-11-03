@@ -27,10 +27,10 @@ export function Panel({ title, note, testId, children, pad = true }: { title: Re
 export const STATE_WORDS: Record<string, { label: string; tone: Tone }> = {
   NO_SETUP: { label: "No setup", tone: "ink" },
   WAIT_FOR_CONFIRMATION: { label: "Waiting for confirmation", tone: "amber" },
-  TRADE_ELIGIBLE: { label: "Waiting for entry", tone: "amber" },
-  ENTRY_TRIGGERED: { label: "Entry triggered", tone: "indigo" },
+  TRADE_ELIGIBLE: { label: "Waiting for the reference price", tone: "amber" },
+  ENTRY_TRIGGERED: { label: "Reference price reached", tone: "indigo" },
   POSITION_OPEN: { label: "Position open", tone: "mint" },
-  EXIT_PENDING: { label: "Exit pending", tone: "amber" },
+  EXIT_PENDING: { label: "Close pending", tone: "amber" },
   CLOSED: { label: "Closed", tone: "ink" },
   REJECTED: { label: "Rejected", tone: "danger" },
 };
@@ -74,14 +74,14 @@ export function entryRuleLine(t: PaperTrade): string {
 
 /** Exit reasons (exit-rules-v1) in words. A code this screen does not know is shown as sent. */
 export const EXIT_WORDS: Record<string, { label: string; tone: Tone }> = {
-  stop: { label: "Stop", tone: "danger" },
-  trailing_stop: { label: "Trailing stop", tone: "danger" },
-  target: { label: "Target", tone: "mint" },
-  time: { label: "Time exit", tone: "ink" },
-  trend: { label: "Trend exit", tone: "ink" },
+  stop: { label: "Risk level", tone: "danger" },
+  trailing_stop: { label: "Trailing risk level", tone: "danger" },
+  target: { label: "Reward level", tone: "mint" },
+  time: { label: "Time close", tone: "ink" },
+  trend: { label: "Trend close", tone: "ink" },
   manual: { label: "Closed by you", tone: "ink" },
   risk_control: { label: "Risk control", tone: "amber" },
-  entry_not_reached: { label: "Entry not reached", tone: "amber" },
+  entry_not_reached: { label: "Reference price not reached", tone: "amber" },
   cancelled: { label: "Cancelled", tone: "ink" },
   expiry: { label: "Expired", tone: "ink" },
   roll: { label: "Rolled", tone: "ink" },
@@ -89,9 +89,9 @@ export const EXIT_WORDS: Record<string, { label: string; tone: Tone }> = {
 
 /** The exit flags the owner asked to see, in the design's words; the route's own text follows each. */
 export const FLAG_LEAD: Record<string, (day: string) => string> = {
-  both_in_range: (day) => `Stop and target both touched${day ? ` on ${day}` : ""}: stop assumed`,
-  gap_through_stop: () => "Gapped through the stop: filled at the open",
-  entry_gap: () => "Gapped through the entry: filled at the open",
+  both_in_range: (day) => `Risk level and reward level both touched${day ? ` on ${day}` : ""}: risk level assumed`,
+  gap_through_stop: () => "Gapped through the risk level: filled at the open",
+  entry_gap: () => "Gapped through the reference price: filled at the open",
 };
 
 /** label · value rows. */

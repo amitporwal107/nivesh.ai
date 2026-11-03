@@ -82,7 +82,7 @@ LIQUIDITY_RULE = {
     "participation_pct": 10.0,    # a position is sold at no more than this share of the average daily volume
     "days_low": 1.0,
     "days_high": 5.0,
-    "text": ("Average traded value (close × volume) over the last 20 sessions, and the days to sell the position at "
+    "text": ("Average traded value (close × volume) over the last 20 sessions, and the days to close the position at "
              "10% of the average daily volume. High: a holding needs more than 5 days. Medium: a holding needs more "
              "than 1 day, or trades under ₹10 Cr a day. Low: otherwise."),
 }

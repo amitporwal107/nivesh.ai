@@ -122,7 +122,7 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
     await expect(page.getByTestId("hedge-choice-maximum")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("hedge-choice-balanced")).toHaveAttribute("aria-pressed", "false");
     const low = mode(OK, "lowest_cost");
-    await expect(page.getByTestId("hedge-choice-lowest_cost-what")).toContainText(`${low.legs[0].strike.toLocaleString("en-IN")} put, sell the ${low.legs[1].strike.toLocaleString("en-IN")} put`);
+    await expect(page.getByTestId("hedge-choice-lowest_cost-what")).toContainText(`${low.legs[0].strike.toLocaleString("en-IN")} put, short the ${low.legs[1].strike.toLocaleString("en-IN")} put`);
     await page.getByTestId("hedge-choice-lowest_cost").click();
     await expect(page.getByTestId("hedge-scenarios")).toHaveAttribute("data-mode", "lowest_cost");
     await expect(page.getByTestId("hedge-row--20")).toContainText(inr(row(low, -20).hedge_pnl_rs, true));

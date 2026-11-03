@@ -63,7 +63,7 @@ export function PayoffSummary({ response, legs, persona = "trader" }: PayoffSumm
       <div data-testid="payoff-costs" className="flex flex-col" style={{ gap: 3, fontSize: 12, color: "var(--cp-ink-2)", lineHeight: 1.5 }}>
         <span className="cp-eyebrow">Estimated costs</span>
         <span className="cp-num">
-          Entry <span data-testid="cost-entry">{rs(costs?.entry)}</span> · Exit at expiry (at the reference price) <span data-testid="cost-exit">{rs(costs?.exit_at_expiry)}</span> · Round trip <span data-testid="cost-round-trip">{rs(costs?.round_trip)}</span>
+          Opening <span data-testid="cost-entry">{rs(costs?.entry)}</span> · Closing at expiry (at the reference price) <span data-testid="cost-exit">{rs(costs?.exit_at_expiry)}</span> · Round trip <span data-testid="cost-round-trip">{rs(costs?.round_trip)}</span>
         </span>
         <span style={{ color: "var(--cp-ink-3)" }}>
           {costs?.model ? `Model: ${costs.model}. ` : "Cost model not given. "}{costs?.exit_basis ? `${costs.exit_basis}. ` : ""}

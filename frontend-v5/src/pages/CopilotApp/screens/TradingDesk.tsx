@@ -694,7 +694,7 @@ export default function TradingDeskScreen() {
     >
       <span className="cp-num" style={{ flex: "none", fontSize: 9.5, letterSpacing: "0.14em", color: "var(--cp-ink-4)" }}>DISCLAIMER</span>
       <span style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
-        Scanner setups are end-of-day and rules-based. Probabilities are model outputs for the next session, not buy or sell recommendations. Broker connections are read-only; Nivesh does not place orders. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
+        Scanner setups are end-of-day and rules-based. Probabilities are model outputs for the next session, not trading calls. Broker connections are read-only; Nivesh does not place orders. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
       </span>
     </footer>
   );

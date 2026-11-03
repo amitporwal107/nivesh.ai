@@ -39,7 +39,6 @@ function legRange(line: Array<number | null> | undefined): { low: number; high: 
 }
 
 export function LegTable({ underlying, legs, perLeg, unavailable = [], persona = "trader" }: LegTableProps) {
-  const investor = persona === "investor";
   return (
     <ul data-testid="leg-table" className="m-0 grid p-0" style={{ listStyle: "none", gap: 10, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,300px),1fr))" }}>
       {legs.map((l, i) => {
@@ -53,7 +52,7 @@ export function LegTable({ underlying, legs, perLeg, unavailable = [], persona =
             <div className="flex min-w-0 items-center" style={{ gap: 8 }}>
               <StockIcon symbol={underlying} size={22} />
               <span data-testid="leg-side" className="cp-num" style={{ fontSize: 11, letterSpacing: "0.1em", padding: "2px 8px", borderRadius: 999, border: `1px solid ${buy ? "var(--mint-line)" : "var(--cp-danger)"}`, color: buy ? "var(--mint)" : "var(--cp-danger)" }}>
-                {buy ? (investor ? "BUY" : "LONG · BUY") : (investor ? "SELL" : "SHORT · SELL")}
+                {buy ? "LONG" : "SHORT"}
               </span>
               <span data-testid="leg-instrument" className="min-w-0" style={{ fontSize: 13, fontWeight: 500, overflowWrap: "anywhere" }}>{instrument}</span>
             </div>
@@ -63,7 +62,7 @@ export function LegTable({ underlying, legs, perLeg, unavailable = [], persona =
               <Cell k="Strike" id="strike" v={l.strike != null ? rs(l.strike) : DASH} />
               <Cell k="Call / put" id="optiontype" v={l.option_type ? l.option_type : DASH} />
               <Cell k={l.kind === "cash" ? "Quantity" : "Lots × lot size"} id="qty" v={lots} />
-              <Cell k={l.kind === "option" ? "Premium per unit" : "Entry price"} id="entry" v={rs(l.entry_price)} sub={l.price_source || "source not given"} />
+              <Cell k={l.kind === "option" ? "Premium per unit" : "Reference price"} id="entry" v={rs(l.entry_price)} sub={l.price_source || "source not given"} />
               <Cell
                 k="Gross P&L range"
                 id="range"

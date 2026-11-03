@@ -191,7 +191,7 @@ test.describe("MOCK — not real data: desk audit wave 1", () => {
     const t = await textOf(scanner);
     expect(t).not.toMatch(PICK);
     expect(t).not.toMatch(RAW);
-    expect(t).toContain("Sources: NSE end-of-day scanner (setup watchlist and target list)");
+    expect(t).toContain("Sources: NSE end-of-day scanner (setup watchlist and ideas list)");
     expect(t).not.toMatch(SECTION_NO);
   });
 
@@ -275,7 +275,7 @@ test.describe("MOCK — not real data: desk audit wave 1", () => {
     const line = stockRow(page).getByTestId("desk-top10-stock-strategy");
     await expect(line.getByTestId("desk-top10-fit-size")).toHaveText("34 shares, sized to your account", SLOW);
     await expect(line.getByTestId("desk-top10-fit-size")).toHaveAttribute("data-sized", "true");
-    await expect(line).toContainText(`Buy 34 shares ${SYM}`);
+    await expect(line).toContainText(`Long 34 shares ${SYM}`);
     await expect(line.getByTestId("desk-top10-fit-why")).toHaveCount(0);
   });
 

@@ -411,7 +411,7 @@ def test_ev_b2_cards_are_the_stored_summaries_analysed_first_f_and_o_favoured_ca
     # analysed first (F&O before the rest, then the more material), then the unanalysed F&O names, then the others
     assert [c["symbol"] for c in cards[:5]] == ["RELI", "ALPHA", "BETA", "FNOA", "FNOB"]
     assert cards[0]["body"] == "RELI stored summary." and cards[1]["body"] == "ALPHA stored summary."        # the stored text, verbatim
-    assert "AI summary" in cards[0]["body_note"] and "Not a recommendation" in cards[0]["body_note"] and "29 Oct 2026" in cards[0]["body_note"]
+    assert "AI summary" in cards[0]["body_note"] and "Not advice" in cards[0]["body_note"] and "29 Oct 2026" in cards[0]["body_note"]
     assert cards[3]["body"] is None and cards[3]["body_note"] == "Not analysed yet"
     assert cards[0]["title"] == "Reli Limited"
     more = blk(p, "more")
@@ -594,7 +594,7 @@ def test_ev_e1_orders_cards_are_the_stored_text_analysed_first_then_by_impact(ev
     assert gaya["body"] == "Gayatri won a Rs 342 crore contract." and gaya["badge"] == "Positive · high impact" and gaya["tone"] == "up"
     assert gaya["links"] == [{"label": "Source filing (PDF)", "url": nse("GAYA_1"), "kind": "pdf"}]
     assert "29 Oct 2026" in gaya["sub"] and "NSE" in gaya["sub"] and "Updates" in gaya["sub"]
-    assert "Not a recommendation" in gaya["body_note"] and "AI summary" in gaya["body_note"]
+    assert "Not advice" in gaya["body_note"] and "AI summary" in gaya["body_note"]
     nourl = cards[1]
     assert nourl["links"] == []
     assert re.search(r"8 of 74 order filings", blk(p, "more")["text"]) and blk(p, "more")["actions"][0]["kind"] == "open_market_intel"
@@ -779,8 +779,8 @@ def test_ev_f2_wording_is_ideas_to_review_never_a_recommendation(ev):
     ev.feed["orders"] = order_rows()
     for p in (calendar(), events("orders")):
         body = texts(p)
-        assert not re.search(r"\b(buy now|strong buy|recommend(ed|ation)?s?|sell now|picks?|target price)\b", body.replace("Not a recommendation", "").replace("not recommendations", "").replace("not a recommendation", ""), re.I), body[:200]
-        assert "not a recommendation" in body.lower() or "not recommendations" in body.lower()
+        assert not re.search(r"\b(buy now|strong buy|recommend(ed|ation)?s?|sell now|picks?|target price)\b", body, re.I), body[:200]
+        assert "not advice" in body.lower()                       # owner wording rule, 3 Nov 2026: no "recommendation" at all
 
 
 def test_ev_w1_the_suggestions_and_the_trader_prompts_cover_the_new_intents():
@@ -894,16 +894,16 @@ def test_cm1_a_results_card_carries_five_lines_and_a_signal_from_the_stored_read
     t = {l["label"]: l["text"] for l in c["lines"]}
     assert t["What happened"] == "STRONG revenue rose 80% YoY."                                    # the stored text, first sentence, verbatim
     assert t["Why it matters"] == "Margins widened to 31%. Order book up 40%."                    # the stored positives
-    assert t["Market impact"].startswith("Bullish") and "strongly positive" in t["Market impact"] and "above expectation" in t["Market impact"].lower()
+    assert t["Market impact"].startswith("Positive tone") and "strongly positive" in t["Market impact"] and "above expectation" in t["Market impact"].lower()
     assert t["What to watch"] == "Whether the margin gain is sustainable; Guidance for H2"
-    assert t["AI take"].startswith("Strongly positive · High impact · confidence 82%") and "not a recommendation" in t["AI take"].lower()
+    assert t["AI take"].startswith("Strongly positive · High impact · confidence 82%") and "not advice" in t["AI take"].lower()
     assert c["signal"] == {"label": "Strongly positive", "tone": "up", "impact": "High", "confidence": 82}
 
 
 @pytest.mark.parametrize("band, tone, label, view", [
-    ("extremely_positive", "up", "Extremely positive", "Bullish"), ("moderately_positive", "up", "Moderately positive", "Bullish"),
-    ("slightly_positive", "up", "Slightly positive", "Bullish"), ("neutral_mixed", "warn", "Mixed or neutral", "Mixed"),
-    ("slightly_negative", "down", "Slightly negative", "Bearish"), ("strongly_negative", "down", "Strongly negative", "Bearish"),
+    ("extremely_positive", "up", "Extremely positive", "Positive tone"), ("moderately_positive", "up", "Moderately positive", "Positive tone"),
+    ("slightly_positive", "up", "Slightly positive", "Positive tone"), ("neutral_mixed", "warn", "Mixed or neutral", "Mixed"),
+    ("slightly_negative", "down", "Slightly negative", "Negative tone"), ("strongly_negative", "down", "Strongly negative", "Negative tone"),
     (None, "neutral", "Informational", "Neutral"),
 ])
 def test_cm2_the_signal_and_the_view_follow_the_stored_band(ev, band, tone, label, view):
@@ -951,7 +951,7 @@ def test_cm7_a_feed_event_gets_the_five_lines_from_the_classifiers_one_line_sent
     c = blk(p, "events")["items"][0]["commentary"]
     t = {l["label"]: l["text"] for l in c["lines"]}
     assert [l["label"] for l in c["lines"]] == LABELS
-    assert t["What happened"] == "ORDR won a Rs 500 Cr order from a state utility." and t["Market impact"].startswith("Bullish")
+    assert t["What happened"] == "ORDR won a Rs 500 Cr order from a state utility." and t["Market impact"].startswith("Positive tone")
     assert t["Why it matters"] == NOT_STATED and t["What to watch"] == NOT_STATED          # the classifier stores no factors or open questions
     assert c["signal"] == {"label": "Positive", "tone": "up", "impact": "High", "confidence": None}
 

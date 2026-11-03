@@ -148,7 +148,7 @@ function premiumLine(plan: StrategyPlan, c: Candidate): string {
     return `${p.optionsOnly ? "OPTIONS " : ""}NET ${p.kind === "debit" ? "DEBIT" : "CREDIT"} ${fmtPrice(p.value)} · ${f.size}${shares}`;
   }
   if (p.kind === "flat") return `NO NET PREMIUM · ${f.size}${shares}`;
-  if (p.kind === "entry") return `ENTRY ${fmtPrice(p.value)} · ${f.size}`;
+  if (p.kind === "entry") return `REF PRICE ${fmtPrice(p.value)} · ${f.size}`;
   return `NET PREMIUM ${DASH} · ${f.size}`;
 }
 
@@ -174,7 +174,7 @@ function Card({ symbol, plan, c, index, chain, headExpiry, refused, onAdd }: {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "10px 12px", paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
         <Stat testId="ca-reco-max-profit" k="MAX PROFIT" v={figureText(f.maxProfit)} color="var(--mint)" title="At expiry, before costs (the strategy engine's payoff)" />
         <Stat testId="ca-reco-max-loss" k={f.lossLabel} v={figureText(f.maxLoss, true)} color="var(--cp-danger)" title={f.lossBasis ?? undefined}
-          sub={f.stop != null ? `stop ${fmtNum(f.stop, 2)}` : undefined} />
+          sub={f.stop != null ? `risk level ${fmtNum(f.stop, 2)}` : undefined} />
         <Stat testId="ca-reco-rr" k="R : R" v={f.rr ? `${ratio(f.rr.value)}${f.rr.basis === "before costs" ? " before costs" : ""}` : DASH} color="var(--cp-ink)"
           title={c.risk_reward?.basis ?? undefined} />
         <Stat testId="ca-reco-breakeven" k="BREAKEVEN" v={f.breakevens.length ? f.breakevens.map((b) => fmtNum(b, 2)).join(", ") : DASH} color="var(--amber)" title="Underlying price at expiry" />

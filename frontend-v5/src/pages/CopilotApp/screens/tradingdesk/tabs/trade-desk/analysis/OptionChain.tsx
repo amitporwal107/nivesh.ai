@@ -68,7 +68,7 @@ function ModeButton({ on, disabled, title, onClick, testId, children }: { on: bo
 function PickButton({ side, kind, strike, active, block, onClick }: { side: BasketSide; kind: OptionKind; strike: number; active: boolean; block: string | null; onClick: () => void }) {
   const buy = side === "B";
   const ink = buy ? "var(--mint)" : "var(--cp-danger)";
-  const word = buy ? "Buy" : "Sell";
+  const word = buy ? "Long" : "Short";
   return (
     <button type="button" data-testid={`ca-chain-${buy ? "b" : "s"}-${kind.toLowerCase()}`} aria-pressed={active} disabled={block != null}
       aria-label={`${word} the ${strike} ${kind}${active ? " (in the basket: press again to remove)" : ""}`}
@@ -78,7 +78,7 @@ function PickButton({ side, kind, strike, active, block, onClick }: { side: Bask
         width: 22, height: 22, justifySelf: "center", borderRadius: 5, padding: 0, ...mono(10), fontWeight: 600, cursor: block ? "not-allowed" : "pointer",
         opacity: block ? 0.35 : 1,
         border: `1px solid ${active ? ink : "var(--line-3)"}`, background: active ? ink : "transparent", color: active ? "var(--bg-0)" : ink,
-      }}>{side}</button>
+      }}>{buy ? "L" : "S"}</button>
   );
 }
 
@@ -207,7 +207,7 @@ export function OptionChain({ symbol, chain, selected, onSelect, compact }: Opti
 
       <div className="flex flex-col" style={{ gap: 4, marginTop: 8 }}>
         {!chain.tradable && (
-          <span data-testid="ca-chain-untradable" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>Pick an expiry to trade: legs need one expiry.</span>
+          <span data-testid="ca-chain-untradable" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>Choose an expiry to trade: legs need one expiry.</span>
         )}
         {touched && basket.refused && (
           <span data-testid="ca-chain-refused" role="status" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-danger)" }}>{basket.refused}</span>

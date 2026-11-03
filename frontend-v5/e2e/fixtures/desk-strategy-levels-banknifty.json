@@ -14,8 +14,8 @@
  },
  "caveats": [
   "Rule-based, hypothetical levels from fixed research settings. They are not predictions or advice, and no accuracy or hit rate is claimed: tests of these signals found no skill beyond chance.",
-  "A stop is a theoretical level, not an executable price: a stop order can fill worse in a sharp move or a liquidity gap.",
-  "No entry range is given: bid and ask are not in end-of-day data. Values at a price are the engine's model estimate for the data date, not quotes."
+  "A risk level is a theoretical level, not an executable price: an order at it can fill worse in a sharp move or a liquidity gap.",
+  "No reference-price range is given: bid and ask are not in end-of-day data. Values at a price are the engine's model estimate for the data date, not quotes."
  ],
  "sent_to_broker": false,
  "valid": true,
@@ -47,7 +47,7 @@
   "stop": 55271.88,
   "target": 54641.63,
   "target_2": 54362.19,
-  "basis": "the underlying price at which the structure reaches its planned stop and targets",
+  "basis": "the underlying price at which the structure reaches its planned risk level and reward levels",
   "wall_stop": 55835.9,
   "wall_target": 54117.9,
   "value_at_stop": 204.61,
@@ -58,7 +58,7 @@
   "gamma": 0.0001,
   "theta_per_day_per_share": -6.969,
   "vega_per_point_per_share": 7.965,
-  "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+  "review_when": "net delta rises above -0.084 (30% of the opening delta -0.279)"
  },
  "legs": [
   {
@@ -107,7 +107,7 @@
   ],
   "max_loss_gross_total": -8769.0,
   "capital_at_risk": 8886.4,
-  "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded"
+  "capital_at_risk_basis": "worst net loss over all prices, every leg charged opening and closing costs; null when the loss is unbounded"
  },
  "scenarios": [
   {

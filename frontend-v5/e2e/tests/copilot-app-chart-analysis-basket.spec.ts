@@ -116,11 +116,11 @@ test.describe("MOCK — not real data: basket bodies (pure)", () => {
     expect(b.signal.signal_at).toBe("2026-10-29T06:30:00.000Z");
     expect(b.signal.rule_version).toBe("chart-analysis-v2");
     expect(b.signal.source_refs?.map((s) => s.kind)).toEqual(["option_chain", "live_chart", "trade_plan"]);
-    expect(b.signal.evidence_summary).toContain("BUY 1 lot of 350 4300 CE 24 Nov at ₹84.00");
+    expect(b.signal.evidence_summary).toContain("LONG 1 lot of 350 4300 CE 24 Nov at ₹84.00");
     expect(b.signal.evidence_summary.length).toBeLessThanOrEqual(1000);
     // a stop above the reference is refused for a bullish position, before anything is posted
     const wrong = strategyBodyOf({ symbol: "TVSMOTOR", legs, refPrice: 4296.5, last: LAST, fnoAsOf: "2026-10-28", delta: 52.5, levels: { stop: 4350, target: null }, planId: null, now: NOW });
-    expect(wrong).toEqual({ ok: false, problems: ["For a bullish position the stop (₹4,350.0) must be below the reference ₹4,296.5."] });
+    expect(wrong).toEqual({ ok: false, problems: ["For a bullish position the risk level (₹4,350.0) must be below the reference ₹4,296.5."] });
     // an iron condor with delta near zero is neutral and sends no levels
     const ic = [opt("S", "CE", 4400, 45), opt("B", "CE", 4500, 21), opt("S", "PE", 4200, 38), opt("B", "PE", 4100, 18)];
     expect(familyOf(ic)).toBe("iron_condor");
@@ -144,7 +144,7 @@ test.describe("MOCK — not real data: basket bodies (pure)", () => {
     const chartEntry = cashBodyOf({ symbol: "TVSMOTOR", leg: cash, levels: { stop: 4200, target: null, cashEntry: 4250 }, rule: "pullback_to", planId: "tp-9", now: NOW });
     expect(chartEntry.ok && [chartEntry.body.entry_price, chartEntry.body.entry_rule, chartEntry.body.target_price, chartEntry.body.plan_ref]).toEqual([4250, "pullback_to", null, { plan_id: "tp-9" }]);
     expect(cashBodyOf({ symbol: "TVSMOTOR", leg: { ...cash, side: "S" }, levels: { stop: null, target: null, cashEntry: null }, rule: "at_once", planId: null, now: NOW }))
-      .toEqual({ ok: false, problems: ["A share paper trade is long only: selling shares is not recorded. Flip the cash leg to BUY.", "Set a stop below the entry: a share paper trade needs one."] });
+      .toEqual({ ok: false, problems: ["A share paper trade is long only: a short share position is not recorded. Flip the cash leg to LONG.", "Set a risk level below the reference price: a share paper trade needs one."] });
   });
 });
 

@@ -77,7 +77,7 @@ export function SetupsToWatch() {
         }]
       : []),
     { key: "trigger", header: "Level to cross", align: "right", num: true, render: (r) => fmtPrice(r.trigger) },
-    { key: "stop", header: "Stop · 1.5× ATR", align: "right", num: true, render: (r) => fmtPrice(r.stop) },
+    { key: "stop", header: "Risk level · 1.5× ATR", align: "right", num: true, render: (r) => fmtPrice(r.stop) },
     { key: "atr", header: "Daily range", align: "right", num: true, render: (r) => fmtPct(r.atrPct, { digits: 2 }) },
     { key: "setup", header: "Setup", width: "minmax(0,1.2fr)", render: (r) => <span title={r.why ?? undefined}>{SETUP_LABEL[r.bucket]}</span> },
   ];
@@ -95,7 +95,7 @@ export function SetupsToWatch() {
       </div>
       <div className="flex flex-wrap items-center justify-between" style={{ gap: "8px 12px", padding: "10px 16px" }}>
         <div style={{ flex: "1 1 320px", minWidth: 0 }}>
-          <Footnote>End-of-day levels from the scanner, not alerts and not a recommendation. Nothing is sent when a level is crossed.</Footnote>
+          <Footnote>End-of-day levels from the scanner, not alerts and not advice. Nothing is sent when a level is crossed.</Footnote>
         </div>
         <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
           {rows.length > PREVIEW && (

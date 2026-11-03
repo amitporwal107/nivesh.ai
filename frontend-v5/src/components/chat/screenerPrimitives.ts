@@ -50,7 +50,7 @@ export const SCREEN_PRIMITIVES: ScreenPrimitive[] = [
   { key: "maxDrawdown",label: "Max drawdown 1Y",  cat: "Price / technical", hint: "peak-to-trough",tag: "%",     qlabel: "max drawdown",  op: "over" },
   { key: "rsi",        label: "RSI (14)",         cat: "Price / technical", hint: "momentum gauge",tag: "0–100", qlabel: "RSI",           op: "under" },
   { key: "momentum",   label: "Momentum score",   cat: "Price / technical", hint: "trend strength",tag: "0–100", qlabel: "momentum",      op: "over" },
-  { key: "accumulation", label: "Accumulation",   cat: "Price / technical", hint: "buying pressure",tag: "0–100",qlabel: "accumulation",  op: "over" },
+  { key: "accumulation", label: "Accumulation",   cat: "Price / technical", hint: "demand vs supply",tag: "0–100",qlabel: "accumulation",  op: "over" },
   // Ownership / smart money
   { key: "promoter",      label: "Promoter holding", cat: "Ownership", hint: "skin in the game", tag: "%", qlabel: "promoter holding", op: "over" },
   { key: "promoterPledge",label: "Promoter pledge",  cat: "Ownership", hint: "lower is safer",   tag: "%", qlabel: "promoter pledge",  op: "under" },

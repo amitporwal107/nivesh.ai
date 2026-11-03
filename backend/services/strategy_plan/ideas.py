@@ -34,7 +34,7 @@ PASS_KEYS = ("capital", "risk_budget_inr", "risk_pct", "max_allocation_pct", "mi
 
 RANKING_NOTE = ("Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the "
                 "viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure "
-                "(a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital "
+                "(a long put or a short call changes the loss at the risk level) is not comparable with an unhedged one: read max loss and capital "
                 "at risk beside it. No probability and no composite score is produced. "
                 "Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending).")
 

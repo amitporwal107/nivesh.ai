@@ -191,7 +191,7 @@ test.describe("AI scanner watchlist", () => {
     // p2_exits_backtest TC-70: the scanner's holding window (horizon_days 15) is sent as the time exit.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
       source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-26" }, entry_rule: "at_once", max_hold_sessions: 15 }]);
-    await expect(icici).toContainText("exits after 15 sessions held");
+    await expect(icici).toContainText("closes after 15 sessions held");
     // desk_paper_safety TESTCASES UI-4: the submission carries one Idempotency-Key (a UUID).
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -312,7 +312,7 @@ test.describe("AI scanner watchlist", () => {
     expect(text).not.toMatch(/\bsuggested\b/i);
     expect(text.replace(/not recommendations?/gi, "")).not.toMatch(/recommend/i);
     await expect(page.getByTestId("aiw-ranking-note")).toContainText("not a forecast");
-    await expect(page.getByTestId("aiw-disclaimer")).toContainText("not recommendations");
+    await expect(page.getByTestId("aiw-disclaimer")).toContainText("not advice");
   });
 });
 

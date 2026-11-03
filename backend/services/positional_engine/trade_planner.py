@@ -43,7 +43,7 @@ def stop_meta(entry: float, stop: float, atr: Optional[float], swing_low: Option
         "swing_ref": _round(swing_low) if swing_low is not None else None,
         "measured_from": entry,
         "distance_atr": round((entry - stop) / atr, 3) if atr else None,
-        "rule": f"the tighter of the 20-session swing low x {STOP_SWING_BUFFER:g} and entry - {STOP_ATR_MULTIPLE:g} x ATR(14)",
+        "rule": f"the tighter of the 20-session swing low x {STOP_SWING_BUFFER:g} and reference price - {STOP_ATR_MULTIPLE:g} x ATR(14)",
     }
 
 

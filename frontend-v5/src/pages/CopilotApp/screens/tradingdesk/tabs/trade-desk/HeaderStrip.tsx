@@ -33,11 +33,11 @@ function Tile({ k, v, sub, testId }: { k: string; v: ReactNode; sub?: ReactNode;
 
 /** "Exits checked after the 26 Oct close", or the missed / late / running state in the route's words. */
 export function exitJobText(j: ExitJob): { text: string; tone: "ok" | "warn" | "bad" } {
-  if (j.status === "ok") return { text: j.lastSession ? `Exits checked after the ${dayShort(j.lastSession)} close` : (j.message ?? "The evening exit check is up to date."), tone: "ok" };
-  if (j.status === "running") return { text: "The evening exit check is running now", tone: "warn" };
-  if (j.status === "late") return { text: `Exit check late: ${j.message ?? "not recorded yet"}`, tone: "warn" };
+  if (j.status === "ok") return { text: j.lastSession ? `Paper trades checked after the ${dayShort(j.lastSession)} close` : (j.message ?? "The evening paper-trade check is up to date."), tone: "ok" };
+  if (j.status === "running") return { text: "The evening paper-trade check is running now", tone: "warn" };
+  if (j.status === "late") return { text: `Evening check late: ${j.message ?? "not recorded yet"}`, tone: "warn" };
   const last = j.lastSession ? ` Last checked after the ${dayShort(j.lastSession)} close.` : "";
-  return { text: `Exit check missed: ${j.message ?? "the evening exit check did not run."}${last}`, tone: "bad" };
+  return { text: `Evening check missed: ${j.message ?? "the evening paper-trade check did not run."}${last}`, tone: "bad" };
 }
 
 function ExitJobLine() {
@@ -45,10 +45,10 @@ function ExitJobLine() {
   let body: ReactNode;
   let status = "loading";
   let color = "var(--cp-ink-3)";
-  if (q.isPending) body = "Reading when exits were last checked…";
+  if (q.isPending) body = "Reading when paper trades were last checked…";
   else if (q.isError) {
     status = "error";
-    body = "When exits were last checked is unavailable right now (the exit-check status did not load).";
+    body = "When paper trades were last checked is unavailable right now (the evening-check status did not load).";
     color = "var(--amber)";
   } else {
     status = q.data.status;
@@ -88,7 +88,7 @@ function OpenRiskChip() {
       pct = p.toFixed(2);
       text = `Open risk ${fmtPct(p, { digits: 1 })} of ${limitText}`;
       tone = limit != null && p >= limit ? "danger" : limit != null && p >= limit * 0.8 ? "amber" : "mint";
-      title = `${fmtINR(l.open.riskRs)} reserved at entry against paper equity ${fmtINR(l.equityRs)}${l.budgetsRs.open_risk != null ? `; budget ${fmtINR(l.budgetsRs.open_risk)}` : ""}. The limits are on the Risk Desk.`;
+      title = `${fmtINR(l.open.riskRs)} reserved at opening against paper equity ${fmtINR(l.equityRs)}${l.budgetsRs.open_risk != null ? `; budget ${fmtINR(l.budgetsRs.open_risk)}` : ""}. The limits are on the Risk Desk.`;
     }
   }
   return (

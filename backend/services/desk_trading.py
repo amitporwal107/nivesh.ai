@@ -128,23 +128,24 @@ SOURCE = "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the da
 PRICE_BASIS = "end of day"
 EXIT_RULE = (
     "Checked on end-of-day bars from the first session after the IST date the trade was opened: a low at or "
-    "below the stop closes it at the stop, a high at or above the target closes it at the target, and a session "
-    "that touched both counts as the stop (conservative: a daily bar does not show which came first)."
+    "below the risk level closes it at the risk level, a high at or above the reward level closes it at the reward "
+    "level, and a session that touched both counts as the risk level (conservative: a daily bar does not show which "
+    "came first)."
 )
 FIRING_RULE = (
     "Checked on end-of-day bars from the first session after the IST date the alert was made: 'above' fires "
     "when a session's high reaches the level, 'below' when its low reaches it. Shown in this list only."
 )
-BOTH_IN_RANGE_NOTE = "The stop and the target were both inside this session's range; counted as the stop (conservative)."
+BOTH_IN_RANGE_NOTE = "The risk level and the reward level were both inside this session's range; counted as the risk level (conservative)."
 
 # ── paper trades: the DaaS paper_trades field set (PRD §13.4) ────────────────
 RULES_VERSION = "desk-paper-v2"
 ENTRY_RULES = ("at_once", "break_above", "pullback_to")
 ENTRY_RULE_TEXT = {
-    "at_once": "Filled at the reference entry price when the trade was recorded (assumed, not checked against a bar).",
-    "break_above": ("Filled at the reference entry on the first session after it was recorded whose high reaches it; "
+    "at_once": "Filled at the reference price when the trade was recorded (assumed, not checked against a bar).",
+    "break_above": ("Filled at the reference price on the first session after it was recorded whose high reaches it; "
                     "a session that opened above it is flagged."),
-    "pullback_to": ("Filled at the reference entry on the first session after it was recorded whose low reaches it; "
+    "pullback_to": ("Filled at the reference price on the first session after it was recorded whose low reaches it; "
                     "a session that opened below it is flagged."),
 }
 DEFAULT_ENTRY_WINDOW = 5          # sessions a conditional entry waits before it closes as "entry_not_reached"
@@ -176,10 +177,10 @@ def costs_text(model: Optional[Dict[str, Any]]) -> str:
 
 
 ORDERS_NOTE = "Paper trades are simulated and never create a broker order."
-TIME_EXIT_NOTE = "Held for the most sessions the exit rule allows; closed at that session's close."
+TIME_EXIT_NOTE = "Held for the most sessions the close rule allows; closed at that session's close."
 TREND_EXIT_NOTE = ("Closed below its trend EMA (an opt-in research rule) at the previous close; taken at this session's open.")
-NOT_REACHED_NOTE = "The entry level was not reached within the entry window; no position was taken."
-CANCELLED_NOTE = "Closed by you before the entry level was reached; no position was taken."
+NOT_REACHED_NOTE = "The reference price was not reached within the waiting window; no position was taken."
+CANCELLED_NOTE = "Closed by you before the reference price was reached; no position was taken."
 # Exit reasons a stored trade can carry.
 EXIT_REASONS = ("stop", "trailing_stop", "target", "time", "trend", "manual", "risk_control", "entry_not_reached", "cancelled")
 _STRATEGY_VERSION_RE = re.compile(r"^[A-Za-z0-9 ._:+/#()-]{1,60}$")
@@ -699,7 +700,7 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
         day = next((b for b in bars if b["date"] == opened), None)
         if day and day["high"] is not None and day["low"] is not None and not day["low"] <= entry <= day["high"]:
             flags.append(_flag("entry_outside_day_range",
-                               f"The entry {_rupees(entry)} is outside the {opened.isoformat()} range "
+                               f"The reference price {_rupees(entry)} is outside the {opened.isoformat()} range "
                                f"({_rupees(day['low'])}–{_rupees(day['high'])}): that fill could not have happened that day.",
                                opened))
         state = er.start(entry, stop, rules, session=opened,
@@ -738,8 +739,8 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
             out.update(entry_status="reached", entry_session=bar["date"], sim_entry_price=fill)
             if opened_beyond:
                 flags.append(_flag("entry_gap",
-                                   f"The session opened at {_rupees(bar['open'])}, beyond the entry {_rupees(entry)}: the "
-                                   "price never traded at the entry, so the fill is the open.",
+                                   f"The session opened at {_rupees(bar['open'])}, beyond the reference price {_rupees(entry)}: the "
+                                   "price never traded at the reference price, so the fill is the open.",
                                    bar["date"], bar["open"]))
             state = er.start(fill, stop, rules, session=bar["date"],
                              warmup=[b for b in bars if b["date"] < bar["date"]] if warm else ())
@@ -750,12 +751,12 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
         if entry_session and rule == "pullback_to" and target is not None and bar["high"] >= target:
             skip_target = True
             flags.append(_flag("entry_session_ambiguous",
-                               "The target was inside the entry session's range, but its high may have come before the "
-                               "fill; the target is counted from the next session.", bar["date"]))
+                               "The reward level was inside the opening session's range, but its high may have come before the "
+                               "fill; the reward level is counted from the next session.", bar["date"]))
         if entry_session and rule == "break_above" and bar["low"] <= stop:
             flags.append(_flag("entry_session_ambiguous",
-                               "The stop was inside the entry session's range and its low may have come before the fill; "
-                               "counted as the stop (conservative).", bar["date"]))
+                               "The risk level was inside the opening session's range and its low may have come before the fill; "
+                               "counted as the risk level (conservative).", bar["date"]))
         try:
             state, ex = er.step(state, bar, rules, skip_target=skip_target)
         except er.IncompleteBar:
@@ -782,15 +783,15 @@ def _exit_from_step(ex: Dict[str, Any], bar: Dict[str, Any], flags: List[Dict[st
         # A session that OPENS below the stop never traded at the stop: a real stop order becomes a market order and
         # fills at the open, worse than the stop (exit_rules.step returns that open).
         note = BOTH_IN_RANGE_NOTE if ex["both_in_range"] else (
-            f"Closed at the trailing stop {_rupees(ex['stop_in_force'])} (raised by the opt-in ATR trail)."
+            f"Closed at the trailing risk level {_rupees(ex['stop_in_force'])} (raised by the opt-in ATR trail)."
             if reason == "trailing_stop" else None)
         if ex["both_in_range"]:
             flags.append(_flag("both_in_range", BOTH_IN_RANGE_NOTE, day))
         if ex["gapped"]:
             flags.append(_flag("gap_through_stop",
-                               f"The session opened at {_rupees(bar['open'])}, below the stop {_rupees(ex['stop_in_force'])}: "
-                               "the price never traded at the stop, so the fill is the open and the loss is larger than "
-                               "the stop distance.", day, bar["open"]))
+                               f"The session opened at {_rupees(bar['open'])}, below the risk level {_rupees(ex['stop_in_force'])}: "
+                               "the price never traded at the risk level, so the fill is the open and the loss is larger than "
+                               "the distance to the risk level.", day, bar["open"]))
         return {"exit_reason": reason, "exit_price": ex["price"], "exit_session": day, "exit_note": note}
     if reason == "target":
         return {"exit_reason": "target", "exit_price": ex["price"], "exit_session": day, "exit_note": None}
@@ -918,16 +919,16 @@ def check_entry_tradable(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> D
     bar = last_completed_session(bars, ist_date(trade["opened_at"]))
     entry = float(trade["entry_price"])
     if bar is None:
-        raise DeskInputError("entry_unverifiable", f"No end-of-day bar is on record for {trade['symbol']}, so an entry "
-                                                   f"at once cannot be checked against the market. Use an entry that "
+        raise DeskInputError("entry_unverifiable", f"No end-of-day bar is on record for {trade['symbol']}, so a fill "
+                                                   f"at once cannot be checked against the market. Use a rule that "
                                                    f"waits for its level (break above / pull back to).")
     if not bar["low"] <= entry <= bar["high"]:
         side = "below" if entry < bar["low"] else "above"
         rule = "pull back to" if side == "below" else "break above"
         raise DeskInputError("entry_not_tradable", (
-            f"The entry {_rupees(entry)} is {side} the last completed session's range ({bar['date'].isoformat()}: "
+            f"The reference price {_rupees(entry)} is {side} the last completed session's range ({bar['date'].isoformat()}: "
             f"{_rupees(bar['low'])}–{_rupees(bar['high'])}), so it could not be filled at once. Record it with the "
-            f"entry rule \"{rule}\" to wait for that level."))
+            f"rule \"{rule}\" to wait for that level."))
     return {"date": bar["date"].isoformat(), "low": bar["low"], "high": bar["high"]}
 
 
@@ -1202,7 +1203,7 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         gross = round((close - fill) * int(doc["quantity"]), 2) if entered and close is not None and fill else None
         breakdown = trade_cost_breakdown(doc, fill, close) if gross is not None else None
         costs = breakdown["total"] if breakdown else None
-        basis = (f"entry at the fill, exit side estimated at the last close; {costs_text(doc.get('cost_model'))}"
+        basis = (f"opening side at the fill, closing side estimated at the last close; {costs_text(doc.get('cost_model'))}"
                  if costs is not None else None)
     else:
         keys = ("observations", "held_sessions", "entry_session", "mfe_pct", "mae_pct", "mfe_rs", "mae_rs")
@@ -1222,7 +1223,7 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
             breakdown = trade_cost_breakdown(doc, float(fill), float(exit_price))
         if costs is None and breakdown is not None:
             costs = breakdown["total"]
-        basis = f"entry and exit at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
+        basis = f"opening and closing sides at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     if is_open and sim is not None:
         stops = {"stop_history": sim.get("stop_history") or [], "current_stop": sim.get("current_stop"),

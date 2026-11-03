@@ -69,7 +69,7 @@ test.describe("MOCK — not real data: onboarding · if Nifty falls 5%", () => {
     await expect(page.getByTestId("nifty-fall-without")).toHaveText(inr(r.without_hedge_rs));
     await expect(card).toContainText(`(${(Math.abs(r.without_hedge_rs) / pv * 100).toFixed(1)}% of your whole portfolio)`);
     await expect(page.getByTestId("nifty-fall-hedge")).toHaveAttribute("data-pays", "yes");
-    await expect(page.getByTestId("nifty-fall-hedge")).toContainText(`How it can be hedged: buy 1 lot of the ${maxStrike} put (Maximum protection)`);
+    await expect(page.getByTestId("nifty-fall-hedge")).toContainText(`How it can be hedged: long 1 lot of the ${maxStrike} put (Maximum protection)`);
     await expect(page.getByTestId("nifty-fall-with")).toHaveText(inr(r.with_hedge_rs));
     expect(Math.abs(r.with_hedge_rs)).toBeLessThan(Math.abs(r.without_hedge_rs));            // "would cut it to" is true
     await expect(page.getByTestId("nifty-fall-note")).toContainText("An estimate");
@@ -155,7 +155,7 @@ test.describe("MOCK — not real data: onboarding · if Nifty falls 5% · phone 
     await toDone(page);
     const hedge = page.getByTestId("nifty-fall-hedge");
     await expect(hedge).toHaveAttribute("data-pays", "no", SLOW);
-    await expect(hedge).toContainText("How it can be hedged: buy 1 lot of the 20,700 put (Balanced)");
+    await expect(hedge).toContainText("How it can be hedged: long 1 lot of the 20,700 put (Balanced)");
     await expect(hedge).toContainText("starts paying only below Nifty 20,700 (10.0% down), so at a 5% fall it pays nothing and only adds its cost.");
     await expect(hedge).toContainText(`At a 15% fall it would cut the loss from ${inr(r15.without_hedge_rs)} to`);
     await expect(page.getByTestId("nifty-fall-deeper")).toHaveText(inr(r15.with_hedge_rs));

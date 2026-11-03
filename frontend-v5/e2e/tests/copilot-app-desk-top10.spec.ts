@@ -270,7 +270,7 @@ test.describe("Scanner — Top 10 ideas", () => {
     // p2_exits_backtest TC-70: the scanner's holding window (horizon_days 10) is sent as the time exit.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
       source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" }, entry_rule: "at_once", max_hold_sessions: 10 }]);
-    await expect(icici).toContainText("exits after 10 sessions held");
+    await expect(icici).toContainText("closes after 10 sessions held");
     // desk_paper_safety TESTCASES UI-1: one Idempotency-Key with the submission (a header; the body is unchanged).
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(UUID);
@@ -491,9 +491,9 @@ test.describe("Scanner — Top 10 ideas: provisional levels", () => {
     await expect(icici.getByTestId("desk-top10-stock-paper")).toHaveAttribute("aria-expanded", "false");
     await expect(lv.getByTestId("desk-top10-stock-levels-label")).toHaveText("Provisional · research levels");
     await expect(lv.getByTestId("desk-top10-stock-levels-asof")).toHaveText("scan of 19 Oct 2026");
-    await expect(lv.getByTestId("desk-top10-stock-levels-entry")).toHaveText("Entry ₹1,200.00");
-    await expect(lv.getByTestId("desk-top10-stock-levels-stop")).toHaveText("Stop ₹1,160.00");
-    await expect(lv.getByTestId("desk-top10-stock-levels-target")).toHaveText("Target ₹1,280.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-entry")).toHaveText("Reference price ₹1,200.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-stop")).toHaveText("Risk level ₹1,160.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-target")).toHaveText("Reward level ₹1,280.00");
     await expect(lv.locator("button, input")).toHaveCount(0);
   });
 
@@ -637,9 +637,9 @@ test.describe("Top 10 — trade plans (Phase 2.1)", () => {
     const line = row.getByTestId("desk-top10-paper-plan");
     await expect(line).toHaveAttribute("data-plan-id", PLANS.cash.trade_plan.plan_id);
     // In plain words (owner, 29 Oct): the card's own entry, exit and targets; the method and the plan id are in Technical details.
-    await expect(line).toHaveText("Enter at the close, ₹1,200.00 · exit if wrong ₹1,160.00 · targets ₹1,220.00 · ₹1,280.00 · ₹1,320.00");
+    await expect(line).toHaveText("Opens at the close, ₹1,200.00 · risk level ₹1,160.00 · reward levels ₹1,220.00 · ₹1,280.00 · ₹1,320.00");
     await expect(row.getByTestId("desk-top10-drawer-paper")).not.toContainText(/×ATR|\(\d+(\.\d+)?R\)|sessions? held|risk service|Plan tp_/);
-    await expect(row.getByTestId("desk-top10-paper-rule")).toHaveText("it enters at once, at the entry price");
+    await expect(row.getByTestId("desk-top10-paper-rule")).toHaveText("it opens at once, at the reference price");
     await expect(row.getByTestId("desk-top10-paper-rule")).toHaveAttribute("data-rule", "at_once");
     await row.getByTestId("desk-top10-paper-qty").fill(String(PLANS.cash.body.quantity));
     await row.getByTestId("desk-top10-paper-add").click();

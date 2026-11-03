@@ -203,16 +203,16 @@ def analyse(legs: Sequence[Dict[str, Any]], spot: Optional[float], levels: Optio
         out["distance_to_stop_pct"] = r2(dist)
         if dist < 0:
             w.append({"code": "stop_breached", "tone": "danger",
-                      "text": f"The price ({spot:,.2f}) is past your stop ({stop:,.2f})."})
+                      "text": f"The price ({spot:,.2f}) is past your risk level ({stop:,.2f})."})
         elif dist <= NEAR_STOP_PCT:
-            w.append({"code": "near_stop", "tone": "amber", "text": f"{dist:.2f}% from your stop ({stop:,.2f})."})
+            w.append({"code": "near_stop", "tone": "amber", "text": f"{dist:.2f}% from your risk level ({stop:,.2f})."})
     elif not stop:
-        w.append({"code": "no_stop", "tone": "ink", "text": "No stop set: the loss at a stop cannot be shown."})
+        w.append({"code": "no_stop", "tone": "ink", "text": "No risk level set: the loss at a risk level cannot be shown."})
     if target and d:
         dist_t = (target - spot) / spot * 100 * d
         out["distance_to_target_pct"] = r2(dist_t)
         if dist_t <= 0:
-            w.append({"code": "target_reached", "tone": "mint", "text": f"The price has reached your target ({target:,.2f})."})
+            w.append({"code": "target_reached", "tone": "mint", "text": f"The price has reached your reward level ({target:,.2f})."})
     if days_to_expiry is not None and 0 <= days_to_expiry <= EXPIRY_SOON_DAYS:
         when = "today" if days_to_expiry == 0 else "tomorrow" if days_to_expiry == 1 else f"in {days_to_expiry} days"
         w.append({"code": "expiry_soon", "tone": "amber", "text": f"The nearest contract expires {when}."})

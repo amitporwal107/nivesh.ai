@@ -224,7 +224,7 @@ WOULD_CHANGE = {
     "liquidity_unknown": "20 sessions of price and volume on record.",
     "event_in_horizon": "The results date passing, a shorter horizon, or switching avoid_events off (accepting event risk).",
     "conflicting_evidence": "The conflicting items (see the ledger) turning, or a different view.",
-    "reward_risk_below_minimum": "A nearer stop, a farther conservative level, or a lower minimum reward : risk.",
+    "reward_risk_below_minimum": "A nearer risk level, a farther conservative level, or a lower minimum reward : risk.",
     "setup_not_triggered": "A close above the trigger on volume (the scanner moving it to breakout confirmed).",
     "no_setup": "The scanner listing the stock in one of its buckets.",
     "no_fresh_buildup": "A fresh build-up (price and open interest rising together for a long view).",
@@ -236,7 +236,7 @@ WOULD_CHANGE = {
     "illiquid_leg": "The legs having open interest and trading volume.",
     "condor_rule_fails": "The price sitting inside both walls with each at least one expected move away.",
     "sizing_zero": "A larger risk budget or allocation cap.",
-    "risk_not_calculable": "A valid stop and payoff being derivable.",
+    "risk_not_calculable": "A valid risk level and payoff being derivable.",
     "payoff_invalid": "A valid payoff calculation.",
     "scanner_unavailable": "The scanner source answering.",
     "buildup_unavailable": "The F&O build-up source answering.",
@@ -283,12 +283,12 @@ def _comparison(cands: List[Dict[str, Any]], ledger: Dict[str, Any], horizon_day
         flags = (c.get("options_selection") or {}).get("preferred_flags") or []
         if linear:
             max_loss = rr.get("risk_net")
-            basis = "loss at the stop (net); gaps can exceed it" + ("; futures losses can exceed margin" if c["segment"] == "futures" else "")
+            basis = "loss at the risk level (net); gaps can exceed it" + ("; futures losses can exceed margin" if c["segment"] == "futures" else "")
         elif unfloored:
             # A premium that covers the loss at the stop is a loss of 0 there, not a negative loss.
             max_loss = None if rr.get("risk_net") is None else max(rr["risk_net"], 0.0)
             to_zero = ex.get("max_loss")
-            basis = ("loss at the stop (net), where the plan exits; gaps can exceed it, and below the stop nothing limits the loss"
+            basis = ("loss at the risk level (net), where the plan closes; gaps can exceed it, and below the risk level nothing limits the loss"
                      + (f" (held to expiry, {abs(to_zero):,.2f} gross if the price falls to zero)" if to_zero is not None else ""))
         else:
             max_loss = ex.get("max_loss")
@@ -407,7 +407,7 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
                 c["reasons"].append(r)
             elif g["kind"] == "rule" and g["code"] == "event_in_horizon" and c.get("event_hedged"):
                 if c["status"] in ("candidate", "wait"):
-                    c["warnings"].append("Results are scheduled inside the horizon. The long put defines the downside, so the event does not block this structure: "
+                    c["warnings"].append("Results are scheduled inside the horizon. The long put defines the loss, so the event does not block this structure: "
                                          "the loss cannot exceed the max loss shown, and the put's premium already reflects the event.")
             elif g["kind"] == "rule" and c["status"] in ("candidate", "wait"):
                 c["status"] = "no_trade"

@@ -160,7 +160,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
       return { v: f?.close ?? f?.settle ?? null, src: f ? `EOD ${f.close != null ? "close" : "settle"}, ${fut.data?.kind === "ok" ? fut.data.data.as_of : ""}` : "not in the futures read" };
     }
     const s = sideOf(l);
-    return { v: s?.close ?? null, src: s ? `EOD close, ${chain?.asOf}` : "not in the chain shown (pick its expiry)" };
+    return { v: s?.close ?? null, src: s ? `EOD close, ${chain?.asOf}` : "not in the chain shown (choose its expiry)" };
   };
   const greeksOf = (i: number): Greeks | null => (fresh ? pre?.per_leg_greeks.find((x) => x.leg === i)?.greeks ?? null : null);
   const total = fresh ? pre?.greeks ?? null : null;
@@ -195,7 +195,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
       <div data-testid="ca-strategy-legs-box" style={{ overflowX: "auto", maxWidth: "100%", border: "1px solid var(--line-2)", borderRadius: 10 }}>
         <div style={{ minWidth: 1050, opacity: pay.isStale ? 0.7 : 1 }}>
           <div data-testid="ca-strategy-head" className="grid items-center" style={{ gridTemplateColumns: COLS, gap: 6, padding: "8px 12px", ...head }}>
-            {["Action", "Underlying", "Strike", "Right", "Expiry", "Lots", "Entry", "LTP", "IV", "Delta", "Gamma", "Theta", "Vega", ""].map((h, i) => <span key={i} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h}</span>)}
+            {["Action", "Underlying", "Strike", "Right", "Expiry", "Lots", "Ref price", "LTP", "IV", "Delta", "Gamma", "Theta", "Vega", ""].map((h, i) => <span key={i} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h}</span>)}
           </div>
           {legs.map((l, i) => {
             const gk = greeksOf(i);
@@ -204,9 +204,9 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
             const buy = l.side === "B";
             return (
               <div key={l.id} data-testid="ca-strategy-leg" data-kind={l.kind} data-index={i} className="grid items-center" style={{ gridTemplateColumns: COLS, gap: 6, padding: "7px 12px", borderTop: "1px solid var(--cp-line)" }}>
-                <button type="button" data-testid="ca-strategy-side" onClick={() => b.flip(l.id)} title="Switch buy / sell"
+                <button type="button" data-testid="ca-strategy-side" onClick={() => b.flip(l.id)} title="Switch long / short"
                   style={{ ...mono(10.5, { letterSpacing: "0.06em" }), padding: "2px 0", borderRadius: 5, border: 0, background: buy ? "var(--mint-soft)" : "var(--cp-danger-soft)", color: buy ? "var(--mint)" : "var(--cp-danger)", cursor: "pointer" }}>
-                  {buy ? "BUY" : "SELL"}
+                  {buy ? "LONG" : "SHORT"}
                 </button>
                 <Cell>{symbol}</Cell>
                 <Cell testId="ca-strategy-strike">{l.strike != null ? fmtNum(l.strike, l.strike % 1 ? 1 : 0) : "—"}</Cell>
@@ -257,7 +257,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
         <span style={{ flex: 1 }} />
         <button type="button" data-testid="ca-strategy-reset" onClick={() => b.reset()} className="cp-btn" data-variant="ghost" style={{ padding: "7px 12px", ...mono(11, { letterSpacing: "0.08em" }) }}>RESET</button>
         <button type="button" data-testid="ca-strategy-place" disabled={!ready?.ok || placing.pending}
-          title={!builder ? "Open the basket (＋ PAPER TRADE) to place: its stop, target and plan are set there." : ready && !ready.ok ? ready.problems.join(" ") : undefined}
+          title={!builder ? "Open the basket (＋ PAPER TRADE) to place: its risk level, reward level and plan are set there." : ready && !ready.ok ? ready.problems.join(" ") : undefined}
           onClick={() => { const r = builder?.(new Date()); if (r?.ok) placing.place(r.request); }}
           style={{ padding: "8px 14px", borderRadius: 9, border: 0, background: "var(--mint)", color: "#06120B", cursor: ready?.ok && !placing.pending ? "pointer" : "not-allowed", opacity: ready?.ok && !placing.pending ? 1 : 0.5, ...mono(11.5, { letterSpacing: "0.06em", fontWeight: 600 }) }}>
           {placing.pending ? "PLACING…" : "PLACE PAPER BASKET"}
@@ -269,7 +269,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
           : m?.kind === "unavailable" ? m.reason
           : "Asking Zerodha's margin calculator…"}
       </span>
-      {!builder && <span data-testid="ca-strategy-place-why" style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>Open the basket (＋ PAPER TRADE) to place: its stop, target and plan are set there.</span>}
+      {!builder && <span data-testid="ca-strategy-place-why" style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>Open the basket (＋ PAPER TRADE) to place: its risk level, reward level and plan are set there.</span>}
       {builder && ready && !ready.ok && <span data-testid="ca-strategy-problem" style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--amber)" }}>{ready.problems.join(" ")}</span>}
       {shown && <span data-testid="ca-strategy-answer" data-ok={shown.ok ? "true" : "false"} role={shown.ok ? "status" : "alert"} style={{ fontSize: 12, lineHeight: 1.45, color: shown.ok ? "var(--mint)" : "var(--cp-danger)" }}>{shown.text}</span>}
 
@@ -333,7 +333,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
 
       <p data-testid="ca-strategy-note" className="m-0" style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
         P&amp;L, Greeks, breakevens and max profit / loss come from the payoff route (Black-76 for the today curve and the Greeks, each option&apos;s volatility
-        solved from its entry premium on {refAsOf}; reference {rs(refPrice, 2)}). P&amp;L is before costs. Greeks are for the whole position: delta in shares per ₹1,
+        solved from its reference premium on {refAsOf}; reference {rs(refPrice, 2)}). P&amp;L is before costs. Greeks are for the whole position: delta in shares per ₹1,
         gamma per ₹1, theta in ₹ per day, vega in ₹ per volatility point. IV is the chain&apos;s end-of-day model IV; LTP is the live Kite quote in the session, else the end-of-day close.
         Margin is Zerodha&apos;s calculator through the platform&apos;s Kite login, not an exchange figure. Paper only: nothing is sent to a broker.
       </p>

@@ -160,7 +160,7 @@ async def screen_stocks(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         count = (f"Showing {shown} of {matched:,} matching stocks, largest companies first." if matched > shown
                  else f"{matched:,} {'stock matches' if matched == 1 else 'stocks match'}, largest companies first.")
         blocks.append(block("ranked", "matches", f"Stocks that match your filters · {short_day(as_of)}",
-                            f"{count} These are stocks that match the rules above, not recommendations. A stock with no value for a metric "
+                            f"{count} These are stocks that match the rules above, not advice. A stock with no value for a metric "
                             "shows — and cannot pass a rule on it. The Screener page has every match and more columns.",
                             columns=columns, rows=rows))
         symbols = [x for x in dict.fromkeys(str(r.get("ticker") or r.get("symbol") or "").strip().upper() for r in universe)

@@ -246,7 +246,7 @@ export function StockResearch({ stock, onClear }: { stock: StockHit; onClear: ()
             title={`Ask about ${name}`}
             items={[
               { label: "Full overview", query: `Tell me about ${name}` },
-              { label: "Worth buying now?", query: `Should I buy ${name}?` },
+              { label: "Scores today", query: `How does ${name} score today?` },
               { label: "Track record", query: `How has ${name} performed?` },
               { label: "What changed in the latest quarterly results?", query: `What changed in the latest quarterly results of ${name}?` },
               { label: "Compare with its closest peers", query: `Compare ${name} with its closest peers` },
@@ -261,7 +261,7 @@ export function StockResearch({ stock, onClear }: { stock: StockHit; onClear: ()
               "Annual profit and loss, balance sheet, cash flow and efficiency ratios: only quarterly revenue, operating profit, net profit and EPS are stored; no route returns annual statements",
               "ROE, ROCE, debt to equity, P/B and market cap: the feature store carries the fields but does not fill them, so the key-figure tiles read “Not available” until it does",
               "Fair value against the stock’s own P/E history: the feature history is read by daas_client.get_stock_features_history but no route returns it",
-              "Health, add and exit scores, the SWOT read and the pre-buy checks for a stock: no endpoint",
+              "Health and holding scores, the SWOT read and the pre-purchase checks for a stock: no endpoint",
               "Pivot levels and the full moving-average and oscillator set for any symbol: /api/research/chart/{symbol}/indicators only covers the frozen snapshot’s symbols",
               "Bulk and block deals for a symbol: the NSE feeds are ingested (bulk_deals, block_deals) but no route returns them",
               "Portfolio fit of a purchase (sector weights, overlap, volatility): POST /api/intelligence/simulate only models removing funds",

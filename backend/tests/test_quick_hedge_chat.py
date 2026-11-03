@@ -146,7 +146,7 @@ def test_everything_stated_means_nothing_is_assumed(world):
 def test_asking_about_the_cheaper_choice_shows_its_scenarios_and_its_two_legs(world):
     p = build({"mode": "lowest_cost", "expected_fall_pct": 15.0, "tolerance_rs": 100_000.0})
     assert blk(p, "scenarios")["title"].startswith("Lowest cost")
-    assert "sell the 19,550 put" in p["headline"]["text"]
+    assert "short the 19,550 put" in p["headline"]["text"]
 
 
 def test_a_portfolio_under_one_lot_says_so_and_shows_no_hedge(world):

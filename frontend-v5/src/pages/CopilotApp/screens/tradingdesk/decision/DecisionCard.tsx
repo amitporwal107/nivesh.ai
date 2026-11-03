@@ -30,7 +30,7 @@ const numOr = (v: unknown): number | null => (typeof v === "number" && Number.is
 const quiet: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" };
 const UNAVAILABLE = "unavailable";
 
-export const CARD_CAVEAT = "An idea to review, not a recommendation. The score only puts ideas in order; it does not predict a return. The prices come from fixed rules, and an exit price is not guaranteed: a stock can open past it. Nothing is sent to a broker.";
+export const CARD_CAVEAT = "An idea to review, not advice. The score only puts ideas in order; it does not predict a return. The prices come from fixed rules, and a risk level is not a guaranteed price: a stock can open past it. Nothing is sent to a broker.";
 
 const bearishPlan = (tp: TradePlan) => str(rec(tp.strategy).direction) === "bearish";
 
@@ -72,7 +72,7 @@ export function stopText(tp: TradePlan): string {
 /** Why the exit is where it is, in plain words (the method itself, e.g. "1.5×ATR", is in Technical details). */
 export function stopWhyText(tp: TradePlan): string {
   const m = tp.stop.method;
-  if (m === "atr") return "a normal day's price swing below the entry, so ordinary ups and downs do not trigger it";
+  if (m === "atr") return "a normal day's price swing below the reference price, so ordinary ups and downs do not trigger it";
   if (m === "structural") return "just below a recent low the price held";
   if (m === "capital") return "where the loss reaches your budget for one trade";
   if (m === "premium") return "on the option's own value";
@@ -279,8 +279,8 @@ function unsizedFlag(f: Raw): boolean {
 
 const SEGMENT_WORDS: Record<string, string> = { cash: "shares", futures: "futures", options: "options", combination: "shares and options" };
 const VIEW_WORDS: Record<string, string> = { bullish: "expects a rise", bearish: "expects a fall", neutral: "expects little movement", vol_expansion: "expects a big move", vol_contraction: "expects a quiet market" };
-const EVIDENCE_WORDS: Record<string, string> = { regime: "Market mood", trend: "Price trend", relative_strength: "Strength against the market", momentum: "Momentum", volume: "Buying interest (volume)", structure: "Chart pattern" };
-const WARNING_WORDS: Record<string, string> = { event: "Upcoming event", liquidity: "Ease of buying and selling", concentration: "Too much in one place", correlation: "Moves with what you hold" };
+const EVIDENCE_WORDS: Record<string, string> = { regime: "Market mood", trend: "Price trend", relative_strength: "Strength against the market", momentum: "Momentum", volume: "Trading interest (volume)", structure: "Chart pattern" };
+const WARNING_WORDS: Record<string, string> = { event: "Upcoming event", liquidity: "Ease of trading", concentration: "Too much in one place", correlation: "Moves with what you hold" };
 function verdictText(direction: string | null): string {
   const d = (direction ?? "").toLowerCase();
   if (/support|for|bull|confirm|positive/.test(d)) return "supports the idea";
@@ -319,27 +319,27 @@ function Sections({ v }: { v: PlanView }) {
           <Row k="Why not" testId="dc-rejection">{reasons.length ? reasons.join("; ") : "The plan's rules turned it down; no reason was recorded."}</Row>
         )}
       </Section>
-      <Section title="When to enter" testId="dc-sec-entry">
-        <Row k="Enter">{entryText(tp)}</Row>
+      <Section title="Reference price" testId="dc-sec-entry">
+        <Row k="When">{entryText(tp)}</Row>
         {numOr(entry.valid_for_sessions) != null && <Row k="Waits">up to {fmtNum(numOr(entry.valid_for_sessions))} trading days for that; after that the idea lapses</Row>}
         <Row k="Last close">{fmtPrice(numOr(entry.reference_close))}</Row>
         {isOptions(tp) && legs.length > 0 && (
-          <Row k="Positions">{legs.map((l, i) => <span key={i} style={{ display: "block" }}>{str(l.side) === "sell" ? "Sell" : "Buy"} {fmtNum(numOr(l.lots) ?? 1)} lot{(numOr(l.lots) ?? 1) === 1 ? "" : "s"}{numOr(l.lot_size) != null ? ` (${fmtNum(numOr(l.lot_size))} each)` : ""} of the {numOr(l.strike) != null ? `${fmtNum(numOr(l.strike))} ` : ""}{str(l.option_type) ?? str(l.kind) ?? ""} at {fmtPrice(numOr(l.entry_price))}</span>)}</Row>
+          <Row k="Positions">{legs.map((l, i) => <span key={i} style={{ display: "block" }}>{str(l.side) === "sell" ? "Short" : "Long"} {fmtNum(numOr(l.lots) ?? 1)} lot{(numOr(l.lots) ?? 1) === 1 ? "" : "s"}{numOr(l.lot_size) != null ? ` (${fmtNum(numOr(l.lot_size))} each)` : ""} of the {numOr(l.strike) != null ? `${fmtNum(numOr(l.strike))} ` : ""}{str(l.option_type) ?? str(l.kind) ?? ""} at {fmtPrice(numOr(l.entry_price))}</span>)}</Row>
         )}
       </Section>
       <Section title="When the idea is wrong" testId="dc-sec-stop">
-        <Row k="Exit at">{stopText(tp)}</Row>
+        <Row k="Risk level">{stopText(tp)}</Row>
         <Row k="Why there">{stopWhyText(tp)}</Row>
         <Row k="Wrong if" testId="dc-wrong-if">{wrongIfText(tp) ?? (str(stop.invalidation) ? readableText(str(stop.invalidation) as string) : <NA why="the plan does not say" />)}</Row>
       </Section>
-      <Section title="Targets (where to take profit, not forecasts)" testId="dc-sec-targets">
+      <Section title="Reward levels (not forecasts)" testId="dc-sec-targets">
         {tp.targets.length ? tp.targets.map((t, i) => (
-          <Row key={t.name} k={`Target ${i + 1}`}>{fmtPrice(t.price)}{gainText(t.r_multiple) ? ` · ${gainText(t.r_multiple)}` : ""}{t.primary ? " · the one a paper trade aims for" : ""}</Row>
-        )) : <NA why="the plan has no profit target" />}
+          <Row key={t.name} k={`Reward level ${i + 1}`}>{fmtPrice(t.price)}{gainText(t.r_multiple) ? ` · ${gainText(t.r_multiple)}` : ""}{t.primary ? " · the one a paper trade aims for" : ""}</Row>
+        )) : <NA why="the plan has no reward level" />}
       </Section>
       <Section title="Money at risk (your account)" testId="dc-sec-size">
         <Row k="Size" testId="dc-size-text">{sizeText(v)}</Row>
-        <Row k="Max loss">{riskText(v)}{a?.estimatedRisk ? <span style={{ ...quiet, display: "block" }}>loss at the exit {fmtPrice(a.estimatedRisk.gross)} + charges {fmtPrice(a.estimatedRisk.costs)} + an allowance for a price gap {fmtPrice(a.estimatedRisk.gapStress)}</span> : null}</Row>
+        <Row k="Max loss">{riskText(v)}{a?.estimatedRisk ? <span style={{ ...quiet, display: "block" }}>loss at the risk level {fmtPrice(a.estimatedRisk.gross)} + charges {fmtPrice(a.estimatedRisk.costs)} + an allowance for a price gap {fmtPrice(a.estimatedRisk.gapStress)}</span> : null}</Row>
         <Row k="Your capital" testId="dc-equity">
           {v.equity.rs != null
             ? <>{fmtPrice(v.equity.rs)} (your risk profile){a?.perTradeBudgetRs != null ? ` · up to ${fmtPrice(a.perTradeBudgetRs)} at risk on one trade` : ""}</>
@@ -380,25 +380,25 @@ function Sections({ v }: { v: PlanView }) {
         )) : <NA why="this plan was stored before plans carried their warnings" />}
       </Section>
       <Section title="How it ends" testId="dc-sec-exit">
-        <Row k="If wrong">exit at {stopText(tp)}</Row>
-        <Row k="If right">{primary ? `take profit at ${fmtPrice(primary.price)}` : UNAVAILABLE}</Row>
+        <Row k="If wrong">at the risk level, {stopText(tp)}</Row>
+        <Row k="If right">{primary ? `at the reward level, ${fmtPrice(primary.price)}` : UNAVAILABLE}</Row>
         <Row k="Time limit">{numOr(time.max_sessions) != null ? `close it after ${fmtNum(numOr(time.max_sessions))} trading days` : isOptions(tp) ? "at expiry" : <NA why="no time limit on this plan" />}</Row>
-        {trailing.enabled === true && <Row k="Protect gains">the exit price moves up as the price rises</Row>}
-        {trend.enabled === true && <Row k="Trend exit">close it if the trend turns down</Row>}
+        {trailing.enabled === true && <Row k="Protect gains">the risk level moves up as the price rises</Row>}
+        {trend.enabled === true && <Row k="Trend close">close it if the trend turns down</Row>}
         {isOptions(tp) && (
           <Row k="Option value">{opt.status === "ok"
-            ? `exit if it falls to ${fmtPrice(numOr(opt.planned_stop))}; take profit at ${fmtPrice(numOr(opt.target_1))}, then ${fmtPrice(numOr(opt.target_2))}`
-            : <NA why="no option exit levels were worked out" />}</Row>
+            ? `risk level ${fmtPrice(numOr(opt.planned_stop))}; reward levels ${fmtPrice(numOr(opt.target_1))}, then ${fmtPrice(numOr(opt.target_2))}`
+            : <NA why="no option levels were worked out" />}</Row>
         )}
       </Section>
       <details data-testid="dc-sec-audit" style={{ paddingTop: 8, borderTop: "1px solid var(--cp-line)" }}>
         <summary className="cp-eyebrow" style={{ fontSize: 9.5, cursor: "pointer" }}>Technical details</summary>
         <div className="flex min-w-0 flex-col" style={{ gap: 3, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere", paddingTop: 6, color: "var(--cp-ink-2)" }}>
-          <Row k="Stop method">{stopMethodText(tp.stop)}{str(stop.rationale) ? ` · ${readableText(str(stop.rationale) as string)}` : ""}</Row>
+          <Row k="Risk-level method">{stopMethodText(tp.stop)}{str(stop.rationale) ? ` · ${readableText(str(stop.rationale) as string)}` : ""}</Row>
           {str(stop.invalidation) && <Row k="Invalidation" testId="dc-invalidation">{readableText(str(stop.invalidation) as string)}</Row>}
-          {numOr(stop.premium_stop) != null && <Row k="Premium stop">{fmtPrice(numOr(stop.premium_stop))} a unit, on the whole structure</Row>}
-          <Row k="Entry order">{str(entry.order_type) ?? "—"}{str(entry.order_text) ? ` · ${str(entry.order_text)}` : ""}{str(entry.logic) ? ` · ${str(entry.logic)}` : ""}</Row>
-          <Row k="Targets in R">{tp.targets.length ? tp.targets.map((t) => `${humaniseTag(t.name)} ${fmtPrice(t.price)}${t.r_multiple != null ? ` (${fmtNum(t.r_multiple, 2)}R)` : ""}${t.rule ? ` — ${t.rule}` : ""}`).join(" · ") : "—"}</Row>
+          {numOr(stop.premium_stop) != null && <Row k="Premium risk level">{fmtPrice(numOr(stop.premium_stop))} a unit, on the whole structure</Row>}
+          <Row k="Reference-price rule">{str(entry.order_type) ?? "—"}{str(entry.order_text) ? ` · ${str(entry.order_text)}` : ""}{str(entry.logic) ? ` · ${str(entry.logic)}` : ""}</Row>
+          <Row k="Reward levels in R">{tp.targets.length ? tp.targets.map((t) => `${humaniseTag(t.name)} ${fmtPrice(t.price)}${t.r_multiple != null ? ` (${fmtNum(t.r_multiple, 2)}R)` : ""}${t.rule ? ` — ${t.rule}` : ""}`).join(" · ") : "—"}</Row>
           <Row k="R (risk a unit)">{tp.r_per_unit != null ? fmtPrice(tp.r_per_unit) : UNAVAILABLE}</Row>
           {evidence && <Row k="Evidence" testId="dc-ev-raw">{evidence.map((e) => `${str(e.label) ?? String(e.key)}: ${readableText(str(e.text) ?? "—")}${str(e.as_of) ? ` (${fmtDay(str(e.as_of))})` : ""}`).join(" · ")}</Row>}
           {flags.length > 0 && <Row k="Other flags" testId="dc-other-flags">{flags.map((f) => str(f.message) ?? str(f.code)).filter(Boolean).map((t) => readableText(t as string)).join("; ")}</Row>}
@@ -406,9 +406,9 @@ function Sections({ v }: { v: PlanView }) {
           {size.status === "complete" && (
             <Row k="The plan's own sizing" testId="dc-own-size">{numOr(size.lots) != null ? `${fmtNum(numOr(size.lots))} lot(s)` : `${fmtNum(numOr(size.quantity))} ${seg === "cash" ? "shares" : "units"}`} at {readableText(str(size.equity_basis) ?? "the plan's inputs")}{numOr(size.risk_rs) != null ? `, risk ${fmtPrice(numOr(size.risk_rs))}` : ""}: a what-if, not what the risk service approves for your account.</Row>
           )}
-          {v.risk.decision && <Row k="Risk decision">{v.risk.decision.decisionId.slice(0, 8)} · {v.risk.decision.policyVersion ?? "policy —"} · limits {v.risk.decision.limitsVersion ?? "—"}{v.risk.decision.estimatedRisk ? ` · stop ${fmtPrice(v.risk.decision.estimatedRisk.gross)}, costs ${fmtPrice(v.risk.decision.estimatedRisk.costs)}, gap stress ${fmtPrice(v.risk.decision.estimatedRisk.gapStress)}` : ""}</Row>}
+          {v.risk.decision && <Row k="Risk decision">{v.risk.decision.decisionId.slice(0, 8)} · {v.risk.decision.policyVersion ?? "policy —"} · limits {v.risk.decision.limitsVersion ?? "—"}{v.risk.decision.estimatedRisk ? ` · at the risk level ${fmtPrice(v.risk.decision.estimatedRisk.gross)}, costs ${fmtPrice(v.risk.decision.estimatedRisk.costs)}, gap stress ${fmtPrice(v.risk.decision.estimatedRisk.gapStress)}` : ""}</Row>}
           <Row k="Cost card">{planCostsTotal(tp) != null ? `${fmtPrice(planCostsTotal(tp))} · ${costsBreakdownText(bd, (n) => fmtPrice(n)) ?? ""}` : "—"}{str(costs.basis) ? ` · ${str(costs.basis)} (the plan's own size)` : ""}{str(costs.model) ? ` · ${str(costs.model)}` : ""}{Array.isArray(costs.excluded) && costs.excluded.length ? ` · not included: ${(costs.excluded as unknown[]).map(String).join(", ")}` : ""}</Row>
-          <Row k="Exit rules">trailing {trailing.enabled === true ? `${fmtNum(numOr(trailing.atr_multiple), 1)}×ATR` : "off"} · trend {trend.enabled === true ? `close below ${str(trend.ma) ?? "the average"} ${numOr(trend.period) ?? ""}` : "off"}{isOptions(tp) && opt.status === "ok" ? ` · option ${str(opt.kind) ?? ""} ${fmtPrice(numOr(opt.entry))} a unit${str(rec(opt.greek_review).review_when) ? ` · review when ${str(rec(opt.greek_review).review_when)}` : ""}` : ""}</Row>
+          <Row k="Close rules">trailing {trailing.enabled === true ? `${fmtNum(numOr(trailing.atr_multiple), 1)}×ATR` : "off"} · trend {trend.enabled === true ? `close below ${str(trend.ma) ?? "the average"} ${numOr(trend.period) ?? ""}` : "off"}{isOptions(tp) && opt.status === "ok" ? ` · option ${str(opt.kind) ?? ""} ${fmtPrice(numOr(opt.entry))} a unit${str(rec(opt.greek_review).review_when) ? ` · review when ${str(rec(opt.greek_review).review_when)}` : ""}` : ""}</Row>
           <Row k="Data as of" testId="dc-data-asof">{dates.length ? dates.map(([k, d]) => `${k.replace(/_/g, " ")} ${fmtDay(d)}`).join(" · ") : "—"}</Row>
           <Row k="Rule versions">{tp.rules_version || "—"}{str(p.strategy_rules_version) ? ` · ${str(p.strategy_rules_version)}` : ""}{str(p.calculation_version) ? ` · ${str(p.calculation_version)}` : ""}</Row>
           <Row k="Plan" testId="dc-plan-id">{tp.plan_id}{tp.version != null ? ` · version ${tp.version}` : ""}{str(p.created_at) ? ` · stored ${fmtDay(str(p.created_at))}` : ""}</Row>
@@ -439,11 +439,11 @@ export function DecisionCardView({ v, variant, testId = "dc", budgets = false }:
         {stale && <span data-testid="dc-stale" className="cp-pill" style={{ color: "var(--amber)", flex: "none" }} title={stale}>Old data</span>}
       </div>
       <div data-testid="dc-line" className="flex min-w-0 flex-wrap" style={{ gap: "2px 12px", fontSize: 12.5, lineHeight: 1.5 }}>
-        <Item k="Enter" v={entryText(tp)} testId="dc-entry" />
-        <Item k="Exit if wrong" v={stopText(tp)} testId="dc-stop" />
-        <Item k="Targets" v={targetsText(tp)} testId="dc-targets" />
+        <Item k="Reference price" v={entryText(tp)} testId="dc-entry" />
+        <Item k="Risk level" v={stopText(tp)} testId="dc-stop" />
+        <Item k="Reward levels" v={targetsText(tp)} testId="dc-targets" />
         <Item k="Size" v={sizeText(v)} testId="dc-size" title="Sized for your account by your risk limits (assuming no other open trades)" />
-        <Item k="Max loss" v={riskText(v)} testId="dc-risk" title="If it hits the exit: the loss, the charges and an allowance for a price gap, at your size" />
+        <Item k="Max loss" v={riskText(v)} testId="dc-risk" title="If it reaches the risk level: the loss, the charges and an allowance for a price gap, at your size" />
         <Item k="Charges" v={costs != null ? `about ${fmtPrice(costs)}` : UNAVAILABLE} testId="dc-costs" />
         <Item k="Hold for" v={horizonText(tp)} testId="dc-horizon" />
       </div>
@@ -485,7 +485,7 @@ export function DecisionCard({ plan, variant, testId, recordsShownPlan = false, 
 export function NoPlan({ reason, testId = "dc-none" }: { reason: string | null | undefined; testId?: string }) {
   return (
     <span data-testid={testId} role="note" style={{ ...quiet, padding: "6px 10px", borderRadius: 10, border: "1px dashed var(--line-2)" }}>
-      No trade plan for this idea{reason ? `: ${reason}` : " (no entry with a stop on the loss side)"}. Nothing can be paper traded from it.
+      No trade plan for this idea{reason ? `: ${reason}` : " (no reference price with a risk level on the loss side)"}. Nothing can be paper traded from it.
     </span>
   );
 }

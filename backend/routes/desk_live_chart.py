@@ -59,7 +59,7 @@ WEEKLY_READ_DAYS = 1100                # about 3 years of sessions: 104 weeks pl
 WARMUP_SESSIONS = 2                    # extra intraday sessions read for the EMA 20 / RVOL warm-up
 SIGNAL_LOOKBACK_DAYS = 45
 PAPER_ENGINE = ("A condition met on the chart is not a fill: the paper engine fills on end-of-day bars (break above / pull back "
-                "to / at once), and a stop does not cap a loss in a gap.")
+                "to / at once), and a risk level does not cap a loss in a gap.")
 KITE_REASON = {
     "token_missing": "Kite login needed for {name} candles: the platform Kite session is not logged in today.",
     "token_expired": "Kite login needed for {name} candles: the platform Kite session expired.",

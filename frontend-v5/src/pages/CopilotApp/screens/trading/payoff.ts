@@ -114,16 +114,16 @@ const leg = (side: Side, type: OptionType, offset: number, lots = 1): LegTemplat
 
 export const STRUCTURES: Record<MarketView, Structure[]> = {
   Bullish: [
-    { name: "Buy call", legs: [leg("buy", "CE", 0)] },
-    { name: "Sell put", legs: [leg("sell", "PE", 0)] },
+    { name: "Long call", legs: [leg("buy", "CE", 0)] },
+    { name: "Short put", legs: [leg("sell", "PE", 0)] },
     { name: "Bull call spread", legs: [leg("buy", "CE", 0), leg("sell", "CE", 4)] },
     { name: "Bull put spread", legs: [leg("sell", "PE", 0), leg("buy", "PE", -3)] },
     { name: "Call ratio back spread", legs: [leg("sell", "CE", 0), leg("buy", "CE", 3, 2)] },
     { name: "Call butterfly", legs: [leg("buy", "CE", 0), leg("sell", "CE", 2, 2), leg("buy", "CE", 4)] },
   ],
   Bearish: [
-    { name: "Buy put", legs: [leg("buy", "PE", 0)] },
-    { name: "Sell call", legs: [leg("sell", "CE", 0)] },
+    { name: "Long put", legs: [leg("buy", "PE", 0)] },
+    { name: "Short call", legs: [leg("sell", "CE", 0)] },
     { name: "Bear put spread", legs: [leg("buy", "PE", 0), leg("sell", "PE", -4)] },
     { name: "Bear call spread", legs: [leg("sell", "CE", 0), leg("buy", "CE", 3)] },
   ],

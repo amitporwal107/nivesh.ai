@@ -263,21 +263,21 @@ def trader_status(job: str, last: Optional[Dict[str, Any]], last_ok: Optional[Di
     session = (checked or {}).get("session")
     due = last_slot(job, now + sched["grace"])
     if status == "ok":
-        message = (f"Exits were checked after the {session} close." if session else
-                   "The evening exit check is up to date.")
+        message = (f"Paper trades were checked after the {session} close." if session else
+                   "The evening check is up to date.")
     elif status == "running":
-        message = "The evening exit check is running now."
+        message = "The evening check is running now."
     elif status == "late":
-        message = f"The exit check due at {due.astimezone(IST).strftime('%a %d %b %H:%M')} IST has not been recorded yet."
+        message = f"The evening check due at {due.astimezone(IST).strftime('%a %d %b %H:%M')} IST has not been recorded yet."
     else:
         message = {
-            "never_run": "No evening exit check has been recorded.",
-            "missed": f"No exit check was recorded after the {_ist(h['expected_since'])} IST slot.",
-            "failed": "The latest exit check did not finish.",
-            "partial": "The latest exit check could not read some prices: some exits were not checked.",
-            "no_data": f"The {(last or {}).get('session')} prices were not available, so the latest exit check "
+            "never_run": "No evening check has been recorded.",
+            "missed": f"No evening check was recorded after the {_ist(h['expected_since'])} IST slot.",
+            "failed": "The latest evening check did not finish.",
+            "partial": "The latest evening check could not read some prices: some paper trades were not checked.",
+            "no_data": f"The {(last or {}).get('session')} prices were not available, so the latest evening check "
                        f"checked nothing.",
-        }.get(state, f"The latest exit check did not complete ({state}).")
+        }.get(state, f"The latest evening check did not complete ({state}).")
     return {"job": job, "status": status, "state": state, "message": message, "last_checked": checked,
             "latest_run": None if last is None else {f: last.get(f) for f in TRADER_FIELDS},
             "expected_since": h["expected_since"], "schedule": sched["text"], "grace_minutes": h["grace_minutes"],

@@ -229,7 +229,7 @@ async def lineage(db, row: Dict[str, Any]) -> Dict[str, Any]:
     steps: List[Dict[str, Any]] = []
 
     steps.append(_step("market_snapshot", "not_recorded", "No market price snapshot is stored with a decision; the "
-                       "legs carry the entry prices the request sent.", backlog="P0.3"))
+                       "legs carry the reference prices the request sent.", backlog="P0.3"))
 
     refs = (snapshot or {}).get("references") or {}
     if refs:
@@ -268,7 +268,7 @@ async def lineage(db, row: Dict[str, Any]) -> Dict[str, Any]:
     if caps:
         figure = "not worked out" if capital is None else f"Rs {capital:,.2f}"
         steps.append(_step("pricing_margin", "recorded", f"Capital at risk {figure} (maximum loss at expiry at the "
-                           f"entry prices, before costs); caps check {caps.get('status')}. Exchange margin is not "
+                           f"reference prices, before costs); caps check {caps.get('status')}. Exchange margin is not "
                            "computed.", ref="checks.caps", backlog="P1.1"))
     else:
         steps.append(_step("pricing_margin", "not_recorded", "No pricing or caps result is recorded on this row.",

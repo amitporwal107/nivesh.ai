@@ -16,9 +16,9 @@
    "calculation_version": "payoff-v2",
    "sent_to_broker": false,
    "selection": {
-    "source": "AI scanner (watchlist + picks), end of day",
+    "source": "AI scanner (watchlist + signals), end of day",
     "scan_date": "2026-10-19",
-    "rule": "The scanner's merged list (watchlist and picks, picks win for entry, stop and target), ranked by the scanner's score, then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least Rs 10 crore a day); the top N that pass. When the snapshot cannot be read, the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate.",
+    "rule": "The scanner's merged list (watchlist and signals, signals win for the reference price, risk and reward levels), ranked by the scanner's score, then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least Rs 10 crore a day); the top N that pass. When the snapshot cannot be read, the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate. Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending).",
     "considered": 3,
     "selected": 1,
     "excluded": [
@@ -67,7 +67,7 @@
     "limit": 1,
     "chartink_limit": 4
    },
-   "ranking_note": "Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
+   "ranking_note": "Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the risk level) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending). With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
    "ideas": [
     {
      "rank": 1,
@@ -100,7 +100,7 @@
      "direction": "bullish",
      "fno_eligible": true,
      "plan_id": "plan_7699ae19c963dcfb",
-     "trade_plan_id": "tp_219b48e5aaa9c06a",
+     "trade_plan_id": "tp_39cd8ebe53cc3a40",
      "trade_plan": {
       "schema": "trade-plan-v1",
       "rules_version": "trade-plan-v1.1 (2026-10-27)",
@@ -160,7 +160,7 @@
        "distance_atr": 1.714,
        "swing_ref": null,
        "measured_from": 1195.0,
-       "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+       "rationale": "the scanner's risk level (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
        "invalidation": "the thesis is wrong if price closes beyond this level"
       },
       "r_per_unit": 40.0,
@@ -176,14 +176,14 @@
         "name": "base",
         "price": 1280.0,
         "r_multiple": 2.0,
-        "rule": "2 x the stop distance",
+        "rule": "2 x the risk-level distance",
         "primary": true
        },
        {
         "name": "optimistic",
         "price": 1320.0,
         "r_multiple": 3.0,
-        "rule": "3 x the stop distance",
+        "rule": "3 x the risk-level distance",
         "primary": false
        }
       ],
@@ -206,7 +206,7 @@
       "sizing_inputs": null,
       "costs": {
        "model": "desk-cost-v2",
-       "basis": "a round trip of 1 unit(s) from the entry to the stop",
+       "basis": "a round trip of 1 unit(s) from the reference price to the risk level",
        "units": 1,
        "breakdown_at_stop": {
         "brokerage": 40.0,
@@ -223,7 +223,7 @@
         "income tax",
         "gap slippage beyond the cost card's slippage"
        ],
-       "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+       "gap_risk": "A risk level is a level, not a guaranteed price: a session that opens through it is filled at that open (the desk's fill model), which can be worse than the risk level. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
       },
       "exit_plan": {
        "stop": {
@@ -385,13 +385,13 @@
         "key": "concentration",
         "label": "Concentration",
         "status": "at_entry",
-        "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+        "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
        },
        {
         "key": "correlation",
         "label": "Correlation",
         "status": "unavailable",
-        "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+        "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
        }
       ],
       "risk_flags": [
@@ -429,7 +429,7 @@
        "strategy_plan_id": "plan_7699ae19c963dcfb",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_219b48e5aaa9c06a",
+      "plan_id": "tp_39cd8ebe53cc3a40",
       "lineage_key": "tl_06792eb0f4ab97e7",
       "lifecycle": {
        "status": "proposed",
@@ -443,7 +443,7 @@
      "plan_status": "plan",
      "status_reasons": [],
      "would_change_if": [
-      "reward_risk_below_minimum: A nearer stop, a farther conservative level, or a lower minimum reward : risk."
+      "reward_risk_below_minimum: A nearer risk level, a farther conservative level, or a lower minimum reward : risk."
      ],
      "headline": {
       "technical_setup": {
@@ -1000,7 +1000,7 @@
     "distance_atr": 1.714,
     "swing_ref": null,
     "measured_from": 1195.0,
-    "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+    "rationale": "the scanner's risk level (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
     "invalidation": "the thesis is wrong if price closes beyond this level"
    },
    "r_per_unit": 40.0,
@@ -1016,14 +1016,14 @@
      "name": "base",
      "price": 1280.0,
      "r_multiple": 2.0,
-     "rule": "2 x the stop distance",
+     "rule": "2 x the risk-level distance",
      "primary": true
     },
     {
      "name": "optimistic",
      "price": 1320.0,
      "r_multiple": 3.0,
-     "rule": "3 x the stop distance",
+     "rule": "3 x the risk-level distance",
      "primary": false
     }
    ],
@@ -1046,7 +1046,7 @@
    "sizing_inputs": null,
    "costs": {
     "model": "desk-cost-v2",
-    "basis": "a round trip of 1 unit(s) from the entry to the stop",
+    "basis": "a round trip of 1 unit(s) from the reference price to the risk level",
     "units": 1,
     "breakdown_at_stop": {
      "brokerage": 40.0,
@@ -1063,7 +1063,7 @@
      "income tax",
      "gap slippage beyond the cost card's slippage"
     ],
-    "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+    "gap_risk": "A risk level is a level, not a guaranteed price: a session that opens through it is filled at that open (the desk's fill model), which can be worse than the risk level. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
    },
    "exit_plan": {
     "stop": {
@@ -1225,13 +1225,13 @@
      "key": "concentration",
      "label": "Concentration",
      "status": "at_entry",
-     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
     },
     {
      "key": "correlation",
      "label": "Correlation",
      "status": "unavailable",
-     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
     }
    ],
    "risk_flags": [
@@ -1269,7 +1269,7 @@
     "strategy_plan_id": "plan_7699ae19c963dcfb",
     "candidate_id": "cash:breakout_continuation"
    },
-   "plan_id": "tp_219b48e5aaa9c06a",
+   "plan_id": "tp_39cd8ebe53cc3a40",
    "lineage_key": "tl_06792eb0f4ab97e7",
    "lifecycle": {
     "status": "proposed",
@@ -1294,7 +1294,7 @@
    "entry_rule": "at_once",
    "max_hold_sessions": 10,
    "plan_ref": {
-    "plan_id": "tp_219b48e5aaa9c06a",
+    "plan_id": "tp_39cd8ebe53cc3a40",
     "candidate_id": "cash:breakout_continuation",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
@@ -1394,7 +1394,7 @@
     "distance_atr": null,
     "swing_ref": null,
     "measured_from": 54976.9,
-    "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+    "rationale": "the underlying price at which the whole structure is worth its planned premium risk level (strategy_levels)",
     "invalidation": "the thesis is wrong if the underlying closes beyond this level"
    },
    "r_per_unit": 294.98,
@@ -1403,14 +1403,14 @@
      "name": "t1",
      "price": 54641.63,
      "r_multiple": 1.14,
-     "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+     "rule": "the underlying price at which the structure reaches its premium reward level 1 (strategy_levels)",
      "primary": true
     },
     {
      "name": "t2",
      "price": 54362.19,
      "r_multiple": 2.08,
-     "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+     "rule": "the underlying price at which the structure reaches its premium reward level 2 (strategy_levels)",
      "primary": false
     }
    ],
@@ -1432,7 +1432,7 @@
    "sizing_inputs": null,
    "costs": {
     "model": "desk-cost-v2",
-    "basis": "every leg, entry and exit side, at the entry premiums",
+    "basis": "every leg, opening and closing side, at the opening premiums",
     "breakdown_round_trip_at_entry": {
      "brokerage": 80.0,
      "stt": 26.22,
@@ -1498,7 +1498,7 @@
      "greek_review": {
       "entry_delta_per_unit": -0.279,
       "view": "bearish",
-      "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+      "review_when": "net delta rises above -0.084 (30% of the opening delta -0.279)"
      },
      "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
      "expiry_flags": [],
@@ -1596,13 +1596,13 @@
      "key": "concentration",
      "label": "Concentration",
      "status": "at_entry",
-     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
     },
     {
      "key": "correlation",
      "label": "Correlation",
      "status": "unavailable",
-     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
     }
    ],
    "risk_flags": [],
@@ -1623,7 +1623,7 @@
     "kind": "regime_fit_board",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
    },
-   "plan_id": "tp_dd8a6714e0150b58",
+   "plan_id": "tp_1b86adda463cecc8",
    "lineage_key": "tl_c1fb512c39c8050b",
    "lifecycle": {
     "status": "proposed",
@@ -1692,7 +1692,7 @@
    },
    "note": "Top by regime \u2014 fit 92.5",
    "plan_ref": {
-    "plan_id": "tp_dd8a6714e0150b58",
+    "plan_id": "tp_1b86adda463cecc8",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
@@ -1902,7 +1902,7 @@
          "distance_atr": null,
          "swing_ref": null,
          "measured_from": 54976.9,
-         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "rationale": "the underlying price at which the whole structure is worth its planned premium risk level (strategy_levels)",
          "invalidation": "the thesis is wrong if the underlying closes beyond this level"
         },
         "r_per_unit": 294.98,
@@ -1911,14 +1911,14 @@
           "name": "t1",
           "price": 54641.63,
           "r_multiple": 1.14,
-          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 1 (strategy_levels)",
           "primary": true
          },
          {
           "name": "t2",
           "price": 54362.19,
           "r_multiple": 2.08,
-          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 2 (strategy_levels)",
           "primary": false
          }
         ],
@@ -1940,7 +1940,7 @@
         "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
-         "basis": "every leg, entry and exit side, at the entry premiums",
+         "basis": "every leg, opening and closing side, at the opening premiums",
          "breakdown_round_trip_at_entry": {
           "brokerage": 80.0,
           "stt": 26.22,
@@ -2006,7 +2006,7 @@
           "greek_review": {
            "entry_delta_per_unit": -0.279,
            "view": "bearish",
-           "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+           "review_when": "net delta rises above -0.084 (30% of the opening delta -0.279)"
           },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
@@ -2104,13 +2104,13 @@
           "key": "concentration",
           "label": "Concentration",
           "status": "at_entry",
-          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
          },
          {
           "key": "correlation",
           "label": "Correlation",
           "status": "unavailable",
-          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
          }
         ],
         "risk_flags": [],
@@ -2131,7 +2131,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
         },
-        "plan_id": "tp_dd8a6714e0150b58",
+        "plan_id": "tp_1b86adda463cecc8",
         "lineage_key": "tl_c1fb512c39c8050b",
         "lifecycle": {
          "status": "proposed",
@@ -2139,7 +2139,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_dd8a6714e0150b58"
+       "trade_plan_id": "tp_1b86adda463cecc8"
       },
       {
        "underlying": "NIFTY",
@@ -2319,7 +2319,7 @@
          "distance_atr": null,
          "swing_ref": null,
          "measured_from": 22811.35,
-         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "rationale": "the underlying price at which the whole structure is worth its planned premium risk level (strategy_levels)",
          "invalidation": "the thesis is wrong if the underlying closes beyond this level"
         },
         "r_per_unit": 54.1,
@@ -2328,14 +2328,14 @@
           "name": "t1",
           "price": 22589.17,
           "r_multiple": 4.11,
-          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 1 (strategy_levels)",
           "primary": true
          },
          {
           "name": "t2",
           "price": 22454.17,
           "r_multiple": 6.6,
-          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 2 (strategy_levels)",
           "primary": false
          }
         ],
@@ -2357,7 +2357,7 @@
         "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
-         "basis": "every leg, entry and exit side, at the entry premiums",
+         "basis": "every leg, opening and closing side, at the opening premiums",
          "breakdown_round_trip_at_entry": {
           "brokerage": 80.0,
           "stt": 26.43,
@@ -2423,7 +2423,7 @@
           "greek_review": {
            "entry_delta_per_unit": -0.251,
            "view": "bearish",
-           "review_when": "net delta rises above -0.075 (30% of the entry delta -0.251)"
+           "review_when": "net delta rises above -0.075 (30% of the opening delta -0.251)"
           },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
@@ -2521,13 +2521,13 @@
           "key": "concentration",
           "label": "Concentration",
           "status": "at_entry",
-          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
          },
          {
           "key": "correlation",
           "label": "Correlation",
           "status": "unavailable",
-          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
          }
         ],
         "risk_flags": [],
@@ -2548,7 +2548,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "NIFTY:bear_put_spread:2026-10-27:buy22800p/sell22500p"
         },
-        "plan_id": "tp_f2656d1385527057",
+        "plan_id": "tp_6e006f52678a1be2",
         "lineage_key": "tl_48d5fadb0543af06",
         "lifecycle": {
          "status": "proposed",
@@ -2556,7 +2556,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_f2656d1385527057"
+       "trade_plan_id": "tp_6e006f52678a1be2"
       }
      ],
      "considered": 10,
@@ -2773,7 +2773,7 @@
          "distance_atr": null,
          "swing_ref": null,
          "measured_from": 2574.99,
-         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "rationale": "the underlying price at which the whole structure is worth its planned premium risk level (strategy_levels)",
          "invalidation": "the thesis is wrong if the underlying closes beyond this level"
         },
         "r_per_unit": 27.14,
@@ -2782,14 +2782,14 @@
           "name": "t1",
           "price": 2544.02,
           "r_multiple": 1.14,
-          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 1 (strategy_levels)",
           "primary": true
          },
          {
           "name": "t2",
           "price": 2518.79,
           "r_multiple": 2.07,
-          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 2 (strategy_levels)",
           "primary": false
          }
         ],
@@ -2811,7 +2811,7 @@
         "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
-         "basis": "every leg, entry and exit side, at the entry premiums",
+         "basis": "every leg, opening and closing side, at the opening premiums",
          "breakdown_round_trip_at_entry": {
           "brokerage": 80.0,
           "stt": 19.16,
@@ -2877,7 +2877,7 @@
           "greek_review": {
            "entry_delta_per_unit": -0.162,
            "view": "bearish",
-           "review_when": "net delta rises above -0.049 (30% of the entry delta -0.162)"
+           "review_when": "net delta rises above -0.049 (30% of the opening delta -0.162)"
           },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
@@ -2975,13 +2975,13 @@
           "key": "concentration",
           "label": "Concentration",
           "status": "at_entry",
-          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
          },
          {
           "key": "correlation",
           "label": "Correlation",
           "status": "unavailable",
-          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
          }
         ],
         "risk_flags": [
@@ -3012,7 +3012,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "MPHASIS:bear_put_spread:2026-10-27:buy2550p/sell2500p"
         },
-        "plan_id": "tp_191627a18412dccf",
+        "plan_id": "tp_f3c315376baa4093",
         "lineage_key": "tl_d3d1bbb5d79ee965",
         "lifecycle": {
          "status": "proposed",
@@ -3020,7 +3020,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_191627a18412dccf"
+       "trade_plan_id": "tp_f3c315376baa4093"
       },
       {
        "underlying": "ICICIBANK",
@@ -3206,7 +3206,7 @@
          "distance_atr": null,
          "swing_ref": null,
          "measured_from": 1385.0,
-         "rationale": "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)",
+         "rationale": "the underlying price at which the whole structure is worth its planned premium risk level (strategy_levels)",
          "invalidation": "the thesis is wrong if the underlying closes beyond this level"
         },
         "r_per_unit": 9.42,
@@ -3215,14 +3215,14 @@
           "name": "t1",
           "price": 1378.78,
           "r_multiple": 0.66,
-          "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 1 (strategy_levels)",
           "primary": true
          },
          {
           "name": "t2",
           "price": 1372.16,
           "r_multiple": 1.36,
-          "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)",
+          "rule": "the underlying price at which the structure reaches its premium reward level 2 (strategy_levels)",
           "primary": false
          }
         ],
@@ -3244,7 +3244,7 @@
         "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
-         "basis": "every leg, entry and exit side, at the entry premiums",
+         "basis": "every leg, opening and closing side, at the opening premiums",
          "breakdown_round_trip_at_entry": {
           "brokerage": 80.0,
           "stt": 12.34,
@@ -3310,7 +3310,7 @@
           "greek_review": {
            "entry_delta_per_unit": -0.221,
            "view": "bearish",
-           "review_when": "net delta rises above -0.066 (30% of the entry delta -0.221)"
+           "review_when": "net delta rises above -0.066 (30% of the opening delta -0.221)"
           },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
@@ -3408,13 +3408,13 @@
           "key": "concentration",
           "label": "Concentration",
           "status": "at_entry",
-          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads."
          },
          {
           "key": "correlation",
           "label": "Correlation",
           "status": "unavailable",
-          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked when a trade is recorded, is the concentration control."
          }
         ],
         "risk_flags": [
@@ -3445,7 +3445,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "ICICIBANK:bear_put_spread:2026-10-27:buy1380p/sell1360p"
         },
-        "plan_id": "tp_18163aca5fb6e1f3",
+        "plan_id": "tp_ec7de80de0ce75c5",
         "lineage_key": "tl_4bd179e6a223992e",
         "lifecycle": {
          "status": "proposed",
@@ -3453,7 +3453,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_18163aca5fb6e1f3"
+       "trade_plan_id": "tp_ec7de80de0ce75c5"
       }
      ],
      "considered": 20,

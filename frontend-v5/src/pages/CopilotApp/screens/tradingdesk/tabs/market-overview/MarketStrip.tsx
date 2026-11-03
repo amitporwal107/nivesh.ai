@@ -120,7 +120,7 @@ function RegimeRow({ q }: { q: ReturnType<typeof useRiskFreshness> }) {
     return (
       <Row label="Regime" testId="mo-regime" data={{ "data-state": "unknown" }}>
         <span data-testid="mo-regime-unavailable" style={{ color: "var(--amber)" }}>Regime unavailable{m.reason ? `: ${m.reason}` : ""}.</span>
-        <span style={quiet}>The risk service blocks new paper entries while it cannot read the market state.</span>
+        <span style={quiet}>The risk service blocks new paper positions while it cannot read the market state.</span>
       </Row>
     );
   }
@@ -139,7 +139,7 @@ function RegimeRow({ q }: { q: ReturnType<typeof useRiskFreshness> }) {
       </span>
       {m.status === "stale" && (
         <span data-testid="mo-regime-stale" style={{ color: "var(--amber)" }}>
-          Stale{m.reason ? `: ${m.reason}` : ""}. The risk service blocks new paper entries while this input is stale.
+          Stale{m.reason ? `: ${m.reason}` : ""}. The risk service blocks new paper positions while this input is stale.
         </span>
       )}
       <span style={quiet}>The market state the risk service sizes and checks new paper trades with{m.ageSessions != null && m.budget != null ? ` · ${m.ageSessions} of ${m.budget} sessions old` : ""}.</span>

@@ -24,7 +24,7 @@ import { useRiskProfile } from "../../risk-profile";
 import { ViewHead, quiet } from "./parts";
 
 export const CONTROL_RULE =
-  "Anyone can switch the kill switch or the halt on, with a reason. Either one blocks new paper entries only: open positions are untouched and nothing is cancelled. Only an admin can switch them off.";
+  "Anyone can switch the kill switch or the halt on, with a reason. Either one blocks new paper positions only: open positions are untouched and nothing is cancelled. Only an admin can switch them off.";
 export const PROFILE_RULE = "A reason is required for every change. Tightening a limit applies now; loosening one needs an admin.";
 
 function LiveTrading() {
@@ -71,9 +71,9 @@ export function ControlsView() {
   const title = !s
     ? "Kill switch, halt and your risk profile."
     : s.killSwitch
-      ? "The kill switch is on: new paper entries are blocked."
+      ? "The kill switch is on: new paper positions are blocked."
       : s.halted
-        ? "Trading is halted: new paper entries are blocked."
+        ? "Trading is halted: new paper positions are blocked."
         : "Kill switch and halt are off; your risk profile sets every limit.";
   return (
     <div data-testid="rd-controls-view" className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 18 }}>
