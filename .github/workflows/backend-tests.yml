@@ -157,6 +157,7 @@ jobs:
           tests/test_fno_idea_paper_trade_contract.py
           tests/test_fno_iv_history.py
           tests/test_fno_margin.py
+          tests/test_fno_oi_reconcile.py
           tests/test_fno_quotes.py
           tests/test_fno_roll.py
           tests/test_fno_routes.py
