@@ -152,9 +152,10 @@ async def read_holidays(start: date, end: date) -> Tuple[Optional[set], bool]:
 
 
 async def read_intraday(sym: str, interval: str, sessions: int, user: dict) -> Dict[str, Any]:
-    """The intraday chart route's own read (Kite candles, live price merged into the candle in progress only)."""
+    """The intraday chart route's own read (Kite candles, live price merged into the candle in progress only), with every
+    interval Kite's service serves: the Research route's handler keeps 5m and up, so it is not called here."""
     from routes import research_chart_intraday as rci
-    return await rci.intraday(symbol=sym, interval=interval, sessions=sessions, user=user)
+    return await rci.read_bars(sym, interval, sessions)
 
 
 async def read_daily(sym: str, days: int = DAILY_READ_DAYS) -> List[list]:

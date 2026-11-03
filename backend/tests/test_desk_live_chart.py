@@ -599,3 +599,54 @@ def test_b8_kite_names_for_one_and_three_minutes():
     r = run(_svc(k).futures_bars("hdfcbank", "1m", 1))
     assert r["availability"] == "ok"
     assert {c[2] for c in k.calls if c[0] == "hist_oi"} == {"minute"}
+
+
+# --- the real intraday read path (3 Nov, after #463 on staging: 1m / 3m fell back to daily) -------------------------------
+# The tests above stub `read_intraday`; these run it, with only Kite itself (the service), the feed and the token reload
+# replaced, so a narrower interval check anywhere on the path shows up here.
+
+def _real_read_path(monkeypatch):
+    from routes import research_chart_intraday as rci
+    asked = []
+
+    class Feed:
+        async def read_status(self):
+            return {"state": "live", "session": "open", "cadence_seconds": 5}
+
+        async def read_snapshot(self):
+            return {"quotes": [], "data_at": None}
+
+    class Service:
+        async def bars(self, sym, interval, sessions, *, session_open=False, live_ltp=None):
+            if interval not in it.INTERVALS:          # the real service's own check
+                raise ValueError("unsupported interval")
+            asked.append((sym, interval, sessions))
+            return {"availability": "ok", "bars": [["2026-10-27T09:15:00+05:30", 100.0, 101.0, 99.0, 100.5, 1000.0]],
+                    "live_merged": False}
+
+    async def no_reload():
+        return None
+
+    monkeypatch.setattr(rci, "get_feed", lambda: Feed())
+    monkeypatch.setattr(rci, "get_service", lambda: Service())
+    monkeypatch.setattr(rci, "_refresh_platform_token", no_reload)
+    return asked
+
+
+def test_real_read_serves_every_intraday_interval_of_the_route(monkeypatch):
+    asked = _real_read_path(monkeypatch)
+    for interval in lc_route.INTERVAL_MINUTES:
+        got = run(lc_route.read_intraday("PETRONET", interval, 3, {"user_id": "u1"}))
+        assert got["availability"] == "ok", interval
+    assert [a[1] for a in asked] == list(lc_route.INTERVAL_MINUTES)
+    assert {"1m", "3m"} <= set(lc_route.INTERVAL_MINUTES)
+
+
+def test_research_route_keeps_5m_and_up(monkeypatch):
+    from routes import research_chart_intraday as rci
+    asked = _real_read_path(monkeypatch)
+    with pytest.raises(HTTPException) as e:
+        run(rci.intraday(symbol="PETRONET", interval="1m", sessions=1, user={"user_id": "u1"}))
+    assert e.value.status_code == 400
+    run(rci.intraday(symbol="PETRONET", interval="5m", sessions=1, user={"user_id": "u1"}))
+    assert asked == [("PETRONET", "5m", 1)]
