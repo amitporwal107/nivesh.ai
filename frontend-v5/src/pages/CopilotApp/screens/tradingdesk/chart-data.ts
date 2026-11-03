@@ -191,7 +191,7 @@ export function lastMove(closes: number[]): { close: number; change: number; cha
 
 /** "13 Oct 2026", or both dates when the two scanner routes are on different sessions. */
 export function scanDateLabel(watchAsOf: string | null, signalDate: string | null): string | null {
-  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · targets ${fmtDay(signalDate)}`;
+  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · levels ${fmtDay(signalDate)}`;
   const d = watchAsOf ?? signalDate;
   return d ? fmtDay(d) : null;
 }

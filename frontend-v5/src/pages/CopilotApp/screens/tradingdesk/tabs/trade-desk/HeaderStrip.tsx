@@ -33,11 +33,11 @@ function Tile({ k, v, sub, testId }: { k: string; v: ReactNode; sub?: ReactNode;
 
 /** "Exits checked after the 26 Oct close", or the missed / late / running state in the route's words. */
 export function exitJobText(j: ExitJob): { text: string; tone: "ok" | "warn" | "bad" } {
-  if (j.status === "ok") return { text: j.lastSession ? `Exits checked after the ${dayShort(j.lastSession)} close` : (j.message ?? "The evening exit check is up to date."), tone: "ok" };
-  if (j.status === "running") return { text: "The evening exit check is running now", tone: "warn" };
-  if (j.status === "late") return { text: `Exit check late: ${j.message ?? "not recorded yet"}`, tone: "warn" };
+  if (j.status === "ok") return { text: j.lastSession ? `Paper trades checked after the ${dayShort(j.lastSession)} close` : (j.message ?? "The evening paper-trade check is up to date."), tone: "ok" };
+  if (j.status === "running") return { text: "The evening paper-trade check is running now", tone: "warn" };
+  if (j.status === "late") return { text: `Evening check late: ${j.message ?? "not recorded yet"}`, tone: "warn" };
   const last = j.lastSession ? ` Last checked after the ${dayShort(j.lastSession)} close.` : "";
-  return { text: `Exit check missed: ${j.message ?? "the evening exit check did not run."}${last}`, tone: "bad" };
+  return { text: `Evening check missed: ${j.message ?? "the evening paper-trade check did not run."}${last}`, tone: "bad" };
 }
 
 function ExitJobLine() {

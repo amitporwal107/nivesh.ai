@@ -69,8 +69,8 @@ const CODE_TEXT: Record<string, string> = {
   active_alert_limit: "You have the most active alerts allowed (50). Delete one first.",
   invalid_symbol: "The symbol is not a valid NSE symbol.",
   invalid_quantity: "The quantity must be a whole number from 1 to 10,00,000.",
-  stop_not_below_entry: "The stop must be below the entry.",
-  target_not_above_entry: "The target must be above the entry.",
+  stop_not_below_entry: "The risk level must be below the reference price.",
+  target_not_above_entry: "The reward level must be above the reference price.",
   invalid_source: "The setup details sent with the trade were not accepted.",
   invalid_note: "The note was not accepted.",
   invalid_condition: "That alert type is not one the desk knows.",
@@ -88,8 +88,8 @@ const CODE_TEXT: Record<string, string> = {
   trade_not_found: "That paper trade is no longer on record.",
   alert_not_found: "That alert is no longer on record.",
   trade_already_closed: "That paper trade is already closed.",
-  invalid_entry_rule: "The entry rule is not one the desk knows (at once, break above, pull back to).",
-  invalid_entry_window: "The entry window must be 1 to 20 sessions, and only for an entry that waits for a level.",
+  invalid_entry_rule: "The opening rule is not one the desk knows (at once, break above, pull back to).",
+  invalid_entry_window: "The opening window must be 1 to 20 sessions, and only for a position that waits for a level.",
   invalid_max_hold: "The most sessions to hold must be a whole number from 1 to 250.",
   invalid_signal_at: "The signal time must be a date or time, not in the future.",
   invalid_strategy_version: "The strategy version was not accepted.",
@@ -98,22 +98,22 @@ const CODE_TEXT: Record<string, string> = {
   invalid_family: "That strategy family is not on the desk's list.",
   invalid_leg_count: "A strategy has from 1 to 4 legs.",
   unbounded_loss: "That structure can lose without limit upward. Only defined-risk option structures (and a plain futures leg) are recorded.",
-  naked_short_put: "A sold put needs a bought put of at least the same size. Naked short options are not recorded.",
+  naked_short_put: "A short put needs a long put of at least the same size. Naked short options are not recorded.",
   mixed_option_expiries: "All option legs must expire on the same date.",
   cash_only_use_share_trade: "A strategy needs at least one futures or option leg. Record shares as a share trade.",
-  short_cash_not_supported: "Selling shares is not supported in a strategy.",
+  short_cash_not_supported: "A short share leg is not supported in a strategy.",
   expiry_in_past: "A leg's expiry has already passed.",
   entry_rule_not_supported: "A strategy is recorded at the leg prices you give (at once); waiting for a level is not supported.",
-  levels_not_supported_neutral: "A neutral strategy has no stop or target on the underlying.",
+  levels_not_supported_neutral: "A neutral strategy has no risk level or reward level on the underlying.",
   invalid_signal: "The signal details (time, rule version, evidence) were not accepted.",
   invalid_evidence_summary: "The evidence summary is required (up to 1000 characters).",
   invalid_rule_version: "The rule version of the signal is required.",
-  duplicate_open_trade: "You already have an open paper trade in this stock. Adding to a position is not supported yet; close it first.",
+  duplicate_open_trade: "You already have an open paper trade in this stock. Increasing a position is not supported yet; close it first.",
   duplicate_open_structure: "You already have this structure open. Close it before recording it again.",
   idempotency_conflict: "This submission's key was already used for a different paper trade; nothing new was recorded.",
   invalid_idempotency_key: "The submission key was not accepted.",
   short_futures_not_supported: "Short futures are not recorded as paper trades yet.",
-  futures_stop_required: "A structure with a futures leg needs a stop on the underlying.",
+  futures_stop_required: "A structure with a futures leg needs a risk level on the underlying.",
   lot_size_mismatch: "A leg's lot size is not the exchange lot.",
   lot_size_unverified: "The exchange lot could not be confirmed, so nothing was recorded.",
   no_close_available:  "There is no end-of-day close for this stock yet, so it cannot be closed at the last close.",
@@ -280,7 +280,7 @@ export function maxHoldFor(sessions: number | null | undefined): number | undefi
 }
 /** "; exits after N sessions held" for a body's note, or "" when no time exit is sent. */
 export function maxHoldNote(sessions: number | undefined): string {
-  return sessions != null ? `; exits after ${sessions} session${sessions === 1 ? "" : "s"} held` : "";
+  return sessions != null ? `; closes after ${sessions} session${sessions === 1 ? "" : "s"} held` : "";
 }
 
 /** assumed: filled when recorded (at once) · reached: the level traded · waiting: not yet · not_reached: never filled. */

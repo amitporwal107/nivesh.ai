@@ -41,10 +41,10 @@ const RUNNING = ["max_open_risk_pct", "max_sector_pct", "daily_loss_pct", "weekl
 
 function entriesOf(st: ReturnType<typeof useRiskStatus>): { text: string; tone: Tone; words: string } {
   const s = st.data;
-  if (!s || !s.known) return { text: st.isPending ? "…" : UNKNOWN, tone: "ink", words: "the entry controls are unknown" };
-  if (s.killSwitch) return { text: "Blocked", tone: "danger", words: "new entries are blocked by the kill switch" };
-  if (s.halted) return { text: "Halted", tone: "danger", words: "new entries are halted" };
-  return { text: "Allowed", tone: "mint", words: "new entries are allowed" };
+  if (!s || !s.known) return { text: st.isPending ? "…" : UNKNOWN, tone: "ink", words: "the controls on new positions are unknown" };
+  if (s.killSwitch) return { text: "Blocked", tone: "danger", words: "new positions are blocked by the kill switch" };
+  if (s.halted) return { text: "Halted", tone: "danger", words: "new positions are halted" };
+  return { text: "Allowed", tone: "mint", words: "new positions are allowed" };
 }
 
 function headline(view: RiskProfileView | undefined, entries: string): string {
@@ -74,9 +74,9 @@ function LimitRows({ view }: { view: RiskProfileView }) {
         let used: string;
         let left: string;
         if (u.perEntry) {
-          used = "judged per entry";
+          used = "judged per new position";
           left = f === "min_reward_risk"
-            ? `each entry needs ${limitText(f, limit)} after costs`
+            ? `each new position needs ${limitText(f, limit)} after costs`
             : u.capRs != null ? `${fmtINR(u.capRs)} ${f === "per_trade_risk_pct" ? "risk per trade" : "per position"}` : `${UNKNOWN} (paper equity unknown)`;
         } else if (u.usedPct == null) {
           used = UNKNOWN;
@@ -127,7 +127,7 @@ function Reserved({ view, maxPositions }: { view: RiskProfileView; maxPositions:
             Plus {fmtINR(legacy)} estimated on positions opened before the risk profile (not reserved). The open-risk limit counts both: {fmtINR(l?.open.riskRs ?? null)}.
           </span>
         )}
-        <span style={quiet}>Each entry reserves its estimated risk when it is allowed: the loss at the stop, plus round-trip costs and a gap stress. Closing the trade releases it.</span>
+        <span style={quiet}>Each new position reserves its estimated risk when it is allowed: the loss at the risk level, plus round-trip costs and a gap stress. Closing the trade releases it.</span>
       </div>
       <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
         <span data-testid="rd-positions" style={{ fontSize: 14, color: "var(--cp-ink)" }}>
@@ -170,10 +170,10 @@ function RegimeLine({ f }: { f: RiskFreshness }) {
   let text: string;
   let tone: Tone = "ink";
   if (!r.regimeKnown && m.vix == null) {
-    text = "Market regime and India VIX are unknown: the regime rule is skipped, and new entries are blocked while the market state is not fresh.";
+    text = "Market regime and India VIX are unknown: the regime rule is skipped, and new positions are blocked while the market state is not fresh.";
     tone = "amber";
   } else if (r.deferred) {
-    text = `India VIX ${m.vix}${asOf} is at or above 35: new entries are deferred.`;
+    text = `India VIX ${m.vix}${asOf} is at or above 35: new positions are deferred.`;
     tone = "danger";
   } else if (r.factor != null && r.factor < 1) {
     text = `${r.parts.join(" and ")}${asOf}: size limits ${factorText(r.factor)}.`;
@@ -215,7 +215,7 @@ function MarketInputs({ suggested }: { suggested: string | null }) {
               value={typeof q.data.sector.value === "string" ? q.data.sector.value : null} />
           </ul>
           <span data-testid="rd-fresh-rule" style={quiet}>
-            A new paper entry is blocked when any of its inputs is not ok. Age is counted in NSE sessions{q.data.referenceSession ? `, up to the ${day(q.data.referenceSession)} session` : ""}.
+            A new paper position is blocked when any of its inputs is not ok. Age is counted in NSE sessions{q.data.referenceSession ? `, up to the ${day(q.data.referenceSession)} session` : ""}.
             {q.data.symbol && !sym && suggested ? ` ${q.data.symbol} is your newest share decision.` : ""}
           </span>
         </>
@@ -273,7 +273,7 @@ export function LimitsView() {
         <Kpi k="Drawdown" testId="rd-kpi-drawdown" value={kpiPct("max_drawdown_pct")} tone={kpiTone("max_drawdown_pct")} note={`from peak · ${limitOf("max_drawdown_pct")}`} />
         <Kpi k="Positions" testId="rd-kpi-positions" value={n == null ? (profile.isPending ? "…" : UNKNOWN) : `${fmtNum(n)} / ${maxPositions}`}
           tone={n == null ? "ink" : n >= maxPositions ? "danger" : "ink"} note="fixed limit" />
-        <Kpi k="Entries" testId="rd-kpi-entries" value={entries.text} tone={entries.tone} note={status.data?.known ? "kill switch and halt" : "controls unknown"} />
+        <Kpi k="New positions" testId="rd-kpi-entries" value={entries.text} tone={entries.tone} note={status.data?.known ? "kill switch and halt" : "controls unknown"} />
       </div>
 
       <div className="grid" style={{ gap: mobile ? 14 : 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", alignItems: "start" }}>
@@ -296,7 +296,7 @@ export function LimitsView() {
         </Card>
 
         <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 18 }}>
-          <Card id="rd-reserved" num="02" title="Open risk reserved at entry" testId="rd-reserved-card">
+          <Card id="rd-reserved" num="02" title="Open risk reserved when opened" testId="rd-reserved-card">
             {profile.isPending && <LoadingBlock label="Loading the open book" rows={2} />}
             {profile.isError && <span style={quiet}>Unknown: the risk profile did not load.</span>}
             {view && <Reserved view={view} maxPositions={maxPositions} />}

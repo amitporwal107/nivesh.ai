@@ -701,7 +701,7 @@ function StockSub({ r: row }: { r: Row }) {
       </span>
     );
   }
-  if (r.change == null || r.changePct == null) return <span className="cp-num">{r.s?.close == null && r.s?.entry != null ? "Entry " : "Close "}{fmtPrice(r.price)}</span>;
+  if (r.change == null || r.changePct == null) return <span className="cp-num">{r.s?.close == null && r.s?.entry != null ? "Reference price " : "Close "}{fmtPrice(r.price)}</span>;
   const tone = TONE_COLOR[r.change > 0 ? "mint" : r.change < 0 ? "danger" : "ink"];
   return (
     <span className="cp-num">
@@ -750,7 +750,7 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
   const stop = s?.stop ?? null;
   const target = s?.target ?? null;
   if (!s || entry == null || stop == null || !(entry > stop)) {
-    return <span data-testid="desk-scan-paper-none" style={noteStyle}>Paper trade needs a scanner setup with an entry and a stop below it; {r.symbol} has none on this scan.</span>;
+    return <span data-testid="desk-scan-paper-none" style={noteStyle}>Paper trade needs a scanner setup with a reference price and a risk level below it; {r.symbol} has none on this scan.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
   const rule = entryRuleFor(entry, s.close, { stage: s.stage, bucket: s.bucket });
@@ -776,7 +776,7 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
         </Btn>
       </span>
       <span data-testid="desk-scan-paper-note" style={noteStyle}>
-        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-scan-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{maxHoldNote(maxHold)}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
+        Hypothetical, at the setup’s levels: reference price {fmtPrice(entry)} (<span data-testid="desk-scan-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), risk level {fmtPrice(stop)}{sendTarget != null ? `, reward level ${fmtPrice(sendTarget)}` : ", no reward level"}{maxHoldNote(maxHold)}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
       </span>
       {done?.isSuccess && <span role="status" data-testid="desk-scan-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(done.variables?.quantity ?? null)} {r.symbol} at {fmtPrice(done.variables?.entry_price ?? null)}. No order is placed.</span>}
       {done?.isError && <span role="alert" data-testid="desk-scan-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(done.error)}</span>}
@@ -833,7 +833,7 @@ function fieldLabels(head: UpHead, plain: boolean): Record<string, string> {
   return {
     rank: "#", stock: "Stock", score: "Score", odds: oddsLabel(head, plain), mrank: "Model rank",
     setup: plain ? "Why it shows up" : "Pattern / catalyst", confirm: plain ? "What backs it" : "Confirmation",
-    liquidity: plain ? "Easy to trade" : "Liquidity", risk: "Risk", target: "To target", spark: "24 sessions", action: "Action",
+    liquidity: plain ? "Easy to trade" : "Liquidity", risk: "Risk", target: "To reward level", spark: "24 sessions", action: "Action",
   };
 }
 
@@ -1162,8 +1162,8 @@ function AboutModel({ odds, uni, engineVersions, classifier, rulesVersion }: { o
 }
 
 const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
-  watchlist: "The setup watchlist did not answer, so only the scanner’s ideas with targets are listed.",
-  picks: "The scanner’s target list did not answer, so only the setup watchlist is listed and no stock has a target.",
+  watchlist: "The setup watchlist did not answer, so only the scanner’s ideas with reward levels are listed.",
+  picks: "The scanner’s ideas list did not answer, so only the setup watchlist is listed and no stock has a reward level.",
 };
 
 // ── the tab ──────────────────────────────────────────────────────────────
@@ -1300,7 +1300,7 @@ function ScannerList() {
   if (scan.isError && uniError) {
     return (
       <div data-testid="desk-scan-error">
-        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner’s target list answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
+        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner’s ideas list answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
       </div>
     );
   }
@@ -1369,7 +1369,7 @@ function ScannerList() {
   const notes = (
     <>
       {data?.partial.map((p) => <span key={p} data-testid="desk-scan-partial" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{PARTIAL_NOTE[p]}</span>)}
-      {scan.isError && <span data-testid="desk-scan-setups-error" role="alert" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-danger)" }}>The scanner’s own setups (GET /api/positional/watchlist, /picks) didn’t load; only the universe categories are listed. <button type="button" onClick={() => scan.refetch()} style={linkBtn}>Retry</button></span>}
+      {scan.isError && <span data-testid="desk-scan-setups-error" role="alert" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-danger)" }}>The scanner’s own setups didn’t load; only the universe categories are listed. <button type="button" onClick={() => scan.refetch()} style={linkBtn}>Retry</button></span>}
       {f.liquid && minCr != null && <span data-testid="desk-scan-liquid-note" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>Liquid only: average daily traded value (close × volume) over the last {fmtNum(rules?.liquidity?.sessions ?? null)} sessions of at least ₹{fmtNum(minCr)} Cr{rules?.version ? ` (${rules.version})` : ""}.</span>}
       {(ck.kind === "source_error" || ck.kind === "hits_error") && cat !== "chartink" && (
         <span data-testid="desk-scan-ck-note" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
@@ -1434,9 +1434,9 @@ function ScannerList() {
         {plain
           ? <>Score is a rules-based rank from the end-of-day scan, 0–100; it is not a chance of anything. {oddsLabel(head, plain)}: the chance the next trading day’s high gets {head === "p_up10_1d" ? "10" : "5"}% above the last close — one day only. It is held back because it is not marked as checked against real outcomes. Model rank: where the model puts the stock among eligible stocks. Past record: no track record per idea is published yet.</>
           : <>Score: the end-of-day scanner’s rules-based score, 0–100; it ranks setups and it is not a probability. {oddsLabel(head, plain)}: the move-odds model’s estimate that the next session’s high reaches the previous close plus {head === "p_up10_1d" ? "10" : "5"}%, one session only — withheld unless the route marks it calibrated. Model rank: that estimate’s percentile among eligible stocks. Hit rate · n: no per-setup back-tested record is published.</>}
-        {" "}Entry, stop and target are hypothetical and never sent to a broker.
+        {" "}Reference price, risk level and reward level are hypothetical and never sent to a broker.
       </span>
-      <span>Sources: NSE end-of-day scanner (setup watchlist and target list) · NIDP feature store (scan universe) · move-odds model (latest estimates).</span>
+      <span>Sources: NSE end-of-day scanner (setup watchlist and ideas list) · NIDP feature store (scan universe) · move-odds model (latest estimates).</span>
       <UniverseNote uni={uni} uniError={uniError} onRetry={() => uniQ.refetch()} rules={rules} minCr={minCr} />
       <AboutModel odds={odds5Q.data} uni={uni} engineVersions={data?.engineVersions ?? []} classifier={data?.classifierVersion ?? null} rulesVersion={data?.rulesVersion ?? rules?.version ?? null} />
     </span>

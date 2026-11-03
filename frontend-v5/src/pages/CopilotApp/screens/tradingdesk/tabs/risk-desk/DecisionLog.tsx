@@ -43,7 +43,7 @@ function sizeText(d: AuditDecision): string | null {
 function estimateText(d: AuditDecision): string {
   const e = d.estimate;
   if (!e || e.total == null) return "Estimate: not sized";
-  const parts = [`stop ${fmtINR(e.gross)}`, `costs ${fmtINR(e.costs)}`, `gap ${fmtINR(e.gapStress)}`].join(" + ");
+  const parts = [`loss at risk level ${fmtINR(e.gross)}`, `costs ${fmtINR(e.costs)}`, `gap ${fmtINR(e.gapStress)}`].join(" + ");
   return `Estimated risk ${fmtINR(e.total)} (${parts})`;
 }
 

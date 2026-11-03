@@ -60,8 +60,8 @@ export function PayoffChart({ curve, spot, stop, target, breakevens = [], testId
         {expiry && <path d={expiry} fill="none" stroke="var(--cp-ink-2)" strokeWidth={1.5} data-testid={`${testId}-expiry`} />}
         {today && <path d={today} fill="none" stroke="var(--mint)" strokeWidth={2} data-testid={`${testId}-today`} />}
         {marker(spot, "var(--cp-ink)", "Now", "spot")}
-        {marker(stop, "var(--cp-danger)", "Stop", "stop")}
-        {marker(target, "var(--mint)", "Target", "target")}
+        {marker(stop, "var(--cp-danger)", "Risk level", "stop")}
+        {marker(target, "var(--mint)", "Reward level", "target")}
         {breakevens.map((b) => marker(b, "var(--amber)", "BE", "breakeven"))}
       </svg>
       <figcaption className="cp-mono-note">

@@ -33,7 +33,7 @@ export function RiskReduceOffer({ error, onAccept, testId, label }: {
         {label ? label(qty) : `Paper trade ${shares} instead`}
       </Btn>
       <span data-testid={`${testId}-note`} style={quiet}>
-        Same entry, stop and target{r?.approvedNotionalRs != null ? `; ${fmtINR(r.approvedNotionalRs)} at the planned entry` : ""}. The risk policy checks it again. Simulated; nothing is sent to a broker.
+        Same reference price, risk level and reward level{r?.approvedNotionalRs != null ? `; ${fmtINR(r.approvedNotionalRs)} at the planned reference price` : ""}. The risk policy checks it again. Simulated; nothing is sent to a broker.
       </span>
     </span>
   );

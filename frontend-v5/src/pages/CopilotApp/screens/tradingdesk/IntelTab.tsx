@@ -103,8 +103,8 @@ const PLAIN_CATEGORY: Record<string, string> = {
   capex: "spending on new plants or capacity",
   management: "a change in its leadership",
   dividend: "a dividend",
-  buyback: "buying back its own shares",
-  qip: "raising money by selling new shares to institutions",
+  buyback: "repurchasing its own shares",
+  qip: "raising money by issuing new shares to institutions",
   rating: "a credit rating",
   litigation: "a legal case or a tax demand",
 };
@@ -115,8 +115,8 @@ const FAMILY_WHY: Record<string, { trader: string; plain: string }> = {
     plain: "The company spoke to analysts or investors, or published its slides. What management says about the future can move the share price.",
   },
   "Ownership disclosure": {
-    trader: "A disclosure under SEBI's takeover or insider-trading rules, a pledge or a shareholding change: who is buying, selling or pledging shares.",
-    plain: "A large owner or an insider bought, sold or pledged shares, and had to tell the exchange.",
+    trader: "A disclosure under SEBI's takeover or insider-trading rules, a pledge or a shareholding change: who is acquiring, disposing of or pledging shares.",
+    plain: "A large owner or an insider acquired, disposed of or pledged shares, and had to tell the exchange.",
   },
   "Exchange query": {
     trader: "The exchange asked the company about unusual price or volume moves or a news item, and this is the company's answer.",
@@ -149,8 +149,8 @@ function whyText(ev: IntelEvent, persona: DeskPersona): string {
         : "A SEBI circular sets or changes rules for listed companies, brokers, funds or other market participants. Read it to see whether it touches what you trade.";
     case "flows":
       return investor
-        ? "Shows whether large foreign (FII) and Indian (DII) institutions were net buyers or net sellers of shares that day. One day on its own says little."
-        : "Net buying (+) or selling (−) in the cash market by foreign (FII) and domestic (DII) institutions this session, as NSE reported it provisionally. One session says little on its own; the FII / DII chip lists the last ten.";
+        ? "Shows whether large foreign (FII) and Indian (DII) institutions had a net inflow or a net outflow in shares that day. One day on its own says little."
+        : "Net inflow (+) or outflow (−) in the cash market by foreign (FII) and domestic (DII) institutions this session, as NSE reported it provisionally. One session says little on its own; the FII / DII chip lists the last ten.";
     case "sector":
       return investor
         ? "A whole group of companies in one industry moved a lot in one day. Stocks in that industry often move together."
@@ -160,8 +160,8 @@ function whyText(ev: IntelEvent, persona: DeskPersona): string {
     case "deals":
     default:
       return investor
-        ? "A large investor bought or sold a big lot of this company’s shares. The exchange publishes such deals after the market closes."
-        : "A bulk deal is one in which a client traded more than 0.5% of the company’s listed shares in a day; a block deal is a large trade done in the exchange’s separate block window. Both are published after the close and show where large holders bought or sold.";
+        ? "A large investor traded a big lot of this company’s shares. The exchange publishes such deals after the market closes."
+        : "A bulk deal is one in which a client traded more than 0.5% of the company’s listed shares in a day; a block deal is a large trade done in the exchange’s separate block window. Both are published after the close and show where large holders traded.";
   }
 }
 
@@ -491,7 +491,7 @@ function AiBox({ ev }: { ev: IntelEvent }) {
         </span>
       )}
       <span data-testid="desk-event-ai-labels" style={quiet}>
-        {ai.tone ? `Tone: ${titleCase(ai.tone)}` : "Tone: —"} · {ai.importance ? `Importance: ${titleCase(ai.importance)}` : "Importance: —"} · labels from the announcement classifier, not checked against the price and not a buy or sell direction.
+        {ai.tone ? `Tone: ${titleCase(ai.tone)}` : "Tone: —"} · {ai.importance ? `Importance: ${titleCase(ai.importance)}` : "Importance: —"} · labels from the announcement classifier, not checked against the price and not a trading direction.
       </span>
       <FullRead key={ev.id} ev={ev} />
       <TrustLine testId="desk-event-ai-trust" source="Announcement classifier and filing summariser" maker="ai" method={ai.classifier ? `classifier ${ai.classifier}` : null} />
@@ -503,7 +503,7 @@ function AiBox({ ev }: { ev: IntelEvent }) {
 function DealBox({ ev }: { ev: IntelEvent }) {
   const d = ev.deal;
   if (!d) return null;
-  const side = d.side === "BUY" ? "Buyer" : d.side === "SELL" ? "Seller" : "Client";
+  const side = d.side === "BUY" ? "Client · purchase" : d.side === "SELL" ? "Client · sale" : "Client";
   const rows: Array<{ k: string; v: string; testId: string; note?: string }> = [
     { k: side, v: d.client ?? "—", testId: "desk-deal-client" },
     { k: "Quantity", v: d.quantity != null ? `${fmtNum(d.quantity)} shares` : "—", testId: "desk-deal-qty" },

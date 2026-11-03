@@ -38,12 +38,12 @@ export function levelsOfPlan(tp: TradePlan | null | undefined): ListedLevels | n
 }
 
 function entryWord(l: ListedLevels): string {
-  if (l.entry == null) return "entry —";
+  if (l.entry == null) return "reference price —";
   if (l.entry_kind === "net_premium") return `net premium ${fmtPrice(Math.abs(l.entry))} ${l.entry < 0 ? "debit" : "credit"}`;
-  return `entry ${fmtPrice(l.entry)}`;
+  return `reference price ${fmtPrice(l.entry)}`;
 }
 
-const levelsText = (l: ListedLevels) => `${entryWord(l)} · stop ${fmtPrice(l.stop)} · target ${fmtPrice(l.target)}`;
+const levelsText = (l: ListedLevels) => `${entryWord(l)} · risk level ${fmtPrice(l.stop)} · reward level ${fmtPrice(l.target)}`;
 
 export function CarryTag({ sessions, from, first, today, todayLabel = "today", testId }: {
   sessions: number; from: string; first: ListedLevels | null; today: ListedLevels | null; todayLabel?: string; testId: string;

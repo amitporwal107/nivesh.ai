@@ -58,7 +58,7 @@ function LevelRow({ label, value, onChange, step, base, testId, allowEmpty }: {
   const bump = (d: number) => onChange(Math.max(step, Number(round((value ?? base) + d * step).toFixed(2))));
   return (
     <div className="flex items-center" style={{ gap: 6 }}>
-      <span style={{ ...eyebrow, width: 90, flexShrink: 0 }}>{label}</span>
+      <span style={{ ...eyebrow, width: 112, flexShrink: 0 }}>{label}</span>
       <button type="button" aria-label={`${label} down`} data-testid={`${testId}-minus`} style={stepBtn} onClick={() => bump(-1)}>−</button>
       <input data-testid={testId} aria-label={label} type="number" inputMode="decimal" step={step} value={value ?? ""} placeholder="—"
         onChange={(e) => {
@@ -80,10 +80,10 @@ function LegRow({ leg, symbol, onFlip, onRemove, onQty }: { leg: BasketLeg; symb
     <div data-testid="ca-basket-leg" data-kind={leg.kind} data-side={leg.side} data-strike={leg.strike ?? ""} data-expiry={leg.expiry ?? ""} data-qty={leg.qty} data-entry={leg.entry}
       className="flex flex-col" style={{ gap: 6, padding: "9px 10px", borderTop: "1px solid var(--line-2)" }}>
       <div className="flex items-center" style={{ gap: 8 }}>
-        <button type="button" data-testid="ca-basket-side" onClick={onFlip} title="Switch buy / sell"
+        <button type="button" data-testid="ca-basket-side" onClick={onFlip} title="Switch long / short"
           style={{ width: 46, flexShrink: 0, padding: "3px 0", borderRadius: 6, border: `1px solid ${buy ? "var(--mint-line)" : "var(--danger-line)"}`, background: buy ? "var(--mint-soft)" : "var(--cp-danger-soft)",
             color: buy ? "var(--mint)" : "var(--cp-danger)", cursor: "pointer", ...mono(10.5, { letterSpacing: "0.08em" }) }}>
-          {buy ? "BUY" : "SELL"}
+          {buy ? "LONG" : "SHORT"}
         </button>
         <span data-testid="ca-basket-leg-name" className="cp-num" style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{legName(leg, symbol, fmtExpiry)}</span>
         <button type="button" data-testid="ca-basket-remove" aria-label="Remove leg" onClick={onRemove} style={{ border: 0, background: "none", color: "var(--cp-ink-3)", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
@@ -145,14 +145,14 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
       const entry = b.levels.cashEntry ?? cashL.entry;
       const rule = entryRuleFor(entry, last.price);
       const r = cashBodyOf({ symbol, leg: cashL, levels: b.levels, rule, planId: cite ? planId : null, now });
-      const ruleNote = `Share trade, entry rule ${rule.replace("_", " ")}: ${ENTRY_RULE_SHORT[rule]} (entry ${rs(entry)} against the LAST ${rs(last.price)}).`;
+      const ruleNote = `Share trade, reference-price rule ${rule.replace("_", " ")}: ${ENTRY_RULE_SHORT[rule]} (reference price ${rs(entry)} against the LAST ${rs(last.price)}).`;
       return r.ok ? { ok: true, request: { kind: "cash", body: r.body, signature: sig, rule }, notes: [ruleNote] } : { ok: false, problems: r.problems, notes: [ruleNote] };
     }
     if (routeProblems.length) return { ok: false, problems: routeProblems, notes: [] };
     if (!answer) return { ok: false, problems: [pay.errorText ?? "Reading the position delta from the payoff route…"], notes: [] };
     // A future priced off the chart is not a traded price: its source says so.
     const bodyLegs = legs.map((l) => (l.kind === "FUT" && futMoved && futPrice != null
-      ? { ...l, priceSource: clip(`Entry level set on the chart, not a traded price (the ${l.expiry} future's last bhavcopy price ${rs(futPrice)}, ${futData?.as_of ?? ""})`, 200) } : l));
+      ? { ...l, priceSource: clip(`Reference level set on the chart, not a traded price (the ${l.expiry} future's last bhavcopy price ${rs(futPrice)}, ${futData?.as_of ?? ""})`, 200) } : l));
     const r = strategyBodyOf({ symbol, legs: bodyLegs, refPrice: last.price, last, fnoAsOf, delta: answer.pre_expiry?.greeks?.delta ?? null, levels: b.levels, planId: cite ? planId : null, now });
     return r.ok ? { ok: true, request: { kind: "strategy", body: r.body, signature: sig, legs: legs.length }, notes: r.notes } : { ok: false, problems: r.problems, notes: [] };
   };
@@ -166,7 +166,7 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
   let lossLabel = "MAX LOSS", profitLabel = "MAX PROFIT", lossText = "—", profitText = "—", basis = "at expiry, before costs";
   let loss: number | null = null, profit: number | null = null;
   if (atLevels) {
-    lossLabel = "RISK TO STOP"; profitLabel = "REWARD TO TARGET"; basis = "at the stop / target, after costs";
+    lossLabel = "LOSS AT RISK LEVEL"; profitLabel = "PROFIT AT REWARD LEVEL"; basis = "at the risk / reward level, after costs";
     loss = b.levels.stop != null ? scen(STOP_SCENARIO)?.net ?? null : null;
     profit = b.levels.target != null ? scen(TARGET_SCENARIO)?.net ?? null : null;
     lossText = b.levels.stop == null ? "no stop" : rs(loss, 0);
@@ -183,7 +183,7 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
   const premiumLine = !hasOpt ? "NO OPTION PREMIUM" : np == null ? "OPTIONS NET —" : np < 0 ? `OPTIONS NET DEBIT ${rs(-np)}` : np > 0 ? `OPTIONS NET CREDIT ${rs(np)}` : "OPTIONS NET ₹0.00";
 
   const family = familyOf(legs);
-  const presetProblem = notFno ?? (chain ? null : "Pick Current, Next or Far: the presets need one expiry's chain with prices.");
+  const presetProblem = notFno ?? (chain ? null : "Choose Current, Next or Far: the presets need one expiry's chain with prices.");
 
   return (
     <aside data-testid="ca-basket" aria-label="Paper trade basket" className="flex flex-col"
@@ -216,7 +216,7 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
               const why = presetProblem ?? (built.ok ? null : built.why);
               return (
                 <Pill key={p.key} data-testid={`ca-preset-${p.key}`} on={p.key !== "short_strangle" && family === p.key && legs.some(isOption)} disabled={!built.ok}
-                  title={why ?? (p.warning ?? `${p.name}: ${built.ok ? built.legs.map((l) => `${l.side === "B" ? "B" : "S"} ${l.strike} ${l.kind}`).join(", ") : ""}`)}
+                  title={why ?? (p.warning ?? `${p.name}: ${built.ok ? built.legs.map((l) => `${l.side === "B" ? "L" : "S"} ${l.strike} ${l.kind}`).join(", ") : ""}`)}
                   onClick={() => { if (built.ok) b.replaceLegs(built.legs); }}>
                   {p.name}{p.warning && <span data-testid={`ca-preset-${p.key}-warning`} style={{ marginLeft: 5, color: "var(--cp-danger)", ...mono(9.5) }}>∞ loss</span>}
                 </Pill>
@@ -243,17 +243,17 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
 
       {legs.length > 0 && (
         <div data-testid="ca-basket-levels" className="flex flex-col" style={{ gap: 6 }}>
-          {futLeg && <LevelRow label="FUT ENTRY" testId="ca-level-fut-entry" value={futLeg.entry} step={step} base={futLeg.entry} allowEmpty={false} onChange={(v) => { if (v != null) b.setEntry(futLeg.id, v); }} />}
+          {futLeg && <LevelRow label="FUT REF PRICE" testId="ca-level-fut-entry" value={futLeg.entry} step={step} base={futLeg.entry} allowEmpty={false} onChange={(v) => { if (v != null) b.setEntry(futLeg.id, v); }} />}
           {cashL && !futLeg && (
-            <LevelRow label="CASH ENTRY" testId="ca-level-cash-entry" value={b.levels.cashEntry ?? cashL.entry} step={step} base={cashL.entry} allowEmpty={false}
+            <LevelRow label="CASH REF PRICE" testId="ca-level-cash-entry" value={b.levels.cashEntry ?? cashL.entry} step={step} base={cashL.entry} allowEmpty={false}
               onChange={(v) => { if (v != null) { b.setEntry(cashL.id, v); b.setLevels({ cashEntry: v }); } }} />
           )}
-          <LevelRow label="STOP" testId="ca-level-stop" value={b.levels.stop} step={step} base={last.price} allowEmpty onChange={(v) => b.setLevels({ stop: v })} />
-          <LevelRow label="TARGET" testId="ca-level-target" value={b.levels.target} step={step} base={last.price} allowEmpty onChange={(v) => b.setLevels({ target: v })} />
-          <span style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>Stop and target are on the underlying (reference {rs(last.price)}).</span>
+          <LevelRow label="RISK LEVEL" testId="ca-level-stop" value={b.levels.stop} step={step} base={last.price} allowEmpty onChange={(v) => b.setLevels({ stop: v })} />
+          <LevelRow label="REWARD LEVEL" testId="ca-level-target" value={b.levels.target} step={step} base={last.price} allowEmpty onChange={(v) => b.setLevels({ target: v })} />
+          <span style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>Risk and reward levels are on the underlying (reference {rs(last.price)}).</span>
           {futMoved && futPrice != null && (
             <span data-testid="ca-basket-fut-moved" style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--amber)" }}>
-              The future&apos;s entry {rs(futLeg?.entry)} is not its last price {rs(futPrice)}: a strategy is recorded at the leg prices given, at once.
+              The future&apos;s reference price {rs(futLeg?.entry)} is not its last price {rs(futPrice)}: a strategy is recorded at the leg prices given, at once.
             </span>
           )}
         </div>
@@ -261,7 +261,7 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
 
       {legs.length > 0 && (
         <div data-testid="ca-basket-risk" style={{ opacity: pay.isStale ? 0.6 : 1 }}>
-          <div data-testid="ca-basket-premium" style={{ ...mono(10), color: "var(--cp-ink-2)" }}>{premiumLine} · P&amp;L {atLevels ? "AT THE STOP / TARGET" : "AT EXPIRY"}</div>
+          <div data-testid="ca-basket-premium" style={{ ...mono(10), color: "var(--cp-ink-2)" }}>{premiumLine} · P&amp;L {atLevels ? "AT THE RISK / REWARD LEVEL" : "AT EXPIRY"}</div>
           <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "8px 12px", borderTop: "1px solid var(--line-2)", marginTop: 8, paddingTop: 8 }}>
             <div className="flex flex-col" style={{ gap: 2 }}>
               <span style={eyebrow}>{lossLabel}</span>
@@ -289,7 +289,7 @@ export function BasketPanel({ symbol, chain, notFno, last, planLevels, planId, o
       )}
 
       <div style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-        Click a B or S in the option chain to add a leg. Click the chart or drag the lines to set cash and future levels. Option and future legs are recorded at the prices shown and marked on each end-of-day bar; a share trade fills by its entry rule on end-of-day bars.
+        Click an L or S in the option chain to add a leg. Click the chart or drag the lines to set cash and future levels. Option and future legs are recorded at the prices shown and marked on each end-of-day bar; a share trade fills by its reference-price rule on end-of-day bars.
       </div>
 
       {legs.length > 0 && planId && (

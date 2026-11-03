@@ -158,7 +158,7 @@ export function fitSize(s: FitStrategy, symbol: string): { legs: string | null; 
   const a = readAccountSize(s.account_size);
   const cash = s.segment === "cash";
   if (a?.status === "sized") {
-    if (cash && a.quantity != null) return { legs: `Buy ${fmtNum(a.quantity)} shares ${symbol}`, size: `${fmtNum(a.quantity)} share${a.quantity === 1 ? "" : "s"}, sized to your account`, sized: true, why: null };
+    if (cash && a.quantity != null) return { legs: `Long ${fmtNum(a.quantity)} shares ${symbol}`, size: `${fmtNum(a.quantity)} share${a.quantity === 1 ? "" : "s"}, sized to your account`, sized: true, why: null };
     if (!cash && a.lots != null) return { legs: s.legs_text ?? null, size: `${fmtNum(a.lots)} lot${a.lots === 1 ? "" : "s"}, sized to your account`, sized: true, why: null };
   }
   const own = s.sizing?.status === "complete" ? (cash ? s.sizing.quantity : s.sizing.lots) : null;

@@ -35,7 +35,7 @@ export function LegTable({ t, testId = "td-legs" }: { t: StrategyPaperTrade; tes
         <thead>
           <tr className="cp-mono-note" style={{ textAlign: "left" }}>
             <th style={th}>Leg</th><th style={th}>Contract</th><th style={th}>Expiry</th><th style={{ ...th, textAlign: "right" }}>Lots × size</th>
-            <th style={{ ...th, textAlign: "right" }}>Entry</th><th style={{ ...th, textAlign: "right" }}>{closed ? "Exit mark" : "Mark"}</th><th style={{ ...th, textAlign: "right" }}>P/L</th>
+            <th style={{ ...th, textAlign: "right" }}>Ref price</th><th style={{ ...th, textAlign: "right" }}>{closed ? "Close mark" : "Mark"}</th><th style={{ ...th, textAlign: "right" }}>P/L</th>
           </tr>
         </thead>
         <tbody>
@@ -43,7 +43,7 @@ export function LegTable({ t, testId = "td-legs" }: { t: StrategyPaperTrade; tes
             <tr key={l.index} data-testid={`${testId}-row`} data-index={l.index} style={{ borderTop: "1px solid var(--cp-line)" }}>
               <td style={td}>
                 <span className="cp-num" style={{ padding: "2px 7px", borderRadius: 5, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
-                  color: l.side === "buy" ? "var(--mint)" : "var(--cp-danger)", background: l.side === "buy" ? "var(--mint-soft)" : "var(--cp-danger-soft)" }}>{l.side}</span>
+                  color: l.side === "buy" ? "var(--mint)" : "var(--cp-danger)", background: l.side === "buy" ? "var(--mint-soft)" : "var(--cp-danger-soft)" }}>{l.side === "buy" ? "long" : l.side === "sell" ? "short" : l.side}</span>
               </td>
               <td data-testid={`${testId}-contract`} className="cp-num" style={td} title={l.label}>{contract(l)}</td>
               <td style={td}>{l.expiry ? fmtDay(l.expiry) : "—"}</td>
@@ -102,7 +102,7 @@ export function StructureFigures({ t }: { t: StrategyPaperTrade }) {
       <span data-testid="td-structure-figures-basis" style={{ ...quiet, fontSize: 11 }}>
         {why
           ? `Max profit, max loss and breakevens are unavailable: ${why}.`
-          : `From the payoff engine${q.data?.calculation_version ? ` (${q.data.calculation_version})` : ""} on the recorded legs at their entry premiums${t.referencePrice != null ? `, ${t.underlying} at ${fmtPrice(t.referencePrice)}` : ""}.`}
+          : `From the payoff engine${q.data?.calculation_version ? ` (${q.data.calculation_version})` : ""} on the recorded legs at their opening premiums${t.referencePrice != null ? `, ${t.underlying} at ${fmtPrice(t.referencePrice)}` : ""}.`}
         {" "}Greeks are not on the paper-trade record (no volatility is stored); the F&amp;O builder in New trade shows them for a new structure.
       </span>
     </div>
@@ -137,7 +137,7 @@ export function StructureCard({ t, onJournal, onChart }: { t: StrategyPaperTrade
       <StructureFigures t={t} />
       <LegTable t={t} />
       <span style={{ ...quiet, fontSize: 11 }}>
-        Net premium {t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"} at entry{t.markPremiumRs != null ? ` · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}
+        Net premium {t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"} when opened{t.markPremiumRs != null ? ` · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}
         {t.lastMarkDate ? ` · end-of-day bhavcopy marks, ${fmtDay(t.lastMarkDate)}` : t.markError ? ` · no marks (${t.markError})` : ""}.
       </span>
       {t.riskNote && <span style={{ fontSize: 12, color: "var(--amber)" }}>{t.riskNote}</span>}

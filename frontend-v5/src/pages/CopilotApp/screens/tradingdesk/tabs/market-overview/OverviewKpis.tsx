@@ -119,7 +119,7 @@ export function PaperTradesPanel({ onOpen }: { onOpen: () => void }) {
             )}
             {more > 0 && <span data-testid="mo-paper-more" style={quiet}>{more} more (F&amp;O structures or repeat holdings) on Trade Desk.</span>}
             <span style={{ ...quiet, fontSize: 11.5 }}>
-              Each trade’s entry, stop, P/L and exits are on Trade Desk ·{" "}
+              Each trade’s reference price, risk level, P/L and closes are on Trade Desk ·{" "}
               <button type="button" data-testid="mo-paper-link" onClick={onOpen} style={link}>Paper Trading ›</button>
             </span>
           </>

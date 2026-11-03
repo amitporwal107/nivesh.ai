@@ -671,7 +671,7 @@ export function AnalysisChart(p: AnalysisChartProps) {
               );
             })}
             {ladder.mode !== "oichg" && <text x={lx0} y={H - 18} style={{ fontSize: font - 1.5, fill: "var(--cp-ink-3)", fontFamily: "var(--sans)" }}>Bright tick = OI added · amber = OI cut</text>}
-            <text x={lx0} y={H - 6} style={{ fontSize: font - 1.5, fill: "var(--cp-ink-4)", fontFamily: "var(--sans)" }}>Buy or sell from the option chain below</text>
+            <text x={lx0} y={H - 6} style={{ fontSize: font - 1.5, fill: "var(--cp-ink-4)", fontFamily: "var(--sans)" }}>Add long or short legs from the option chain below</text>
           </g>
         )}
         {!ladder && !compact && p.ladderEmpty && (

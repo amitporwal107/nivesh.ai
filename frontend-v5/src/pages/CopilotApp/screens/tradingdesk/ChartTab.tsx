@@ -144,7 +144,7 @@ function ChartControls({ tf, setTf, ov, setOv, hasLevels, small }: {
       <OverlayChip
         on={ov.levels && hasLevels}
         disabled={!hasLevels}
-        title={hasLevels ? "The scanner’s target, entry and stop" : "No scanner levels for this stock"}
+        title={hasLevels ? "The scanner’s reward level, reference price and risk level" : "No scanner levels for this stock"}
         onClick={() => setOv({ ...ov, levels: !ov.levels })}
         testId="desk-chart-ov-levels"
       >
@@ -256,7 +256,7 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
   if (state.data?.kind === "none" || !bars || !shown) {
     return (
       <div data-testid="desk-chart-noprices" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
-        <EmptyBlock title={`No daily prices on record for ${symbol}`} body="The data platform has no adjusted end-of-day bars for this symbol. Pick a stock from the AI scanner." />
+        <EmptyBlock title={`No daily prices on record for ${symbol}`} body="The data platform has no adjusted end-of-day bars for this symbol. Choose a stock from the AI scanner." />
         <DidYouMean symbol={symbol} />
       </div>
     );
@@ -283,7 +283,7 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
       <CandleLegend ema={ov.ema && !!lines} ema200={ov.ema && !!lines && lines.ema200.some((v) => v != null)} vwap={ov.vwap && !!lines} levels={levelsOn} events={inView.length} words={words} span={tf} />
       <span data-testid="desk-chart-source" className="cp-mono-note" style={{ lineHeight: 1.6, fontSize: 9.5 }}>
         NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · {liveBarKind ? "adjusted end of day to" : "end of day · last session"} {fmtDay(rawBars?.[rawBars.length - 1]?.day ?? bars[bars.length - 1].day)}
-        {liveBarKind ? ` · last bar ${fmtDay(bars[bars.length - 1].day)} from Kite (${liveBarKind === "live" ? "live, still forming" : "the close"}), not yet in the adjusted series; the lines and indicators stop at the adjusted session` : ""}
+        {liveBarKind ? ` · last bar ${fmtDay(bars[bars.length - 1].day)} from Kite (${liveBarKind === "live" ? "live, still forming" : "the close"}), not yet in the adjusted series; the lines and indicators end at the adjusted session` : ""}
         {n < SESSIONS[tf] ? ` · only ${n} sessions on record, all shown` : ""}
         {ok?.partial ? " · the data platform dropped some incomplete sessions from this series" : ""}
         {live?.adjustment_break
@@ -654,11 +654,11 @@ function whyRows(setup: DeskSetup, snap: Snap | null, cat: ReturnType<typeof use
     rows.push({
       key: "risk", label: plain ? "Watch" : "Risk", tone: "danger",
       text: plain
-        ? <>Exit if it falls to {fmtPrice(stop)}, {fmtPct(dist, { digits: 1 })} below the buy level{atrPct != null ? <>; it typically moves {fmtPct(atrPct, { digits: 1 })} a day</> : null}.</>
-        : <>Stop {fmtPrice(stop)} is {fmtPct(dist, { digits: 1 })} below the entry{atrPct != null ? <>, about {fmtNum(dist / atrPct, 1)} × ATR ({fmtPct(atrPct, { digits: 1 })})</> : null}.</>,
+        ? <>Risk level {fmtPrice(stop)}, {fmtPct(dist, { digits: 1 })} below the reference price{atrPct != null ? <>; it typically moves {fmtPct(atrPct, { digits: 1 })} a day</> : null}.</>
+        : <>Risk level {fmtPrice(stop)} is {fmtPct(dist, { digits: 1 })} below the reference price{atrPct != null ? <>, about {fmtNum(dist / atrPct, 1)} × ATR ({fmtPct(atrPct, { digits: 1 })})</> : null}.</>,
     });
   } else {
-    rows.push({ key: "risk", label: plain ? "Watch" : "Risk", tone: "ink", text: "— No entry with a stop below it on this setup." });
+    rows.push({ key: "risk", label: plain ? "Watch" : "Risk", tone: "ink", text: "— No reference price with a risk level below it on this setup." });
   }
   return rows;
 }
@@ -727,7 +727,7 @@ function historyTiles(setup: DeskSetup | null, rec: SetupRecord | undefined, rec
       v: row?.avg_fwd_return != null ? fmtPct(row.avg_fwd_return, { signed: true, digits: 1 }) : "—",
       s: row ? `Mean best move within ${RECORD_HORIZON} sessions (MFE) — not an average return` : gap,
     },
-    { id: "rr", k: plain ? "Reward for risk" : "Reward : risk", v: rr != null ? `${fmtNum(rr, 1)} : 1` : "—", s: rr != null ? "From the scanner’s levels" : "Needs a target and a stop" },
+    { id: "rr", k: plain ? "Reward for risk" : "Reward : risk", v: rr != null ? `${fmtNum(rr, 1)} : 1` : "—", s: rr != null ? "From the scanner’s levels" : "Needs a reward level and a risk level" },
     {
       id: "conf", k: plain ? "Scanner’s confidence" : "Scanner confidence", v: setup?.confidence ? humaniseTag(setup.confidence.toLowerCase()) : "—",
       s: setup?.confidence ? "The scanner’s own grade" : "No grade for this stock",
@@ -758,8 +758,8 @@ function NotOnScanner({ symbol, scanError, date }: { symbol: string; scanError: 
       <span style={{ fontFamily: "var(--display)", fontSize: 20, lineHeight: 1.2 }}>Not on today’s scanner — no levels</span>
       <span style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
         {scanError
-          ? `The scanner didn’t load, so there is no trigger, stop or target for ${symbol}. The chart and indicators still show from its daily bars.`
-          : `${symbol} did not pass the end-of-day scanner’s rules${date ? ` on the ${date} scan` : ""}, so it has no trigger, stop or target. The chart and indicators still show from its daily bars.`}
+          ? `The scanner didn’t load, so there is no trigger, risk level or reward level for ${symbol}. The chart and indicators still show from its daily bars.`
+          : `${symbol} did not pass the end-of-day scanner’s rules${date ? ` on the ${date} scan` : ""}, so it has no trigger, risk level or reward level. The chart and indicators still show from its daily bars.`}
       </span>
     </div>
   );
@@ -917,10 +917,10 @@ function contradictions(args: {
   if (bars && setup?.entry != null && setup.stop != null && setup.entry > setup.stop) {
     const gap = largestGap(bars.slice(-64));
     const stopDist = ((setup.entry - setup.stop) / setup.entry) * 100;
-    if (gap && Math.abs(gap.pct) >= stopDist) found.push({ key: "gap", text: `A ${fmtPct(Math.abs(gap.pct), { digits: 1 })} opening gap on ${fmtDay(gap.day)} is larger than the ${fmtPct(stopDist, { digits: 1 })} stop distance: a stop may fill well below its price.`, source: "Daily bars" });
+    if (gap && Math.abs(gap.pct) >= stopDist) found.push({ key: "gap", text: `A ${fmtPct(Math.abs(gap.pct), { digits: 1 })} opening gap on ${fmtDay(gap.day)} is larger than the ${fmtPct(stopDist, { digits: 1 })} distance to the risk level: a close at the risk level may fill well beyond it.`, source: "Daily bars" });
     const last = bars[bars.length - 1].close;
-    if (setup.target != null && last >= setup.target) found.push({ key: "past-target", text: `The last close ${fmtPrice(last)} is already at or above the target ${fmtPrice(setup.target)}.`, source: "Daily bars" });
-    if (last <= setup.stop) found.push({ key: "past-stop", text: `The last close ${fmtPrice(last)} is at or below the stop ${fmtPrice(setup.stop)}.`, source: "Daily bars" });
+    if (setup.target != null && last >= setup.target) found.push({ key: "past-target", text: `The last close ${fmtPrice(last)} is already at or above the reward level ${fmtPrice(setup.target)}.`, source: "Daily bars" });
+    if (last <= setup.stop) found.push({ key: "past-stop", text: `The last close ${fmtPrice(last)} is at or below the risk level ${fmtPrice(setup.stop)}.`, source: "Daily bars" });
   }
   if (patQ != null) {
     if (patQ < 0) found.push({ key: "profit-fall", text: `Latest quarter’s profit fell ${fmtPct(Math.abs(patQ), { digits: 1 })} from a year ago.`, source: "Reported results" });
@@ -937,8 +937,8 @@ const SECTION_TITLES: Record<SectionKey, { trader: string; plain: string }> = {
   technical: { trader: "Technical evidence", plain: "What the chart shows" },
   fundamentals: { trader: "Fundamental and ownership context", plain: "The business and who owns it" },
   events: { trader: "Corporate events and news", plain: "Company news and filings" },
-  liquidity: { trader: "Liquidity and tradability", plain: "Is it easy to buy and sell?" },
-  levels: { trader: "Hypothetical entry, stop and target", plain: "Possible buy, exit and target prices" },
+  liquidity: { trader: "Liquidity and tradability", plain: "Is it easy to trade?" },
+  levels: { trader: "Hypothetical reference price, risk level and reward level", plain: "Possible reference, risk and reward prices" },
   validation: { trader: "Historical validation", plain: "How similar setups did before" },
   contra: { trader: "Contradictory evidence", plain: "What argues against it" },
   freshness: { trader: "Data freshness and missing inputs", plain: "How fresh the data is, and what is missing" },
@@ -1042,7 +1042,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       <KV testId="desk-def-setup" k={plain ? "What the scanner found" : "Scanner setup (rules, not a prediction)"} v={setup ? setupLabel(setup, plain) : dash}
         why={setup ? (setup.why ?? "The scanner stored no rule text for this setup.") : "Not on today’s scanner, so there is no rules-based setup."} />
       <KV testId="desk-def-window" k={plain ? "Holding time" : "Holding window"} v={setup && (setup.daysMin != null || setup.daysMax != null) ? `${setup.daysMin ?? "—"}–${setup.daysMax ?? "—"} days` : dash}
-        why={setup && (setup.daysMin != null || setup.daysMax != null) ? "The scanner idea’s own window." : "Only the scanner’s ideas with targets carry a holding window."} />
+        why={setup && (setup.daysMin != null || setup.daysMax != null) ? "The scanner idea’s own window." : "Only the scanner’s ideas with reward levels carry a holding window."} />
       <KV testId="desk-def-odds" k={plain ? "Chance of +5% next day" : "P(+5% next session)"} v={run ? `for ${fmtDay(run.target_session)}` : dash}
         why="The move-odds model’s estimate that the next session’s high reaches the last close plus 5%. One session only — never a multi-day horizon." />
       <KV testId="desk-def-record" k={plain ? "Past-record outcome" : "Historical outcome"} v={`within ${RECORD_HORIZON} sessions`}
@@ -1185,11 +1185,11 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
     <>
       <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner idea" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
         why={lv.source === "scanner" ? "The scanner has levels for this stock, so they are shown instead of the rule’s." : lv.source === "rule" ? lv.rule?.label : lv.reason ?? undefined} />
-      <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(lv.entry)} why={lv.entry == null ? lv.reason ?? "No entry." : lv.source === "rule" ? "The last close." : undefined} />
-      <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(lv.stop)}
-        why={lv.stop == null ? lv.reason ?? "No stop." : lv.source === "rule" ? (lv.rule?.stopBasis === "support20" ? "The 20-session low, closer than the ATR stop." : `${fmtNum(lv.rule?.constants.atr_multiple ?? 0, 1)} × ATR(${lv.rule?.constants.atr_period ?? 14}) below the entry.`) : undefined} />
-      <KV testId="desk-lvl-target" k="Target" v={fmtPrice(lv.target)}
-        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s ideas with targets carry one." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
+      <KV testId="desk-lvl-entry" k={plain ? "Long above" : "Reference price"} v={fmtPrice(lv.entry)} why={lv.entry == null ? lv.reason ?? "No reference price." : lv.source === "rule" ? "The last close." : undefined} />
+      <KV testId="desk-lvl-stop" k="Risk level" v={fmtPrice(lv.stop)}
+        why={lv.stop == null ? lv.reason ?? "No risk level." : lv.source === "rule" ? (lv.rule?.stopBasis === "support20" ? "The 20-session low, closer than the ATR-based level." : `${fmtNum(lv.rule?.constants.atr_multiple ?? 0, 1)} × ATR(${lv.rule?.constants.atr_period ?? 14}) below the reference price.`) : undefined} />
+      <KV testId="desk-lvl-target" k="Reward level" v={fmtPrice(lv.target)}
+        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s ideas with reward levels carry one." : lv.reason ?? "No reward level.") : lv.source === "rule" ? `Reference price plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
       <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={lv.riskReward != null ? `${fmtNum(lv.riskReward, 1)} : 1` : dash} />
       <span style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)", paddingTop: 4 }}>
         {lv.source === "rule" ? `${lv.rule?.label}. ` : lv.source === "scanner" ? "Hypothetical levels from the scanner. " : ""}
@@ -1233,8 +1233,8 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
           ) : (
             <KV testId="desk-val-none" k="Occurrences · hit rate · MFE · MAE" v={dash} why={rec?.empty_reason ?? rec?.symbol_reason ?? rec?._reason ?? "No record row for this stock’s score bucket."} />
           )}
-          <KV testId="desk-val-slot-holding" k="Holding period" v={`${RECORD_HORIZON} sessions`} why="Every row checks the sessions after the scan day; no exit rule is simulated." />
-          <KV testId="desk-val-slot-average" k="Average return" v={dash} why={nm.median_return ? "Not stored: the record keeps each scan’s best and worst move (MFE / MAE), not a realised exit return." : "Not in the record."} />
+          <KV testId="desk-val-slot-holding" k="Holding period" v={`${RECORD_HORIZON} sessions`} why="Every row checks the sessions after the scan day; no close rule is simulated." />
+          <KV testId="desk-val-slot-average" k="Average return" v={dash} why={nm.median_return ? "Not stored: the record keeps each scan’s best and worst move (MFE / MAE), not a realised return." : "Not in the record."} />
           <KV testId="desk-val-slot-median" k="Median return" v={dash} why={nm.median_return ?? "Not in the record."} />
           <KV testId="desk-val-slot-costs" k="Transaction costs" v={dash} why={nm.costs ?? "Not in the record."} />
           <KV testId="desk-val-slot-benchmark" k="Benchmark comparison" v={dash} why={nm.benchmark ?? "Not in the record."} />
@@ -1266,7 +1266,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
         <span data-testid="desk-contra-unchecked" style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>Could not check: {contra.unchecked.join("; ")}.</span>
       )}
       <span className="cp-mono-note" style={{ lineHeight: 1.6 }}>
-        Checks: close under EMA 200 · RSI ≥ 70 · behind Nifty 50 · weak volume after a breakout · failed or expired patterns and failed criteria · model odds of a fall ≥ a rise · under ₹{LIQUID_MIN_CR} Cr a day · a gap larger than the stop distance · price past the target or stop · profit down year on year · promoter pledge ≥ {PLEDGE_FLAG_PCT}%.
+        Checks: close under EMA 200 · RSI ≥ 70 · behind Nifty 50 · weak volume after a breakout · failed or expired patterns and failed criteria · model odds of a fall ≥ a rise · under ₹{LIQUID_MIN_CR} Cr a day · a gap larger than the distance to the risk level · price past the reward or risk level · profit down year on year · promoter pledge ≥ {PLEDGE_FLAG_PCT}%.
       </span>
     </>
   );
@@ -1313,7 +1313,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
     fundamentals: fin ? `P/E ${fmtNum(fin.features?.pe_ttm ?? null, 1)} · ROE ${fmtPct(fin.features?.roe_pct ?? null, { digits: 0 })} · promoter ${fmtPct(own?.promoter_pct ?? null, { digits: 0 })}` : finQ.isPending ? "Loading…" : "—",
     events: filQ.isPending ? "Loading…" : filings.length ? `${filings.length} ${filings.length === 1 ? "filing" : "filings"} in ${FILING_DAYS} days · latest ${fmtDay((filings[0].date ?? "").slice(0, 10) || null)}` : `No filings in ${FILING_DAYS} days`,
     liquidity: `${liquidCr != null ? `₹${fmtNum(liquidCr, 1)} Cr a day` : "Traded value —"} · ${band ?? "price band —"} · F&O ban list —`,
-    levels: lv.entry != null ? `${lv.source === "rule" ? "Rule-based · " : ""}Entry ${fmtPrice(lv.entry)} · stop ${fmtPrice(lv.stop)} · target ${fmtPrice(lv.target)}` : "No levels",
+    levels: lv.entry != null ? `${lv.source === "rule" ? "Rule-based · " : ""}Reference price ${fmtPrice(lv.entry)} · risk level ${fmtPrice(lv.stop)} · reward level ${fmtPrice(lv.target)}` : "No levels",
     validation: headlineRow(rec) ? `Hit rate ${pct1(headlineRow(rec)?.probability ?? null)} · n ${fmtNum(headlineRow(rec)?.sample_count ?? null)} (touch, ${RECORD_HORIZON} sessions)` : "— No record for this stock’s bucket",
     contra: contra.found.length ? `${contra.found.length} ${contra.found.length === 1 ? "point" : "points"} against` : "None found among the checks",
     freshness: `${fresh.filter((f) => f.asOf).length} of ${fresh.length} sources on record · ${missing.length} missing inputs`,
@@ -1404,7 +1404,7 @@ export default function ChartTab({ riskPanel }: { riskPanel?: (symbol: string) =
       <div data-testid="desk-chart-tab" className="flex flex-col" style={{ gap: 16 }}>
         <div data-testid="desk-chart-nosymbol">
           <EmptyBlock
-            title="Pick a stock to chart"
+            title="Choose a stock to chart"
             body={scan.isError ? "The scanner didn’t load, so there is no first setup to show." : "The scanner has no setups on its latest scan, so there is no stock to open yet."}
             action={<button type="button" className="cp-chip" onClick={() => openTab("scanner")}>Open the AI scanner ›</button>}
           />

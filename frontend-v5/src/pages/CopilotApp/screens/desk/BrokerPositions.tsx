@@ -563,12 +563,12 @@ function PositionBookMissing() {
   return (
     <NotConnected
       testId="trader-positions-not-connected"
-      title="Day P&L and a stop or target per position are not read"
-      body="Holdings, open positions and cash are read live from a connected broker. Its day P&L is not, and a broker’s book has no stop or target, so none of those are shown and nothing else is used to fill them in. Trades you log yourself are in the journal below. Nivesh only reads from a broker; it cannot place orders."
+      title="Day P&L and a risk or reward level per position are not read"
+      body="Holdings, open positions and cash are read live from a connected broker. Its day P&L is not, and a broker’s book has no risk level or reward level, so none of those are shown and nothing else is used to fill them in. Trades you log yourself are in the journal below. Nivesh only reads from a broker; it cannot place orders."
       needs={[
         "A read-only day P&L figure: the adapters' funds readers send a day M2M on some brokers only, and it is not wired.",
         "Day positions (kind=day) work only where the broker has a day book; this desk reads the net book.",
-        "A stop and a target for each position; a broker’s book has neither.",
+        "A risk level and a reward level for each position; a broker’s book has neither.",
       ]}
     />
   );

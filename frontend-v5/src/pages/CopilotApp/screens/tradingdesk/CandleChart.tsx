@@ -118,8 +118,8 @@ export interface ChartWords {
   stop: string;
 }
 
-export const TRADER_CHART_WORDS: ChartWords = { ema20: "EMA 20", ema50: "EMA 50", ema200: "EMA 200", vwap: "VWAP 20D", target: "Target", entry: "Entry", stop: "Stop" };
-export const PLAIN_CHART_WORDS: ChartWords = { ema20: "20-day avg", ema50: "50-day avg", ema200: "200-day avg", vwap: "Month’s avg", target: "Target", entry: "Buy above", stop: "Exit" };
+export const TRADER_CHART_WORDS: ChartWords = { ema20: "EMA 20", ema50: "EMA 50", ema200: "EMA 200", vwap: "VWAP 20D", target: "Reward level", entry: "Ref price", stop: "Risk level" };
+export const PLAIN_CHART_WORDS: ChartWords = { ema20: "20-day avg", ema50: "50-day avg", ema200: "200-day avg", vwap: "Month’s avg", target: "Reward level", entry: "Long above", stop: "Risk level" };
 
 /** Round tick values covering [min, max], about `count` of them. */
 function niceTicks(min: number, max: number, count: number): number[] {

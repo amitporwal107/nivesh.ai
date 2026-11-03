@@ -127,10 +127,10 @@ export function pickBlock(o: {
   live: boolean;
 }): string | null {
   const name = contractName(o.kind, o.strike);
-  if (!o.chain.tradable || !o.chain.expiry) return "Pick an expiry to trade: legs need one expiry.";
+  if (!o.chain.tradable || !o.chain.expiry) return "Choose an expiry to trade: legs need one expiry.";
   if (!o.side) return `No ${o.strike} ${o.kind} contract is listed in this expiry.`;
   if (o.chain.lotSize == null) return "The chain gave no lot size, so a leg cannot be sized.";
-  if (o.price == null || !(o.price > 0)) return `There is no close for ${name} on ${o.chain.asOf}, so there is no price to pick it at.`;
+  if (o.price == null || !(o.price > 0)) return `There is no close for ${name} on ${o.chain.asOf}, so there is no price to add it at.`;
   if (!o.live && o.side.volume === 0) return `${name[0].toUpperCase()}${name.slice(1)} did not trade on ${o.chain.asOf}: its close is not a market price.`;
   return null;
 }
@@ -178,7 +178,7 @@ const legWord = (l: PlanLeg): string => {
 /** "BUY 4300 CE · SELL 4500 CE" (the design's legs line); "×2" on each leg when the legs' quantities differ. */
 export function legsText(legs: PlanLeg[]): string {
   const same = new Set(legs.filter((l) => l.kind !== "cash").map((l) => l.quantity)).size <= 1;
-  return legs.map((l) => `${l.side === "buy" ? "BUY" : "SELL"} ${legWord(l)}${!same && l.kind !== "cash" ? ` ×${l.quantity}` : ""}`).join(" · ");
+  return legs.map((l) => `${l.side === "buy" ? "LONG" : "SHORT"} ${legWord(l)}${!same && l.kind !== "cash" ? ` ×${l.quantity}` : ""}`).join(" · ");
 }
 
 /** The engine's reason as plain words: its why_qualifies (else the option selection's why), source-file references
@@ -202,7 +202,7 @@ export interface CardFigures {
   /** "LOSS AT STOP" for cash, futures, and a structure whose comparison row says `max_loss_at: "stop"` (shares with no long
    *  put under them, e.g. the covered call: at expiry they have no floor but zero, and the plan exits at its stop);
    *  "MAX LOSS" for the rest (the expiry payoff's defined worst case). */
-  lossLabel: "MAX LOSS" | "LOSS AT STOP";
+  lossLabel: "MAX LOSS" | "LOSS AT RISK LEVEL";
   maxLoss: Figure;
   lossBasis: string | null;
   /** The stop the LOSS AT STOP is priced at (the candidate's invalidation level); null for MAX LOSS. */
@@ -256,7 +256,7 @@ export function cardFigures(plan: Pick<StrategyPlan, "alternatives">, c: Candida
   else premium = { kind: "flat" };
 
   return {
-    maxProfit, maxLoss, lossLabel: atStop ? "LOSS AT STOP" : "MAX LOSS", lossBasis: alt?.max_loss_basis ?? null,
+    maxProfit, maxLoss, lossLabel: atStop ? "LOSS AT RISK LEVEL" : "MAX LOSS", lossBasis: alt?.max_loss_basis ?? null,
     stop: atStop ? c.invalidation?.technical?.price ?? null : null,
     rr, breakevens, premium, size,
     shares: c.segment === "combination" && cash ? { quantity: cash.quantity, price: cash.entry_price } : null,
