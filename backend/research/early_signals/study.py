@@ -114,6 +114,11 @@ def run(root: str, test_sessions: int = TEST_SESSIONS, min_support: int = 30) ->
     universe = O.read_universe(os.path.join(root, "universe.csv"))
     days = O.load_days(os.path.join(root, "bars5"), set(universe["symbol"]))
     sd_all = O.stock_days(days, universe)
+    # every signal only on the stock-days the replay kept (its scale check), so all signals share one universe
+    keep = set(zip(sd_all["day"], sd_all["symbol"]))
+    fw = fw[[k in keep for k in zip(fw["day"], fw["symbol"])]]
+    if not fi.empty:
+        fi = fi[[k in keep for k in zip(fi["day"], fi["symbol"])]]
     all_days = sorted(sd_all["day"].unique().tolist())
     test_days = all_days[-test_sessions:]
     train_days = [d for d in all_days if d not in set(test_days)]

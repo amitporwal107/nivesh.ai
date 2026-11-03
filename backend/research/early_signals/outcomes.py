@@ -142,7 +142,11 @@ def read_flags(path: str) -> pd.DataFrame:
 
 
 def read_universe(path: str) -> pd.DataFrame:
-    return pd.read_csv(path, dtype={"day": str, "symbol": str})[["day", "symbol"]].drop_duplicates()
+    """The stock-days the replay looked at, without those it skipped (Kite vs warehouse scale mismatch)."""
+    u = pd.read_csv(path, dtype={"day": str, "symbol": str})
+    if "skipped" in u.columns:
+        u = u[pd.to_numeric(u["skipped"], errors="coerce").fillna(0).astype(int) == 0]
+    return u[["day", "symbol"]].drop_duplicates()
 
 
 def first_signals(flags: pd.DataFrame, max_k: int = MAX_K, pairs: bool = True) -> pd.DataFrame:

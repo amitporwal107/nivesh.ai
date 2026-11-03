@@ -184,3 +184,11 @@ def test_signal_with_only_late_flags_scores_without_error():
     sd = pd.DataFrame({"day": ["2026-11-03"], "symbol": ["AAA"], "t5": [None]})
     st = R.signal_stats(rows, sd, {})
     assert st["eligible"] == 0 and st["precision"] is None and st["late"] == 1
+
+
+def test_skipped_stock_days_are_left_out_of_the_universe(tmp_path):
+    from research.early_signals import outcomes as O
+    p = tmp_path / "universe.csv"
+    p.write_text("day,symbol,skipped\n2026-11-02,INFY,1\n2026-11-02,SBIN,0\n2026-11-03,INFY,0\n")
+    u = O.read_universe(str(p))
+    assert sorted(map(tuple, u.values.tolist())) == [("2026-11-02", "SBIN"), ("2026-11-03", "INFY")]

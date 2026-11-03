@@ -41,7 +41,7 @@ IST_OFFSET_S = 5 * 3600 + 30 * 60
 OPEN_MIN = 9 * 60 + 15                      # 09:15 IST
 SLOTS = 75                                  # 5-minute candles in a full session (09:15–15:30)
 HIST_ROWS = 450                             # daily rows kept behind each replay day (weekly 52-period lows need ~260)
-JOIN_TOL = 0.03                             # raw Kite high vs adjusted EOD high
+JOIN_TOL = 0.005                            # Kite first-candle open vs the adjusted EOD open of the same day
 SYMBOL_WIDGET_KINDS = ("scan", "strong")
 SLOT_TIMES = [f"{(OPEN_MIN + 5 * g) // 60:02d}:{(OPEN_MIN + 5 * g) % 60:02d}" for g in range(SLOTS)]
 
@@ -191,6 +191,7 @@ async def run(bars_dir: str, out_dir: str, days: Optional[int], step_min: int) -
     wf.writerow(["day", "step", "symbol", "widget", "close_at_step"])
     wu.writerow(["day", "symbol", "skipped"])
     stats = {"days": [], "flags": 0, "stock_days": 0, "skipped_join": 0, "steps": 0}
+    last_verdict: Dict[str, bool] = {}
     per_step = max(1, step_min // 5)
     pdates = base.dates
     for d in all_days:
@@ -201,15 +202,24 @@ async def run(bars_dir: str, out_dir: str, days: Optional[int], step_min: int) -
         hist = [a[lo:idx + 1][:, cols] for a in (base.open, base.high, base.low, base.close, base.volume)]
         hdates = pdates[lo:idx + 1]
         m = day_matrix(cands, symbols, d)
-        # A later split / bonus leaves the adjusted history on another scale than D's raw candles: skip such stock-days.
+        # Kite and the warehouse adjust some corporate actions differently (a later split / bonus, or Kite's own adjustments:
+        # INFY -2.2 %, CCAVENUE 10x on 3 Nov), which puts D's raw candles on another scale than the history: skip such
+        # stock-days. Checked on the day's open where the EOD row exists; a day without one (the latest) takes the stock's
+        # last checked verdict.
         skip = np.zeros(len(symbols), dtype=bool)
         j = int(np.searchsorted(pdates, d))
-        if j < len(pdates) and pdates[j] == d:
+        has_eod = j < len(pdates) and pdates[j] == d
+        if has_eod:
+            have = ~np.isnan(m[0])
+            first = np.where(have.any(axis=1), have.argmax(axis=1), 0)
+            raw_open = np.where(have.any(axis=1), m[0][np.arange(len(symbols)), first], np.nan)
             with np.errstate(all="ignore"):
-                raw_high = np.nanmax(m[1], axis=1)
-                adj_high = base.high[j][cols]
-                ratio = raw_high / adj_high
+                ratio = raw_open / base.open[j][cols]
             skip = np.isfinite(ratio) & (np.abs(ratio - 1) > JOIN_TOL)
+            for jx in np.flatnonzero(np.isfinite(ratio)):
+                last_verdict[symbols[jx]] = bool(skip[jx])
+        else:
+            skip = np.array([last_verdict.get(sym, False) for sym in symbols])
         has_day = ~np.isnan(m[3]).all(axis=1)
         for jx in np.flatnonzero(has_day):
             wu.writerow([str(d), symbols[jx], int(skip[jx])])
