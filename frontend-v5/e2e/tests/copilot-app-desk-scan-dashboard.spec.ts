@@ -1,7 +1,8 @@
 /**
  * One-screen Copilot app (/v5/app) — Smart trading desk, Market Desk › Screener › Scan dashboard
  * (screens/tradingdesk/tabs/market-desk/scan-dashboard/; contract docs/scan_builder/DESIGN.md §8). Cases TC-DE1 … TC-DE7 of
- * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard; TC-DE10 the strategy idea column (3 Nov).
+ * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard; TC-DE10 the strategy idea column (3 Nov);
+ * TC-DE11 … TC-DE13 the early signals: feed, row badges, browser alerts (DESIGN.md §9, 3 Nov).
  *
  * MOCK — not real data. Every /api/scan-builder/market-dashboard answer below is hand-written to the contract: invented
  * symbols (ALPHA, BETA, GAMMA, DELTA), invented prices, invented index levels. Nothing here is market data; the expected text is
@@ -44,10 +45,38 @@ const IDEAS = {
 };
 const IDEAS_META = { built: 3, pending: 1, note: "MOCK note: net reward : risk under the desk's rules.", source: "MOCK strategy builder", as_of: "2026-11-03T04:45:00Z" };
 
-function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; ideas?: boolean } = {}) {
+// MOCK — not real data: today's early signals for the invented symbols, newest first, each with its frozen plan.
+type Sig = Record<string, unknown>;
+const sig = (o: Sig): Sig => ({
+  at_open: false, direction: "long", entry: null, stop_loss: null, target_1: null, target_2: null, risk_per_share: null,
+  rr_1: null, rr_2: null, stop_basis: null, target_1_basis: null, plan_ok: false, plan_note: null, price_now: null, move_since_pct: null, ...o,
+});
+const SIG_ALPHA = sig({ id: "n50_gainers:ALPHA", widget_id: "n50_gainers", widget_title: "Nifty 50 Top Gainers", symbol: "ALPHA",
+  first_seen: "2026-11-03T09:15:20+05:30", at_open: true, entry: 800, stop_loss: 785, target_1: 830, target_2: 845, risk_per_share: 15,
+  rr_1: 2, rr_2: 3, stop_basis: "day low", target_1_basis: "2 × risk", plan_ok: true, price_now: 812.5, move_since_pct: 1.56 });
+const SIG_DELTA = sig({ id: "oi_any:DELTA", widget_id: "oi_any", widget_title: "Open interest", symbol: "DELTA",
+  first_seen: "2026-11-03T10:05:02+05:30", entry: 400, stop_loss: 392, target_1: 416, target_2: 424, risk_per_share: 8,
+  rr_1: 2, rr_2: 3, stop_basis: "1 × ATR(14)", target_1_basis: "2 × risk", plan_ok: true, price_now: 410.25, move_since_pct: 2.56 });
+const SIG_EPS = sig({ id: "oi_7:EPSILON", widget_id: "oi_7", widget_title: "Open interest 7", symbol: "EPSILON", direction: "short",
+  first_seen: "2026-11-03T10:12:40+05:30", entry: 300, stop_loss: 309, target_1: 282, target_2: 273, risk_per_share: 9,
+  rr_1: 2, rr_2: 3, stop_basis: "day high", target_1_basis: "2 × risk", plan_ok: true, price_now: 296.4, move_since_pct: -1.2 });
+const SIG_BETA = sig({ id: "n50_gainers:BETA", widget_id: "n50_gainers", widget_title: "Nifty 50 Top Gainers", symbol: "BETA",
+  first_seen: "2026-11-03T10:30:00+05:30", plan_note: "MOCK: reward : risk to Target 1 is 1.20, under 1.5, so no plan.", price_now: 1999.95, move_since_pct: 0.1 });
+const SIGNALS = [SIG_BETA, SIG_EPS, SIG_DELTA, SIG_ALPHA];
+const SIGNALS_META = { day: "2026-11-03", count: 4, recording: true,
+  rules: "MOCK rules scan-plan-v1: Entry = the price when first seen; Stop loss = the lower of the day low and Entry − 1 × ATR(14); Target 1 = Entry + 2 × risk; Target 2 = Entry + 3 × risk.",
+  caveat: "MOCK caveat: rules-based levels, not investment advice." };
+const extra = (n: number, from = 0): Sig[] => Array.from({ length: n }, (_, i) => sig({
+  id: `n50_gainers:X${from + i}`, widget_id: "n50_gainers", widget_title: "Nifty 50 Top Gainers", symbol: `X${from + i}`,
+  first_seen: `2026-11-03T11:${String(10 + from + i).padStart(2, "0")}:00+05:30`, entry: 100, stop_loss: 98, target_1: 104, target_2: 106,
+  rr_1: 2, rr_2: 3, plan_ok: true }));
+
+function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; ideas?: boolean; signals?: Sig[] | false; recording?: boolean } = {}) {
   const bump = o.bump ?? 0;
+  const signals = o.signals === undefined ? SIGNALS : o.signals;
   return {
     ...(o.ideas === false ? {} : { ideas: IDEAS, ideas_meta: IDEAS_META }),
+    ...(signals === false ? {} : { signals, signals_meta: { ...SIGNALS_META, count: signals.length, recording: o.recording ?? SIGNALS_META.recording } }),
     ok: true,
     run_at: "2026-11-03T04:45:30Z",                      // 10:15:30 IST
     elapsed_ms: 640,
@@ -388,17 +417,28 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     await expect(page.getByTestId("sd-refresh-problem")).toHaveCount(0);
   });
 
-  test("TC-DE7 the dashboard never says buy, sell, target, stop loss, picks, recommended, entry or exit (ideas included)", async ({ page }) => {
+  test("TC-DE7 the dashboard never says buy, sell, target, stop loss, picks, recommended, entry or exit — except the owner's plan words in the plans", async ({ page }) => {
     await desk(page);
     await openDashboard(page);
     await page.getByTestId("sd-sources").locator("summary").click();
     await expect(page.getByTestId("sd-idea").first()).toBeVisible();
+    await expect(page.getByTestId("sd-signal-plan").first()).toBeVisible();
     const banned = /\b(buy\w*|sell\w*|target\w*|stop[ -]?loss|picks?|recommend\w*|entry|exit)\b/i;
     const panel = page.getByTestId("desk-panel-scandashboard");
-    const titles = await panel.locator("[title]").evaluateAll((els) => els.map((e) => e.getAttribute("title") ?? ""));
-    const texts = [await page.getByTestId("md-head").innerText(), await panel.innerText(), ...titles];
-    expect(titles.some((t) => t.includes("max loss"))).toBe(true);           // the idea tooltips are among the checked strings
+    // Outside the plans (marked data-plan-words): every word on the page and in every tooltip stays barred.
+    const outside = await panel.evaluate((root) => {
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-plan-words]").forEach((e) => e.remove());
+      const titles = Array.from(root.querySelectorAll("[title]")).filter((e) => !e.closest("[data-plan-words]")).map((e) => e.getAttribute("title") ?? "");
+      return { text: clone.textContent ?? "", titles };
+    });
+    const texts = [await page.getByTestId("md-head").innerText(), outside.text, ...outside.titles];
+    expect(outside.titles.some((t) => t.includes("max loss"))).toBe(true);   // the idea tooltips are among the checked strings
     for (const t of texts) expect(t).not.toMatch(banned);
+    // Inside the plans: only the owner's words for this screen (3 Nov) — Entry, Stop loss, Target 1, Target 2 — nothing else barred.
+    const plans = await panel.locator("[data-plan-words]").evaluateAll((els) => els.map((e) => `${e.textContent ?? ""} ${e.getAttribute("title") ?? ""}`));
+    expect(plans.length).toBeGreaterThan(0);
+    for (const t of plans) expect(t.replace(/\b(Entry|Stop loss|Target 1|Target 2)\b/g, "")).not.toMatch(banned);
   });
 
   test("TC-DE10 stock tables end with a Strategy idea column: an idea, none favorable, or still being built; group and index tables do not", async ({ page }) => {
@@ -439,6 +479,151 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     await expect(n50.getByTestId("sd-sort-idea")).toHaveText("Strategy idea ↑");
   });
 
+  test("TC-DE11 New signals: newest first, the plan in the owner's words, the strategy idea, price now; short and no-plan rows; scan filter; row badges", async ({ page }) => {
+    await desk(page);
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-signals");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("sd-signals-count")).toHaveText("4 today");
+    const rows = panel.getByTestId("sd-signal");
+    await expect(rows).toHaveCount(4);
+    expect(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-id")))).toEqual(["n50_gainers:BETA", "oi_7:EPSILON", "oi_any:DELTA", "n50_gainers:ALPHA"]);
+    const alpha = panel.locator('[data-testid="sd-signal"][data-id="n50_gainers:ALPHA"]');
+    await expect(alpha.getByTestId("sd-signal-time")).toHaveText("09:15");
+    await expect(alpha.getByTestId("sd-signal-open")).toHaveText("at open");
+    await expect(alpha.getByTestId("sd-signal-dir")).toHaveText("Long");
+    await expect(alpha.getByTestId("sd-signal-scan")).toHaveText("Nifty 50 Top Gainers");
+    await expect(alpha.getByTestId("sd-signal-plan")).toHaveText("Entry 800.00 · Stop loss 785.00 · Target 1 830.00 · Target 2 845.00 · R:R 2.00/3.00");
+    await expect(alpha.getByTestId("sd-signal-plan")).toHaveAttribute("title", "Stop loss: day low · Target 1: 2 × risk · risk 15.00 a share");
+    await expect(alpha.getByTestId("sd-signal-idea")).toHaveText("Strategy idea: Bull call spread · R:R 2.10");
+    await expect(alpha.getByTestId("sd-signal-now")).toHaveText("Now 812.50 · +1.56%");
+    await expect(alpha.getByTestId("sd-signal-sym")).toHaveAttribute("href", "/v5/app/trader/desk?tab=trade&view=chart&sub=live&sym=ALPHA");
+    const eps = panel.locator('[data-testid="sd-signal"][data-id="oi_7:EPSILON"]');
+    await expect(eps).toHaveAttribute("data-direction", "short");
+    await expect(eps.getByTestId("sd-signal-dir")).toHaveText("Short");
+    await expect(eps.getByTestId("sd-signal-plan")).toHaveText("Entry 300.00 · Stop loss 309.00 · Target 1 282.00 · Target 2 273.00 · R:R 2.00/3.00");
+    await expect(eps.getByTestId("sd-signal-now")).toHaveText("Now 296.40 · -1.20%");
+    await expect(eps.getByTestId("sd-signal-open")).toHaveCount(0);
+    const beta = panel.locator('[data-testid="sd-signal"][data-id="n50_gainers:BETA"]');
+    await expect(beta).toHaveAttribute("data-plan", "false");
+    await expect(beta.getByTestId("sd-signal-plan")).toHaveCount(0);
+    await expect(beta.getByTestId("sd-signal-noplan")).toHaveText("MOCK: reward : risk to Target 1 is 1.20, under 1.5, so no plan.");
+    await expect(beta.getByTestId("sd-signal-idea")).toHaveCount(0);                 // BETA's idea is null: none shown
+    await expect(panel.getByTestId("sd-signals-rules")).toContainText("MOCK rules scan-plan-v1");
+    await expect(panel.getByTestId("sd-signals-caveat")).toHaveText("MOCK caveat: rules-based levels, not investment advice.");
+    // the scan filter
+    await panel.getByTestId("sd-signals-filter-oi_7").click();
+    await expect(rows).toHaveCount(1);
+    await expect(rows.nth(0)).toHaveAttribute("data-id", "oi_7:EPSILON");
+    await panel.getByTestId("sd-signals-filter-all").click();
+    await expect(rows).toHaveCount(4);
+    // a feed symbol opens the chart like a table link
+    await alpha.getByTestId("sd-signal-sym").click();
+    await expect.poll(() => params(page).get("sym"), SLOW).toBe("ALPHA");
+  });
+
+  test("TC-DE11b stock rows that entered their scan today carry a New hh:mm badge; others and group tables do not", async ({ page }) => {
+    await desk(page);
+    await openDashboard(page);
+    const n50 = widget(page, "n50_gainers");
+    const badge = (sym: string) => n50.locator(`[data-testid="sd-row"][data-key="${sym}"] [data-testid="sd-new"]`);
+    await expect(badge("ALPHA")).toHaveText("New 09:15");
+    await expect(badge("ALPHA")).toHaveAttribute("title", "Entered this scan at 09:15 IST today");
+    await expect(badge("BETA")).toHaveText("New 10:30");
+    await expect(badge("GAMMA")).toHaveCount(0);
+    await expect(n50.getByTestId("sd-sym").nth(0)).toHaveText("ALPHA ↗");          // the link text is unchanged
+    await expect(widget(page, "oi_any").locator('[data-testid="sd-row"][data-key="DELTA"] [data-testid="sd-new"]')).toHaveText("New 10:05");
+    await expect(widget(page, "mcap_ad").getByTestId("sd-new")).toHaveCount(0);
+    await expect(widget(page, "index_stats").getByTestId("sd-new")).toHaveCount(0);
+  });
+
+  test("TC-DE11c the feed shows 20 and a Show all toggle for the rest; an empty day says why", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ signals: [...extra(25)].reverse() }) }) });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-signals");
+    await expect(panel.getByTestId("sd-signal")).toHaveCount(20);
+    await expect(panel.getByTestId("sd-signals-toggle")).toHaveText("Show all 25");
+    await panel.getByTestId("sd-signals-toggle").click();
+    await expect(panel.getByTestId("sd-signal")).toHaveCount(25);
+    await expect(panel.getByTestId("sd-signals-toggle")).toHaveText("Show fewer");
+  });
+
+  test("TC-DE11d no signals yet: the panel says so, and after the close that they are recorded while the market is open", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ signals: [], recording: false, open: false }) }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-signals-empty")).toHaveText("No signals yet today. Signals are recorded while the market is open.");
+    await expect(page.getByTestId("sd-signal")).toHaveCount(0);
+  });
+
+  test("TC-DE12 browser alerts: none for what the page opened with; one per new signal; one grouped notification when more than 3 arrive", async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __notes: { title: string; body: string; tag: string }[]; Notification: unknown };
+      w.__notes = [];
+      class FakeNotification {
+        static permission = "granted";
+        static requestPermission() { return Promise.resolve(FakeNotification.permission); }
+        constructor(title: string, opts?: { body?: string; tag?: string }) { w.__notes.push({ title, body: opts?.body ?? "", tag: opts?.tag ?? "" }); }
+      }
+      w.Notification = FakeNotification;
+    });
+    await page.clock.install({ time: new Date("2026-11-03T04:45:00Z") });
+    const zeta = sig({ id: "n50_gainers:ZETA", widget_id: "n50_gainers", widget_title: "Nifty 50 Top Gainers", symbol: "ZETA",
+      first_seen: "2026-11-03T10:40:00+05:30", entry: 120, stop_loss: 117.5, target_1: 125, target_2: 127.5, rr_1: 2, rr_2: 3, plan_ok: true });
+    const answers = [SIGNALS, [zeta, ...SIGNALS], [...extra(5).reverse(), zeta, ...SIGNALS]];
+    await desk(page, { answer: (n) => ({ status: 200, body: dashboard({ signals: answers[Math.min(n, answers.length) - 1] }) }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-alerts")).toHaveAttribute("data-state", "on");
+    await expect(page.getByTestId("sd-alerts")).toHaveText("Browser alerts on");
+    const notes = () => page.evaluate(() => (window as unknown as { __notes: { title: string; body: string }[] }).__notes);
+    expect(await notes()).toEqual([]);                                             // the page's first answer only seeds
+    await page.clock.runFor(10_500);
+    await expect.poll(async () => (await notes()).length, SLOW).toBe(1);
+    expect((await notes())[0]).toMatchObject({ title: "ZETA · Nifty 50 Top Gainers", body: "Entry 120.00 · Stop loss 117.50 · Target 1 125.00" });
+    await page.clock.runFor(10_500);
+    await expect.poll(async () => (await notes()).length, SLOW).toBe(2);
+    expect((await notes())[1].title).toBe("5 new signals: X0, X1, X2, X3, X4");
+    // pausing stops them
+    await page.getByTestId("sd-alerts").click();
+    await expect(page.getByTestId("sd-alerts")).toHaveAttribute("data-state", "paused");
+  });
+
+  test("TC-DE12b browser alerts blocked: the panel says so and nothing is announced; not yet allowed: the button asks", async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __notes: string[]; Notification: unknown; __perm: string };
+      w.__notes = [];
+      w.__perm = (window.localStorage.getItem("test.perm") as string) || "denied";
+      class FakeNotification {
+        static get permission() { return w.__perm; }
+        static requestPermission() { w.__perm = "granted"; return Promise.resolve("granted"); }
+        constructor(title: string) { w.__notes.push(title); }
+      }
+      w.Notification = FakeNotification;
+    });
+    await page.clock.install({ time: new Date("2026-11-03T04:45:00Z") });
+    const more = sig({ id: "n50_gainers:ZETA", widget_id: "n50_gainers", widget_title: "Nifty 50 Top Gainers", symbol: "ZETA", first_seen: "2026-11-03T10:40:00+05:30" });
+    await desk(page, { answer: (n) => ({ status: 200, body: dashboard({ signals: n === 1 ? SIGNALS : [more, ...SIGNALS] }) }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-alerts")).toHaveAttribute("data-state", "denied");
+    await expect(page.getByTestId("sd-alerts")).toContainText("Browser alerts are blocked");
+    await page.clock.runFor(10_500);
+    await expect(page.getByTestId("sd-signal")).toHaveCount(5, SLOW);
+    expect(await page.evaluate(() => (window as unknown as { __notes: string[] }).__notes)).toEqual([]);
+    // permission not asked yet: the button asks and turns alerts on
+    await page.evaluate(() => window.localStorage.setItem("test.perm", "default"));
+    await page.reload();
+    await expect(page.getByTestId("sd-alerts")).toHaveAttribute("data-state", "off", SLOW);
+    await page.getByTestId("sd-alerts").click();
+    await expect(page.getByTestId("sd-alerts")).toHaveAttribute("data-state", "on");
+  });
+
+  test("TC-DE13 an answer without signals (an older backend) shows no panel and no badges", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ signals: false }) }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-signals")).toHaveCount(0);
+    await expect(page.getByTestId("sd-new")).toHaveCount(0);
+    await expect(widget(page, "n50_gainers").getByTestId("sd-row")).toHaveCount(3);
+  });
+
   test("TC-DE10b an answer without ideas (an older backend) shows no idea column and no ideas line", async ({ page }) => {
     await desk(page, { answer: () => ({ status: 200, body: dashboard({ ideas: false }) }) });
     await openDashboard(page);
@@ -469,5 +654,43 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     expect(o.columns).toBe(1);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});
+
+
+// ── REAL snapshot replayed (not a hand-made fixture) ─────────────────────────────────────────────────────────────────
+// e2e/fixtures/scan-dashboard-real/dashboard_20261103_close.json is the backend's own answer, computed in the staging backend
+// container on 3 Nov 2026 after the close (Kite close over NSE end-of-day bars, signals recorded as if each listed stock had just
+// appeared, strategy ideas for 12 stocks). Only the transport is mocked: this checks the page against what the backend really sends.
+test.describe("REAL snapshot (staging, 3 Nov 2026 close) replayed: Scan dashboard", () => {
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/scan-dashboard-real/dashboard_20261103_close.json"), "utf8"));
+
+  test("TC-RE1 the real answer renders: 17 cards, the signals feed with plans, ideas, no page error, no barred words", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await desk(page, { answer: () => ({ status: 200, body: real }) });
+    await openDashboard(page);
+    await expect(page.locator('[data-testid^="sd-widget-"][data-status]')).toHaveCount(17, SLOW);
+    await expect(page.getByTestId("sd-signals")).toBeVisible();
+    const n = real.signals.length as number;
+    await expect(page.getByTestId("sd-signals-count")).toContainText(String(n));
+    await expect(page.getByTestId("sd-signal")).toHaveCount(20);
+    await page.getByTestId("sd-signals-toggle").click();
+    await expect(page.getByTestId("sd-signal")).toHaveCount(n);
+    const withPlan = page.locator('[data-testid="sd-signal"][data-plan="true"]').first();
+    await expect(withPlan).toContainText("Entry");
+    await expect(withPlan).toContainText("Stop loss");
+    await expect(withPlan).toContainText("Target 1");
+    await expect(page.locator('[data-testid="sd-signal"][data-plan="false"]').first()).toContainText("no plan is shown");
+    await expect(page.getByTestId("sd-ideas-count")).toContainText(`${real.ideas_meta.built} of`);
+    expect(await page.locator('[data-testid="sd-idea"][data-state="idea"]').count()).toBeGreaterThan(0);
+    const outsidePlan = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="scan-dashboard"]') as HTMLElement;
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-plan-words]").forEach((el) => el.remove());
+      return clone.innerText;
+    });
+    expect(outsidePlan).not.toMatch(/\b(buy\w*|sell\w*|target\w*|stop ?loss|recommend\w*|picks?)\b/i);
+    expect(errors).toEqual([]);
   });
 });

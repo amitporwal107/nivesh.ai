@@ -13,6 +13,11 @@
  * "{structure} · R:R x.xx" with legs, max loss, capital at risk, horizon and data date in its tooltip; "–" where no structure
  * has a favorable reward : risk; "…" while it is being built. They are rules-based fits from the strategy builder, shown with
  * that caveat; never "recommended".
+ *
+ * Early signals (owner 3 Nov ~17:15 IST, DESIGN.md §9): when the answer carries `signals`, a "New signals" panel sits above
+ * the cards (SignalsPanel.tsx: when a stock entered which scan, its trading plan in the owner's chosen words for this screen —
+ * Entry · Stop loss · Target 1 · Target 2 — the strategy idea beside it, browser alerts), and a stock row with a signal today
+ * carries a "New hh:mm" badge.
  */
 import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { useHref, useLocation } from "react-router-dom";
@@ -23,8 +28,9 @@ import { useDesk } from "../../../context";
 import { scanProblem, type ScanProblem } from "../scan-builder/scan-builder-data";
 import {
   useMarketDashboard, type DashboardCell, type DashboardColumn, type DashboardCriterion, type DashboardIdea, type DashboardIdeas,
-  type DashboardWidget, type IdeasMeta, type MarketDashboard,
+  type DashboardSignal, type DashboardWidget, type IdeasMeta, type MarketDashboard,
 } from "./market-dashboard-data";
+import { SignalsPanel, istHm } from "./SignalsPanel";
 
 const DASH = "–";
 const fmt2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -42,6 +48,18 @@ function ideaOf(ideas: DashboardIdeas, sym: string | null): IdeaState {
   if (!sym || !Object.prototype.hasOwnProperty.call(ideas, sym)) return { state: "building" };
   const i = ideas[sym];
   return i ? { state: "idea", idea: i } : { state: "none" };
+}
+
+/** symbol → the time it first entered that widget today, per widget (the rows' "New hh:mm" badges). */
+function signalTimes(signals: DashboardSignal[] | null | undefined): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
+  for (const s of signals ?? []) {
+    let m = out.get(s.widget_id);
+    if (!m) out.set(s.widget_id, (m = new Map()));
+    const prev = m.get(s.symbol);
+    if (!prev || s.first_seen < prev) m.set(s.symbol, s.first_seen);
+  }
+  return out;
 }
 
 /** The idea's reward : risk, or null (sorting puts it last). */
@@ -155,12 +173,21 @@ function DashboardOn() {
   }
   const d = q.data;
   const refreshProblem = q.isError ? scanProblem(q.error) : null;
+  const times = signalTimes(d.signals);
+  const ideaFor = (sym: string) => {
+    if (!d.ideas) return null;
+    const s = ideaOf(d.ideas, sym);
+    return s.state === "idea" ? ideaTexts(s) : null;
+  };
   return (
     <div data-testid="scan-dashboard" data-mode={d.basis.mode} className="flex min-w-0 flex-col" style={{ gap: 14 }}>
       <DashHeader d={d} visible={visible} refreshing={q.isFetching} problem={refreshProblem} onRetry={() => { void q.refetch(); }} />
+      {d.signals && (
+        <SignalsPanel signals={d.signals} meta={d.signals_meta ?? null} ideaFor={ideaFor} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+      )}
       <div data-testid="sd-grid" style={{ display: "grid", gridTemplateColumns: mobile ? "minmax(0, 1fr)" : "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, alignItems: "start" }}>
         {d.widgets.map((w) => (
-          <WidgetCard key={w.id} w={w} ideas={d.ideas ?? null} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+          <WidgetCard key={w.id} w={w} ideas={d.ideas ?? null} newAt={times.get(w.id) ?? null} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
         ))}
       </div>
       {d.widgets.length === 0 && (
@@ -294,8 +321,8 @@ function compareCells(a: DashboardCell | undefined, b: DashboardCell | undefined
 /** The appended "Strategy idea" column's sort key (the table's own columns are 0 … n−1). */
 const IDEA_COL = -1;
 
-function WidgetCard({ w, ideas, chartHref, onOpenSymbol }: {
-  w: DashboardWidget; ideas: DashboardIdeas | null; chartHref: (s: string) => string; onOpenSymbol: (s: string) => void;
+function WidgetCard({ w, ideas, newAt, chartHref, onOpenSymbol }: {
+  w: DashboardWidget; ideas: DashboardIdeas | null; newAt: Map<string, string> | null; chartHref: (s: string) => string; onOpenSymbol: (s: string) => void;
 }) {
   const [sort, setSort] = useState<Sort>(null);
   const symbols = w.row_kind === "symbol";
@@ -405,6 +432,12 @@ function WidgetCard({ w, ideas, chartHref, onOpenSymbol }: {
                                 {sym} <span aria-hidden>↗</span>
                               </a>
                             ) : <span style={{ color: "var(--cp-ink)" }}>{cellText(v, "text")}</span>}
+                            {sym && newAt?.get(sym) && (
+                              <span data-testid="sd-new" title={`Entered this scan at ${istHm(newAt.get(sym)) ?? "–"} IST today`} className="cp-pill"
+                                style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", color: "var(--mint)", borderColor: "var(--mint)" }}>
+                                New {istHm(newAt.get(sym)) ?? ""}
+                              </span>
+                            )}
                           </td>
                         );
                       }

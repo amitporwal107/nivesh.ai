@@ -5,7 +5,9 @@
  *                                                                   own data (definitions only; no Chartink data), each with
  *                                                                   its criteria, its table and its status; optionally
  *                                                                   `ideas` (a strategy idea per stock, from the strategy
- *                                                                   builder) and `ideas_meta`
+ *                                                                   builder) and `ideas_meta`; optionally `signals` (today's
+ *                                                                   early signals with their trading plans, §9) and
+ *                                                                   `signals_meta`
  *
  * Real time: while the answer says the market is open it is asked again every `market.refresh_seconds` (10 s); a hidden tab
  * does not ask (React Query's refetchIntervalInBackground: false); after the close it is asked once. The previous answer stays
@@ -80,6 +82,50 @@ const IdeasMetaC = z.object({
   as_of: Str.catch(null),
 }).passthrough();
 
+// Early signals (DESIGN.md §9, owner 3 Nov ~17:15 IST): a stock entering a widget's list during the session, with the
+// trading plan frozen at that moment (Entry · Stop loss · Target 1 · Target 2 — the owner's chosen words for this screen).
+// Today's, newest first. Both fields are optional (an older backend has neither); a malformed signal is dropped, never
+// allowed to fail the whole dashboard.
+export const SignalC = z.object({
+  id: z.string(),
+  widget_id: z.string(),
+  widget_title: z.string().catch("").default(""),
+  symbol: z.string(),
+  first_seen: z.string(),
+  at_open: z.boolean().catch(false).default(false),
+  direction: z.enum(["long", "short"]).catch("long").default("long"),
+  entry: NumN,
+  stop_loss: NumN,
+  target_1: NumN,
+  target_2: NumN,
+  risk_per_share: NumN,
+  rr_1: NumN,
+  rr_2: NumN,
+  stop_basis: Str.catch(null),
+  target_1_basis: Str.catch(null),
+  plan_ok: z.boolean().catch(false).default(false),
+  plan_note: Str.catch(null),
+  price_now: NumN,
+  move_since_pct: NumN,
+}).passthrough();
+
+const SignalsC = z.array(z.unknown()).transform((items) => {
+  const out: z.infer<typeof SignalC>[] = [];
+  for (const it of items) {
+    const r = SignalC.safeParse(it);
+    if (r.success) out.push(r.data);
+  }
+  return out;
+});
+
+const SignalsMetaC = z.object({
+  day: z.string().catch("").default(""),
+  count: z.number().catch(0).default(0),
+  recording: z.boolean().catch(false).default(false),
+  rules: z.string().catch("").default(""),
+  caveat: z.string().catch("").default(""),
+}).passthrough();
+
 export const MarketDashboardC = z.object({
   ok: z.boolean().default(true),
   run_at: Str,
@@ -102,9 +148,13 @@ export const MarketDashboardC = z.object({
   widgets: z.array(WidgetC).default([]),
   ideas: z.record(z.union([IdeaC, z.null()]).catch(null)).nullable().optional().catch(null),
   ideas_meta: IdeasMetaC.nullable().optional().catch(null),
+  signals: SignalsC.nullable().optional().catch(null),
+  signals_meta: SignalsMetaC.nullable().optional().catch(null),
 }).passthrough();
 
 export type MarketDashboard = z.infer<typeof MarketDashboardC>;
+export type DashboardSignal = z.infer<typeof SignalC>;
+export type SignalsMeta = z.infer<typeof SignalsMetaC>;
 export type DashboardIdea = z.infer<typeof IdeaC>;
 export type DashboardIdeas = Record<string, DashboardIdea | null>;
 export type IdeasMeta = z.infer<typeof IdeasMetaC>;
