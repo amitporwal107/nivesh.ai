@@ -88,4 +88,20 @@ criteria, written from its own definition.
 - The cross-worker Redis candle cache in the deployed app (the live checks used a process-local cache so staging Redis was not
   written to from a test process).
 
-## Verdict: IN PROGRESS — code verified (unit, e2e on mocked API, live data in the staging container); staging deployment pending
+
+## Staging after merge (PR #464 merged 09:53 IST as f5536788; deploys: backend success, frontend success, Android APK success)
+- Route probe without a session: GET /api/scan-builder/market-dashboard 404 before (09:54:35) → 401 "Not authenticated" after the
+  backend deploy (09:55:32); the backend container restarted at 09:54:4x; the deployed module is
+  /app/backend/services/scan_builder/market_dashboard.py with 17 widgets and the 15-minute queue fix.
+- Frontend: nivesh-staging-app-frontend-v5 recreated 09:56:58; the served bundle has v5/assets/ScanDashboard-x9wfIkuu.js, which
+  calls /api/scan-builder/market-dashboard; the page URL /v5/app/trader/desk?tab=market&view=screener&sub=dashboard → 200.
+- Deployed backend code on live data (in the staging backend container, the deployed modules and their shared caches —
+  /tmp/scan_builder results file, Redis candles — i.e. what the page's first request does): company results 79.6 s, 2,141
+  companies; five runs 09:56:55 → 09:59:25 IST Kite live: 2,641–2,643 stocks with today's candle (steady); statuses
+  13 ok / 3 partial / 1 not computed, then 15 ok / 1 partial (Long Build Up filling 1-hour candles: 1 → 28 → 58 → 86 → 105
+  rows) / 1 not computed (10x volume first 5 min); values moving with the market (BANKNIFTY 55,478.10 → 55,503.85, HDFCBANK
+  717.20 → 718.00); 10.5 s first run, then 5.4–5.5 s (each run, 30+ s apart, also re-read the Kite REST quotes).
+- NOT verified: the page rendered in a browser with the owner's session, and the route over HTTP with a session (needs the
+  owner's staging session token, asked for 3 Nov ~10:00 IST; spec ready: scratchpad live-scan-dashboard/scan-dashboard-live.spec.ts).
+
+## Verdict: IN PROGRESS — deployed and computing live data on staging; the browser check of the page awaits the owner's session token

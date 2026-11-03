@@ -109,11 +109,12 @@ async def run(request: Request):
 
 @router.get("/market-dashboard")
 async def market_dashboard_view(request: Request):
-    await _user_id(request)
+    uid = await _user_id(request)
     try:
-        return await market_dashboard.get_dashboard(get_data())
+        dash = await market_dashboard.get_dashboard(get_data())
     except DataUnavailable as e:
         return _answer(503, "data_unavailable", e.message)
+    return await market_dashboard.attach_ideas(dash, uid)
 
 
 @router.get("/scans")

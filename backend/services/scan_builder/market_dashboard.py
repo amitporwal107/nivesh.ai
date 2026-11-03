@@ -54,6 +54,14 @@ class IntradayRule:
 
 
 @dataclass
+class FlowRule:
+    """A condition on today's trades by the side that initiated them (TrueData ticks with best bid/ask, tick_flow.py), applied
+    to the stocks that pass everything else. `test(values)` decides a stock from {buy_trades, sell_trades, ...}."""
+    lines: List[str]
+    test: Callable[[Dict[str, Optional[float]]], bool]
+
+
+@dataclass
 class Widget:
     id: str
     chartink_id: str
@@ -62,6 +70,7 @@ class Widget:
     universe: str                                   # cash | fno | nifty50
     spec: Optional[Dict[str, Any]] = None
     intraday: Optional[IntradayRule] = None
+    flow: Optional[FlowRule] = None
     lines: List[Tuple[str, int, bool, Optional[str]]] = field(default_factory=list)   # (text, level, applied, note)
     note: Optional[str] = None
 
@@ -110,6 +119,15 @@ def _hourly_dmi_test(v: Dict[str, Optional[float]], close: float, prev: float) -
 
 def _st15_test(v: Dict[str, Optional[float]], close: float, prev: float) -> bool:
     return v["st0"] < close and v["st1"] >= prev
+
+
+def _first5_test(v: Dict[str, Optional[float]], close: float, prev: float) -> bool:
+    return v["first_vol"] > 10 * v["sma1000"]
+
+
+def _ask_side_test(v: Dict[str, Optional[float]]) -> bool:
+    buy, sell = v.get("buy_trades"), v.get("sell_trades")
+    return buy is not None and sell is not None and buy > sell          # ratio > 1, written without dividing by zero
 
 
 def build_widgets() -> List[Widget]:
@@ -172,15 +190,17 @@ def build_widgets() -> List[Widget]:
         _f("a", x(m("volume")), "gt", x(m("ema", source="close", period=10), "*", n(5))),
         _grp("or1", [_f("b", x(m("close")), "gt", x(m("close", 1), "*", n(1.05))),
                      _f("c", x(m("close")), "lt", x(m("close", 1), "*", n(0.95)))], join="any")])))
-    W.append(Widget("vol_10x_5min", "2653943", "10x volume first 5 min", "not_computed", "cash", lines=[
-        ("Today's first 5-minute candle Volume > 10 × SMA(volume, 1000) of 5-minute candles, as of the candle before", 0, False,
-         "not applied — needs 5-minute candles of every NSE stock (about 13 sessions each)"),
-        ("Volume > 10,00,000", 0, True, None),
-        ("Open ≥ 50", 0, True, None),
-        ("Trades initiated at the ask ÷ trades initiated at the bid > 1", 0, False,
-         "not applied — no feed of ours says which side initiated each trade")],
-        note=("Not computed: it needs the count of trades initiated at the ask and at the bid, which no feed of ours "
-              "(Kite, TrueData, NSE files) carries.")))
+    W.append(Widget("vol_10x_5min", "2653943", "10x volume first 5 min", "scan", "cash", spec=_spec("v10", "cash", [
+        _f("a", x(m("volume")), "gt", x(n(1000000))),
+        _f("b", x(m("open")), "gte", x(n(50)))]),
+        intraday=IntradayRule("5minute", 15, [("first_vol", "first_volume", {}, 0),
+                                             ("sma1000", "sma", {"source": "volume", "period": 1000}, 1)],
+                              ["Today's first 5-minute candle Volume > 10 × SMA(volume, 1000) of 5-minute candles, as of the "
+                               "candle before the latest"], _first5_test),
+        flow=FlowRule(["Trades initiated at the ask ÷ trades initiated at the bid > 1 (today's TrueData tick prints, about "
+                       "one a second rather than every exchange trade: at or above the ask = initiated at the ask, at or below "
+                       "the bid = initiated at the bid, inside the spread by the mid, at the mid by the tick test)"],
+                      _ask_side_test)))
     W.append(Widget("low_pe_roce", "2798275", "Low PE and High ROCE", "scan", "cash", spec=_spec("lowpe", "cash", [
         _f("a", x(F("pe_ttm")), "lt", x(n(15))),
         _f("b", x(F("roce_pct")), "gt", x(n(15))),
@@ -334,7 +354,8 @@ def _group_lines(g: Dict[str, Any], level: int, out: List[Dict[str, Any]]) -> No
             out.append({"text": filter_text(c), "level": level, "applied": True, "note": None})
 
 
-def criteria_lines(w: Widget, intraday_applied: Optional[bool] = None, intraday_note: Optional[str] = None) -> List[Dict[str, Any]]:
+def criteria_lines(w: Widget, intraday_applied: Optional[bool] = None, intraday_note: Optional[str] = None,
+                   flow_applied: Optional[bool] = None, flow_note: Optional[str] = None) -> List[Dict[str, Any]]:
     """Every condition of `w`, one line each. Intraday lines carry applied/note from the run (None = not run yet)."""
     out: List[Dict[str, Any]] = [{"text": f"Universe: {UNIVERSE_LABEL[w.universe]}", "level": 0, "applied": True, "note": None}]
     if w.spec is not None:
@@ -344,6 +365,11 @@ def criteria_lines(w: Widget, intraday_applied: Optional[bool] = None, intraday_
         for line in w.intraday.lines:
             out.append({"text": line, "level": 0, "applied": applied,
                         "note": None if applied else (intraday_note or "not applied — intraday candles unavailable")})
+    if w.flow is not None:
+        applied = bool(flow_applied)
+        for line in w.flow.lines:
+            out.append({"text": line, "level": 0, "applied": applied,
+                        "note": None if applied else (flow_note or "not applied — trade-side ticks unavailable")})
     for text, level, applied, note in w.lines:
         out.append({"text": text, "level": level, "applied": applied, "note": note})
     if w.spec is not None and len(out) == 1 and w.intraday is None:
@@ -462,13 +488,62 @@ async def _default_indices(names):
     return await index_result(names)
 
 
+async def _default_tick_flow(symbols):
+    from .tick_flow import initiated_counts
+    return await initiated_counts(symbols)
+
+
+def _clock_text(stamp: Optional[str]) -> Optional[str]:
+    return _ist(stamp) or stamp
+
+
+INTRADAY_LABEL = {"5minute": "5-minute", "15minute": "15-minute", "60minute": "1-hour"}
+
+
+async def _apply_flow(w: Widget, order: List[int], symbols: Sequence[str], intraday_applied: Optional[bool],
+                      item: Dict[str, Any], tick_flow: Callable[..., Awaitable[Any]],
+                      sources: List[str]) -> Tuple[Optional[bool], Optional[str], List[int]]:
+    """The trade-side condition (w.flow) on the stocks that passed everything else: (applied, note, the order kept).
+    It runs only once the intraday part is applied, so TrueData is asked about the few survivors, never a daily-only list."""
+    if not order:
+        return True, None, order                                     # nothing passed the rest: nothing to test
+    if w.intraday is not None and not intraday_applied:
+        return False, "not applied — it runs on the stocks that pass the 5-minute condition, once those candles are in", order
+    survivors = [symbols[i] for i in order]
+    try:
+        fres = await tick_flow(survivors)
+    except Exception:  # noqa: BLE001 — the other conditions still stand; logged with its trace
+        logger.exception("market dashboard: trade-side ticks failed for %s", w.id)
+        fres = None
+    if fres is not None and fres.source and fres.source not in sources:
+        sources.append(fres.source)
+    have = {s: v for s, v in ((fres.values if fres is not None else None) or {}).items()
+            if v and v.get("buy_trades") is not None and v.get("sell_trades") is not None}
+    if not have:
+        why = ((fres.warnings if fres is not None else None) or ["trade-side ticks could not be read"])[0]
+        item["status"] = "partial"
+        item["note"] = (f"The trade-side condition is not applied yet ({why}); the list below passes the other conditions only.")
+        return False, f"not applied — {why}", order
+    kept = [i for i in order if symbols[i] in have and w.flow.test(have[symbols[i]])]
+    missing = len(survivors) - len(have)
+    if missing:
+        item["status"] = "partial"
+        item["note"] = ((item.get("note") or "") + " " if item.get("note") else "") + (
+            f"{missing} of {len(survivors)} stocks have no trade-side ticks yet and are left out until they arrive.")
+    if fres.as_of:
+        item["as_of"] = f"{item['as_of']} · ticks to {_clock_text(fres.as_of)}"
+    return True, None, kept
+
+
 async def compute(data: ScanData, *,
                   intraday_values: Optional[Callable[..., Awaitable[Any]]] = None,
-                  index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None) -> Dict[str, Any]:
+                  index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
+                  tick_flow: Optional[Callable[..., Awaitable[Any]]] = None) -> Dict[str, Any]:
     """The whole dashboard once. Raises DataUnavailable when prices cannot be read at all."""
     t0 = time.monotonic()
     intraday_values = intraday_values or _default_intraday
     index_result = index_result or _default_indices
+    tick_flow = tick_flow or _default_tick_flow
     base = await data.panel()
     ref = await data.reference()
     syms = list(base.symbols)
@@ -522,6 +597,8 @@ async def compute(data: ScanData, *,
                                 "row_kind": ROW_KIND[w.kind], "count": 0, "as_of": basis_short}
         intraday_applied: Optional[bool] = None
         intraday_note: Optional[str] = None
+        flow_applied: Optional[bool] = None
+        flow_note: Optional[str] = None
         try:
             if w.kind == "not_computed":
                 item["status"] = "not_computed"
@@ -556,14 +633,22 @@ async def compute(data: ScanData, *,
                             intraday_sources.append(ires.source)
                         if intra:
                             intraday_applied = True
-                            missing = len(cands) - len(intra)
-                            label = "15-minute" if w.intraday.interval == "15minute" else "1-hour"
+                            # Still without candles (loading) vs candles read but too little history for the condition (a
+                            # recent listing short of 1,000 five-minute candles): only the first can change, so only it is Partial.
+                            no_candles = len(set(ires.missing or []) & set(cands))
+                            short = len(cands) - len(intra) - no_candles
+                            label = INTRADAY_LABEL[w.intraday.interval]
                             item["as_of"] = f"{basis_short} · {label} candles to {ires.as_of}" if ires.as_of else basis_short
-                            if missing and w.intraday.test is not None:
-                                # Some candidates could not be checked yet: the list may be short, so say Partial.
+                            notes = []
+                            if no_candles and w.intraday.test is not None:
                                 item["status"] = "partial"
-                                item["note"] = (f"{missing} of {len(cands)} stocks have no {label} candles yet and are left out "
-                                                "until they arrive.")
+                                notes.append(f"{no_candles} of {len(cands)} stocks have no {label} candles yet and are left out "
+                                             "until they arrive.")
+                            if short > 0 and w.intraday.test is not None:
+                                notes.append(f"{short} stock(s) have too little {label} history for these conditions and "
+                                             "cannot pass.")
+                            if notes:
+                                item["note"] = " ".join(notes)
                         else:
                             intraday_applied = False
                             intraday_note = "not applied — " + ((ires.warnings or ["intraday candles are loading"])[0])
@@ -579,6 +664,9 @@ async def compute(data: ScanData, *,
                                         + "); the list below passes the daily conditions only.")
                 elif w.intraday is not None and w.intraday.test is not None:
                     intraday_applied = True                                 # nothing passed the daily part: nothing to test
+                if w.flow is not None:
+                    flow_applied, flow_note, order = await _apply_flow(w, order, panel.symbols, intraday_applied, item,
+                                                                       tick_flow, intraday_sources)
                 if w.kind == "strong":
                     rows = []
                     for i in order:
@@ -598,7 +686,7 @@ async def compute(data: ScanData, *,
         except Exception:  # noqa: BLE001 — one widget failing must not blank the dashboard; logged with its trace
             logger.exception("market dashboard: widget %s failed", w.id)
             item.update(status="error", rows=[], note="This widget could not be computed just now; it retries on the next refresh.")
-        item["criteria"] = criteria_lines(w, intraday_applied, intraday_note)
+        item["criteria"] = criteria_lines(w, intraday_applied, intraday_note, flow_applied, flow_note)
         item["count"] = len(item["rows"])
         out_widgets.append(item)
 
@@ -632,6 +720,47 @@ async def compute(data: ScanData, *,
         "warnings": warnings,
         "widgets": out_widgets,
     }
+
+
+IDEA_FIELDS = ("structure", "family", "horizon", "reward_risk", "max_loss_inr", "capital_at_risk_inr", "legs_text", "data_as_of")
+
+
+async def _default_ideas(symbols, user_id):
+    from .strategy_ideas import ideas_for
+    return await ideas_for(symbols, user_id=user_id)
+
+
+async def attach_ideas(dash: Dict[str, Any], user_id: str, *,
+                       ideas_for: Optional[Callable[..., Awaitable[Any]]] = None) -> Dict[str, Any]:
+    """The dashboard plus this user's strategy ideas for every stock it shows (symbol rows only), from the strategy builder's
+    cache (strategy_ideas.py): never waits for a build. ideas[SYMBOL] = a compact idea, or None when no structure has a
+    favorable reward : risk; a symbol still being built is absent. Per user, so it is added after the shared computation."""
+    ideas_for = ideas_for or _default_ideas
+    syms = list(dict.fromkeys(r[0] for w in dash.get("widgets") or [] if w.get("row_kind") == "symbol"
+                              for r in w.get("rows") or [] if r and isinstance(r[0], str)))
+    out = dict(dash)
+    if not syms:
+        out["ideas"], out["ideas_meta"] = {}, None
+        return out
+    try:
+        res = await ideas_for(syms, user_id)
+    except Exception:  # noqa: BLE001 — the dashboard stands without ideas; logged with its trace
+        logger.exception("market dashboard: strategy ideas could not be read")
+        out["ideas"] = {}
+        out["ideas_meta"] = {"built": 0, "pending": len(syms), "note": "Strategy ideas could not be read just now.",
+                             "source": None, "as_of": None}
+        return out
+    values, pending = (res.values or {}), set(res.pending or [])
+    ideas: Dict[str, Any] = {}
+    for sym in syms:
+        if sym in pending or sym not in values:
+            continue                                                     # absent: still being built
+        v = values[sym]
+        ideas[sym] = None if v is None else {k: v.get(k) for k in IDEA_FIELDS}
+    out["ideas"] = ideas
+    out["ideas_meta"] = {"built": len(ideas), "pending": len(syms) - len(ideas), "note": res.note, "source": res.source,
+                         "as_of": res.as_of}
+    return out
 
 
 _cache: Dict[str, Any] = {"at": float("-inf"), "value": None}
