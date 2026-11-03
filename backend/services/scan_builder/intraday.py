@@ -6,8 +6,12 @@ conditions of the Chartink-style widgets, computed on today's Kite candles.
 `needs` are (key, measure, params, offset) tuples, e.g. ("ema21", "ema", {"source": "close", "period": 21}, 0). Offset 0 is the
 latest candle (the one in progress during the session), 1 the one before. Measures: open, high, low, close, volume, ema / sma
 (source, period), rsi (period), adx / di_plus / di_minus (period), supertrend (period, multiplier), first_high / first_volume
-(the high / volume of the latest session's FIRST candle; offset ignored) and close_in_range ((close − low) ÷ (high − low) × 100 of the candle at the offset;
-missing when high = low). Every indicator is services/scan_builder/indicators.py on right-aligned (K, N) arrays, so the daily
+(the high / volume of the latest session's FIRST candle; offset ignored), close_in_range ((close − low) ÷ (high − low) × 100 of the candle at the offset;
+missing when high = low), max / min (source, period: the highest / lowest of the last N candles) and vwap (the latest session's
+volume-weighted average of the typical price (high + low + close) ÷ 3 over its candles; offset ignored; missing without volume).
+Any measure but first_* / vwap also takes params["bucket"] = minutes: it is then computed on the candles regrouped into
+`bucket`-minute candles from 09:15 within each session (open of the first, highest high, lowest low, close of the last, summed
+volume), e.g. a 30-minute RSI from pairs of 15-minute candles; the offset then counts regrouped candles. Every indicator is services/scan_builder/indicators.py on right-aligned (K, N) arrays, so the daily
 engine and this module share one definition. Wilder indicators need history: for ADX(14) on 1-hour candles ask for ≥ 20 sessions
 (7 candles a session; the seed's weight after 140 candles is < 0.03 %).
 
@@ -80,7 +84,8 @@ SOURCE = ("Kite intraday candles (raw prices, not split/bonus adjusted); during 
 
 _PRICE = ("open", "high", "low", "close", "volume")
 MEASURES = set(_PRICE) | {"ema", "sma", "rsi", "adx", "di_plus", "di_minus", "supertrend", "first_high", "first_volume",
-                          "close_in_range"}
+                          "close_in_range", "max", "min", "vwap"}
+SESSION_START_MIN = 9 * 60 + 15                           # regrouped candles start at 09:15 IST, as Kite's own do
 
 
 @dataclass
@@ -313,6 +318,9 @@ def check_needs(needs: Sequence[Need]) -> None:
             raise ValueError(f"offset must be a whole number >= 0 for {key!r}")
         if params is not None and not isinstance(params, dict):
             raise ValueError(f"params must be a dict for {key!r}")
+        bucket = (params or {}).get("bucket")
+        if bucket is not None and (not isinstance(bucket, int) or isinstance(bucket, bool) or bucket < 1):
+            raise ValueError(f"bucket must be a whole number of minutes >= 1 for {key!r}")
 
 
 def _matrix(per_symbol: List[List[list]]) -> Tuple[Dict[str, np.ndarray], int]:
@@ -344,6 +352,10 @@ def _series(measure: str, params: Dict[str, Any], a: Dict[str, np.ndarray]) -> n
         return {"adx": adx, "di_plus": dip, "di_minus": dim}[measure]
     if measure == "supertrend":
         return I.supertrend(a["high"], a["low"], a["close"], int(p.get("period", 7)), float(p.get("multiplier", 3)))
+    if measure in ("max", "min"):
+        src = a[str(p.get("source") or "close")]
+        n = int(p.get("period", 20))
+        return I.rolling_max(src, n) if measure == "max" else I.rolling_min(src, n)
     if measure == "close_in_range":
         rng = a["high"] - a["low"]
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -351,10 +363,47 @@ def _series(measure: str, params: Dict[str, Any], a: Dict[str, np.ndarray]) -> n
     raise ValueError(f"unknown intraday measure {measure!r}")
 
 
+def regroup(bars: List[list], minutes: int) -> List[list]:
+    """Candles regrouped into `minutes`-minute candles from 09:15 within each session (oldest first): the open of the first,
+    the highest high, the lowest low, the close of the last, the summed volume; stamped with the first candle's start."""
+    out: List[list] = []
+    last: Optional[Tuple[str, int]] = None
+    for b in bars:
+        t = str(b[0])
+        slot = (int(t[11:13]) * 60 + int(t[14:16]) - SESSION_START_MIN) // minutes
+        key = (t[:10], slot)
+        if key != last:
+            out.append([t, b[1], b[2], b[3], b[4], b[5]])
+            last = key
+            continue
+        g = out[-1]
+        g[2] = max(g[2], b[2])
+        g[3] = min(g[3], b[3])
+        g[4] = b[4]
+        g[5] = (g[5] or 0) + (b[5] or 0)
+    return out
+
+
+def _session_vwap(bars: List[list]) -> Optional[float]:
+    """The latest session's Σ(typical price × volume) ÷ Σ volume, typical price = (high + low + close) ÷ 3."""
+    if not bars:
+        return None
+    day = str(bars[-1][0])[:10]
+    num = den = 0.0
+    for b in reversed(bars):
+        if str(b[0])[:10] != day:
+            break
+        v = float(b[5] or 0)
+        if v > 0:
+            num += (float(b[2]) + float(b[3]) + float(b[4])) / 3.0 * v
+            den += v
+    return num / den if den > 0 else None
+
+
 def compute(bars_by_symbol: Dict[str, List[list]], needs: Sequence[Need]) -> Dict[str, Dict[str, Optional[float]]]:
     """Each symbol's need values from its candles (oldest first). Pure: the tests compare it with indicators.py directly."""
     syms = list(bars_by_symbol)
-    arrs, k = _matrix([bars_by_symbol[s] for s in syms])
+    mats: Dict[int, Tuple[Dict[str, np.ndarray], int]] = {0: _matrix([bars_by_symbol[s] for s in syms])}
     out: Dict[str, Dict[str, Optional[float]]] = {s: {} for s in syms}
     memo: Dict[Tuple[str, str], np.ndarray] = {}
     for key, measure, params, offset in needs:
@@ -366,6 +415,14 @@ def compute(bars_by_symbol: Dict[str, List[list]], needs: Sequence[Need]) -> Dic
                 first = next((x for x in b if x[0][:10] == day), None) if day else None
                 out[s][key] = float(first[col]) if first and first[col] is not None else None
             continue
+        if measure == "vwap":
+            for s in syms:
+                out[s][key] = _session_vwap(bars_by_symbol[s])
+            continue
+        bucket = int((params or {}).get("bucket") or 0)
+        if bucket not in mats:
+            mats[bucket] = _matrix([regroup(bars_by_symbol[s], bucket) for s in syms])
+        arrs, k = mats[bucket]
         mk = (measure, json.dumps(params or {}, sort_keys=True))
         if mk not in memo:
             memo[mk] = _series(measure, params or {}, arrs)

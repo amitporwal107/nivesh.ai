@@ -153,8 +153,8 @@ export const VIEW_PARAMS = [
   "lab", "lab_sym", "lab_focus", "in_chip", "in_ev",
   // Trade Desk: the sub-view, the chart's plan (?tp=) and the journal's trade (Paper Trading)
   "sub", "tp", "trade",
-  // Market Desk › Screener › Scan builder: the open saved scan
-  "scan",
+  // Market Desk › Screener › Scan builder: the open saved scan; › Scan dashboard: the open dashboard tab (absent = Atlas fresh)
+  "scan", "dash",
 ];
 
 /** The Strategy Lab's own params (its wizard, the Strategy Builder, the F&O lab's hand-off), dropped when a lab URL opens the chart. */

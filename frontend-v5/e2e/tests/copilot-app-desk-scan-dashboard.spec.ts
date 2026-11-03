@@ -1,11 +1,13 @@
 /**
  * One-screen Copilot app (/v5/app) — Smart trading desk, Market Desk › Screener › Scan dashboard
  * (screens/tradingdesk/tabs/market-desk/scan-dashboard/; contract docs/scan_builder/DESIGN.md §8). Cases TC-DE1 … TC-DE7 of
- * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard; TC-DE10 the strategy idea column (3 Nov).
+ * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard; TC-DE10 the strategy idea column (3 Nov);
+ * TC-DE11 the second dashboard's tab, "Day trade" (Chartink 503347; test_reports/scan_dashboard_daytrade_20261103.md TC-11).
  *
  * MOCK — not real data. Every /api/scan-builder/market-dashboard answer below is hand-written to the contract: invented
- * symbols (ALPHA, BETA, GAMMA, DELTA), invented prices, invented index levels. Nothing here is market data; the expected text is
- * worked out from these fixtures, not copied from the screen. Production build, every /api mocked — see pw.copilot-app.config.ts.
+ * symbols (ALPHA, BETA, GAMMA, DELTA), invented prices, invented index levels, invented day-trade widgets. Nothing here is
+ * market data; the expected text is worked out from these fixtures, not copied from the screen. The mocked route reads the
+ * request's `dashboard` query param to pick its answer. Production build, every /api mocked — see pw.copilot-app.config.ts.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
@@ -135,12 +137,80 @@ function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; idea
   };
 }
 
+// ── MOCK — not real data: the second dashboard ("Day trade"), and the new `dashboard` / `dashboards` fields ─────────────
+
+const REFS = [
+  { key: "atlas", title: "Atlas fresh", chartink_id: "247498" },
+  { key: "daytrade", title: "Day trade", chartink_id: "503347" },
+];
+const ref = (key: string) => REFS.find((r) => r.key === key)!;
+
+/** MOCK — the atlas answer of a backend that knows both dashboards (`dashboard()` alone is an older backend's answer). */
+function atlas(o: Parameters<typeof dashboard>[0] = {}) {
+  return { ...dashboard(o), dashboard: ref("atlas"), dashboards: REFS };
+}
+
+/** MOCK — invented day-trade widgets: one ok with rows, one not computed, one partial, one empty by definition. */
+function dayTrade(o: { open?: boolean; bump?: number } = {}) {
+  const bump = o.bump ?? 0;
+  return {
+    ...dashboard(o),
+    dashboard: ref("daytrade"),
+    dashboards: REFS,
+    basis: { mode: o.open === false ? "kite_close" : "live", day: "2026-11-03", eod_date: "2026-11-02", quote_as_of: "2026-11-03T04:45:29Z", text: "MOCK basis — day trade: Kite live 10:15:29 IST over 15-minute candles" },
+    warnings: [],
+    widgets: [
+      {
+        id: "dt_day_high", chartink_id: "9100001", title: "Day high breakout", universe: "F&O stocks", status: "ok", note: null,
+        criteria: [C("Universe: F&O stocks"), C("Close > 1 day ago High"), C("Volume > 500,000")],
+        columns: STD_COLS,
+        rows: [["ALPHA", 2.4, 830.1 + bump, 1500000], ["DELTA", 1.2, 415.5, 900000]],
+        row_kind: "symbol", count: 2, as_of: null,
+      },
+      {
+        id: "dt_12y_high", chartink_id: "9100002", title: "12-year high", universe: "All NSE stocks", status: "not_computed",
+        note: "MOCK note: needs 12 years of daily bars; our history is shorter.",
+        criteria: [C("Universe: All NSE stocks"), C("Close > 12 years ago Highest high", { applied: false, note: "needs 12 years of bars" })],
+        columns: STD_COLS, rows: [], row_kind: "symbol", count: null, as_of: null,
+      },
+      {
+        id: "dt_under_300", chartink_id: "9100003", title: "Under 300 above the 200-week line", universe: "All NSE stocks", status: "partial",
+        note: "MOCK note: the 200-week line is not applied yet.",
+        criteria: [C("Universe: All NSE stocks"), C("Close < 300"), C("Close > Weekly SMA(close, 200)", { applied: false, note: "needs 200 weeks of bars" })],
+        columns: STD_COLS, rows: [["BETA", 0.8, 245, 410000]], row_kind: "symbol", count: 1, as_of: null,
+      },
+      {
+        id: "dt_momentum", chartink_id: "9100004", title: "High momentum", universe: "F&O stocks", status: "ok",
+        note: "MOCK note: always empty by definition — its two conditions can never hold together.",
+        criteria: [C("Universe: F&O stocks"), C("RSI(14) > 80"), C("RSI(14) < 20")],
+        columns: STD_COLS, rows: [], row_kind: "symbol", count: 0, as_of: null,
+      },
+    ],
+  };
+}
+const DAY_TRADE_TITLES = ["Day high breakout", "12-year high", "Under 300 above the 200-week line", "High momentum"];
+const ATLAS_TITLES = ["Marketcap Advances % / Declines", "Index stats", "Nifty 50 Top Gainers", "Open interest", "Open interest 7", "Good quarter result stocks", "10x volume first 5 min", "Triple bottom"];
+const unknownDashboard = (key: string) => ({ status: 422, body: { detail: { code: "unknown_dashboard", message: `MOCK: there is no dashboard "${key}".` }, code: "unknown_dashboard" } });
+
+/** MOCK — the default answer by the asked dashboard: atlas as an older backend answers it (no `dashboard` field, so the
+ *  original cases keep testing that path), day trade from a backend that knows it, anything else 422 unknown_dashboard. */
+function byDashboard(dash: string | null): { status: number; body: unknown } {
+  if (dash === null || dash === "atlas") return { status: 200, body: dashboard() };
+  if (dash === "daytrade") return { status: 200, body: dayTrade() };
+  return unknownDashboard(dash);
+}
+
 // ── the mocked desk ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-interface Backend { calls: string[]; answer: (n: number) => { status: number; body: unknown } }
+interface Backend {
+  calls: string[];
+  /** The `dashboard` query param of every GET /market-dashboard, in order (null = absent). */
+  asked: (string | null)[];
+  answer: (n: number, dash: string | null) => { status: number; body: unknown };
+}
 
 async function desk(page: Page, o: { flag?: boolean; answer?: Backend["answer"] } = {}): Promise<Backend> {
-  const be: Backend = { calls: [], answer: o.answer ?? (() => ({ status: 200, body: dashboard() })) };
+  const be: Backend = { calls: [], asked: [], answer: o.answer ?? ((_n, dash) => byDashboard(dash)) };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => reply(r, []));
@@ -149,10 +219,13 @@ async function desk(page: Page, o: { flag?: boolean; answer?: Backend["answer"] 
   await page.route("**/api/auth/me", (r) => reply(r, { ...base, features: { ...(base.features ?? {}), scan_builder: o.flag !== false } }));
   await page.route(/\/api\/scan-builder\//, async (r) => {
     const req = r.request();
-    const p = new URL(req.url()).pathname.replace(/^.*\/api\/scan-builder/, "");
+    const url = new URL(req.url());
+    const p = url.pathname.replace(/^.*\/api\/scan-builder/, "");
     be.calls.push(`${req.method()} ${p}`);
     if (p === "/market-dashboard" && req.method() === "GET") {
-      const a = be.answer(be.calls.filter((c) => c === "GET /market-dashboard").length);
+      const dash = url.searchParams.get("dashboard");
+      be.asked.push(dash);
+      const a = be.answer(be.calls.filter((c) => c === "GET /market-dashboard").length, dash);
       return reply(r, a.body, a.status);
     }
     return reply(r, { detail: { code: "unexpected", message: `unmocked ${req.method()} ${p}` } }, 500);
@@ -163,10 +236,14 @@ async function desk(page: Page, o: { flag?: boolean; answer?: Backend["answer"] 
 const dashCalls = (be: Backend) => be.calls.filter((c) => c === "GET /market-dashboard").length;
 const widget = (page: Page, id: string) => page.getByTestId(`sd-widget-${id}`);
 
-async function openDashboard(page: Page) {
-  await page.goto(DASH);
+async function openDashboard(page: Page, url = DASH) {
+  await page.goto(url);
   await expect(page.getByTestId("scan-dashboard")).toBeVisible(SLOW);
 }
+
+const BANNED = /\b(buy\w*|sell\w*|target\w*|stop[ -]?loss|picks?|recommend\w*|entry|exit)\b/i;
+const tab = (page: Page, key: string) => page.getByTestId(`sd-dash-${key}`);
+const titlesOf = (page: Page) => page.getByTestId("sd-widget-title");
 
 test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboard", () => {
   test("TC-DE1a with the flag off only the Screener is offered (no switcher), and the dashboard URL asks nothing", async ({ page }) => {
@@ -448,6 +525,175 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
   });
 });
 
+test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboard · two dashboards (Atlas fresh | Day trade)", () => {
+  test("TC-DE11a the default tab is Atlas fresh: no dash= in the URL, the request asks atlas, the tab row is an accessible tablist", async ({ page }) => {
+    const be = await desk(page, { answer: (_n, dash) => (dash === "daytrade" ? { status: 200, body: dayTrade() } : { status: 200, body: atlas() }) });
+    await openDashboard(page);
+    const list = page.getByRole("tablist", { name: "Scan dashboards" });
+    await expect(list.getByRole("tab")).toHaveText(["Atlas fresh", "Day trade"]);
+    await expect(tab(page, "atlas")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "daytrade")).toHaveAttribute("aria-selected", "false");
+    await expect(tab(page, "atlas")).toHaveAttribute("tabindex", "0");
+    await expect(tab(page, "daytrade")).toHaveAttribute("tabindex", "-1");
+    await expect(tab(page, "atlas").locator("[title]")).toHaveAttribute("title", "Chartink dashboard 247498");
+    await expect(tab(page, "daytrade").locator("[title]")).toHaveAttribute("title", "Chartink dashboard 503347");
+    expect(params(page).get("dash")).toBeNull();
+    expect(be.asked.length).toBeGreaterThanOrEqual(1);
+    for (const a of be.asked) expect([null, "atlas"]).toContain(a);
+    await expect(page.getByTestId("scan-dashboard")).toHaveAttribute("data-dashboard", "atlas");
+    await expect(titlesOf(page)).toHaveText(ATLAS_TITLES);
+  });
+
+  test("TC-DE11b Day trade: dash=daytrade in the URL (tab, view, sub kept), the request asks daytrade, its widgets and statuses render; arrow keys switch back", async ({ page }) => {
+    const be = await desk(page);
+    await openDashboard(page);
+    await tab(page, "daytrade").click();
+    await expect.poll(() => params(page).get("dash")).toBe("daytrade");
+    expect(params(page).get("tab")).toBe("market");
+    expect(params(page).get("view")).toBe("screener");
+    expect(params(page).get("sub")).toBe("dashboard");
+    await expect(tab(page, "daytrade")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "atlas")).toHaveAttribute("aria-selected", "false");
+    await expect.poll(() => be.asked[be.asked.length - 1], SLOW).toBe("daytrade");
+    await expect(page.getByTestId("scan-dashboard")).toHaveAttribute("data-dashboard", "daytrade", SLOW);
+    await expect(page.getByTestId("sd-basis")).toHaveText("MOCK basis — day trade: Kite live 10:15:29 IST over 15-minute candles");
+    await expect(titlesOf(page)).toHaveText(DAY_TRADE_TITLES);
+    await expect(widget(page, "mcap_ad")).toHaveCount(0);
+    // ok with rows (and the strategy idea column)
+    const hi = widget(page, "dt_day_high");
+    await expect(hi.getByTestId("sd-widget-count")).toHaveText("2 stocks");
+    await expect(hi.getByTestId("sd-row").nth(0)).toContainText("830.10");
+    await expect(hi.locator('[data-testid="sd-row"][data-key="ALPHA"] [data-testid="sd-idea"]')).toHaveText("Bull call spread · R:R 2.10");
+    // not computed: its note, no table, the criterion it cannot apply dimmed
+    const y12 = widget(page, "dt_12y_high");
+    await expect(y12.getByTestId("sd-widget-status")).toHaveText("Not computed");
+    await expect(y12.getByTestId("sd-widget-note")).toHaveText("MOCK note: needs 12 years of daily bars; our history is shorter.");
+    await expect(y12.getByTestId("sd-table")).toHaveCount(0);
+    await expect(y12.locator('[data-testid="sd-criterion"][data-applied="false"]')).toHaveCount(1);
+    // partial: badge, note, rows
+    const u3 = widget(page, "dt_under_300");
+    await expect(u3.getByTestId("sd-widget-status")).toHaveText("Partial");
+    await expect(u3.getByTestId("sd-widget-note")).toHaveText("MOCK note: the 200-week line is not applied yet.");
+    await expect(u3.getByTestId("sd-row")).toHaveCount(1);
+    // empty by definition: its note says why, then "No stock passes right now."
+    const mo = widget(page, "dt_momentum");
+    await expect(mo.getByTestId("sd-widget-note")).toHaveText("MOCK note: always empty by definition — its two conditions can never hold together.");
+    await expect(mo.getByTestId("sd-widget-empty")).toHaveText("No stock passes right now.");
+    // the owner's wording rule holds on this tab too
+    const panel = page.getByTestId("desk-panel-scandashboard");
+    const tips = await panel.locator("[title]").evaluateAll((els) => els.map((e) => e.getAttribute("title") ?? ""));
+    for (const t of [await page.getByTestId("md-head").innerText(), await panel.innerText(), ...tips]) expect(t).not.toMatch(BANNED);
+    // keyboard: ArrowLeft from Day trade opens Atlas fresh, focus follows, dash= leaves the URL
+    await tab(page, "daytrade").focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(tab(page, "atlas")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "atlas")).toBeFocused();
+    await expect.poll(() => params(page).get("dash")).toBeNull();
+    expect(params(page).get("sub")).toBe("dashboard");
+    await expect(titlesOf(page)).toHaveText(ATLAS_TITLES, SLOW);
+    // ArrowRight goes to Day trade again
+    await page.keyboard.press("ArrowRight");
+    await expect(tab(page, "daytrade")).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => params(page).get("dash")).toBe("daytrade");
+  });
+
+  test("TC-DE11c a link or a reload with dash=daytrade opens Day trade and never asks atlas", async ({ page }) => {
+    const be = await desk(page);
+    await openDashboard(page, `${DASH}&dash=daytrade`);
+    await expect(tab(page, "daytrade")).toHaveAttribute("aria-selected", "true");
+    await expect(titlesOf(page)).toHaveText(DAY_TRADE_TITLES);
+    await page.reload();
+    await expect(page.getByTestId("scan-dashboard")).toHaveAttribute("data-dashboard", "daytrade", SLOW);
+    await expect(tab(page, "daytrade")).toHaveAttribute("aria-selected", "true");
+    await expect(titlesOf(page)).toHaveText(DAY_TRADE_TITLES);
+    expect(params(page).get("dash")).toBe("daytrade");
+    expect(be.asked.length).toBeGreaterThanOrEqual(2);
+    for (const a of be.asked) expect(a).toBe("daytrade");
+  });
+
+  test("TC-DE11d guard: an answer for atlas when daytrade was asked shows 'not available on the server yet' and none of its widgets", async ({ page }) => {
+    // MOCK — a backend that answers atlas (with dashboard.key "atlas") whatever it is asked
+    const be = await desk(page, { answer: () => ({ status: 200, body: atlas() }) });
+    await page.goto(`${DASH}&dash=daytrade`);
+    const un = page.getByTestId("sd-unavailable");
+    await expect(un).toBeVisible(SLOW);
+    await expect(un).toContainText("This dashboard is not available on the server yet.");
+    await expect(un).toHaveAttribute("data-asked", "daytrade");
+    await expect(un).toHaveAttribute("data-served", "atlas");
+    expect(be.asked).toContain("daytrade");
+    await expect(page.getByTestId("scan-dashboard")).toHaveCount(0);
+    await expect(page.locator('[data-testid^="sd-widget-"][data-status]')).toHaveCount(0);
+    for (const t of ATLAS_TITLES) await expect(page.getByText(t, { exact: true })).toHaveCount(0);
+    await expect(tab(page, "daytrade")).toHaveAttribute("aria-selected", "true");
+    expect(await page.getByTestId("desk-panel-scandashboard").innerText()).not.toMatch(BANNED);
+    // asking again asks daytrade again, and still shows nothing of atlas
+    const before = be.asked.length;
+    await page.getByTestId("sd-unavailable-retry").click();
+    await expect.poll(() => be.asked.length, SLOW).toBeGreaterThan(before);
+    expect(be.asked[be.asked.length - 1]).toBe("daytrade");
+    await expect(page.getByTestId("sd-unavailable")).toBeVisible();
+    // the Atlas tab draws that same answer, since it is for atlas
+    await tab(page, "atlas").click();
+    await expect(page.getByTestId("scan-dashboard")).toHaveAttribute("data-dashboard", "atlas", SLOW);
+    await expect(titlesOf(page)).toHaveText(ATLAS_TITLES);
+  });
+
+  test("TC-DE11e guard, older backend: no `dashboard` field — Atlas fresh renders as before, Day trade says not available", async ({ page }) => {
+    // MOCK — an older backend: ignores ?dashboard= and answers 247498 without the new fields
+    await desk(page, { answer: () => ({ status: 200, body: dashboard() }) });
+    await openDashboard(page);
+    await expect(titlesOf(page)).toHaveText(ATLAS_TITLES);
+    await expect(page.getByRole("tablist", { name: "Scan dashboards" }).getByRole("tab")).toHaveText(["Atlas fresh", "Day trade"]);   // the static pair
+    await tab(page, "daytrade").click();
+    await expect(page.getByTestId("sd-unavailable")).toBeVisible(SLOW);
+    await expect(page.getByTestId("sd-unavailable")).toHaveAttribute("data-served", "atlas");
+    await expect(page.locator('[data-testid^="sd-widget-"][data-status]')).toHaveCount(0);
+  });
+
+  test("TC-DE11f the 10 s refresh asks only the open dashboard", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-11-03T04:45:00Z") });
+    const be = await desk(page, { answer: (n, dash) => (dash === "daytrade" ? { status: 200, body: dayTrade({ bump: n }) } : { status: 200, body: atlas({ bump: n }) }) });
+    await openDashboard(page, `${DASH}&dash=daytrade`);
+    await expect(page.getByTestId("sd-live-chip")).toHaveAttribute("data-state", "live");
+    const n0 = be.asked.length;
+    await page.clock.runFor(10_500);
+    await expect.poll(() => be.asked.length, SLOW).toBe(n0 + 1);
+    await page.clock.runFor(10_500);
+    await expect.poll(() => be.asked.length, SLOW).toBe(n0 + 2);
+    for (const a of be.asked) expect(a).toBe("daytrade");
+    await expect(widget(page, "dt_day_high").getByTestId("sd-row").nth(0)).toContainText(`${(830.1 + n0 + 2).toFixed(2)}`, SLOW);
+    // switch: from now on only atlas is asked
+    await tab(page, "atlas").click();
+    await expect(page.getByTestId("scan-dashboard")).toHaveAttribute("data-dashboard", "atlas", SLOW);
+    const n1 = be.asked.length;
+    await page.clock.runFor(10_500);
+    await expect.poll(() => be.asked.length, SLOW).toBe(n1 + 1);
+    await page.clock.runFor(10_500);
+    await expect.poll(() => be.asked.length, SLOW).toBe(n1 + 2);
+    for (const a of be.asked.slice(n1 - 1)) expect(a).toBe("atlas");
+  });
+
+  test("TC-DE11g an unknown dash= is asked as is; the server's 422 unknown_dashboard says so, with no Retry, and the tabs stay", async ({ page }) => {
+    const be = await desk(page);
+    await page.goto(`${DASH}&dash=nope`);
+    const err = page.getByTestId("sd-error");
+    await expect(err).toHaveAttribute("data-code", "unknown_dashboard", SLOW);
+    await expect(err).toContainText("This dashboard is not available on the server");
+    await expect(err.getByRole("button", { name: /Retry/ })).toHaveCount(0);
+    expect(be.asked).toEqual(["nope"]);
+    await tab(page, "daytrade").click();
+    await expect(titlesOf(page)).toHaveText(DAY_TRADE_TITLES, SLOW);
+  });
+
+  test("TC-DE11h a tab or view change drops dash=", async ({ page }) => {
+    await desk(page);
+    await openDashboard(page, `${DASH}&dash=daytrade`);
+    await page.getByTestId("desk-sub-builder").click();
+    await expect.poll(() => params(page).get("sub")).toBe("builder");
+    expect(params(page).get("dash")).toBeNull();
+  });
+});
+
 test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboard · phone 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -467,6 +713,26 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     });
     expect(o.cards).toBe(8);
     expect(o.columns).toBe(1);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+
+  test("TC-DE11i the dashboard tabs fit a phone: both visible, Day trade opens, no sideways page scroll", async ({ page }) => {
+    await desk(page);
+    await openDashboard(page);
+    for (const k of ["atlas", "daytrade"]) {
+      await expect(tab(page, k)).toBeVisible();
+      const b = await tab(page, k).boundingBox();
+      expect(b).not.toBeNull();
+      expect(b!.x).toBeGreaterThanOrEqual(0);
+      expect(b!.x + b!.width).toBeLessThanOrEqual(390);
+    }
+    await tab(page, "daytrade").click();
+    await expect(titlesOf(page)).toHaveText(DAY_TRADE_TITLES, SLOW);
+    const o = await page.evaluate(() => {
+      const sc = document.querySelector('[data-testid="copilot-scroll"]') as HTMLElement | null;
+      return { doc: document.documentElement.scrollWidth - window.innerWidth, scroll: sc ? sc.scrollWidth - sc.clientWidth : 0 };
+    });
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
   });

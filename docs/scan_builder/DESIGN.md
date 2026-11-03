@@ -259,3 +259,32 @@ the bid, inside the spread by the mid, at the mid by the tick test; the opening-
 condition: ask-side prints > bid-side prints (ratio > 1). TrueData counts snapshot prints (~1 a second), not every exchange trade. Titles/labels avoid "buy" (owner 3 Nov): TODAYS TOP BUY → Today's strong movers; BUY% → 15m pos %;
 DBUY → Day pos % ((Close − Low) ÷ (High − Low) × 100); OPEN INTEREST BUY7 → Open interest 7; Copy - supertrend rsi scan →
 Supertrend RSI scan.
+
+## 9. Second dashboard tab "Day trade" = Chartink 503347 (owner 3 Nov ~17:15: "add another chartlink scan in another tab")
+The owner's dashboard 225969 is private on Chartink (no definitions served); he published a copy, 503347 ("Copy day trade",
+20 widgets; queries verbatim in docs/scan_builder/chartink_503347/widgets.md). Same page, same computation as §8, as a tab:
+Market Desk › Screener › Scan dashboard › **Atlas fresh | Day trade** (`dash=daytrade` in the URL).
+
+`GET /api/scan-builder/market-dashboard?dashboard=atlas|daytrade` (default atlas; another key → 422 `unknown_dashboard`).
+The §8 payload plus `dashboard {key, title, chartink_id}` and `dashboards [...]` (the tabs). One computation per dashboard per
+CACHE_S per worker. The frontend never shows an answer whose `dashboard.key` is not the tab asked for (an old backend
+ignores the parameter and answers atlas).
+
+Mapping: {33489} = F&O stocks; "earning per share[eps]" = EPS, latest year; "prev year eps" = EPS, previous year;
+"yearly pe ratio" = Close ÷ EPS, latest year; net profit[quarter] / [yearly] = latest quarter / latest year; "N months /
+weeks ago" = monthly / weekly candles; max(N, x) = highest of the last N candles including the latest (so "High = Highest
+high of 260" means a 52-week high today). Columns: % Change, Price, Volume (Chartink's extra display columns — VWAP, Stoch
+RSI, VWMA, RSI, MACD, market cap — are not shown yet).
+Honest limits (each said on screen): 12 Year High Breakout needs 3,000 sessions, our history starts April 2024 (~640) →
+not computed; Multiyear breakout: the 780–2,600-session legs cannot be checked but cannot add a stock the 520-session leg
+misses → computed (the max/min period cap is 1,000); Stocks Under 300: 200-week SMA not computable → Partial, that line not
+applied; High Momentum Stocks: "RSI(14) > highest RSI(14) of 3" can never hold → always empty, on Chartink too.
+Intraday (Kite 15-minute candles, fresh ≤ 60 s, shared cache with §8): RSI VWAP intraday = close > 1 day ago high, then
+30-minute RSI(14) > 60 (pairs of 15-minute candles, intraday.py `bucket`) and today's VWAP (Σ typical price × volume ÷ Σ
+volume over today's 15-minute candles, intraday.py `vwap`) < the latest close; 15 minute stock breakouts = on F&O stocks
+(owner: {57960} is not published), latest 15-minute close > highest 15-minute close of 20 as of the candle before, and
+latest 15-minute volume > SMA(volume, 20). While the tab is open, the 218 F&O stocks' 15-minute reads share Kite's budget
+(≤ 1.5 calls/s for this feature), so candles may be 2–3 minutes old (the widget's as-of says so). 10x volume first 5 min =
+the §8 widget's rule. Renamed for the wording rule: RSI VWAP INTRADAY BUY → RSI VWAP intraday; Swing trade breakout strategy
+10-20% gains → Swing trade breakout; Copy - Strong stocks → Strong stocks.
+A list cut at the 500-row limit says how many stocks passed (both tabs).

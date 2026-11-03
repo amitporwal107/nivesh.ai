@@ -305,6 +305,7 @@ jobs:
           tests/test_risk_service.py
           tests/test_rs63_readiness.py
           tests/test_scan_builder_data.py
+          tests/test_scan_builder_daytrade.py
           tests/test_scan_builder_engine.py
           tests/test_scan_builder_fno_indices.py
           tests/test_scan_builder_indicators.py

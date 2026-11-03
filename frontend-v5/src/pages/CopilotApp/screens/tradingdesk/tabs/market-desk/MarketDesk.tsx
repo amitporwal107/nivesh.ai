@@ -16,8 +16,9 @@
  *   screener    Screener              three sub-views (sub=, desk-nav.ts SUB_VIEWS; owner, 3 Nov: the Chartink-style scans live
  *                                     under the existing Screener):
  *                                       screens    the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
- *                                       dashboard  scan-dashboard/ScanDashboard.tsx: the 17 widgets of Chartink dashboard 247498 on our
- *                                                  own data, each with its criteria, refreshed every 10 s while the market is open
+ *                                       dashboard  scan-dashboard/ScanDashboard.tsx: Chartink dashboards on our own data, one tab each
+ *                                                  (dash=: absent = 247498 "Atlas fresh", daytrade = 503347 "Day trade"), each
+ *                                                  widget with its criteria, refreshed every 10 s while the market is open
  *                                       builder    scan-builder/ScanBuilder.tsx: your own scans (filters · columns · group/sort) run on
  *                                                  our data (the old view=scanbuilder URL lands here)
  *                                     dashboard and builder need the `scan_builder` flag (the switcher hides them otherwise; each
@@ -226,7 +227,7 @@ export default function MarketDesk({ view, sub = null }: { view: string | null; 
             <ViewHead
               view={v}
               label="Screener · Scan dashboard"
-              line="The Chartink “Atlas fresh” scans on our own data: Kite live quotes over NSE end-of-day bars, refreshed every 10 seconds while the market is open."
+              line="Chartink scan dashboards on our own data: Kite live quotes over NSE end-of-day bars, refreshed every 10 seconds while the market is open."
               elsewhere="Each widget lists its criteria; a dimmed line is not applied yet and says why."
             />
             <Hosted id="scandashboard" name="the Scan dashboard"><ScanDashboard /></Hosted>
