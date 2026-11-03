@@ -1702,7 +1702,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
   test("not on the scanner: the rule's levels fill the section, the calculator and the full-chart link, labelled; the scanner's win when present", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=HYPOSYM`);
-    await expect(page.getByTestId("desk-risk-rule")).toContainText("Rule-based hypothetical levels, not a scanner idea and not advidation");
+    await expect(page.getByTestId("desk-risk-rule")).toContainText("Rule-based hypothetical levels, not a scanner idea and not advice");
     await expect(page.getByTestId("desk-risk-rule")).toContainText("ATR_2X_STOP v1");
     await expect(page.getByTestId("desk-risk-rr")).toHaveText("2.0 : 1");
     await expect(page.getByTestId("desk-scn-entry")).toHaveValue("500");
@@ -1999,7 +1999,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     expect(ids).toEqual(SECTIONS.map((k) => `desk-detail-${k}-toggle`));
     expect(await page.locator('[data-testid^="desk-detail-"][data-testid$="-toggle"] > span > span:first-child').allTextContents()).toEqual([
       "Prediction definition and horizon", "Model score and calibration", "Technical evidence", "Fundamental and ownership context", "Corporate events and news",
-      "Liquidity and tradability", "Hypothetical entry, stop and target", "Historical validation", "Contradictory evidence", "Data freshness and missing inputs",
+      "Liquidity and tradability", "Hypothetical reference price, risk level and reward level", "Historical validation", "Contradictory evidence", "Data freshness and missing inputs",
     ]);
     for (const k of SECTIONS) {
       await expect(page.getByTestId(`desk-detail-${k}-toggle`)).toHaveAttribute("aria-expanded", "false");
@@ -2162,7 +2162,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-detail-title")).toHaveText("Everything about this idea");
     expect(await page.locator('[data-testid^="desk-detail-"][data-testid$="-toggle"] > span > span:first-child').allTextContents()).toEqual([
       "What is being estimated, and for how long", "The score, and how reliable it has been", "What the chart shows", "The business and who owns it", "Company news and filings",
-      "Is it easy to buy and sell?", "Possible buy, exit and target prices", "How similar setups did before", "What argues against it", "How fresh the data is, and what is missing",
+      "Is it easy to trade?", "Possible reference, risk and reward prices", "How similar setups did before", "What argues against it", "How fresh the data is, and what is missing",
     ]);
     await expect(page.getByTestId("desk-detail-validation-summary")).toHaveText("Hit rate 40.0% · n 100 (touch, 10 sessions)");
     await page.getByTestId("desk-detail-technical-toggle").click();
@@ -2259,7 +2259,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     expect(order).toEqual(["EMA", "VWAP", "Levels", "1M", "3M", "6M"]);
     // Legend keys and span, design order.
     // The lines are the server's (EMA 200 has a value on the last session of these 200 bars); ◆ marks the filings in view.
-    await expect(page.getByTestId("desk-chart-legend")).toHaveText("EMA 20EMA 50EMA 200VWAP 20DTargetEntryStopFilingDaily · 3 months");
+    await expect(page.getByTestId("desk-chart-legend")).toHaveText("EMA 20EMA 50EMA 200VWAP 20DReward levelRef priceRisk levelFilingDaily · 3 months");
     // Indicator tiles in order, five across.
     await expect(page.getByTestId("desk-indicators")).toHaveAttribute("data-cols", "5");
     expect(await page.getByTestId("desk-indicators").locator(".cp-eyebrow").allTextContents()).toEqual(["EMA 20", "RSI 14", "ATR 14", "VWAP 20D", "RVOL"]);

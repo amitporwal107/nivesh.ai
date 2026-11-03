@@ -343,7 +343,7 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id);
     await expect(card.getByTestId("dc-entry")).toHaveText(`Reference price at the close, ${rs(CASH.entry.price)}`);
     await expect(card.getByTestId("dc-stop")).toHaveText(`Risk level ${rs(CASH.stop.price)}`);
-    await expect(card.getByTestId("dc-targets")).toHaveText(`Targets ${targets(CASH)}`);
+    await expect(card.getByTestId("dc-targets")).toHaveText(`Reward levels ${targets(CASH)}`);
     await expect(card.getByTestId("dc-size")).toHaveText(`Size ${int(A.quantity)} shares`);
     await expect(card.getByTestId("dc-risk")).toHaveText(`Max loss ${rs(A.estimated_risk_rs.total)} (${n2(A.risk_pct_of_equity)}% of your capital)`);
     await expect(card.getByTestId("dc-costs")).toHaveText(`Charges about ${rs(A.estimated_risk_rs.costs)}`);
@@ -444,7 +444,7 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     const card = bank.getByTestId("desk-top10-fno-card");
     await ready(card);
     await expect(card).toHaveAttribute("data-plan-id", FNO.plan_id);
-    await expect(card.getByTestId("dc-targets")).toHaveText(`Targets ${targets(FNO)}`);
+    await expect(card.getByTestId("dc-targets")).toHaveText(`Reward levels ${targets(FNO)}`);
     await expect(card.getByTestId("dc-row-budgets")).toContainText("Your other open trades may lower this size");
     await expect(page.getByTestId("desk-top10-scan")).toHaveText("Option chains of 21 Oct · regime fit, end of day");
   });

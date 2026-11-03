@@ -520,7 +520,7 @@ test.describe("page: Chart Analysis › option chain and strategy cards (MOCK �
     await expect(card(0).getByTestId("ca-reco-margin")).toContainText("MARGIN · ZERODHA");
     await expect(card(0).getByTestId("ca-reco-margin")).toContainText(rs(123456.5), SLOW);
     await expect(card(0).getByTestId("ca-reco-margin-sub")).toHaveText(
-      `Kite's margin calculator for SELL 1250 CE alone (the shares are not counted against it); plus ${rs(1200000)} for 1,000 shares, paid in full (delivery).`);
+      `Kite's margin calculator for SHORT 1250 CE alone (the shares are not counted against it); plus ${rs(1200000)} for 1,000 shares, paid in full (delivery).`);
     await expect(card(1).getByTestId("ca-reco-max-loss")).toContainText("MAX LOSS");
     await expect(card(1).getByTestId("ca-reco-max-loss-sub")).toHaveCount(0);
     await expect(card(1).getByTestId("ca-reco-margin")).toContainText(rs(36533), SLOW);
