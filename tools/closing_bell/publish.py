@@ -1,7 +1,8 @@
 """Closing Bell — put a checked edition on the site and update the edition list the page reads.
 
 usage: python3 publish.py WORK_DIR DEST_DIR [--retain N]
-DEST_DIR is served at /downloads/closing-bell/ by the edge nginx. Writes:
+DEST_DIR is served at /downloads/closing-bell/ by the edge nginx (the Opening Bell: /downloads/opening-bell/, file
+names opening-bell-<date>*). Writes:
   DEST/<date>/closing-bell-<date>.mp4, poster.jpg, captions.vtt, transcript.json, edition.json
   DEST/index.json   {"latest": date, "editions": [edition.json ..., newest first]}   (atomic replace)
 Every language the night was built in is published: closing-bell-<date>-<lang>.mp4, captions_<lang>.vtt,
@@ -50,9 +51,11 @@ def main(work: str, dest: str, retain: int, lang_retain: int = 15) -> dict:
     script = json.load(open(f"{work}/script.json"))
     media = json.load(open(f"{work}/out/media.json"))
     d = cards["date"]
+    opening = script.get("kind") == "opening"
+    stem, name = ("opening-bell", "Opening Bell") if opening else ("closing-bell", "Closing Bell")
     ed_dir = os.path.join(dest, d)
     os.makedirs(ed_dir, exist_ok=True)
-    files = {"video": f"closing-bell-{d}.mp4", "poster": "poster.jpg", "captions": "captions.vtt", "transcript": "transcript.json"}
+    files = {"video": f"{stem}-{d}.mp4", "poster": "poster.jpg", "captions": "captions.vtt", "transcript": "transcript.json"}
     for key, src in (("video", "web.mp4"), ("poster", "poster.jpg"), ("captions", "captions.vtt"), ("transcript", "transcript.json")):
         copy_in(os.path.join(work, "out", src), os.path.join(ed_dir, files[key]))
     languages = [{"code": "en", "label": LABELS["en"], "video": f"{d}/{files['video']}", "captions": f"{d}/{files['captions']}",
@@ -61,13 +64,13 @@ def main(work: str, dest: str, retain: int, lang_retain: int = 15) -> dict:
         srcs = {"video": f"web_{code}.mp4", "captions": f"captions_{code}.vtt", "transcript": f"transcript_{code}.json"}
         if not all(os.path.exists(os.path.join(work, "out", s)) for s in srcs.values()):
             continue
-        names = {"video": f"closing-bell-{d}-{code}.mp4", "captions": f"captions_{code}.vtt", "transcript": f"transcript_{code}.json"}
+        names = {"video": f"{stem}-{d}-{code}.mp4", "captions": f"captions_{code}.vtt", "transcript": f"transcript_{code}.json"}
         for k in srcs:
             copy_in(os.path.join(work, "out", srcs[k]), os.path.join(ed_dir, names[k]))
         languages.append({"code": code, "label": LABELS[code], **{k: f"{d}/{v}" for k, v in names.items()}})
     secs = round(media["duration"])
     edition = {
-        "date": d, "day_long": cards["L"]["day_long"], "title": f"Closing Bell — {cards['L']['day_long']}",
+        "date": d, "kind": "opening" if opening else "closing", "day_long": cards["L"]["day_long"], "title": f"{name} — {cards['L']['day_long']}",
         "duration_s": secs, "duration_label": f"{secs // 60}:{secs % 60:02d}",
         "headlines": [{"kicker": h["kicker"], "big": plain(h["big"]), "small": h["small"]} for h in script.get("headlines") or []],
         "segments": [{"tag": s["tag"], "title": s["title"]} for s in script["segments"]],
@@ -76,7 +79,8 @@ def main(work: str, dest: str, retain: int, lang_retain: int = 15) -> dict:
         "published_at": datetime.now(IST).isoformat(timespec="seconds"),
         "voices": {x["code"]: VOICES[x["code"]] for x in languages},
         "music": "“The Complex” by Kevin MacLeod (incompetech.com), CC BY 3.0",
-        "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations.",
+        "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations."
+                      + (" Ranges and levels are what the options market prices, not forecasts." if opening else ""),
     }
     atomic_json(os.path.join(ed_dir, "edition.json"), edition)
     idx_path = os.path.join(dest, "index.json")
@@ -95,7 +99,7 @@ def main(work: str, dest: str, retain: int, lang_retain: int = 15) -> dict:
         old = os.path.join(dest, e["date"])
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", e["date"]) and os.path.isdir(old):
             shutil.rmtree(old)
-    atomic_json(idx_path, {"schema": "closing-bell-index-v1", "latest": keep[0]["date"], "updated_at": edition["published_at"], "editions": keep})
+    atomic_json(idx_path, {"schema": f"{stem}-index-v1", "latest": keep[0]["date"], "updated_at": edition["published_at"], "editions": keep})
     return {"published": d, "languages": [x["code"] for x in languages], "editions": len(keep), "removed": [e["date"] for e in drop]}
 
 

@@ -86,7 +86,7 @@ export const Composer = forwardRef<ComposerHandle, {
 
   const q = draft.trim();
   const term = useDebounce(q.length >= 2 ? q : "", 220);
-  const prompts = useCopilotPrompts();
+  const prompts = useCopilotPrompts(mode);
   const bank = useQuerySuggestions(term);
   const instruments = useInstrumentSearch(term);
   const completion = useStockCompletion(draft.slice(0, caret), suggest && focused && !busy);
@@ -259,7 +259,7 @@ export const Composer = forwardRef<ComposerHandle, {
             {!mobile && (
               <div className="flex flex-wrap justify-between" style={{ gap: 10, padding: "10px 18px", borderTop: "1px solid var(--cp-line)", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-ink-4)" }}>
                 <span>↑↓ MOVE · TAB COMPLETE · ENTER ASK · ESC CLOSE</span>
-                {!q && items.length > 0 && <span>{prompts.data?.audience === "advisor" ? "RANKED FOR YOUR CLIENT BOOK" : "RANKED FOR YOUR HOLDINGS"}</span>}
+                {!q && items.length > 0 && <span>{prompts.data?.audience === "advisor" ? "RANKED FOR YOUR CLIENT BOOK" : prompts.data?.audience === "trader" ? "YOUR DAILY TRADING QUESTIONS" : "RANKED FOR YOUR HOLDINGS"}</span>}
               </div>
             )}
           </div>

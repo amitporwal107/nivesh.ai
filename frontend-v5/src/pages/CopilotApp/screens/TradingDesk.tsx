@@ -36,6 +36,7 @@
  * on desk pages on a phone (index.tsx); the desk's Copilot is the bar's Copilot, so there is one ask box, never two.
  */
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useMe } from "@/hooks/use-auth";
 import { useSearchParams } from "react-router-dom";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { LoadingBlock } from "../components/ui";
@@ -47,7 +48,7 @@ import { FloatingCopilot, useCopilotWindow } from "./tradingdesk/copilot-window"
 import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import {
-  DESK_SECTIONS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  DESK_SECTIONS, FLAGGED_VIEWS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
   subViewsOf,
   type DeskLocation, type DeskPlace, type DeskSection,
 } from "./tradingdesk/desk-nav";
@@ -285,7 +286,8 @@ function MyPortfolioButton({ on, onClick, small }: { on: boolean; onClick: () =>
 
 /** The view switcher under the breadcrumb: pills, the current one filled mint (the design's sub-chips). */
 function ViewSwitcher({ tab, view, onPick, bleed, underline }: { tab: DeskSection; view: string | null; onPick: (v: string) => void; bleed?: CSSProperties; underline?: boolean }) {
-  const views = SECTION_VIEWS[tab];
+  const features = useMe().data?.features;
+  const views = SECTION_VIEWS[tab].filter((v) => { const flag = FLAGGED_VIEWS[`${tab}/${v.key}`]; return !flag || features?.[flag] === true; });
   if (!views.length) return null;
   return (
     <div data-testid="desk-views" data-variant={underline ? "sections" : "views"} role="group" aria-label={`${SECTION_LABEL[tab]} ${underline ? "sections" : "views"}`} className="cp-scroll flex overflow-x-auto"

@@ -374,7 +374,7 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
 });
 
 test.describe("MOCK — not real data: desk shell · rail, landing and links", () => {
-  test("SH-17 / SH-19 Trader mode lands on the desk and lists only the Smart trading desk under Tools", async ({ page }) => {
+  test("SH-17 / SH-19 Trader mode lands on the desk and lists the Smart trading desk, Screener and Watchlists under Tools", async ({ page }) => {
     await deskApi(page);
     await page.goto(APP);
     await page.getByTestId("mode-pill").click();
@@ -383,7 +383,9 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     await expect(page.getByTestId("desk-tab-overview")).toHaveAttribute("aria-selected", "true");
     const rail = page.getByTestId("copilot-rail");
     await expect(rail.getByRole("button", { name: /Smart trading desk/ })).toBeVisible();
-    for (const gone of ["Screener", "Stock research", "Sector rotation"]) await expect(rail.getByRole("button", { name: gone, exact: true })).toHaveCount(0);
+    // 2026-11-01 (SCREENER_WATCHLIST_PLAN W1): Screener and Watchlists are rail rows again; Stock research and Sector rotation stay Market Desk views.
+    for (const here of ["Screener", "Watchlists"]) await expect(rail.getByRole("button", { name: here, exact: true })).toBeVisible();
+    for (const gone of ["Stock research", "Sector rotation"]) await expect(rail.getByRole("button", { name: gone, exact: true })).toHaveCount(0);
     for (const gone of [/Trader desk/, /Options lab/, /F&O lab/]) await expect(rail.getByRole("button", { name: gone })).toHaveCount(0);
   });
 

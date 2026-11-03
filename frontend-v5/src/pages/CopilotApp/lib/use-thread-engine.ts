@@ -7,7 +7,7 @@
  *   thinking → tool steps (start / end); the duration is measured here
  *   token    → the answer text
  *   widget   → the structured result card (and its source tags)
- *   done     → follow-up questions
+ *   done     → follow-up questions, and the final (compliance-checked) text
  *
  * The server stores only the question, the answer text and the widget. Tool
  * steps, routing and follow-ups are therefore kept in memory per answer for
@@ -191,8 +191,11 @@ export function useThreadEngine(): ThreadEngine {
           }
           case "done":
             if (Array.isArray(ev.follow_ups)) followUps = ev.follow_ups.filter((f): f is string => typeof f === "string" && !!f.trim());
-            // A node can return its text only in the final frame.
-            if (!text && typeof ev.content === "string") text = ev.content;
+            // The final frame carries the answer as checked and saved (the compliance
+            // node's text: advice scrub, grounding caveat, length cap). It replaces the
+            // streamed draft; an unchanged answer re-renders as the same string, so it
+            // does not move. A node can also return its text only here.
+            if (typeof ev.content === "string" && (ev.content.trim() || !text)) text = ev.content;
             break;
           case "error":
             errorText = ev.content || "The Copilot could not finish this answer.";

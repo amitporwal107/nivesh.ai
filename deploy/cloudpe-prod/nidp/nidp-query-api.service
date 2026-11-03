@@ -1,0 +1,46 @@
+[Unit]
+Description=NIDP Query API — PRODUCTION (read-only HTTPS surface over nidp.* warehouse tables)
+After=network-online.target docker.service
+Wants=network-online.target
+
+# CloudPe prod counterpart of backend/nidp/deploy/vm/nidp-query-api.service, with the
+# one addition staging's unit carries: raw_archives is writable because
+# POST /feeds/{x}/execute forks run_service.sh from this unit and feeds archive
+# what they fetch under NIDP_HOME/raw_archives.
+
+[Service]
+Type=simple
+User=nidp
+Group=nidp
+WorkingDirectory=/opt/nidp/repo/backend
+
+EnvironmentFile=/opt/nidp/nidp.env
+EnvironmentFile=/opt/nidp/query_api.env
+
+Environment=PYTHONPATH=/opt/nidp/repo/backend
+Environment=PYTHONUNBUFFERED=1
+
+# Loopback only — the host nginx proxies /query/* here (edge/nginx-prod.conf → :8090).
+ExecStart=/opt/nidp/venv/bin/python -m uvicorn \
+    nidp.services.query_api.app:app \
+    --host 127.0.0.1 \
+    --port ${NIDP_QUERY_API_PORT} \
+    --proxy-headers \
+    --forwarded-allow-ips=* \
+    --root-path /query
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nidp-query-api
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nidp/logs /opt/nidp/run /opt/nidp/raw_archives
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
