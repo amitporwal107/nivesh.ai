@@ -442,14 +442,14 @@ def reflag(g: Dict[str, Any]) -> None:
         dist = (spot - stop) / spot * 100 * d
         a["distance_to_stop_pct"] = analytics.r2(dist)
         if dist < 0:
-            keep.append({"code": "stop_breached", "tone": "danger", "text": f"The price ({spot:,.2f}) is past your stop ({stop:,.2f})."})
+            keep.append({"code": "stop_breached", "tone": "danger", "text": f"The price ({spot:,.2f}) is past your risk level ({stop:,.2f})."})
         elif dist <= analytics.NEAR_STOP_PCT:
-            keep.append({"code": "near_stop", "tone": "amber", "text": f"{dist:.2f}% from your stop ({stop:,.2f})."})
+            keep.append({"code": "near_stop", "tone": "amber", "text": f"{dist:.2f}% from your risk level ({stop:,.2f})."})
     if target:
         dt = (target - spot) / spot * 100 * d
         a["distance_to_target_pct"] = analytics.r2(dt)
         if dt <= 0:
-            keep.append({"code": "target_reached", "tone": "mint", "text": f"The price has reached your target ({target:,.2f})."})
+            keep.append({"code": "target_reached", "tone": "mint", "text": f"The price has reached your reward level ({target:,.2f})."})
     g["warnings"] = keep
 
 

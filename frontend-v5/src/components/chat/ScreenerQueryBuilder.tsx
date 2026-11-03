@@ -241,7 +241,7 @@ export function ScreenerQueryBuilder({
         <div className="rounded-lg bg-surface-2/60 border border-hairline px-3.5 py-3">
           <div className="mb-1 font-mono text-[10px] uppercase tracking-[.16em] text-ink-3">Query</div>
           <code className="block font-mono text-[12.5px] text-ink-2 leading-relaxed break-words">
-            {query || <span className="text-ink-3">Add a condition or pick a universe to build a screen</span>}
+            {query || <span className="text-ink-3">Add a condition or choose a universe to build a screen</span>}
           </code>
         </div>
 

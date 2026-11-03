@@ -123,7 +123,7 @@ function tapeFacts(d: MarketsHome): string[] {
   }
   const fii = d.fii_dii?.fii_net_cr;
   if (fii != null && fii !== 0) {
-    facts.push(`FIIs were net ${fii > 0 ? "buyers" : "sellers"} in the cash market${d.fii_dii?.as_of ? ` on ${dayLabel(d.fii_dii.as_of)}` : ""}`);
+    facts.push(`FIIs had a net ${fii > 0 ? "inflow" : "outflow"} in the cash market${d.fii_dii?.as_of ? ` on ${dayLabel(d.fii_dii.as_of)}` : ""}`);
   }
   const lead = rankSectors(d.sectors)[0];
   if (lead && lead.change_pct > 0) facts.push(`${lead.name} is the strongest sector at ${fmtPct(lead.change_pct, { signed: true, digits: 2 })}`);
@@ -495,7 +495,7 @@ function MarketLists({ held }: { held: HeldKeys | undefined }) {
       </div>
       {list === "" ? (
         <div style={{ padding: "0 16px 16px", fontSize: 13, color: "var(--cp-ink-3)" }}>
-          Pick a list to see the stocks nearest their 52-week high or low, or the most traded today.
+          Choose a list to see the stocks nearest their 52-week high or low, or the most traded today.
         </div>
       ) : q.isPending ? (
         <div style={{ padding: "0 16px 16px" }}><LoadingBlock label="Loading the list" /></div>

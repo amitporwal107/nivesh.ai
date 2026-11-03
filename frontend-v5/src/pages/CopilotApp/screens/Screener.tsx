@@ -611,7 +611,7 @@ export default function ScreenerScreen() {
           <div className="flex flex-col" style={{ gap: 4, padding: "10px 12px", borderRadius: 10, background: "var(--bg-2)" }}>
             <span className="cp-mono-note">This screen in words</span>
             <code data-testid="screener-query" style={{ fontFamily: "var(--mono)", fontSize: 12, lineHeight: 1.5, color: canRun ? "var(--cp-ink)" : "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-              {canRun ? query : "Give at least one rule a value, or pick a market-cap universe."}
+              {canRun ? query : "Give at least one rule a value, or choose a market-cap universe."}
             </code>
           </div>
 
@@ -705,7 +705,7 @@ export default function ScreenerScreen() {
         {deleteScreen.isError && <LoadError title="The screen wasn’t deleted" error={deleteScreen.error} />}
       </div>
 
-      <Footnote>End-of-day data, with Kite’s live price while the market is open · fund holdings are disclosed monthly, Nifty 500 only · screen matches are candidates, not recommendations</Footnote>
+      <Footnote>End-of-day data, with Kite’s live price while the market is open · fund holdings are disclosed monthly, Nifty 500 only · screen matches are candidates, not advice</Footnote>
 
       {opened && <StockPanel key={opened.symbol} stock={opened} onClose={() => setOpened(null)} />}
     </Screen>

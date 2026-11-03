@@ -63,19 +63,19 @@ export function CashLevels({ entry, stop, target, riskReward, dataDate, testId =
   riskReward?: number | null; dataDate: string | null | undefined; testId?: string;
 }) {
   if (entry == null || stop == null || !(entry > stop)) {
-    return <span data-testid={testId} data-state="none" style={quiet}>Entry, stop and target: — (the scanner gave no entry with a stop below it on this scan)</span>;
+    return <span data-testid={testId} data-state="none" style={quiet}>Reference price, risk level and reward level: — (the scanner gave no reference price with a risk level below it on this scan)</span>;
   }
   const shownTarget = target != null && target > entry ? target : null;
   return (
     <span data-testid={testId} data-state="ok" className="flex min-w-0 flex-col" style={{ gap: 4 }}>
       <Head testId={testId} title="The scanner’s levels" when={dataDate ? `scan of ${fmtDay(dataDate)}` : "scan date not given"} />
       <span style={strip}>
-        <Item testId={`${testId}-entry`} k="Entry" v={fmtPrice(entry)} />
-        <Item testId={`${testId}-stop`} k="Stop" v={fmtPrice(stop)} tone="var(--cp-danger)" />
-        <Item testId={`${testId}-target`} k="Target" v={shownTarget != null ? fmtPrice(shownTarget) : "—"} tone="var(--mint)" />
+        <Item testId={`${testId}-entry`} k="Reference price" v={fmtPrice(entry)} />
+        <Item testId={`${testId}-stop`} k="Risk level" v={fmtPrice(stop)} tone="var(--cp-danger)" />
+        <Item testId={`${testId}-target`} k="Reward level" v={shownTarget != null ? fmtPrice(shownTarget) : "—"} tone="var(--mint)" />
         {riskReward != null && <Item testId={`${testId}-rr`} k="Reward : risk" v={`${fmtNum(riskReward, 1)} : 1`} />}
       </span>
-      <span style={quiet}>Hypothetical levels from the AI scanner’s rules, not advice. A stop is a level, not a guaranteed price: a gap can fill worse.</span>
+      <span style={quiet}>Hypothetical levels from the AI scanner’s rules, not advice. A risk level is not a guaranteed price: a gap can fill worse.</span>
     </span>
   );
 }
@@ -87,10 +87,10 @@ export function OptionLevels({ d, pending, failed, underlying, when, testId = "i
   d?: Levels; pending?: boolean; failed?: boolean; underlying: string; when: string; testId?: string;
 }) {
   const [open, setOpen] = useState(false);
-  if (pending && !d) return <span data-testid={testId} data-state="pending" style={quiet}>Working out the entry, stop and targets…</span>;
-  if (failed && !d) return <span data-testid={testId} data-state="failed" style={quiet}>Entry, stop and targets: the levels did not load just now, so a paper trade records none.</span>;
+  if (pending && !d) return <span data-testid={testId} data-state="pending" style={quiet}>Working out the reference price, risk level and reward levels…</span>;
+  if (failed && !d) return <span data-testid={testId} data-state="failed" style={quiet}>Reference price, risk level and reward levels: the levels did not load just now, so a paper trade records none.</span>;
   if (!d) return null;
-  if (!d.valid) return <span data-testid={testId} data-state="invalid" style={quiet}>No entry, stop or targets for this structure: {d.problems[0] ?? "the calculation did not accept it"}.</span>;
+  if (!d.valid) return <span data-testid={testId} data-state="invalid" style={quiet}>No reference price, risk level or reward levels for this structure: {d.problems[0] ?? "the calculation did not accept it"}.</span>;
   const u = d.underlying;
   const neutral = u.view === "neutral";
   const at = (p: number | null) => (neutral ? undefined : `(${underlying} ${p == null ? "level —" : f2(p)})`);
@@ -98,12 +98,12 @@ export function OptionLevels({ d, pending, failed, underlying, when, testId = "i
   const maxLoss = d.maxLossTotal == null ? "no lower limit" : fmtINR(Math.abs(d.maxLossTotal));
   return (
     <span data-testid={testId} data-state="ok" data-kind={d.kind ?? ""} className="flex min-w-0 flex-col" style={{ gap: 4 }}>
-      <Head testId={testId} title="Entry, stop and targets" when={when} />
+      <Head testId={testId} title="Reference price, risk level and reward levels" when={when} />
       <span style={strip}>
-        <Item testId={`${testId}-entry`} k={credit ? "Entry · net credit" : "Entry · net debit"} v={f2(d.entry)} />
-        <Item testId={`${testId}-stop`} k="Stop" v={f2(d.plannedStop)} sub={at(u.stop)} tone="var(--cp-danger)" />
-        <Item testId={`${testId}-t1`} k="Target 1" v={f2(d.t1)} sub={at(u.target)} tone="var(--mint)" />
-        <Item testId={`${testId}-t2`} k="Target 2" v={f2(d.t2)} sub={at(u.target2)} tone="var(--mint)" />
+        <Item testId={`${testId}-entry`} k={credit ? "Reference price · net credit" : "Reference price · net debit"} v={f2(d.entry)} />
+        <Item testId={`${testId}-stop`} k="Risk level" v={f2(d.plannedStop)} sub={at(u.stop)} tone="var(--cp-danger)" />
+        <Item testId={`${testId}-t1`} k="Reward level 1" v={f2(d.t1)} sub={at(u.target)} tone="var(--mint)" />
+        <Item testId={`${testId}-t2`} k="Reward level 2" v={f2(d.t2)} sub={at(u.target2)} tone="var(--mint)" />
         <Item testId={`${testId}-maxloss`} k="Max loss" v={maxLoss} sub={d.maxLossTotal == null ? undefined : "before costs"} />
       </span>
       {neutral && (
@@ -111,9 +111,9 @@ export function OptionLevels({ d, pending, failed, underlying, when, testId = "i
       )}
       {d.flags.map((f) => <span key={f} data-testid={`${testId}-flag`} style={{ ...quiet, color: "var(--amber)" }}>{f}</span>)}
       <span data-testid={`${testId}-totals`} style={quiet}>
-        Premium per share{d.totals.shares != null ? ` (the position is ${fmtNum(d.totals.shares)} shares)` : ""}. For the idea’s lots: about {fmtINR(d.totals.plannedStopLoss)} lost at the stop,
-        {" "}{fmtINR(d.totals.target1Gain)} gained at target 1{d.totals.target2Gain != null ? `, ${fmtINR(d.totals.target2Gain)} at target 2` : ""}.
-        {" "}Hypothetical, not advice; a stop is a level, not a guaranteed price.{" "}
+        Premium per share{d.totals.shares != null ? ` (the position is ${fmtNum(d.totals.shares)} shares)` : ""}. For the idea’s lots: about {fmtINR(d.totals.plannedStopLoss)} lost at the risk level,
+        {" "}{fmtINR(d.totals.target1Gain)} gained at reward level 1{d.totals.target2Gain != null ? `, ${fmtINR(d.totals.target2Gain)} at reward level 2` : ""}.
+        {" "}Hypothetical, not advice; a risk level is not a guaranteed price.{" "}
         <button type="button" data-testid={`${testId}-plan`} aria-expanded={open} onClick={() => setOpen((v) => !v)}
           style={{ padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)", textDecoration: "underline" }}>
           {open ? "Hide the full plan" : "Full plan: every level, Greeks, scenarios and costs ›"}
@@ -164,9 +164,9 @@ export function readStoredLevels(stored: StoredLevels | null | undefined): Store
 
 export function StoredIdeaLevels({ read, underlying, testId = "idea-levels" }: { read: StoredRead; underlying: string; testId?: string }) {
   if (read.kind === "not_stored") {
-    return <span data-testid={testId} data-state="not-stored" style={quiet}>Entry, stop and targets: not stored with this day’s list (they are not worked out again on later prices).</span>;
+    return <span data-testid={testId} data-state="not-stored" style={quiet}>Reference price, risk level and reward levels: not stored with this day’s list (they are not worked out again on later prices).</span>;
   }
-  if (read.kind === "error") return <span data-testid={testId} data-state="error" style={quiet}>Entry, stop and targets: {read.text}</span>;
+  if (read.kind === "error") return <span data-testid={testId} data-state="error" style={quiet}>Reference price, risk level and reward levels: {read.text}</span>;
   const when = `end-of-day chain of ${read.asOf ? fmtDay(read.asOf) : "—"} · worked out on the list day${read.computedAt ? ` (${fmtDay(read.computedAt)})` : ""}`;
   return <OptionLevels d={read.levels} underlying={underlying} testId={testId} when={when} />;
 }

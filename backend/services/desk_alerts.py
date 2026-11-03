@@ -99,7 +99,7 @@ RULES = {
     "category": "The first filing in that category (the classifier's label, an AI label) after the alert was made; "
                 "for bulk or block deals, the stock's first deal disclosed by NSE for a later session.",
     "volume": f"A session's traded volume reaches the multiple × the mean volume of the {VOLUME_BASE_SESSIONS} sessions before it.",
-    "scanner": "The stock is in the positional scanner's picks on a signal date after the alert was made.",
+    "scanner": "The stock is in the positional scanner's ideas on a signal date after the alert was made.",
     "sector": "The sector index's 1-day close-to-close return reaches the threshold in the chosen direction.",
     "risk": f"The stock's {ATR_SESSIONS}-session ATR (Wilder) as a percent of its close reaches the level.",
 }
@@ -457,7 +457,7 @@ def scanner_fire(alert: Dict[str, Any], rows: List[Dict[str, Any]]) -> Optional[
             continue
         score = svc._number(float(r["final_score"])) if r.get("final_score") is not None else None
         return {"fired_session": r["signal_date"], "fired_price": None,
-                "reason": (f"{alert['symbol']} entered the scanner's picks on {_day_text(r['signal_date'])} as "
+                "reason": (f"{alert['symbol']} entered the scanner's ideas on {_day_text(r['signal_date'])} as "
                            f"{str(r['stage']).replace('_', ' ').lower()}{f' (score {score:.2f})' if score is not None else ''}."),
                 "evidence": {"session": r["signal_date"].isoformat(), "stage": r["stage"], "score": score}}
     return None
@@ -660,7 +660,7 @@ def describe(doc: Dict[str, Any]) -> str:
         return f"{sym}: volume at {p.get('multiple'):g}× its {VOLUME_BASE_SESSIONS}-session average" if p.get("multiple") else f"{sym}: unusual volume"
     if cond == "scanner":
         stage = p.get("stage")
-        return f"{sym}: enters the scanner's picks" + (f" as {stage.replace('_', ' ').lower()}" if stage else "")
+        return f"{sym}: enters the scanner's ideas" + (f" as {stage.replace('_', ' ').lower()}" if stage else "")
     if cond == "sector":
         way = {"up": "rises", "down": "falls", "either": "moves"}[p.get("direction", "either")]
         return f"{p.get('index')}: {way} {p.get('threshold_pct'):g}% or more in a session"

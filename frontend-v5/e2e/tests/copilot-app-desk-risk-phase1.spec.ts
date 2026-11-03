@@ -117,10 +117,10 @@ const BLOCKED = { detail: { code: "risk_blocked", ...decision({
   reasons: [
     PER_TRADE_REDUCE,
     INFO_NOTE,
-    { code: "daily_loss_halt", check: "daily_loss", severity: "block", value: 2.1, limit: 2.0, message: "The day's loss is 2.10% of start-of-day equity; new entries are halted at 2%." },
+    { code: "daily_loss_halt", check: "daily_loss", severity: "block", value: 2.1, limit: 2.0, message: "The day's loss is 2.10% of start-of-day equity; new paper positions are halted at 2%." },
     { code: "reward_risk_too_low", check: "reward_risk", severity: "block", value: 1.2, limit: 1.5, message: "Reward:risk after costs is 1.20; the minimum is 1.5." },
   ] }),
-  message: "The day's loss is 2.10% of start-of-day equity; new entries are halted at 2%.; Reward:risk after costs is 1.20; the minimum is 1.5." } };
+  message: "The day's loss is 2.10% of start-of-day equity; new paper positions are halted at 2%.; Reward:risk after costs is 1.20; the minimum is 1.5." } };
 const CREATED = { trade: { id: "t-new" }, risk: { outcome: "allow" } };
 
 test.describe("MOCK — not real data: Phase 1 universal risk · paper-trade refusals", () => {
@@ -138,7 +138,7 @@ test.describe("MOCK — not real data: Phase 1 universal risk · paper-trade ref
     await expect(offer).toHaveAttribute("data-approved", "95");
     await expect(offer.getByTestId("desk-top10-paper-reduce-accept")).toHaveText("Paper trade 95 shares instead");
     await expect(offer.getByTestId("desk-top10-paper-reduce-note")).toHaveText(
-      "Same entry, stop and target; ₹1,14,000 at the planned entry. The risk policy checks it again. Simulated; nothing is sent to a broker.");
+      "Same reference price, risk level and reward level; ₹1,14,000 at the planned reference price. The risk policy checks it again. Simulated; nothing is sent to a broker.");
     expect(posts).toHaveLength(1);
 
     await offer.getByTestId("desk-top10-paper-reduce-accept").click();
@@ -202,7 +202,7 @@ test.describe("MOCK — not real data: Phase 1 universal risk · paper-trade ref
     await icici.getByTestId("desk-top10-stock-paper").click(SLOW);
     await icici.getByTestId("desk-top10-paper-add").click();
     await expect(icici.getByTestId("desk-top10-paper-error")).toHaveText(
-      "Not added — Blocked by your risk controls: The day's loss is 2.10% of start-of-day equity; new entries are halted at 2%; Reward:risk after costs is 1.20; the minimum is 1.5; Estimated risk Rs 10,966.40 exceeds the per-trade budget Rs 5,000.00; at most 95 shares fit. See Desk › More › Risk controls. (risk_blocked)");
+      "Not added — Blocked by your risk controls: The day's loss is 2.10% of start-of-day equity; new paper positions are halted at 2%; Reward:risk after costs is 1.20; the minimum is 1.5; Estimated risk Rs 10,966.40 exceeds the per-trade budget Rs 5,000.00; at most 95 shares fit. See Desk › More › Risk controls. (risk_blocked)");
     await expect(icici.getByTestId("desk-top10-paper-error")).not.toContainText("Correlation not checked");
     await expect(icici.getByTestId("desk-top10-paper-reduce")).toHaveCount(0);
     await expect(icici.getByTestId("desk-top10-paper-done")).toHaveCount(0);
@@ -214,14 +214,14 @@ test.describe("MOCK — not real data: Phase 1 universal risk · paper-trade ref
 
 const OWNER = { per_trade_risk_pct: 0.5, max_open_risk_pct: 3, max_position_pct: 10, max_sector_pct: 25, daily_loss_pct: 2, weekly_loss_pct: 4, max_drawdown_pct: 10, min_reward_risk: 1.5 };
 const DEFINITIONS = {
-  per_trade_risk_pct: { label: "Risk per trade", basis: "estimated risk of the new entry = quantity x |entry - stop| + round-trip costs + gap stress, as % of paper equity", reset: "none: judged per entry", breach: "the size is REDUCED to the largest valid quantity within the budget; else BLOCKED" },
-  max_open_risk_pct: { label: "Total open risk", basis: "estimated risk of every open position plus the new entry, as % of paper equity", reset: "falls as positions close", breach: "REDUCED to fit, else BLOCKED" },
-  max_position_pct: { label: "Position exposure", basis: "market exposure of the new position, as % of paper equity", reset: "none: judged per entry", breach: "REDUCED to fit, else BLOCKED" },
+  per_trade_risk_pct: { label: "Risk per trade", basis: "estimated risk of the new paper position = quantity x |reference price - risk level| + round-trip costs + gap stress, as % of paper equity", reset: "none: judged per position", breach: "the size is REDUCED to the largest valid quantity within the budget; else BLOCKED" },
+  max_open_risk_pct: { label: "Total open risk", basis: "estimated risk of every open position plus the new position, as % of paper equity", reset: "falls as positions close", breach: "REDUCED to fit, else BLOCKED" },
+  max_position_pct: { label: "Position exposure", basis: "market exposure of the new position, as % of paper equity", reset: "none: judged per position", breach: "REDUCED to fit, else BLOCKED" },
   max_sector_pct: { label: "Sector exposure", basis: "market exposure of every open position in the sector plus the new one, as % of paper equity", reset: "falls as positions in the sector close", breach: "REDUCED to fit, else BLOCKED" },
-  daily_loss_pct: { label: "Daily loss halt", basis: "loss since the start of the IST trading day, as % of start-of-day equity", reset: "the next IST trading day", breach: "new entries BLOCKED for the rest of the day" },
-  weekly_loss_pct: { label: "Weekly loss halt", basis: "the same loss from the start of the ISO week, as % of start-of-week equity", reset: "Monday, IST", breach: "new entries BLOCKED until the week resets" },
-  max_drawdown_pct: { label: "Drawdown halt", basis: "fall of paper equity from the configured equity peak", reset: "never resets daily; only an admin resets it", breach: "new entries BLOCKED; open positions are NOT liquidated" },
-  min_reward_risk: { label: "Minimum reward:risk", basis: "(gain at the target - costs) / (loss at the stop + costs)", reset: "none: judged per entry", breach: "BLOCKED (reward_risk_too_low)" },
+  daily_loss_pct: { label: "Daily loss halt", basis: "loss since the start of the IST trading day, as % of start-of-day equity", reset: "the next IST trading day", breach: "new paper positions BLOCKED for the rest of the day" },
+  weekly_loss_pct: { label: "Weekly loss halt", basis: "the same loss from the start of the ISO week, as % of start-of-week equity", reset: "Monday, IST", breach: "new paper positions BLOCKED until the week resets" },
+  max_drawdown_pct: { label: "Drawdown halt", basis: "fall of paper equity from the configured equity peak", reset: "never resets daily; only an admin resets it", breach: "new paper positions BLOCKED; open positions are NOT liquidated" },
+  min_reward_risk: { label: "Minimum reward:risk", basis: "(gain at the reward level - costs) / (loss at risk level + costs)", reset: "none: judged per position", breach: "BLOCKED (reward_risk_too_low)" },
 };
 const FIELDS = Object.keys(OWNER);
 const CATALOGUE = {
@@ -351,7 +351,7 @@ test.describe("MOCK — not real data: Phase 1 universal risk · 05 Risk profile
     await expect(def).toHaveAttribute("open", "");
     await expect(def).toContainText("Measured as: fall of paper equity from the configured equity peak");
     await expect(def).toContainText("Resets: never resets daily; only an admin resets it");
-    await expect(def).toContainText("On a breach: new entries BLOCKED; open positions are NOT liquidated");
+    await expect(def).toContainText("On a breach: new paper positions BLOCKED; open positions are NOT liquidated");
 
     // The equity basis: known figures in rupees, the unknown week as unknown with its reason, never 0.
     await expect(card.getByTestId("risk-profile-equity-now-value")).toHaveText("₹10,12,346");
@@ -376,7 +376,7 @@ test.describe("MOCK — not real data: Phase 1 universal risk · 05 Risk profile
 
     await expect(card.getByTestId("risk-profile-admin-note")).toHaveText("Only an admin can loosen a limit; you can tighten any limit.");
     await expect(card.getByTestId("risk-profile-estimate")).toHaveText(
-      "A share entry’s estimated risk is its loss at the stop plus round-trip costs (desk-cost-v2) and a gap of 1% of the stop price through the stop (research constant, not calibrated; est-risk-v1).");
+      "A share position’s estimated risk is its loss at the risk level plus round-trip costs (desk-cost-v2) and a gap of 1% of the stop price through the stop (research constant, not calibrated; est-risk-v1).");
     await expect(card.getByTestId("risk-trust-profile")).toContainText("universal-risk-v1");
   });
 

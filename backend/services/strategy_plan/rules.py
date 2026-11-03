@@ -39,7 +39,7 @@ RULES = {
     # groups (market context, technical, derivatives) is No Trade.
     "conflict": {"min_conflicts": 3, "groups": ["market_context", "technical", "derivatives"]},
     # Targets (underlying price levels, scenarios not forecasts). R = the stop distance. The reward : risk gate reads the conservative level when a real resistance caps the move, else the base level.
-    "targets": {"conservative": "the nearest 20-session resistance (support for a short) at least min_resistance_atr x ATR beyond the entry, else 1 x ATR(14)",
+    "targets": {"conservative": "the nearest 20-session resistance (support for a short) at least min_resistance_atr x ATR beyond the reference price, else 1 x ATR(14)",
                 "conservative_atr_multiple": 1.0, "min_resistance_atr": 0.5, "base_reward_multiple": 2.0, "optimistic_reward_multiple": 3.0,
                 "stop_atr_multiple": 2.0, "min_stop_atr": 0.5},
     # Cash-flow quality (nidp.stock_features_daily.cfo_pat_ratio = the latest financial year's cash from operations / trailing-twelve-month
@@ -85,17 +85,17 @@ RULES = {
         "event_hedged": ["protective_put", "collar", "futures_protective_put"],
         "short_call_strike": "the call wall (largest call open interest) when it lies above the at-the-money strike, else the first listed "
                              "strike at or beyond spot + one expected move",
-        "long_put_strike": "the listed out-of-the-money put strike nearest the stop (the scanner's stop, else the chart engine's ATR stop)",
+        "long_put_strike": "the listed out-of-the-money put strike nearest the risk level (the scanner's, else the chart engine's ATR risk level)",
         "future": "the futures contract that expires on the options expiry (a synthetic call needs matching expiries)",
         "shares": "lots x lot size shares, at the last close; if the stock is already held, the shares leg is that position priced at the last close",
-        "reward_risk": "reward = P&L at the gate scenario level, risk = loss if the price reaches the stop (both from the payoff calculation); "
+        "reward_risk": "reward = P&L at the gate scenario level, risk = loss if the price reaches the risk level (both from the payoff calculation); "
                        "a long put or a short call changes that loss, so the ratio is not comparable with an unhedged cash idea: read max loss "
                        "and capital at risk beside it. When the premium received covers the loss at the stop, the ratio is undefined and the gate is not applied.",
-        "sizing": "lots = floor(risk budget / loss per lot at the stop (the cash stop distance x lot size when the premium covers it)), "
+        "sizing": "lots = floor(risk budget / loss per lot at the risk level (the cash risk-level distance x lot size when the premium covers it)), "
                   "capped by the allocation cap on the deployed value per lot (shares or futures notional plus the net premium)",
     },
-    "sizing": {"formula": "units = the most whole lots with units x risk per unit + estimated round-trip costs at the stop "
-                          "(the desk cost card) <= risk budget, capped by floor(capital x max allocation % / entry value per "
+    "sizing": {"formula": "units = the most whole lots with units x risk per unit + estimated round-trip costs at the risk level "
+                          "(the desk cost card) <= risk budget, capped by floor(capital x max allocation % / reference-price value per "
                           "unit); for an option structure the risk per unit is already its worst net loss"},
     # The user's Chartink dashboard as a second source of opportunities (services/chartink_desk). A Chartink scan is the user's own screen: a rule
     # match, not validated, not a probability. Chartink-only stocks (hits that the AI scanner does not list) follow the scanner's ideas, ranked by the
@@ -112,7 +112,7 @@ RULES = {
         "evidence": "technical.chartink_scans: a bullish-tagged scan hit supports a bullish view and conflicts with a bearish one, a bearish-tagged hit the reverse; "
                     "hits of both tags are neutral; no hit is neutral; no dashboard, a stale or failed refresh is unavailable",
         "cash_family": "chartink_screen_signal",
-        "cash_rule": "A stock the scanner lists in no bucket, with at least one enabled bullish Chartink hit, gets a cash candidate whose stop, targets and sizing "
+        "cash_rule": "A stock the scanner lists in no bucket, with at least one enabled bullish Chartink hit, gets a cash candidate whose risk level, reward levels and sizing "
                      "come from the chart engine's ATR rule (ATR_2X_STOP); the same reward : risk, liquidity and event gates as every other candidate apply",
         "levels_label": "rule-based levels; the scan is the user's Chartink scan, not validated",
     },

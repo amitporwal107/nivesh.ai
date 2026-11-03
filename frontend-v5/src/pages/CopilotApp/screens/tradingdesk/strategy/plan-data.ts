@@ -204,8 +204,8 @@ export function paperBlocker(plan: StrategyPlan, c: Candidate): string | null {
   if (c.segment === "cash") {
     const stop = c.invalidation?.technical?.price ?? null;
     const entry = c.legs[0].entry_price;
-    if (c.legs[0].side !== "buy") return "Selling shares is not supported in a paper trade.";
-    if (stop == null || !(stop < entry)) return "The plan has no stop below the entry, which a share paper trade needs.";
+    if (c.legs[0].side !== "buy") return "Short positions in shares are not supported in a paper trade.";
+    if (stop == null || !(stop < entry)) return "The plan has no risk level below the reference price, which a share paper trade needs.";
     return null;
   }
   const dir = paperDirection(plan);
@@ -217,8 +217,8 @@ export function paperBlocker(plan: StrategyPlan, c: Candidate): string | null {
   if (ref == null) return "The plan has no reference price (the last close).";
   const stop = dir === "neutral" ? null : c.invalidation?.technical?.price ?? null;
   const target = dir === "neutral" ? null : levelOf(c, "base");
-  if (dir === "bullish" && ((stop != null && stop >= ref) || (target != null && target <= ref))) return "The plan's stop or target is on the wrong side of the reference price for a bullish view.";
-  if (dir === "bearish" && ((stop != null && stop <= ref) || (target != null && target >= ref))) return "The plan's stop or target is on the wrong side of the reference price for a bearish view.";
+  if (dir === "bullish" && ((stop != null && stop >= ref) || (target != null && target <= ref))) return "The plan's risk level or reward level is on the wrong side of the reference price for a bullish view.";
+  if (dir === "bearish" && ((stop != null && stop <= ref) || (target != null && target >= ref))) return "The plan's risk level or reward level is on the wrong side of the reference price for a bearish view.";
   return null;
 }
 

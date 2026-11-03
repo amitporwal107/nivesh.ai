@@ -13,7 +13,7 @@ export const quiet: CSSProperties = { fontSize: 12, lineHeight: 1.55, color: "va
 export const at = (iso: string | null) => stampIst(iso) ?? "time not recorded";
 
 /** The paper-only line every view carries. */
-export const PAPER_ONLY = "Paper risk only: these limits and controls govern paper entries. Nothing is sent to a broker.";
+export const PAPER_ONLY = "Paper risk only: these limits and controls govern paper positions. Nothing is sent to a broker.";
 
 /** Eyebrow, the view's one h1 (a sentence of what it shows), the paper-only line and the controls' scope from the route. */
 export function ViewHead({ view, title }: { view: string; title: ReactNode }) {

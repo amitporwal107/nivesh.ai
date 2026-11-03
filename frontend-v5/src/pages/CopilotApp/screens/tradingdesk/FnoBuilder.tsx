@@ -37,12 +37,12 @@ interface Template { id: string; name: string; view: View; legs: Spec[]; pts: st
 
 /** Each structure as legs: side, type, how many strikes from the ATM strike, and lots. */
 export const TEMPLATES: Template[] = [
-  { id: "buy_call", name: "Buy Call", view: "bullish", legs: [{ s: "buy", t: "call", k: 0 }], pts: "2,26 24,26 58,6" },
-  { id: "sell_put", name: "Sell Put", view: "bullish", legs: [{ s: "sell", t: "put", k: 0 }], pts: "2,32 24,10 58,10" },
+  { id: "buy_call", name: "Long Call", view: "bullish", legs: [{ s: "buy", t: "call", k: 0 }], pts: "2,26 24,26 58,6" },
+  { id: "sell_put", name: "Short Put", view: "bullish", legs: [{ s: "sell", t: "put", k: 0 }], pts: "2,32 24,10 58,10" },
   { id: "bull_call_spread", name: "Bull Call Spread", view: "bullish", legs: [{ s: "buy", t: "call", k: 0 }, { s: "sell", t: "call", k: 2 }], pts: "2,26 22,26 40,8 58,8" },
   { id: "bull_put_spread", name: "Bull Put Spread", view: "bullish", legs: [{ s: "sell", t: "put", k: 0 }, { s: "buy", t: "put", k: -2 }], pts: "2,30 20,30 38,10 58,10" },
-  { id: "buy_put", name: "Buy Put", view: "bearish", legs: [{ s: "buy", t: "put", k: 0 }], pts: "2,6 24,26 58,26" },
-  { id: "sell_call", name: "Sell Call", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }], pts: "2,10 24,10 58,32" },
+  { id: "buy_put", name: "Long Put", view: "bearish", legs: [{ s: "buy", t: "put", k: 0 }], pts: "2,6 24,26 58,26" },
+  { id: "sell_call", name: "Short Call", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }], pts: "2,10 24,10 58,32" },
   { id: "bear_put_spread", name: "Bear Put Spread", view: "bearish", legs: [{ s: "buy", t: "put", k: 0 }, { s: "sell", t: "put", k: -2 }], pts: "2,8 20,8 38,28 58,28" },
   { id: "bear_call_spread", name: "Bear Call Spread", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }, { s: "buy", t: "call", k: 2 }], pts: "2,10 22,10 40,30 58,30" },
   { id: "iron_butterfly", name: "Iron Butterfly", view: "neutral", legs: [{ s: "sell", t: "call", k: 0 }, { s: "sell", t: "put", k: 0 }, { s: "buy", t: "call", k: 2 }, { s: "buy", t: "put", k: -2 }], pts: "2,28 18,28 30,8 42,28 58,28" },
@@ -147,7 +147,7 @@ function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
       {m?.kind === "ok" && (
         <>
           <span data-testid="desk-builder-charges" style={quiet}>
-            Charges for the entry orders: {paise(m.data.charges.total)} (brokerage {paise(m.data.charges.brokerage)}, STT {paise(m.data.charges.stt)}, exchange {paise(m.data.charges.exchange)}, SEBI {paise(m.data.charges.sebi)}, stamp duty {paise(m.data.charges.stampDuty)}, GST {paise(m.data.charges.gst)}). Initial margin {inr(m.data.initial)}.
+            Charges for the opening orders: {paise(m.data.charges.total)} (brokerage {paise(m.data.charges.brokerage)}, STT {paise(m.data.charges.stt)}, exchange {paise(m.data.charges.exchange)}, SEBI {paise(m.data.charges.sebi)}, stamp duty {paise(m.data.charges.stampDuty)}, GST {paise(m.data.charges.gst)}). Initial margin {inr(m.data.initial)}.
           </span>
           <span style={quiet}>{m.data.source}. {m.data.note}</span>
         </>
@@ -211,7 +211,7 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
 
   const lot = chain?.lot_size ?? null;
   const problem = useMemo(() => {
-    if (!legs.length) return "Pick a structure to load its trades.";
+    if (!legs.length) return "Choose a structure to load its trades.";
     if (lot == null) return "The contract’s lot size is not available, so a payoff cannot be worked out.";
     const bad = legs.find((l) => !(Number(l.price) > 0));
     if (bad) return `The ${fmtLevel(bad.strike)} ${bad.kind === "call" ? "call" : "put"} has no end-of-day close: enter a price to continue.`;
@@ -275,13 +275,13 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
               })}
             </div>
           )}
-          {suggested && tpl === suggested && <span data-testid="desk-builder-suggested" style={quiet}>Suggested by the {row?.label?.replace("_", " ")}; your view decides. End-of-day closes, not live quotes.</span>}
-          {legs.length === 0 ? <span data-testid="desk-builder-empty" style={quiet}>No trades yet. Pick a structure below, or add a trade.</span> : (
+          {suggested && tpl === suggested && <span data-testid="desk-builder-suggested" style={quiet}>Fits the {row?.label?.replace("_", " ")} reading; your view decides. End-of-day closes, not live quotes.</span>}
+          {legs.length === 0 ? <span data-testid="desk-builder-empty" style={quiet}>No trades yet. Choose a structure below, or add a trade.</span> : (
             <div className="flex flex-col" style={{ gap: 8 }}>
               {legs.map((l) => (
                 <div key={l.id} data-testid="desk-builder-leg" data-side={l.side} data-kind={l.kind} className="grid items-center" style={{ gridTemplateColumns: "auto minmax(0,1.2fr) minmax(0,0.7fr) minmax(0,0.9fr) auto", gap: 6 }}>
-                  <button type="button" aria-label={`${l.side === "buy" ? "Buy" : "Sell"}: switch`} data-testid="desk-builder-side" onClick={() => setLeg(l.id, { side: l.side === "buy" ? "sell" : "buy" })}
-                    style={{ ...field, width: 44, cursor: "pointer", fontWeight: 600, color: l.side === "buy" ? "var(--mint)" : "var(--cp-danger)" }}>{l.side === "buy" ? "BUY" : "SELL"}</button>
+                  <button type="button" aria-label={`${l.side === "buy" ? "Long" : "Short"}: switch`} data-testid="desk-builder-side" onClick={() => setLeg(l.id, { side: l.side === "buy" ? "sell" : "buy" })}
+                    style={{ ...field, width: 58, cursor: "pointer", fontWeight: 600, color: l.side === "buy" ? "var(--mint)" : "var(--cp-danger)" }}>{l.side === "buy" ? "LONG" : "SHORT"}</button>
                   <span className="flex items-center" style={{ gap: 4 }}>
                     <select aria-label="Strike" data-testid="desk-builder-strike" value={l.strike} onChange={(e) => pickStrike(l.id, l.kind, Number(e.target.value))} style={{ ...field, flex: "1 1 auto" }}>
                       {chain.strikes.filter((r) => r[l.kind === "call" ? "call" : "put"]).map((r) => <option key={r.strike} value={r.strike}>{fmtLevel(r.strike)}</option>)}
@@ -318,7 +318,7 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
                 style={{ padding: "6px 12px", minHeight: 36, borderRadius: 999, fontSize: 13, cursor: "pointer", border: `1px solid ${view === v.key ? "var(--mint-line)" : "var(--line-2)"}`, background: view === v.key ? "var(--mint-soft)" : "transparent", color: view === v.key ? "var(--mint)" : "var(--cp-ink-2)" }}>{v.label}</button>
             ))}
           </div>
-          <span style={quiet}>Pick a structure to load it. A view is your own; no structure is shown as better than another. The shapes are illustrations.{catalog ? " Only the structures in the backend template catalog are offered here." : ""}</span>
+          <span style={quiet}>Choose a structure to load it. A view is your own; no structure is shown as better than another. The shapes are illustrations.{catalog ? " Only the structures in the backend template catalog are offered here." : ""}</span>
           {catalog && tiles.length === 0 && <span data-testid="desk-builder-tiles-none" style={quiet}>No structure in the backend template catalog for this view.</span>}
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(88px,1fr))", gap: 10 }}>
             {tiles.map((t) => (

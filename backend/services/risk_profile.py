@@ -92,28 +92,28 @@ NAMED_TEXT = {
 DEFINITIONS: Dict[str, Dict[str, str]] = {
     "per_trade_risk_pct": {
         "label": "Risk per trade",
-        "basis": "estimated risk of the new entry = quantity x |entry - stop| + round-trip costs (desk-cost-v2) + gap "
+        "basis": "estimated risk of the new paper position = quantity x |reference price - risk level| + round-trip costs (desk-cost-v2) + gap "
                  "stress (services/risk_gate/estimate.py), as % of paper equity; options: maximum loss of the whole "
                  "structure from its payoff plus costs",
-        "reset": "none: judged per entry",
+        "reset": "none: judged per position",
         "breach": "the size is REDUCED to the largest valid quantity or lot count within the budget; if even the "
-                  "smallest valid quantity exceeds it, the entry is BLOCKED (min_qty_exceeds_budget)"},
+                  "smallest valid quantity exceeds it, the position is BLOCKED (min_qty_exceeds_budget)"},
     "max_open_risk_pct": {
         "label": "Total open risk",
         "basis": "estimated risk reserved by every open position (paper_accounts.open_risk_rs, plus positions opened "
-                 "before Phase 1 at their stored levels) plus the new entry, as % of paper equity",
+                 "before Phase 1 at their stored levels) plus the new position, as % of paper equity",
         "reset": "falls as positions close, are cancelled or expire",
         "breach": "REDUCED to fit the remaining budget, else BLOCKED (open_risk_exceeded)"},
     "max_position_pct": {
         "label": "Position exposure",
-        "basis": "market exposure (notional: quantity x entry for shares, futures notional and the options' capital "
+        "basis": "market exposure (notional: quantity x reference price for shares, futures notional and the options' capital "
                  "at risk for a structure) of the new position, as % of paper equity",
-        "reset": "none: judged per entry",
+        "reset": "none: judged per position",
         "breach": "REDUCED to fit, else BLOCKED (POSITION_SIZE / position_exceeded)"},
     "max_sector_pct": {
         "label": "Sector exposure",
         "basis": "market exposure of every open position in the instrument's sector (NSE industry classification) "
-                 "plus the new one, as % of paper equity; a position with no known sector blocks the entry",
+                 "plus the new one, as % of paper equity; a position with no known sector is blocked",
         "reset": "falls as positions in the sector close",
         "breach": "REDUCED to fit, else BLOCKED (sector_exceeded)"},
     "daily_loss_pct": {
@@ -122,28 +122,28 @@ DEFINITIONS: Dict[str, Dict[str, str]] = {
                  "change in net unrealised P&L of the positions held since the previous session's close, as % of "
                  "start-of-day equity",
         "reset": "the next IST trading day (weekday calendar)",
-        "breach": "new entries BLOCKED for the rest of the day (daily_loss_halt); open positions untouched"},
+        "breach": "new paper positions BLOCKED for the rest of the day (daily_loss_halt); open positions untouched"},
     "weekly_loss_pct": {
         "label": "Weekly loss halt",
         "basis": "the same loss measured from the close of the last session before Monday of the ISO week (IST), as "
                  "% of start-of-week equity",
         "reset": "Monday, IST",
-        "breach": "new entries BLOCKED until the week resets (weekly_loss_halt); open positions untouched"},
+        "breach": "new paper positions BLOCKED until the week resets (weekly_loss_halt); open positions untouched"},
     "max_drawdown_pct": {
         "label": "Drawdown halt",
         "basis": "fall of paper equity from the configured equity peak: the starting capital, raised by every higher "
                  "equity the risk service observes, never lowered",
         "reset": "never resets daily; only a person (an admin) resets the peak or loosens the limit",
-        "breach": "new entries BLOCKED (drawdown_halt); open positions are NOT liquidated"},
+        "breach": "new paper positions BLOCKED (drawdown_halt); open positions are NOT liquidated"},
     "min_reward_risk": {
         "label": "Minimum reward:risk",
-        "basis": "(gain at the target - estimated costs) / (loss at the stop + estimated costs); options: maximum "
+        "basis": "(gain at the reward level - estimated costs) / (loss at risk level + estimated costs); options: maximum "
                  "gain at expiry over maximum loss, both after costs; unbounded gain passes. Not applied to a "
                  "defined-risk credit structure (bull put / bear call spread, iron condor, a collar opened for a "
                  "credit): its net credit after costs must instead be at least 1/3 of its strike width "
                  "(credit_too_small; services/risk_gate/service.py, universal-risk-v2)",
-        "reset": "none: judged per entry",
-        "breach": "BLOCKED (reward_risk_too_low); an entry with no target where one is needed is BLOCKED "
+        "reset": "none: judged per position",
+        "breach": "BLOCKED (reward_risk_too_low); a position with no reward level where one is needed is BLOCKED "
                   "(target_required)"},
 }
 

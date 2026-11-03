@@ -235,7 +235,7 @@ export const CopilotDock = forwardRef<CopilotDockHandle, {
           <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
             <span style={{ fontFamily: "var(--display)", fontSize: page ? 19 : 21, lineHeight: 1.2, letterSpacing: "-0.02em" }}>Ask about anything on the desk.</span>
             <span style={{ fontSize: page ? 12.5 : 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-              Answers come from the same data the desk shows, with sources. The Copilot explains evidence and risk; it does not tell you to buy or sell, and it cannot place orders.
+              Answers come from the same data the desk shows, with sources. The Copilot explains evidence and risk; it does not give trading calls, and it cannot place orders.
             </span>
             {/* The Daily Trader Copilot's six entry points (owner, 30 Oct): a pick puts its lead question in the box. */}
             <div data-testid="dock-daily" role="group" aria-label="What to ask about" className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6, marginTop: 4 }}>
@@ -314,7 +314,7 @@ export const CopilotDock = forwardRef<CopilotDockHandle, {
               {sendButton(36, 999)}
             </div>
           </form>
-          <span data-testid="dock-note" style={{ fontSize: 10, lineHeight: 1.4, color: "var(--cp-ink-3)", textAlign: "center" }}>For education and research only. Not a buy or sell recommendation.</span>
+          <span data-testid="dock-note" style={{ fontSize: 10, lineHeight: 1.4, color: "var(--cp-ink-3)", textAlign: "center" }}>For education and research only. Not investment advice or a trading call.</span>
         </div>
       </section>
     );

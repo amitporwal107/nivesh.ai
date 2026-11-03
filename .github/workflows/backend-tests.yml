@@ -94,6 +94,7 @@ jobs:
           tests/test_chat_instrument_search.py
           tests/test_chat_persona_routing.py
           tests/test_chat_compliance_delivery.py
+          tests/test_compliance_wording_lint.py
           tests/test_chat_session_patch.py
           tests/test_circulars_route.py
           tests/test_concentration_fund_names.py
@@ -305,6 +306,8 @@ jobs:
           tests/test_risk_service.py
           tests/test_rs63_readiness.py
           tests/test_scan_builder_data.py
+          tests/test_scan_builder_daytrade.py
+          tests/test_scan_builder_early_movers.py
           tests/test_scan_builder_engine.py
           tests/test_scan_builder_fno_indices.py
           tests/test_scan_builder_indicators.py

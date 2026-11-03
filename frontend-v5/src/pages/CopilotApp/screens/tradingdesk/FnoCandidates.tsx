@@ -183,7 +183,7 @@ function ResearchBanner({ r }: { r: NonNullable<ReturnType<typeof useCandidates>
         <span className="cp-mono-note">{[win && `tests ${win}`, r.lastUpdated && `updated ${day(r.lastUpdated)}`].filter(Boolean).join(" · ")}</span>
       </div>
       <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-        This list orders stocks for you to look at. It is not a recommendation and not a forecast. When the ranking was back-tested over a year it showed no skill beyond picking at random from the same pool, and tests of near, next and far expiries supported none of the hypotheses we set. Nothing here has passed an out-of-sample test.
+        This list orders stocks for you to look at. It is not advice and not a forecast. When the ranking was back-tested over a year it showed no skill beyond choosing at random from the same pool, and tests of near, next and far expiries supported none of the hypotheses we set. Nothing here has passed an out-of-sample test.
       </p>
       {r.experiments.length > 0 && (
         <ul className="flex flex-wrap" style={{ gap: "6px 18px", margin: 0, padding: 0, listStyle: "none" }}>

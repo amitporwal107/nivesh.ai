@@ -101,7 +101,7 @@ export default function EvidenceValidationPanel() {
           Does a stock whose institutional ownership rose outperform one whose ownership fell, in
           the sessions <strong>after</strong> the quarterly disclosure became public? This is the
           one finished, pre-registered study behind this desk's smart-money evidence — not a score,
-          not a ranking, and not a signal to buy or sell. It explains what was tested and what the result
+          not a ranking, and not a trading signal. It explains what was tested and what the result
           was, nothing more.
         </Footnote>
 

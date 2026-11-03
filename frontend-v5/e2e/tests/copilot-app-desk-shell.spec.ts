@@ -393,7 +393,7 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     await deskApi(page);
     await page.goto(APP);
     const rail = page.getByTestId("copilot-rail");
-    for (const name of ["Portfolio analysis", "Recommendations", "Risk", "Goals", "Tax", "Stock & fund research", "Screener", "Markets"]) {
+    for (const name of ["Portfolio analysis", "Portfolio ideas", "Risk", "Goals", "Tax", "Stock & fund research", "Screener", "Markets"]) {
       await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
     }
   });

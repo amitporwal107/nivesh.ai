@@ -54,9 +54,9 @@ const quiet = { fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" } as c
 export const TWO_COLUMN_MIN = 1000;
 const TONE_VAR: Record<SignalTone, string> = { mint: "var(--mint)", indigo: "var(--cp-indigo)", amber: "var(--amber)", danger: "var(--cp-danger)" };
 const TOOLS: Array<{ id: DrawTool | "undo" | "clear"; glyph: string; label: string }> = [
-  { id: "cursor", glyph: "＋", label: "Crosshair: hover for the price, drag to pan" }, { id: "trend", glyph: "╱", label: "Trend line (two clicks)" },
-  { id: "h", glyph: "─", label: "Horizontal line" }, { id: "v", glyph: "│", label: "Vertical line" }, { id: "rect", glyph: "▭", label: "Rectangle (two clicks)" },
-  { id: "fib", glyph: "☰", label: "Fib retracement (two clicks)" }, { id: "measure", glyph: "↔", label: "Measure (two clicks)" },
+  { id: "cursor", glyph: "＋", label: "Crosshair: hover for the price, drag to pan" }, { id: "trend", glyph: "╱", label: "Trend line (click two points or drag)" },
+  { id: "h", glyph: "─", label: "Horizontal line" }, { id: "v", glyph: "│", label: "Vertical line" }, { id: "rect", glyph: "▭", label: "Rectangle (click two points or drag)" },
+  { id: "fib", glyph: "☰", label: "Fib retracement (click two points or drag)" }, { id: "measure", glyph: "↔", label: "Measure (click two points or drag)" },
   { id: "undo", glyph: "↶", label: "Undo the last drawing" }, { id: "clear", glyph: "✕", label: "Clear the drawings" },
 ];
 const TOOL_NAME: Record<DrawTool, string> = { cursor: "", trend: "TREND LINE", h: "HORIZONTAL LINE", v: "VERTICAL LINE", rect: "RECTANGLE", fib: "FIB RETRACEMENT", measure: "MEASURE" };
@@ -93,7 +93,7 @@ export default function ChartAnalysis() {
   const symbol = (desk.symbol ?? scan.data?.setups[0]?.symbol ?? null)?.toUpperCase() ?? null;
   if (!symbol) {
     if (scan.isPending) return <LoadingBlock label="Loading the scanner" rows={4} />;
-    return <p data-testid="ca-nosymbol" className="m-0" style={quiet}>Pick a stock with the symbol search above to open its chart.</p>;
+    return <p data-testid="ca-nosymbol" className="m-0" style={quiet}>Choose a stock with the symbol search above to open its chart.</p>;
   }
   const tpRaw = params.get("tp");
   const tp = tpRaw && /^[A-Za-z0-9_:-]{1,80}$/.test(tpRaw) ? tpRaw : null;
@@ -321,17 +321,17 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
   const tradeLines: TradeLine[] = [];
   und.forEach((l) => {
     const entry = l.kind === "CASH" ? basket.levels.cashEntry ?? l.entry : l.entry;
-    tradeLines.push({ key: `${l.kind}-entry`, value: entry, label: l.kind === "CASH" ? "C ENTRY" : "F ENTRY", color: "var(--cp-ink-2)", drag: l.kind === "CASH" && cashOnly ? "cashEntry" : null });
+    tradeLines.push({ key: `${l.kind}-entry`, value: entry, label: l.kind === "CASH" ? "C REF PRICE" : "F REF PRICE", color: "var(--cp-ink-2)", drag: l.kind === "CASH" && cashOnly ? "cashEntry" : null });
   });
   if (basket.legs.length) {
-    if (fin(basket.levels.stop)) tradeLines.push({ key: "stop", value: basket.levels.stop, label: "STOP", color: "var(--cp-danger)", drag: "stop" });
-    if (fin(basket.levels.target)) tradeLines.push({ key: "target", value: basket.levels.target, label: "TGT", color: "var(--mint)", drag: "target" });
+    if (fin(basket.levels.stop)) tradeLines.push({ key: "stop", value: basket.levels.stop, label: "RISK LEVEL", color: "var(--cp-danger)", drag: "stop" });
+    if (fin(basket.levels.target)) tradeLines.push({ key: "target", value: basket.levels.target, label: "REWARD LEVEL", color: "var(--mint)", drag: "target" });
   } else {
     // no basket yet: the plan's or the signal's own levels, not draggable
-    if (fin(d.levels.entry)) tradeLines.push({ key: "sig-entry", value: d.levels.entry, label: "ENTRY", color: "var(--cp-ink-2)" });
-    if (fin(d.levels.stop)) tradeLines.push({ key: "sig-stop", value: d.levels.stop, label: "STOP", color: "var(--cp-danger)" });
+    if (fin(d.levels.entry)) tradeLines.push({ key: "sig-entry", value: d.levels.entry, label: "REF PRICE", color: "var(--cp-ink-2)" });
+    if (fin(d.levels.stop)) tradeLines.push({ key: "sig-stop", value: d.levels.stop, label: "RISK LEVEL", color: "var(--cp-danger)" });
     const t1 = d.levels.targets[0]?.price;
-    if (fin(t1)) tradeLines.push({ key: "sig-t1", value: t1, label: d.levels.targets[0]?.name ?? "T1", color: "var(--mint)" });
+    if (fin(t1)) tradeLines.push({ key: "sig-t1", value: t1, label: "REWARD 1", color: "var(--mint)" });
   }
 
   // ── readout ──
@@ -352,9 +352,9 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
     { k: "PCR", v: chain?.pcr != null ? chain.pcr.toFixed(2) : "—", c: "var(--cp-ink)", n: noChain ?? "put OI ÷ call OI" },
     { k: "FUT OI Δ", v: futChg != null ? fmtLakh(futChg, true) : "—", c: futChg == null ? "var(--cp-ink)" : futChg >= 0 ? "var(--mint)" : "var(--cp-danger)", n: futChg != null ? `${pctTxt(futChgPct ?? null)} · ${futWhen}` : oiQ.data?.kind === "none" ? oiQ.data.message : oiQ.isPending ? "loading" : "no futures OI" },
     { k: "MAX PAIN", v: chain?.maxPain != null ? fmtNum(chain.maxPain, 0) : "—", c: "var(--amber)", n: chain?.maxPain != null && fin(lastPrice) ? `${signedTxt(chain.maxPain - lastPrice, 0)} vs last` : noChain ?? "—" },
-    { k: "ATM IV", v: chain?.atmIv != null ? `${chain.atmIv.toFixed(1)}%` : "—", c: "var(--cp-ink)", n: chain?.atmIv != null ? `model, end of day ${dayMonth(chain.asOf)}` : slot === "consolidated" ? "pick an expiry" : noChain ?? "not available" },
+    { k: "ATM IV", v: chain?.atmIv != null ? `${chain.atmIv.toFixed(1)}%` : "—", c: "var(--cp-ink)", n: chain?.atmIv != null ? `model, end of day ${dayMonth(chain.asOf)}` : slot === "consolidated" ? "choose an expiry" : noChain ?? "not available" },
     { k: "IV PCTILE", v: ivp != null ? `${Math.round(ivp)}` : "not recorded", c: ivp != null ? "var(--cp-ink)" : "var(--cp-ink-2)", small: ivp == null, n: ivp != null ? `of ${iv.data?.sessions ?? "—"} recorded sessions` : iv.data?.reason ?? (iv.isPending ? "loading" : "needs 252 recorded sessions") },
-    { k: "EXP. MOVE", v: chain?.expectedMove != null ? `±${priceTxt(chain.expectedMove)}` : "—", c: "var(--cp-indigo)", n: chain?.expectedMovePct != null ? `${chain.expectedMovePct.toFixed(2)}% to expiry` : slot === "consolidated" ? "pick an expiry" : noChain ?? "not available" },
+    { k: "EXP. MOVE", v: chain?.expectedMove != null ? `±${priceTxt(chain.expectedMove)}` : "—", c: "var(--cp-indigo)", n: chain?.expectedMovePct != null ? `${chain.expectedMovePct.toFixed(2)}% to expiry` : slot === "consolidated" ? "choose an expiry" : noChain ?? "not available" },
   ];
 
   // ── summary lines ──
@@ -483,11 +483,11 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
       </div>
       {!mobile && tool !== "cursor" && (
         <div data-testid="ca-tool-hint" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-indigo)" }}>
-          {TOOL_NAME[tool]}: {TWO_CLICK.has(tool) ? "CLICK TWO POINTS ON THE PRICE PANE · ESC CANCELS" : "CLICK THE PRICE PANE"} · ＋ RETURNS TO THE CROSSHAIR
+          {TOOL_NAME[tool]}: {TWO_CLICK.has(tool) ? "CLICK TWO POINTS ON THE PRICE PANE, OR DRAG · ESC CANCELS" : "CLICK THE PRICE PANE"} · ＋ RETURNS TO THE CROSSHAIR
         </div>
       )}
       <div data-testid="ca-legend" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-4)", lineHeight: 1.6 }}>
-        {signals.length || BAR_SIGNALS.some((m) => sigOn[m.key]) ? "▲ ▼ BAR SIGNALS: HOVER A TRIANGLE FOR ITS RULE · " : ""}{smaOn ? "SMA 20 AMBER · " : ""}EMA 20 INDIGO · DRAG TO PAN, WHEEL TO ZOOM · BUILD-UP BY {weekly ? "5-SESSION" : daily ? "4-SESSION" : "4-BAR"} WINDOW · LB LONG BUILD-UP · SB SHORT BUILD-UP · SC SHORT COVERING · LU LONG UNWINDING{basket.legs.length ? " · DRAG STOP OR TGT TO MOVE IT" : ""}{events.length ? " · R RESULTS · B BOARD · F FILING · C CORPORATE ACTION · M MACRO · X F&O EXPIRY · $ FII/DII DAY" : ""}
+        {signals.length || BAR_SIGNALS.some((m) => sigOn[m.key]) ? "▲ ▼ BAR SIGNALS: HOVER A TRIANGLE FOR ITS RULE · " : ""}{smaOn ? "SMA 20 AMBER · " : ""}EMA 20 INDIGO · DRAG TO PAN, WHEEL TO ZOOM · BUILD-UP BY {weekly ? "5-SESSION" : daily ? "4-SESSION" : "4-BAR"} WINDOW · LB LONG BUILD-UP · SB SHORT BUILD-UP · SC SHORT COVERING · LU LONG UNWINDING{basket.legs.length ? " · DRAG THE RISK OR REWARD LEVEL TO MOVE IT" : ""}{events.length ? " · R RESULTS · B BOARD · F FILING · C CORPORATE ACTION · M MACRO · X F&O EXPIRY · $ FII/DII DAY" : ""}
       </div>
       {oi && (oi.missing_note || (slot !== "consolidated" && oi.missing_slots.includes(slot))) && <span style={{ ...quiet, fontSize: 11, marginTop: 4 }}>{oi.missing_note}</span>}
 

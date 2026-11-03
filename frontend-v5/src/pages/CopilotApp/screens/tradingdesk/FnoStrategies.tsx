@@ -59,7 +59,7 @@ export const STRATEGY_KINDS: Array<{ kind: StrategyKind; title: string }> = [
   { kind: "cash", title: "Cash · delivery" },
 ];
 
-export const NO_TRADE = "No trade suggested";
+export const NO_TRADE = "No idea fits";
 
 /** Rule 1: the three strategy names for a build-up label; null = no trade suggested. */
 export function strategyNames(label: BuildupLabel | null, index: boolean): Record<StrategyKind, string | null> {
@@ -185,7 +185,7 @@ function futuresCard(inp: StrategyInput, name: string | null, investor: boolean)
   const settle = inp.future?.settle ?? null;
   const s = inp.chain.summary;
   if (settle == null || !inp.future) {
-    return { ...base, legs: [], kv: [], text: `No entry price for this idea: ${inp.futuresNote.charAt(0).toLowerCase()}${inp.futuresNote.slice(1)}.` };
+    return { ...base, legs: [], kv: [], text: `No reference price for this idea: ${inp.futuresNote.charAt(0).toLowerCase()}${inp.futuresNote.slice(1)}.` };
   }
   const lv = levelsFrom(settle, up, s.max_put_oi?.strike ?? null, s.max_call_oi?.strike ?? null, s.expected_move ?? null);
   const reward = lv.target != null ? Math.abs(lv.target - settle) : null;
@@ -194,12 +194,12 @@ function futuresCard(inp: StrategyInput, name: string | null, investor: boolean)
     ...base,
     legs: [`${up ? "Long" : "Short"} 1 lot${lot ? ` (${fmtNum(lot)})` : ""} · ${inp.symbol} ${shortDay(inp.future.expiry)} FUT @ ${lvl(settle)}`],
     kv: [
-      { k: investor ? "Price now" : "Entry · settle", v: lvl(settle) },
-      { k: investor ? "Exit if wrong" : "Stop", v: lvl(lv.stop), tone: "danger" },
-      { k: investor ? "Aim" : "Target", v: lvl(lv.target), tone: "mint" },
+      { k: investor ? "Price now" : "Reference price · settle", v: lvl(settle) },
+      { k: "Risk level", v: lvl(lv.stop), tone: "danger" },
+      { k: "Reward level", v: lvl(lv.target), tone: "mint" },
       { k: investor ? "Reward for risk" : "Reward : risk", v: rr(reward, risk) },
     ],
-    text: `Stop at ${lv.stopFrom}${lv.stop != null ? ` (${lvl(lv.stop)})` : ""}, target at ${lv.targetFrom}${lv.target != null ? ` (${lvl(lv.target)})` : ""}.${lot && reward != null && risk != null ? ` One lot risks ₹${fmtNum(risk * lot)} to make ₹${fmtNum(reward * lot)}.` : ""}`,
+    text: `Risk level at ${lv.stopFrom}${lv.stop != null ? ` (${lvl(lv.stop)})` : ""}, reward level at ${lv.targetFrom}${lv.target != null ? ` (${lvl(lv.target)})` : ""}.${lot && reward != null && risk != null ? ` One lot risks ₹${fmtNum(risk * lot)} to make ₹${fmtNum(reward * lot)}.` : ""}`,
   };
 }
 
@@ -222,7 +222,7 @@ function optionsCard(inp: StrategyInput, name: string | null, investor: boolean)
       return { ...base, name: null, legs: [], kv: [], text: "Neutral build-up, but the price is not between the put wall and the call wall, so no range idea fits." };
     }
     if (em != null && (sc - spot < em || spot - sp < em)) {
-      return { ...base, name: null, legs: [], kv: [], text: `Neutral build-up, but the expected move (±${fmtNum(em, 2)}) reaches past a wall (${fmtLevel(sp)} – ${fmtLevel(sc)}), so a range idea is not suggested.` };
+      return { ...base, name: null, legs: [], kv: [], text: `Neutral build-up, but the expected move (±${fmtNum(em, 2)}) reaches past a wall (${fmtLevel(sp)} – ${fmtLevel(sc)}), so no range idea fits.` };
     }
     const idx = (k: number) => c.strikes.findIndex((r) => r.strike === k);
     const lp = c.strikes[idx(sp) - 1];
@@ -302,19 +302,19 @@ function cashCard(inp: StrategyInput, name: string | null, investor: boolean): S
   const spot = s.spot;
   const lot = inp.chain.lot_size ?? null;
   if (spot == null) {
-    return { ...base, legs: [], kv: [], paper: null, text: "The bhavcopy sent no price for the stock, so there is no entry.", blocked: "No entry price." };
+    return { ...base, legs: [], kv: [], paper: null, text: "The bhavcopy sent no price for the stock, so there is no reference price.", blocked: "No reference price." };
   }
   const lv = levelsFrom(spot, true, s.max_put_oi?.strike ?? null, s.max_call_oi?.strike ?? null, s.expected_move ?? null);
   const kv: KV[] = [
-    { k: investor ? "Buy near" : "Entry · close", v: lvl(spot) },
-    { k: investor ? "Exit if wrong" : "Stop", v: lvl(lv.stop), tone: "danger" },
-    { k: investor ? "Aim" : "Target", v: lvl(lv.target), tone: "mint" },
+    { k: investor ? "Price now" : "Reference price · close", v: lvl(spot) },
+    { k: "Risk level", v: lvl(lv.stop), tone: "danger" },
+    { k: "Reward level", v: lvl(lv.target), tone: "mint" },
     { k: investor ? "Shares" : "Quantity", v: lot ? fmtNum(lot) : DASH },
   ];
   const legs = [`Long ${lot ? fmtNum(lot) : "—"} shares · ${inp.symbol} @ ${lvl(spot)}`];
   let blocked: string | null = null;
   if (lot == null) blocked = "The route sent no lot size, so the quantity (one lot’s worth of shares) is unknown.";
-  else if (lv.stop == null || lv.target == null) blocked = "Needs a stop below and a target above the price; the chain gives neither wall nor expected move.";
+  else if (lv.stop == null || lv.target == null) blocked = "Needs a risk level below and a reward level above the price; the chain gives neither wall nor expected move.";
   const paper: LabPaperTrade | null = blocked || lot == null || lv.stop == null || lv.target == null
     ? null
     : {
@@ -327,15 +327,15 @@ function cashCard(inp: StrategyInput, name: string | null, investor: boolean): S
       };
   return {
     ...base, legs, kv, paper, blocked,
-    text: `One lot’s worth of shares, held for delivery. Stop at ${lv.stopFrom}, target at ${lv.targetFrom}. Recorded as a paper trade only, marked against end-of-day closes.`,
+    text: `One lot’s worth of shares, held for delivery. Risk level at ${lv.stopFrom}, reward level at ${lv.targetFrom}. Recorded as a paper trade only, marked against end-of-day closes.`,
   };
 }
 
 function noTradeText(kind: StrategyKind, inp: StrategyInput, investor: boolean): string {
   if (inp.label == null) {
     return inp.index
-      ? "The build-up scan has no index-futures row for this index on the latest day, so the rules suggest nothing."
-      : "This stock has no build-up reading on the latest day, so the rules suggest nothing.";
+      ? "The build-up scan has no index-futures row for this index on the latest day, so no rule fits."
+      : "This stock has no build-up reading on the latest day, so no rule fits.";
   }
   if (kind === "futures") return investor ? "Open bets fell, so the move is people closing positions, not new ones. No futures idea." : "Open interest fell: the move is positions closing, not fresh ones. The rules take futures only on fresh positions.";
   if (kind === "cash") return inp.index ? "An index has no shares to hold for delivery." : "The rules take delivery only on long build-up (price and open interest both up).";
@@ -389,7 +389,7 @@ function Card({ card, symbol }: { card: StrategyCard; symbol: string }) {
   const note = !card.name
     ? null
     : canAdd && p
-      ? `Simulated: ${fmtNum(p.quantity)} shares at ${fmtPrice(p.entry_price)}, stop ${fmtPrice(p.stop_price)}, target ${fmtPrice(p.target_price)}. No order is placed; it is marked against end-of-day closes.`
+      ? `Simulated: ${fmtNum(p.quantity)} shares at ${fmtPrice(p.entry_price)}, risk level ${fmtPrice(p.stop_price)}, reward level ${fmtPrice(p.target_price)}. No order is placed; it is marked against end-of-day closes.`
       : card.blocked;
   return (
     <section data-testid={id} data-strategy={card.name ?? ""} className="cp-card flex min-w-0 flex-col" style={{ gap: 12, padding: "16px 18px" }}>
@@ -457,7 +457,7 @@ function whyLines(symbol: string, label: BuildupLabel | null, price: number | nu
       : `${symbol} has no build-up reading on the latest day, so no strategy is named.`);
   }
   if (s.max_put_oi || s.max_call_oi) {
-    out.push(`Walls: the most put open interest is at ${s.max_put_oi ? fmtLevel(s.max_put_oi.strike) : "—"} (stops for rising ideas) and the most call open interest at ${s.max_call_oi ? fmtLevel(s.max_call_oi.strike) : "—"} (targets).`);
+    out.push(`Walls: the most put open interest is at ${s.max_put_oi ? fmtLevel(s.max_put_oi.strike) : "—"} (risk levels for rising ideas) and the most call open interest at ${s.max_call_oi ? fmtLevel(s.max_call_oi.strike) : "—"} (reward levels).`);
   }
   if (s.expected_move != null) {
     out.push(`${s.atm_iv != null ? `ATM implied volatility ${fmtNum(s.atm_iv, 2)}%: t` : "T"}he ATM straddle prices a swing of ±${fmtNum(s.expected_move, 2)}${s.expected_move_pct != null ? ` (${fmtNum(s.expected_move_pct, 2)}%)` : ""} to ${fmtDay(s.expiry)}. A spread’s short strike goes at the wall, or at the edge of that swing when the wall is further; an iron condor needs both walls outside it.`);
@@ -592,7 +592,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
       </Widget>
 
       <p data-testid="desk-fno-strat-disclaimer" className="m-0" style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)", padding: "12px 14px", borderRadius: 12, border: `1px solid ${TONE_LINE.amber}`, background: TONE_SOFT.amber }}>
-        Rules-based paper ideas from end-of-day data, for learning — not a recommendation to buy or sell. {SEBI_FNO_NOTE} Nivesh cannot place orders.
+        Rules-based paper ideas from end-of-day data, for learning — not investment advice. {SEBI_FNO_NOTE} Nivesh cannot place orders.
       </p>
     </div>
   );

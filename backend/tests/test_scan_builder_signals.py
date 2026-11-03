@@ -27,36 +27,23 @@ def _clean():
 
 # ── the plan ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def test_long_plan_stop_at_the_lower_of_day_low_and_one_atr_targets_at_two_and_three_risk():
+def test_plan_v2_long_levels_from_the_entry():
     p = SIG.make_plan("long", 100, 98, 101, 3, 120, 80)
-    assert (p["stop_loss"], p["stop_basis"]) == (97.0, "1 × ATR(14) below entry")
-    assert (p["risk_per_share"], p["target_1"], p["target_2"]) == (3.0, 106.0, 109.0)
-    assert (p["rr_1"], p["rr_2"], p["target_1_basis"], p["plan_ok"]) == (2.0, 3.0, "2 × risk", True)
-    p = SIG.make_plan("long", 100, 95, 101, 3, 130, 80)                         # today's low is lower than 1 ATR
-    assert (p["stop_loss"], p["stop_basis"], p["target_1"]) == (95.0, "today's low", 110.0)
+    assert (p["stop_loss"], p["target_1"], p["target_2"]) == (99.0, 101.5, 103.0)
+    assert (p["risk_per_share"], p["rr_1"], p["rr_2"], p["plan_ok"]) == (1.0, 1.5, 3.0, True)
+    assert (p["stop_basis"], p["target_1_basis"]) == ("Entry − 1 %", "Entry + 1.5 %")
+    assert (p["day_low"], p["day_high"], p["atr"]) == (98.0, 101.0, 3.0)        # kept for the record of the stock's day
 
 
-def test_target_1_is_capped_at_the_20_session_high_and_too_little_room_means_no_plan():
-    p = SIG.make_plan("long", 100, 98, 101, 3, 105, 80)                         # 105 < 106: capped, 5/3 = 1.67
-    assert (p["target_1"], p["target_1_basis"], p["rr_1"], p["plan_ok"]) == (105.0, "the previous 20 sessions' high", 1.67, True)
-    p = SIG.make_plan("long", 100, 98, 101, 3, 104, 80)                         # 4/3 = 1.33 < 1.5
-    assert p["plan_ok"] is False and "only 1.33 × the risk" in p["plan_note"] and p["target_1"] == 104.0
-    p = SIG.make_plan("long", 100, 98, 101, 3, 99, 80)                          # the high is below entry (a breakout): no cap
-    assert (p["target_1"], p["target_1_basis"]) == (106.0, "2 × risk")
+def test_plan_v2_short_is_the_mirror():
+    p = SIG.make_plan("short", 200, 198, 205, 4, 220, 190)
+    assert (p["stop_loss"], p["target_1"], p["target_2"], p["rr_1"]) == (202.0, 197.0, 194.0, 1.5)
+    assert (p["stop_basis"], p["target_1_basis"]) == ("Entry + 1 %", "Entry − 1.5 %")
 
 
-def test_short_plan_is_the_mirror():
-    p = SIG.make_plan("short", 100, 98, 101, 3, 120, 90)
-    assert (p["stop_loss"], p["stop_basis"], p["target_1"], p["target_2"]) == (103.0, "1 × ATR(14) above entry", 94.0, 91.0)
-    assert p["plan_ok"] is True
-    p = SIG.make_plan("short", 100, 98, 101, 3, 120, 96)                        # capped at the 20-session low: 4/3
-    assert p["target_1"] == 96.0 and p["plan_ok"] is False
-
-
-def test_no_price_or_no_room_gives_no_plan_with_a_reason():
-    assert SIG.make_plan("long", None, 98, 101, 3, 120, 80)["plan_note"].startswith("No live price")
-    p = SIG.make_plan("long", 100, 100, 101, None, 120, 80)                     # low = price, no ATR: no risk distance
-    assert p["plan_ok"] is False and "stop loss" in p["plan_note"]
+def test_no_price_gives_no_plan_with_a_reason():
+    p = SIG.make_plan("long", None)
+    assert p["plan_ok"] is False and p["plan_note"].startswith("No live price") and p["stop_loss"] is None
 
 
 def test_plan_words_are_the_owners_choice_and_nothing_else_is_barred():

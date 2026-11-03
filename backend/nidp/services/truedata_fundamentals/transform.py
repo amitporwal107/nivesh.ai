@@ -8,7 +8,9 @@ each one caused a real defect or a near miss:
   * LevelOfRoundingUsedInFinancialStatements is usually blank → `infer_units`: TrueData FY revenue / our FY revenue,
     accepted only within 1.5x of a unit factor (units are >= 10x apart, so a ratio between 1.5x and 6.7x decides
     nothing: RADICO's revenue is gross of excise, ratio 3.475, and a 3x tolerance loaded it 10x too small); else the
-    share-capital anchor; else the filing's own rounding text; else the row is REFUSED. Never guessed.
+    share-capital anchor; else the row is REFUSED. Never guessed: the filing's own rounding text is NOT a unit source
+    (3 Nov 2026: SWIGGY's Sep-2024 filing says "Millions" over crore values; MANYAVAR, VIMTALABS and KICL have no
+    anchor and say "Millions" while their values are crore-consistent, so they would have loaded 10x too small).
   * CurrentLiabilities is often 0 while Liabilities and NoncurrentLiabilities are filled → CL = L − NCL.
   * Bank-format statements (OtherAssetsGroup.Advances > 0) are not mapped: current ratio means nothing for a bank.
   * Cash flow: fiscal-year filings only. nidp.nse_financials_cashflow is annual and v_stock_fundamentals_latest divides
@@ -38,9 +40,6 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 FACTORS: Dict[str, float] = {"crore": 1.0, "million": 10.0, "lakh": 100.0, "thousand": 1e4, "rupee": 1e7}
 UNIT_TOLERANCE = 1.5
-ROUNDING_WORDS = {"crore": "crore", "crores": "crore", "lakh": "lakh", "lakhs": "lakh", "lacs": "lakh",
-                  "millions": "million", "million": "million", "thousands": "thousand", "thousand": "thousand",
-                  "rupees": "rupee", "actual": "rupee"}
 
 H1_FY = frozenset({"Second quarter", "Half yearly", "Yearly"})            # filings that carry a balance sheet
 QUARTER_LABELS = frozenset({"First quarter", "Second quarter", "Third quarter", "Yearly"})   # quarter-only P&L exists
@@ -319,14 +318,19 @@ def infer_units(fy_pnls: Mapping[Tuple[str, str], Sequence[Tuple[Filing, Mapping
 
 def unit_for(filing: Filing, units: Mapping[Tuple[str, str], Unit], notes: Mapping[Tuple[str, str], str],
              gi: Optional[Mapping[str, Any]]) -> Tuple[Optional[Unit], str]:
-    """The company's anchored unit, else the filing's own rounding text, else (None, why)."""
+    """The company's anchored unit (revenue or share capital), else (None, why): the filing is REFUSED. The filing's
+    LevelOfRoundingUsedInFinancialStatements text never decides a unit (it is wrong for real filings, see the module
+    docstring); it is only quoted in the reason."""
     if filing.key in units:
         return units[filing.key], ""
+    why = "no revenue or share-capital anchor"
+    note = notes.get(filing.key)
+    if note:
+        why += f": {note}"
     word = str((gi or {}).get("LevelOfRoundingUsedInFinancialStatements") or "").strip()
-    w = ROUNDING_WORDS.get(word.lower())
-    if w:
-        return Unit(w, f"filing rounding '{word}'"), ""
-    return None, notes.get(filing.key, "no anchor and no rounding text")
+    if word:
+        why += f" (filing rounding text '{word[:40]}' is not trusted)"
+    return None, why
 
 
 def capital_mismatch(statement_capital: Optional[float], unit: Unit) -> Optional[str]:

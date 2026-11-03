@@ -44,7 +44,7 @@ const isOpen = (s: PlanStep): boolean => s.status === "PENDING" || s.status === 
 
 type Filter = "all" | StepGroup;
 
-const FILTER_LABEL: Record<Filter, string> = { all: "All", reduce: "Reduce", add: "Add", hold: "Hold or switch" };
+const FILTER_LABEL: Record<Filter, string> = { all: "All", reduce: "Reduce", add: "Raise", hold: "Hold or switch" };
 
 // ── before → after tiles ─────────────────────────────────────────────────
 
@@ -97,16 +97,16 @@ function planTiles(facts: PlanFacts): TileItem[] {
     s: facts.taxLiabilityRs == null
       ? "Not estimated"
       : facts.taxCertainty === 0
-        ? "No exit step has a tax estimate yet"
+        ? "No step that releases money has a tax estimate yet"
         : facts.taxCertainty != null && facts.taxCertainty < 100
-          ? `Covers ${fmtNum(facts.taxCertainty)}% of exit steps`
-          : "Across the plan’s exit steps",
+          ? `Covers ${fmtNum(facts.taxCertainty)}% of the steps that release money`
+          : "Across the plan’s steps that release money",
   });
   if (facts.freedCapitalRs != null && facts.freedCapitalRs > 0) {
     out.push({
       k: "Capital freed",
       v: <span data-testid="recommend-freed">{fmtINR(facts.freedCapitalRs, { compact: true })}</span>,
-      s: "From exits and trims",
+      s: "From holdings closed out or lowered",
     });
   }
   return out;
@@ -268,9 +268,9 @@ export default function RecommendScreen() {
 
   return (
     <Screen testId="screen-tool-recommend">
-      <HeaderRow askLabel="Ask Copilot about this ›" onAsk={() => ask("Why these recommendations? Explain what each one is based on.")}>
+      <HeaderRow askLabel="Ask Copilot about this ›" onAsk={() => ask("Why are these steps in my portfolio plan? Explain what each one is based on.")}>
         <ScreenHeader
-          eyebrow="Recommendations · from your holdings, goals and risk profile"
+          eyebrow="Portfolio ideas · from your holdings, goals and risk profile"
           pills={ready && facts ? (
             <>
               {facts.confidenceLabel && (
@@ -296,9 +296,9 @@ export default function RecommendScreen() {
       {showPlanTools && <RebuildPlan idPrefix="recommend" />}
 
       {q.isPending ? (
-        <LoadingBlock label="Loading recommendations" rows={4} />
+        <LoadingBlock label="Loading portfolio ideas" rows={4} />
       ) : q.isError ? (
-        <ErrorBlock title="Recommendations didn’t load" error={loadError(q.error)} onRetry={() => q.refetch()} />
+        <ErrorBlock title="Portfolio ideas didn’t load" error={loadError(q.error)} onRetry={() => q.refetch()} />
       ) : !plan || !facts ? (
         <NoPlan body="Nivesh has not built a plan from your holdings yet. Building one takes a few seconds and changes nothing in your accounts." />
       ) : facts.requiresPersona ? (

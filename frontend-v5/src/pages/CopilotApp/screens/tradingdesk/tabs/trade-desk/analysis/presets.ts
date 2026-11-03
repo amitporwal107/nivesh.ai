@@ -96,7 +96,7 @@ export type Built = { ok: true; legs: NewLeg[] } | { ok: false; why: string };
 export function chainProblem(chain: AnalysisChain | null, notFno: string | null): string | null {
   if (notFno) return notFno;
   if (!chain) return "The option chain has not loaded.";
-  if (!chain.tradable || !chain.expiry) return "Consolidated sums open interest over expiries and has no prices: pick Current, Next or Far to add legs.";
+  if (!chain.tradable || !chain.expiry) return "Consolidated sums open interest over expiries and has no prices: choose Current, Next or Far to add legs.";
   if (chain.lotSize == null) return "The chain sent no lot size, so a leg's quantity is unknown.";
   return null;
 }
@@ -135,7 +135,7 @@ export interface FutureRow { expiry: string; close: number | null; settle: numbe
 export function futureLeg(futures: FutureRow[], asOf: string, chain: AnalysisChain | null, notFno: string | null = null): Built {
   if (notFno) return { ok: false, why: notFno };
   const lot = chain?.tradable ? chain.lotSize : null;
-  if (lot == null) return { ok: false, why: chain && !chain.tradable ? "Pick Current, Next or Far: the lot size comes from that expiry's chain." : "The lot size is not known yet (the option chain has not loaded)." };
+  if (lot == null) return { ok: false, why: chain && !chain.tradable ? "Choose Current, Next or Far: the lot size comes from that expiry's chain." : "The lot size is not known yet (the option chain has not loaded)." };
   const ahead = futures.filter((f) => f.expiry > asOf).sort((a, b) => a.expiry.localeCompare(b.expiry));
   const f = (chain?.expiry ? futures.find((x) => x.expiry === chain.expiry) : undefined) ?? ahead[0];
   if (!f) return { ok: false, why: `No future still to come is listed on ${asOf}.` };
@@ -214,7 +214,7 @@ export function directionOf(delta: number | null | undefined, legs: BasketLeg[])
   const largest = Math.max(...legs.map(units));
   const d = `${delta > 0 ? "+" : delta < 0 ? "−" : ""}${num(Math.abs(delta), 2)}`;
   if (Math.abs(delta) < 0.1 * largest) {
-    return { direction: "neutral", why: `Position delta ${d} (payoff route) is within 10% of the largest leg's ${num(largest, 0)} units: recorded as neutral, with no stop or target.` };
+    return { direction: "neutral", why: `Position delta ${d} (payoff route) is within 10% of the largest leg's ${num(largest, 0)} units: recorded as neutral, with no risk level or reward level.` };
   }
   return delta > 0
     ? { direction: "bullish", why: `Position delta ${d} (payoff route): the position gains as the stock rises, so it is recorded as bullish.` }
@@ -228,17 +228,17 @@ export function levelsFor(direction: StrategyDirection, reference: number, level
   const problems: string[] = [];
   if (direction === "neutral") {
     const any = levels.stop != null || levels.target != null;
-    return { problems, dropped: any ? "A neutral position records no stop or target on the underlying, so the levels set are not sent." : null };
+    return { problems, dropped: any ? "A neutral position records no risk level or reward level on the underlying, so the levels set are not sent." : null };
   }
   const up = direction === "bullish";
   const out: { stop_underlying?: number; target_underlying?: number; problems: string[]; dropped: string | null } = { problems, dropped: null };
   if (levels.stop != null) {
     if (up ? levels.stop < reference : levels.stop > reference) out.stop_underlying = levels.stop;
-    else problems.push(`For a ${direction} position the stop (${inr(levels.stop, 1)}) must be ${up ? "below" : "above"} the reference ${inr(reference, 1)}.`);
+    else problems.push(`For a ${direction} position the risk level (${inr(levels.stop, 1)}) must be ${up ? "below" : "above"} the reference ${inr(reference, 1)}.`);
   }
   if (levels.target != null) {
     if (up ? levels.target > reference : levels.target < reference) out.target_underlying = levels.target;
-    else problems.push(`For a ${direction} position the target (${inr(levels.target, 1)}) must be ${up ? "above" : "below"} the reference ${inr(reference, 1)}.`);
+    else problems.push(`For a ${direction} position the reward level (${inr(levels.target, 1)}) must be ${up ? "above" : "below"} the reference ${inr(reference, 1)}.`);
   }
   return out;
 }
@@ -260,7 +260,7 @@ export const TARGET_SCENARIO = "target";
 /** Why the payoff cannot carry a "today" curve for these legs, or null: the date must be on or after the entry prices'
  *  day and not after the nearest expiry (the route refuses the whole request otherwise). */
 export function todayProblem(legs: BasketLeg[], asOf: string, today: string): string | null {
-  if (today < asOf) return `The entry prices are dated ${asOf}, after today ${today}.`;
+  if (today < asOf) return `The reference prices are dated ${asOf}, after today ${today}.`;
   const first = legs.map((l) => l.expiry).filter((e): e is string => !!e).sort()[0];
   if (first && today > first) return `The ${fmtExpiry(first)} expiry has passed, so there is no today curve.`;
   return null;
@@ -324,7 +324,7 @@ export function marginBodyOf(symbol: string, legs: BasketLeg[]): MarginBody | nu
 
 /** One leg in words for the evidence: "BUY 1 lot 4300 CE 25 Nov at ₹62.00 (NSE F&O bhavcopy close, 2026-10-28)". */
 export function legWords(l: BasketLeg): string {
-  const side = l.side === "B" ? "BUY" : "SELL";
+  const side = l.side === "B" ? "LONG" : "SHORT";
   const size = l.kind === "CASH" ? `${num(l.qty, 0)} share${l.qty === 1 ? "" : "s"}` : `${num(l.qty, 0)} lot${l.qty === 1 ? "" : "s"} of ${num(l.lotSize, 0)}`;
   const what = l.kind === "CASH" ? "cash" : l.kind === "FUT" ? `future ${l.expiry ? fmtExpiry(l.expiry) : ""}` : `${l.strike} ${l.kind} ${l.expiry ? fmtExpiry(l.expiry) : ""}`;
   return `${side} ${size} ${what.trim()} at ${inr(l.entry)} (${l.priceSource})`;
@@ -374,8 +374,8 @@ export function strategyBodyOf(i: StrategyInput): BodyResult<NewStrategyPaperTra
   const evidence = clip(
     `${i.symbol} paper basket from Trade Desk › Chart Analysis (${family.replace(/_/g, " ")}): ${i.legs.map(legWords).join("; ")}. `
     + `Reference ${inr(i.refPrice)} (${i.last.source}, ${i.last.at}). ${dir.why}`
-    + `${levels.stop_underlying != null ? ` Stop on the underlying ${inr(levels.stop_underlying, 1)}.` : ""}`
-    + `${levels.target_underlying != null ? ` Target ${inr(levels.target_underlying, 1)}.` : ""}`, 1000);
+    + `${levels.stop_underlying != null ? ` Risk level on the underlying ${inr(levels.stop_underlying, 1)}.` : ""}`
+    + `${levels.target_underlying != null ? ` Reward level ${inr(levels.target_underlying, 1)}.` : ""}`, 1000);
   const body: NewStrategyPaperTrade = {
     kind: "strategy",
     underlying: i.symbol,
@@ -411,10 +411,10 @@ export interface CashInput {
 export function cashBodyOf(i: CashInput): BodyResult<ChartCashTrade> {
   const entry = i.levels.cashEntry ?? i.leg.entry;
   const problems: string[] = [];
-  if (i.leg.side === "S") problems.push("A share paper trade is long only: selling shares is not recorded. Flip the cash leg to BUY.");
-  if (i.levels.stop == null) problems.push("Set a stop below the entry: a share paper trade needs one.");
-  else if (!(i.levels.stop < entry)) problems.push(`The stop (${inr(i.levels.stop, 1)}) must be below the entry (${inr(entry, 1)}).`);
-  if (i.levels.target != null && !(i.levels.target > entry)) problems.push(`The target (${inr(i.levels.target, 1)}) must be above the entry (${inr(entry, 1)}).`);
+  if (i.leg.side === "S") problems.push("A share paper trade is long only: a short share position is not recorded. Flip the cash leg to LONG.");
+  if (i.levels.stop == null) problems.push("Set a risk level below the reference price: a share paper trade needs one.");
+  else if (!(i.levels.stop < entry)) problems.push(`The risk level (${inr(i.levels.stop, 1)}) must be below the reference price (${inr(entry, 1)}).`);
+  if (i.levels.target != null && !(i.levels.target > entry)) problems.push(`The reward level (${inr(i.levels.target, 1)}) must be above the reference price (${inr(entry, 1)}).`);
   if (!Number.isInteger(i.leg.qty) || i.leg.qty < 1) problems.push("The share quantity must be a whole number of at least 1.");
   if (problems.length) return { ok: false, problems };
   const body: ChartCashTrade = {
@@ -427,7 +427,7 @@ export function cashBodyOf(i: CashInput): BodyResult<ChartCashTrade> {
     entry_rule: i.rule,
     signal_at: i.now.toISOString(),
     strategy_version: RULE_VERSION,
-    rationale: clip(`${i.symbol} share paper trade from Trade Desk › Chart Analysis: ${num(i.leg.qty, 0)} shares, entry ${inr(entry)} (${i.levels.cashEntry != null ? "level set on the chart" : i.leg.priceSource}), stop ${inr(i.levels.stop as number)}${i.levels.target != null ? `, target ${inr(i.levels.target)}` : ""}.`, 500),
+    rationale: clip(`${i.symbol} share paper trade from Trade Desk › Chart Analysis: ${num(i.leg.qty, 0)} shares, reference price ${inr(entry)} (${i.levels.cashEntry != null ? "level set on the chart" : i.leg.priceSource}), risk level ${inr(i.levels.stop as number)}${i.levels.target != null ? `, reward level ${inr(i.levels.target)}` : ""}.`, 500),
     ...(i.planId ? { plan_ref: { plan_id: i.planId } } : {}),
   };
   return { ok: true, body, notes: [] };

@@ -204,18 +204,18 @@ def conditions(bars: Sequence[Sequence[Any]], ema: Sequence[Optional[float]], rv
 
     since = [i for i in range(0, li + 1) if signal_day is None or bars[i][0][:10] > signal_day.isoformat()]
     if entry is None or rule not in ("break_above", "pullback_to"):
-        out.append(_cond("trigger", "Entry trigger", "not_applicable",
-                         "the plan enters at once (end of day)" if rule == "at_once" else "no entry level",
-                         "the plan's entry rule"))
+        out.append(_cond("trigger", "Reference-price trigger", "not_applicable",
+                         "the plan opens at once (end of day)" if rule == "at_once" else "no reference price",
+                         "the plan's reference-price rule"))
     elif rule == "break_above":
         ok = close > entry
         out.append(_cond("trigger", f"{tf} close above {_fmt(entry)}", "met" if ok else "waiting",
-                         f"{_fmt(close)}" if ok else "waiting", f"break_above: a completed {tf} close above the entry", bar[0]))
+                         f"{_fmt(close)}" if ok else "waiting", f"break_above: a completed {tf} close above the reference price", bar[0]))
     else:
         touched = [i for i in since if float(bars[i][3]) <= entry]
         out.append(_cond("trigger", f"{tf} low at or below {_fmt(entry)}", "met" if touched else "waiting",
                          f"touched at {bars[touched[0]][0][11:16] or bars[touched[0]][0][:10]}" if touched else "waiting",
-                         f"pullback_to: a completed {tf} bar whose low reaches the entry", bars[touched[0]][0] if touched else None))
+                         f"pullback_to: a completed {tf} bar whose low reaches the reference price", bars[touched[0]][0] if touched else None))
 
     vfs = levels.get("valid_for_sessions")
     valid_until, left = None, None
@@ -234,11 +234,11 @@ def conditions(bars: Sequence[Sequence[Any]], ema: Sequence[Optional[float]], rv
                          f"valid for {int(vfs)} sessions after the signal day {signal_day.isoformat()}"))
 
     if stop is None:
-        out.append(_cond("invalidation", "Invalidation", "unavailable", "no stop", "a close below the stop"))
+        out.append(_cond("invalidation", "Invalidation", "unavailable", "no risk level", "a close below the risk level"))
     else:
         hit = [i for i in since if float(bars[i][4]) < stop]
         out.append(_cond("invalidation", f"Invalidation: close below {_fmt(stop)}", "hit" if hit else "not_hit",
-                         f"hit at {bars[hit[0]][0][:16].replace('T', ' ')}" if hit else "not hit", f"a completed {tf} close below the stop since the signal day",
+                         f"hit at {bars[hit[0]][0][:16].replace('T', ' ')}" if hit else "not hit", f"a completed {tf} close below the risk level since the signal day",
                          bars[hit[0]][0] if hit else None))
     return {"evaluated_at_bar": bar[0], "conditions": out, "volume_bar": vol_bar,
             "valid_until": valid_until.isoformat() if valid_until else None, "sessions_left": left, "reason": None}

@@ -371,7 +371,7 @@ def _indicator_values(bars: list, bench: Optional[dict]) -> tuple:
 # The one config of the hypothetical-levels rule. Change a constant here and bump VERSION.
 HYPOTHETICAL_RULE = {"name": "ATR_2X_STOP", "version": "1",
                      "atr_multiple": 2.0, "min_stop_atr": 0.5, "reward_multiple": 2.0, "atr_period": 14}
-HYPOTHETICAL_LABEL = "Rule-based hypothetical levels, not a scanner pick and not a recommendation"
+HYPOTHETICAL_LABEL = "Rule-based hypothetical levels, not a scanner idea and not advice"
 
 
 def _hypothetical_levels(bars: list) -> dict:
@@ -392,7 +392,7 @@ def _hypothetical_levels(bars: list) -> dict:
     atr = _flt(_calc.atr(h, l, c, r["atr_period"]))
     if atr is None or atr <= 0:
         out["reason"] = (f"ATR({r['atr_period']}) needs {r['atr_period'] + 1} sessions and "
-                         f"{len(bars)} are usable, so no stop can be derived.")
+                         f"{len(bars)} are usable, so no risk level can be derived.")
         return out
     entry = float(c[-1])
     stop, basis = entry - r["atr_multiple"] * atr, "atr"
@@ -401,7 +401,7 @@ def _hypothetical_levels(bars: list) -> dict:
     if support is not None and stop < support <= entry - r["min_stop_atr"] * atr:
         stop, basis = support, "support20"
     if stop <= 0:
-        out["reason"] = "The ATR stop would be at or below zero, so no levels are derived."
+        out["reason"] = "The ATR risk level would be at or below zero, so no levels are derived."
         return out
     risk = entry - stop
     out.update(entry=entry, stop=stop, target=entry + r["reward_multiple"] * risk, stop_basis=basis,

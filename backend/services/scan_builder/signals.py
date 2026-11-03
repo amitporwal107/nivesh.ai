@@ -1,4 +1,4 @@
-"""Early signals, alerts and trading plans of the Scan dashboard (docs/scan_builder/DESIGN.md §9).
+"""Early signals, alerts and trading plans of the Scan dashboard (docs/scan_builder/DESIGN.md §10).
 
 A SIGNAL is a stock entering one of the dashboard's stock lists during the session: recorded once per (day, widget, stock)
 with the time first seen and the live price then, only from a list whose every condition was applied (a list still waiting
@@ -6,14 +6,10 @@ for its intraday candles shows daily-only survivors and would raise false alerts
 `scan-plan-v1`, frozen at the moment of the signal) in the words the owner chose for this screen on 3 Nov 2026: Entry,
 Stop loss, Target 1, Target 2. Rule-based levels, not advice; no accuracy is claimed.
 
-Plan (long; a falling F&O stock in the two "Open interest" lists is the mirror, short):
-    Entry      = the live price when first seen
-    Stop loss  = the lower of today's low and Entry − 1 × ATR(14) (daily, Wilder, as of the previous session)
-    risk       = Entry − Stop loss
-    Target 2   = Entry + 3 × risk
-    Target 1   = Entry + 2 × risk, capped at the highest high of the previous 20 sessions when that high lies above Entry
-    shown only when (Target 1 − Entry) ÷ risk ≥ 1.5 (else the signal is listed with the reason and no levels)
-ATR and the 20-session high/low are the scan engine's own measures (engine.evaluate), so they match every widget's numbers.
+Plan (rules `scan-plan-v2`, owner 3 Nov ~20:50 IST, from the early-signals study's typical move after a flag — a median further
+rise of ~1.0–1.5 % and a dip of ~0.6 %): long — Entry = the live price when first seen; Stop loss = Entry − 1 %; Target 1 =
+Entry + 1.5 %; Target 2 = Entry + 3 % (reward : risk 1.5 and 3.0). A falling F&O stock in the two "Open interest" lists gets
+the short mirror (Stop loss + 1 %, targets −1.5 % / −3 %). Every signal with a live price gets a plan.
 
 Storage (Redis, shared by the 4 workers; first writer wins):
     nivesh:sb:signals:<day>:s:<widget>:<SYMBOL>   the signal (JSON), SET NX, TTL 3 days
@@ -46,14 +42,13 @@ from . import spec as S
 
 logger = logging.getLogger(__name__)
 
-PLAN_RULES = "scan-plan-v1"
-RULES_TEXT = ("Entry = the live price when the stock entered the list; Stop loss = the lower of today's low and Entry − 1 × "
-              "ATR(14); Target 1 = Entry + 2 × risk, capped at the previous 20 sessions' high; Target 2 = Entry + 3 × risk; "
-              "a plan is shown only when Target 1 is at least 1.5 × the risk away (falling F&O stocks in the Open interest "
-              "lists: the short mirror).")
-CAVEAT = ("Rule-based levels from fixed settings (scan-plan-v1), frozen when the signal was recorded. Not investment advice; no "
+PLAN_RULES = "scan-plan-v2"
+RULES_TEXT = ("Entry = the live price when the stock entered the list; Stop loss = Entry − 1 %; Target 1 = Entry + 1.5 %; "
+              "Target 2 = Entry + 3 % (reward : risk 1.5 and 3.0). Falling F&O stocks in the Open interest lists: the short "
+              "mirror. Levels sized from the 3 Nov early-signals study's typical move after a flag.")
+CAVEAT = ("Rule-based levels from fixed settings (scan-plan-v2), frozen when the signal was recorded. Not investment advice; no "
           "accuracy or hit rate is claimed. A stop loss is a level, not an executable price: an order can fill worse in a gap.")
-MIN_RR = 1.5
+STOP_PCT, T1_PCT, T2_PCT = 1.0, 1.5, 3.0
 ATR_N = 14
 SWING_N = 20
 AT_OPEN_UNTIL = (9, 20)                 # first seen by 09:20 IST = "at open"
@@ -80,49 +75,26 @@ def _r(v: Optional[float]) -> Optional[float]:
     return None if v is None else round(v, 2)
 
 
-def make_plan(direction: str, entry: Any, day_low: Any, day_high: Any, atr: Any, swing_high: Any,
-              swing_low: Any) -> Dict[str, Any]:
-    """The plan of one signal (rules above). Never raises; a plan it cannot make has plan_ok False and a plan_note."""
-    e, lo, hi, a, sh, sl = (_f(x) for x in (entry, day_low, day_high, atr, swing_high, swing_low))
+def make_plan(direction: str, entry: Any, day_low: Any = None, day_high: Any = None, atr: Any = None,
+              swing_high: Any = None, swing_low: Any = None) -> Dict[str, Any]:
+    """The plan of one signal (scan-plan-v2, above). The other inputs are kept for the record of the stock's day; the levels
+    use the Entry only. Never raises; without a live price plan_ok is False with a plan_note."""
+    e = _f(entry)
     out: Dict[str, Any] = {"direction": direction, "entry": _r(e), "stop_loss": None, "target_1": None, "target_2": None,
                            "risk_per_share": None, "rr_1": None, "rr_2": None, "stop_basis": None, "target_1_basis": None,
-                           "plan_ok": False, "plan_note": None}
+                           "plan_ok": False, "plan_note": None, "day_low": _r(_f(day_low)), "day_high": _r(_f(day_high)),
+                           "atr": _r(_f(atr))}
     if e is None or e <= 0:
         out["plan_note"] = "No live price when the signal was recorded, so no plan."
         return out
-    long = direction == "long"
-    cands = []
-    if long:
-        if lo is not None:
-            cands.append((lo, "today's low"))
-        if a is not None:
-            cands.append((e - a, "1 × ATR(14) below entry"))
-        stop, basis = min(cands, key=lambda x: x[0]) if cands else (None, None)
-        risk = (e - stop) if stop is not None else None
-    else:
-        if hi is not None:
-            cands.append((hi, "today's high"))
-        if a is not None:
-            cands.append((e + a, "1 × ATR(14) above entry"))
-        stop, basis = max(cands, key=lambda x: x[0]) if cands else (None, None)
-        risk = (stop - e) if stop is not None else None
-    if risk is None or risk <= 0:
-        out["plan_note"] = "No room between the price and today's range or ATR for a stop loss, so no plan."
-        return out
-    sign = 1 if long else -1
-    t1, t1_basis = e + sign * 2 * risk, "2 × risk"
-    swing = sh if long else sl
-    if swing is not None and (swing - e) * sign > 0 and (swing - t1) * sign < 0:
-        t1, t1_basis = swing, ("the previous 20 sessions' high" if long else "the previous 20 sessions' low")
-    t2 = e + sign * 3 * risk
-    rr1 = (t1 - e) * sign / risk
-    out.update(stop_loss=_r(stop), target_1=_r(t1), target_2=_r(t2), risk_per_share=_r(risk), rr_1=_r(rr1), rr_2=3.0,
-               stop_basis=basis, target_1_basis=t1_basis)
-    if rr1 >= MIN_RR:
-        out["plan_ok"] = True
-    else:
-        out["plan_note"] = (f"Target 1 would be {t1_basis} ({t1:,.2f}), only {rr1:.2f} × the risk away, under "
-                            f"{MIN_RR} ×, so no plan is shown.")
+    sign = 1 if direction == "long" else -1
+    stop = e * (1 - sign * STOP_PCT / 100)
+    t1, t2 = e * (1 + sign * T1_PCT / 100), e * (1 + sign * T2_PCT / 100)
+    risk = abs(e - stop)
+    out.update(stop_loss=_r(stop), target_1=_r(t1), target_2=_r(t2), risk_per_share=_r(risk),
+               rr_1=round(T1_PCT / STOP_PCT, 2), rr_2=round(T2_PCT / STOP_PCT, 2),
+               stop_basis=f"Entry {'−' if sign > 0 else '+'} {STOP_PCT:g} %",
+               target_1_basis=f"Entry {'+' if sign > 0 else '−'} {T1_PCT:g} %", plan_ok=True)
     return out
 
 
@@ -346,7 +318,10 @@ async def loop_once(now: datetime, *, store: Any = None, run: Optional[Callable[
     if run is None:
         from . import market_dashboard
         from .data import get_data
-        run = lambda: market_dashboard.get_dashboard(get_data())  # noqa: E731
+
+        async def run() -> None:                                    # every tab: each one's lists raise signals
+            for key in market_dashboard.DASHBOARDS:
+                await market_dashboard.get_dashboard(get_data(), dashboard=key)
     await run()
     return True
 

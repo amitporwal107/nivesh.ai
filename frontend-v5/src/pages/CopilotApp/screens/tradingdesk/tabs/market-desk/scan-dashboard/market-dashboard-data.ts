@@ -1,20 +1,23 @@
 /**
  * Scan dashboard — the hook (contract: docs/scan_builder/DESIGN.md §8; backend/routes/scan_builder.py).
  *
- *   useMarketDashboard()   GET /api/scan-builder/market-dashboard   the 17 widgets of Chartink dashboard 247498 computed on our
- *                                                                   own data (definitions only; no Chartink data), each with
- *                                                                   its criteria, its table and its status; optionally
- *                                                                   `ideas` (a strategy idea per stock, from the strategy
- *                                                                   builder) and `ideas_meta`; optionally `signals` (today's
- *                                                                   early signals with their trading plans, §9) and
- *                                                                   `signals_meta`
+ *   useMarketDashboard(key)   GET /api/scan-builder/market-dashboard?dashboard=<key>   one Chartink dashboard computed on our
+ *                                own data (definitions only; no Chartink data): `atlas` = 247498 "Atlas fresh" (17 widgets,
+ *                                the server's default), `daytrade` = 503347 "Day trade" (20 widgets). Each widget with its
+ *                                criteria, its table and its status; optionally `ideas` (a strategy idea per stock, from the
+ *                                strategy builder) and `ideas_meta`; `dashboard` (the one served) and `dashboards` (the tabs); optionally `signals` (today's early signals with their trading plans, §10) and
+ *                                `signals_meta`
  *
  * Real time: while the answer says the market is open it is asked again every `market.refresh_seconds` (10 s); a hidden tab
- * does not ask (React Query's refetchIntervalInBackground: false); after the close it is asked once. The previous answer stays
- * on screen while the next one loads. Typed errors ({detail: {code, message}}: 503 data_unavailable, 403 feature_disabled) are
- * read with scanProblem() from the Scan Builder's hooks.
+ * does not ask (React Query's refetchIntervalInBackground: false); after the close it is asked once. One query per dashboard,
+ * so only the dashboard on screen is asked again, and a dashboard's previous answer stays on screen while its next one loads
+ * (never another dashboard's). Typed errors ({detail: {code, message}}: 503 data_unavailable, 403 feature_disabled, 422
+ * unknown_dashboard) are read with scanProblem() from the Scan Builder's hooks.
+ *
+ * Deploy-order trap: a backend from before the second dashboard ignores `?dashboard=` and answers 247498 without `dashboard`.
+ * servedKey() reads such an answer as atlas, and the screen shows no widgets under a tab whose key the answer does not carry.
  */
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -22,6 +25,17 @@ import { ApiError } from "@/services/api/errors";
 export const MD_PATH = "/api/scan-builder/market-dashboard";
 
 const KEY = ["copilot", "desk", "scan-dashboard"] as const;
+
+/** The dashboard asked for when the URL names none (and the one an older backend always answers). */
+export const DEFAULT_DASHBOARD = "atlas";
+
+export interface DashboardRef { key: string; title: string; chartink_id?: string | null }
+
+/** The tabs before the first answer (and when an older answer carries no `dashboards`). */
+export const STATIC_DASHBOARDS: readonly DashboardRef[] = [
+  { key: "atlas", title: "Atlas fresh", chartink_id: "247498" },
+  { key: "daytrade", title: "Day trade", chartink_id: "503347" },
+];
 const drift = (cause: unknown) => new ApiError("contract_drift", "The scan dashboard's answer was not in the expected form.", { cause });
 
 // ── schema (lenient: unknown fields pass, missing optional fields get defaults) ───────────────────────────────────────
@@ -82,7 +96,7 @@ const IdeasMetaC = z.object({
   as_of: Str.catch(null),
 }).passthrough();
 
-// Early signals (DESIGN.md §9, owner 3 Nov ~17:15 IST): a stock entering a widget's list during the session, with the
+// Early signals (DESIGN.md §10, owner 3 Nov evening): a stock entering a widget's list during the session, with the
 // trading plan frozen at that moment (Entry · Stop loss · Target 1 · Target 2 — the owner's chosen words for this screen).
 // Today's, newest first. Both fields are optional (an older backend has neither); a malformed signal is dropped, never
 // allowed to fail the whole dashboard.
@@ -126,6 +140,12 @@ const SignalsMetaC = z.object({
   caveat: z.string().catch("").default(""),
 }).passthrough();
 
+const DashboardRefC = z.object({
+  key: z.string().min(1),
+  title: z.string().catch(""),
+  chartink_id: z.union([z.string(), z.number()]).nullable().optional().catch(null).transform((v) => (v == null ? null : String(v))),
+}).passthrough();
+
 export const MarketDashboardC = z.object({
   ok: z.boolean().default(true),
   run_at: Str,
@@ -150,6 +170,10 @@ export const MarketDashboardC = z.object({
   ideas_meta: IdeasMetaC.nullable().optional().catch(null),
   signals: SignalsC.nullable().optional().catch(null),
   signals_meta: SignalsMetaC.nullable().optional().catch(null),
+  // The second dashboard (3 Nov): the one served and the list for the tabs. Both absent from an older backend; a malformed
+  // value is read as absent rather than failing the whole dashboard.
+  dashboard: DashboardRefC.nullable().optional().catch(null),
+  dashboards: z.array(DashboardRefC).nullable().optional().catch(null),
 }).passthrough();
 
 export type MarketDashboard = z.infer<typeof MarketDashboardC>;
@@ -163,26 +187,35 @@ export type DashboardCriterion = z.infer<typeof CriterionC>;
 export type DashboardColumn = z.infer<typeof ColumnC>;
 export type DashboardCell = z.infer<typeof CellC>;
 
+/** The dashboard an answer is for: its `dashboard.key`, or atlas for an older backend's answer, which carries none. */
+export const servedKey = (d: MarketDashboard): string => d.dashboard?.key ?? DEFAULT_DASHBOARD;
+
+/** The tabs: the answer's `dashboards` when it carries any (blank titles named by their key), else the static pair. */
+export function dashboardTabs(d: MarketDashboard | undefined): readonly DashboardRef[] {
+  const list = d?.dashboards ?? [];
+  return list.length ? list.map((x) => ({ key: x.key, title: x.title.trim() || x.key, chartink_id: x.chartink_id ?? null })) : STATIC_DASHBOARDS;
+}
+
 /** The refresh period while the market is open, never under 5 s whatever the server says. */
 export const refreshMs = (d: MarketDashboard | undefined): number | false =>
   d?.market.open ? Math.max(5, d.market.refresh_seconds) * 1000 : false;
 
 // ── hook ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export function useMarketDashboard(enabled = true) {
+export function useMarketDashboard(dashboard: string = DEFAULT_DASHBOARD, enabled = true) {
   return useQuery<MarketDashboard>({
-    queryKey: [...KEY],
+    // One cache entry per dashboard: a tab never shows another dashboard's answer while its own loads (no placeholder data).
+    queryKey: [...KEY, dashboard],
     enabled,
     queryFn: async ({ signal }) => {
       // The first answer of the day loads the market's history on the server (up to a minute).
-      const res = await http({ path: MD_PATH, signal, timeoutMs: 90_000, noRetry: true });
+      const res = await http({ path: MD_PATH, query: { dashboard }, signal, timeoutMs: 90_000, noRetry: true });
       const r = MarketDashboardC.safeParse(res.data);
       if (!r.success) throw drift(r.error);
       return r.data;
     },
     refetchInterval: (query) => refreshMs(query.state.data),
     refetchIntervalInBackground: false,
-    placeholderData: keepPreviousData,
     retry: false,
     staleTime: 5_000,
     refetchOnWindowFocus: false,

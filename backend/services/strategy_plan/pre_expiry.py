@@ -50,9 +50,9 @@ def _leg_vol(leg: Dict[str, Any], ref: float, as_of, rate: float, shift: float):
         f0 = ref * math.exp(rate * t0)
         iv = op.implied_vol(_KIND[leg["option_type"]], leg["entry_price"], f0, leg["strike"], t0, rate)
         if iv is None:
-            return None, None, ("The entry premium has no valid Black-76 implied volatility "
+            return None, None, ("The opening premium has no valid Black-76 implied volatility "
                                 "(below intrinsic value, above the maximum, or outside the search range); give iv_pct.")
-        vol, src = iv, f"solved from the entry premium at {as_of.isoformat()} (carried-spot forward)"
+        vol, src = iv, f"solved from the opening premium at {as_of.isoformat()} (carried-spot forward)"
     vol += shift / 100.0
     if vol <= 0:
         return None, None, "iv_shift_pct makes the volatility zero or negative."

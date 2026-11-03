@@ -28,7 +28,7 @@ const SOURCES: SourceItem[] = [
   { k: "Decision store", sub: "risk_decisions · gate decisions with correlation id", tone: "mint" },
   { k: "Decision snapshot", sub: "The gate's reads, hashed · no market prices · P0.3", tone: "amber" },
   { k: "Kill-switch audit", sub: "risk_control_audit · exists", tone: "mint" },
-  { k: "Paper entry hashes", sub: "entry_record_hash · exists", tone: "mint" },
+  { k: "Paper record hashes", sub: "entry_record_hash · exists", tone: "mint" },
 ];
 
 const at = (iso: string | null) => stampIst(iso) ?? "time not recorded";

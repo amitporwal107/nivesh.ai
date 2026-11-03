@@ -334,6 +334,51 @@ def test_tc26_error_mid_load_leaves_nothing():
     run(go())
 
 
+# ── UF-07 an anchorless company is never written, whatever its rounding text says (fix of 3 Nov 2026) ────────
+
+def test_uf07_anchorless_millions_company_writes_nothing_anchored_company_loads():
+    from .test_truedata_fundamentals_transform import al, anchorless_store, cf, filing, ours, pl
+
+    async def go():
+        conn = await fresh_db()
+        try:
+            # NOAN rows other sources own, every balance-sheet column NULL: an offer would fill them
+            await conn.executemany(
+                """INSERT INTO nidp.nse_financials_quarterly (symbol, period_end, period_type, consolidated, source,
+                       source_run_id, revenue_from_ops_cr)
+                   VALUES ('NOAN', $1, $2, true, 'trendlyne_mcp', $3::uuid, $4)""",
+                [(date(2026, 3, 31), "quarterly", OLD_RUN, D("7300")),
+                 (date(2026, 9, 30), "quarterly", OLD_RUN, D("7400"))])
+            (n_fy, n_h1), store = anchorless_store(symbol="NOAN")
+            a_fy = filing(100, "2026-04-20T18:00:00", symbol="AAAA", quarter="Yearly")
+            store.update({("pl", 100): pl(revenue=2600.0), ("al", 100): al(), ("cf", 100): cf()})
+            fl = [a_fy, n_fy, n_h1]
+            res = T.build(fl, fl, lambda k, i: store.get((k, i)),
+                          ours(("AAAA", "2026-03-31", True, "annual", 2600.0)), {}, finance_costs=False)
+            assert {o.symbol for o in res.offers} == {"AAAA"}
+            assert sorted((r.symbol, r.kind, str(r.period_end)) for r in res.rejects) == [
+                ("NOAN", "balance_sheet", "2026-03-31"), ("NOAN", "balance_sheet", "2026-09-30"),
+                ("NOAN", "cash_flow", "2026-03-31")]
+
+            async def noan():
+                q = await conn.fetch("SELECT * FROM nidp.nse_financials_quarterly WHERE symbol = 'NOAN' "
+                                     "ORDER BY period_end, period_type")
+                c = await conn.fetch("SELECT * FROM nidp.nse_financials_cashflow WHERE symbol = 'NOAN'")
+                return [tuple(r.values()) for r in q], [tuple(r.values()) for r in c]
+
+            before = await noan()
+            rid = str(uuid.uuid4())
+            out = await load(conn, res.offers, rid)
+            assert out["rows_written"] > 0                                    # AAAA loaded
+            assert await noan() == before and len(before[0]) == 2 and before[1] == []
+            prov = await conn.fetch("SELECT symbol, count(*) AS n FROM nidp.truedata_fundamentals_fills "
+                                    "WHERE run_id = $1::uuid GROUP BY symbol", rid)
+            assert {p["symbol"]: p["n"] for p in prov}.keys() == {"AAAA"}
+        finally:
+            await conn.close()
+    run(go())
+
+
 # ── references (unit anchors) ────────────────────────────────────────────────────────────────────────────────
 
 def test_read_references_shares_from_market_cap_and_close_on_its_date(monkeypatch):

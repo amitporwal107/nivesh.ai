@@ -415,7 +415,7 @@ export function chainRead(s: FnoSummary): string {
     const where = s.spot < lo ? "below both" : s.spot > hi ? "above both" : "between the two";
     out += ` The end-of-day spot of ${fmtNum(s.spot, 2)} is ${where}.`;
   }
-  return `${out} These are positions at the close, not price targets.`;
+  return `${out} These are positions at the close, not forecasts.`;
 }
 
 const signedQty = (n: number | null | undefined) => fmtQty(n, { signed: true });
@@ -528,11 +528,11 @@ function TradeButtons({ strike, kind, trades }: { strike: number; kind: "call" |
       {(["buy", "sell"] as const).map((side) => {
         const on = trades.has(strike, kind, side);
         return (
-          <button key={side} type="button" aria-pressed={on} aria-label={`${side === "buy" ? "Buy" : "Sell"} the ${fmtLevel(strike)} ${kind} (add to or remove from Analyse)`}
+          <button key={side} type="button" aria-pressed={on} aria-label={`${side === "buy" ? "Long" : "Short"} the ${fmtLevel(strike)} ${kind} (add to or remove from Analyse)`}
             data-testid={`desk-chain-${side === "buy" ? "b" : "s"}-${kind}-${strike}`} onClick={() => trades.toggle(strike, kind, side)}
             style={{ width: 22, height: 22, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", padding: 0,
               border: `1px solid ${on ? (side === "buy" ? "var(--mint)" : "var(--cp-danger)") : "var(--line-2)"}`,
-              background: on ? (side === "buy" ? "var(--mint-soft)" : "var(--cp-danger-soft)") : "transparent", color: side === "buy" ? "var(--mint)" : "var(--cp-danger)" }}>{side === "buy" ? "B" : "S"}</button>
+              background: on ? (side === "buy" ? "var(--mint-soft)" : "var(--cp-danger-soft)") : "transparent", color: side === "buy" ? "var(--mint)" : "var(--cp-danger)" }}>{side === "buy" ? "L" : "S"}</button>
         );
       })}
     </span>

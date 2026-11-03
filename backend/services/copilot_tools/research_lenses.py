@@ -34,9 +34,9 @@ class Lens:
 # The canonical taxonomy. Order is the rail order. Same 10 questions for a stock or an
 # MF; the data path underneath differs (see _stock_views / _mf_views).
 LENSES: Tuple[Lens, ...] = (
-    Lens("buy_verdict", "Worth buying now?", "Should I buy?"),
+    Lens("buy_verdict", "Scores today", "How does it score today?"),
     Lens("performance", "How's it performed?", "Track record"),
-    Lens("valuation",   "Cheap or pricey?",  "Fair value?"),
+    Lens("valuation",   "How is it valued?",  "Valuation check"),
     Lens("risk",        "How risky is it?",  "Risk check"),
     Lens("peers",       "Compare to peers",  "Beats its peers?"),
     Lens("drivers",     "What drives it?",   "Under the hood"),

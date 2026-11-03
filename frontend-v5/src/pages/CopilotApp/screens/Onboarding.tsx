@@ -168,7 +168,7 @@ function StepGoals() {
         ) : (
           <EmptyBlock
             title="No risk profile yet"
-            body="A short questionnaire places you between Conservative and Aggressive. Nivesh uses the result in its recommendations."
+            body="A short questionnaire places you between Conservative and Aggressive. Nivesh uses the result in its answers and portfolio ideas."
             action={<Btn data-testid="onboarding-risk-start" onClick={wizard.openRisk}>Take the assessment</Btn>}
           />
         )}
@@ -179,10 +179,10 @@ function StepGoals() {
         <NotConnected
           testId="onboarding-rules-missing"
           title="Portfolio rules can’t be saved yet"
-          body="Limits such as the most you want in one stock or one sector, a cash buffer, or things never to suggest."
+          body="Limits such as the most you want in one stock or one sector, a cash buffer, or things never to show you."
           needs={[
             "A per-user store for limits (single stock, single sector, cash buffer, exclusions) with read and save endpoints: none exists. The profile keeps a risk profile, goals and a financial snapshot only; the rule thresholds at /api/admin/rules-config apply to every user",
-            "Recommendations and Copilot answers reading those limits",
+            "Portfolio ideas and Copilot answers reading those limits",
           ]}
         />
       </div>

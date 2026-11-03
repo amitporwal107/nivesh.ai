@@ -1,5 +1,5 @@
 /**
- * Scan dashboard — "New signals" (docs/scan_builder/DESIGN.md §9; owner 3 Nov ~17:15 IST: "The whole idea is to give early
+ * Scan dashboard — "New signals" (docs/scan_builder/DESIGN.md §10; owner 3 Nov evening: "The whole idea is to give early
  * alerts and signals and trading plan for those stocks"). Today's signals, newest first: when a stock entered which scan,
  * its trading plan frozen at that moment — in the owner's chosen words for this screen, "Entry · Stop loss · Target 1 ·
  * Target 2" (his explicit exception to the 3 Nov wording rule; the rest of the page keeps the rule) — the strategy idea

@@ -297,7 +297,7 @@ def test_hypothetical_levels_follow_the_documented_rule(monkeypatch):
     atr = calc.atr(HIGHS, LOWS, CLOSES, 14)
     sup = float(LOWS[-20:].min())
     close = float(CLOSES[-1])
-    assert h["rule"] == "ATR_2X_STOP" and h["version"] == "1" and "not a scanner pick" in h["label"]
+    assert h["rule"] == "ATR_2X_STOP" and h["version"] == "1" and "not a scanner idea" in h["label"]
     assert h["constants"] == {"atr_multiple": 2.0, "min_stop_atr": 0.5, "reward_multiple": 2.0, "atr_period": 14}
     assert h["entry"] == pytest.approx(close)
     atr_stop = close - 2.0 * atr

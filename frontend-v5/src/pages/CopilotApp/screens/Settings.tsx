@@ -97,7 +97,7 @@ function goalNote(g: Goal): string {
   const years = goalHorizonYears(g.targetDate);
   const onTrack = Math.round(g.progress * 100);
   return [
-    `${fmtINR(g.targetAmount / 100, { compact: true })} target`,
+    `${fmtINR(g.targetAmount / 100, { compact: true })} goal amount`,
     years ? `${years}-year horizon` : null,
     g.monthlySip > 0 ? `${fmtINR(g.monthlySip / 100)} a month` : null,
     onTrack > 0 ? `${onTrack}% on track` : null,
@@ -267,7 +267,7 @@ export default function SettingsScreen() {
           <ScreenHeader
             eyebrow="Settings"
             title={<>Make Nivesh <em>yours</em></>}
-            sub="Your risk profile, goals and connected sources drive what Nivesh recommends."
+            sub="Your risk profile, goals and connected sources drive what Nivesh shows you."
           />
         </div>
         <button
@@ -308,10 +308,10 @@ export default function SettingsScreen() {
         <NotConnected
           testId="settings-constraints-missing"
           title="Constraints aren’t stored yet"
-          body="A single-stock limit, a sector limit, a cash buffer and things never to suggest. Nivesh keeps your risk profile and goals, but no limits of your own."
+          body="A single-stock limit, a sector limit, a cash buffer and things never to show you. Nivesh keeps your risk profile and goals, but no limits of your own."
           needs={[
             "A per-user store for limits and exclusions with read and save endpoints: none exists (the rule thresholds at /api/admin/rules-config and the allocation bands at /api/admin/allocation-bands apply to every user and are admin-only)",
-            "Recommendations and Copilot answers reading those limits",
+            "Portfolio ideas and Copilot answers reading those limits",
           ]}
         />
         <NotConnected

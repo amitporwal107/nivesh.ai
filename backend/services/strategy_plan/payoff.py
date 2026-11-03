@@ -142,7 +142,7 @@ def costs_block(legs: Sequence[Dict[str, Any]], ref: float, model: Dict[str, Any
             "entry": r2(e_tot), "exit_at_expiry": r2(x_tot), "round_trip": r2(e_tot + x_tot),
             "components": {"entry": cost_card.add(*entries) if entries else None,
                            "exit_at_expiry": cost_card.add(*exits) if exits else None},
-            "exit_basis": "expiry settlement with the underlying at reference_price; an option expiring worthless has no exit cost",
+            "exit_basis": "expiry settlement with the underlying at reference_price; an option expiring worthless has no closing cost",
             "per_leg": per, "excluded": list(EXCLUDED)}
 
 

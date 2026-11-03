@@ -187,7 +187,7 @@ def _build_answer(rule: dict, companies: list[str]) -> str:
         shown = ", ".join(companies[:12])
         lines += [
             "",
-            f"{rule['sector']}-sector names in the Nifty 500 (illustrative, not a buy list): {shown}.",
+            f"{rule['sector']}-sector names in the Nifty 500 (illustrative, not advice): {shown}.",
         ]
     lines += [
         "",

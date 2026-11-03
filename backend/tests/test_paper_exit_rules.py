@@ -125,7 +125,7 @@ def test_tc31_an_opt_in_trail_records_its_stop_history_and_exits_as_trailing_sto
     # Warm-up ATR 2, prev close 100. d1 O100 H110 L100 C109: TR 10 → ATR (2·13+10)/14 = 2.5714 → stop 110 − 5.14 = 104.86.
     sim = svc.simulate(t, warmup() + [tb(d1, 100, 110, 100, 109), tb(d2, 106, 107, 104, 105)])
     assert sim["exit"] == {"exit_reason": "trailing_stop", "exit_price": 104.86, "exit_session": d2,
-                           "exit_note": "Closed at the trailing stop ₹104.86 (raised by the opt-in ATR trail)."}
+                           "exit_note": "Closed at the trailing risk level ₹104.86 (raised by the opt-in ATR trail)."}
     assert [(h["session"], h["stop"], h["reason"], h["version"]) for h in sim["stop_history"]] == [
         ("2026-10-05", 95.0, "initial", 1), (d1.isoformat(), 104.86, "trailing_atr", 2)]
     pub = svc.public_trade({**t, "status": "open"}, None, None, sim=sim)
@@ -353,7 +353,7 @@ def test_tc44_the_greek_review_is_a_flag_and_an_event_never_an_exit(no_account):
     sim = strat.simulate_strategy(t, [tb(d1, 1105, 1110, 1095, 1100)], [[row(d1, 2.2)], [row(d1, 0.6)]])
     assert sim["exit"] is None
     [flag] = [f for f in sim["flags"] if f["code"] == "greek_review"]
-    assert flag["price"] < 0.12 and "not an exit" in flag["text"]
+    assert flag["price"] < 0.12 and "not a close" in flag["text"]
     d = strat.net_delta_per_unit(t["legs"], sim["legs"], 1100.0, d1, 250)
     assert 0 < d < 0.12
 

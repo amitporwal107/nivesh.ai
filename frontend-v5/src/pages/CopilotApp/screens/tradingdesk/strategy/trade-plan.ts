@@ -61,7 +61,7 @@ export function stopMethodText(stop: TradePlan["stop"]): string {
   if (stop.method === "atr" && stop.atr_multiple != null) return `${stop.atr_multiple}×ATR${stop.measured_from != null ? ` below ${stop.measured_from}` : ""}`;
   if (stop.method === "structural") return stop.swing_ref != null ? `under the swing low ${stop.swing_ref}` : "structural";
   if (stop.method === "underlying") return "underlying invalidation";
-  if (stop.method === "premium") return stop.premium_stop != null ? `premium stop ${stop.premium_stop}` : "premium stop";
+  if (stop.method === "premium") return stop.premium_stop != null ? `premium risk level ${stop.premium_stop}` : "premium risk level";
   if (stop.method === "expected_move") return "edge of the expected move";
   return "method not identified";
 }
@@ -70,10 +70,10 @@ const fmt = (n: number | null | undefined) => (n == null ? "—" : `₹${n.toLoc
 
 /** One line from the plan: entry (order type) · stop (method) · targets in R. */
 export function planLine(tp: TradePlan): string {
-  const entry = tp.entry.price != null ? `Entry ${fmt(tp.entry.price)} (${ORDER_SHORT[tp.entry.order_type ?? ""] ?? tp.entry.order_type})` : `Entry ${ORDER_SHORT.at_premium}`;
-  const stop = `Stop ${fmt(tp.stop.price)} (${stopMethodText(tp.stop)})`;
+  const entry = tp.entry.price != null ? `Reference price ${fmt(tp.entry.price)} (${ORDER_SHORT[tp.entry.order_type ?? ""] ?? tp.entry.order_type})` : `Reference price ${ORDER_SHORT.at_premium}`;
+  const stop = `Risk level ${fmt(tp.stop.price)} (${stopMethodText(tp.stop)})`;
   const targets = tp.targets.filter((t) => t.price != null).map((t) => `${fmt(t.price)}${t.r_multiple != null ? ` (${t.r_multiple}R)` : ""}`).join(" · ");
-  return [entry, stop, targets ? `Targets ${targets}` : "No target"].join(" · ");
+  return [entry, stop, targets ? `Reward levels ${targets}` : "No reward level"].join(" · ");
 }
 
 /** Why the plan cannot be paper traded, or null when it can. */
@@ -82,7 +82,7 @@ export function planBlocker(tp: TradePlan): string | null {
   if (tp.eligibility.paper_eligible) return null;
   const why = tp.eligibility.reasons.map((r) => r.message || r.code).filter(Boolean).slice(0, 2).join(" ");
   // The plan's state in plain words (owner, 29 Oct: no jargon on the card).
-  const PLAIN: Record<string, string> = { REJECTED: "not tradeable", WAIT_FOR_CONFIRMATION: "waiting for its entry condition", NO_SETUP: "not a setup yet" };
+  const PLAIN: Record<string, string> = { REJECTED: "not tradeable", WAIT_FOR_CONFIRMATION: "waiting for its reference-price condition", NO_SETUP: "not a setup yet" };
   const state = PLAIN[tp.eligibility.state] ?? tp.eligibility.state.replace(/_/g, " ").toLowerCase();
   return `This idea is ${state}${why ? `: ${why}` : "."}`;
 }

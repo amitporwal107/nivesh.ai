@@ -850,10 +850,10 @@ test.describe("MOCK — not real data: persona and phone", () => {
     await expect(page.getByTestId("payoff-basis-net")).toHaveText("After costs");
     await expect(page.getByTestId("payoff-basis-gross")).toHaveText("Before costs");
     await expect(page.getByTestId("strategy-graphs")).toHaveAttribute("data-persona", "investor");
-    await expect(page.getByTestId("leg-side").first()).toHaveText("BUY");
-    await expect(page.getByTestId("leg-side").nth(1)).toHaveText("SELL");
+    await expect(page.getByTestId("leg-side").first()).toHaveText("LONG");
+    await expect(page.getByTestId("leg-side").nth(1)).toHaveText("SHORT");
     await expect(page.getByTestId("desk-level-entry")).toHaveCount(1);
-    await expect(page.getByTestId("desk-chart-legend")).toContainText("Buy above");
+    await expect(page.getByTestId("desk-chart-legend")).toContainText("Long above");
     await expect(fact(page, "maxprofit")).toHaveText("+₹7,000.00");
   });
 
@@ -861,7 +861,7 @@ test.describe("MOCK — not real data: persona and phone", () => {
     await open(page, BCS);
     await expect(page.getByTestId("payoff-mode-expiry")).toHaveText("Expiry payoff");
     await expect(page.getByTestId("payoff-basis-net")).toHaveText("Net");
-    await expect(page.getByTestId("leg-side").first()).toHaveText("LONG · BUY");
+    await expect(page.getByTestId("leg-side").first()).toHaveText("LONG");
   });
 
   test("SG-12 phone 390: no sideways scroll for the payoff, the pre-expiry view and the fan; role=img summaries", async ({ page }) => {

@@ -216,7 +216,7 @@ async def _calibration(request: Request, sym: str) -> Dict[str, Any]:
     return src_ok(out, out.get("source") or "accumulation_calibration", ((out.get("sample") or {}).get("last_scan_date")), "accumulation backtest (in-sample, price-only)")
 
 
-SCANNER_SOURCE = "positional engine watchlist (setup_rules buckets) + picks (positional_signals), picks win for plan levels"
+SCANNER_SOURCE = "positional engine watchlist (setup_rules buckets) + signals (positional_signals), signals win for plan levels"
 
 
 def scanner_snapshot(sym: str, bucket: Optional[str], watch_item: Optional[Dict[str, Any]], pick: Optional[Dict[str, Any]],

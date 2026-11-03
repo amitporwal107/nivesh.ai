@@ -399,7 +399,7 @@ def test_pre_expiry_iv_solved_from_premium_roundtrip():
     prem = b76("call", 1215.0, 1300.0, 38, 0.22)
     r = run([leg(strike=1300.0, ot="call", entry=prem)], grid=G5, pre_expiry=PRE)
     iv = r["pre_expiry"]["assumptions"]["legs"][0]
-    assert iv["iv_pct"] == pytest.approx(22.0, abs=0.01) and "solved from the entry premium" in iv["iv_source"]
+    assert iv["iv_pct"] == pytest.approx(22.0, abs=0.01) and "solved from the opening premium" in iv["iv_source"]
 
 
 def test_pre_expiry_leg_without_valid_iv_is_unavailable_never_defaulted():

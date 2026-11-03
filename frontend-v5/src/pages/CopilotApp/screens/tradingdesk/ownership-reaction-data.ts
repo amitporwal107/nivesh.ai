@@ -106,9 +106,9 @@ export const OR_STATUS_NOTE: Record<OrStatus, string> = {
   accumulation:
     "Ownership rose into the cohort's top quartile and all three tape legs agreed: the price held at or above the cohort median, volume was in the top quartile, and the delivery share rose at or above the median.",
   breakout_watch:
-    "Institutions added and the quarter CLOSED within 10% of its 52-week high on at least median volume. A description of where the quarter ended, not a prediction that it will break out.",
+    "Institutions raised holdings and the quarter CLOSED within 10% of its 52-week high on at least median volume. A description of where the quarter ended, not a prediction that it will break out.",
   reversal_watch:
-    "Institutions added while the price fell into the cohort's bottom quartile and the quarter closed near its 52-week low — buying into weakness. A watch item, not a risk.",
+    "Institutions raised holdings while the price fell into the cohort's bottom quartile and the quarter closed near its 52-week low — holdings raised into weakness. A watch item, not a risk.",
   distribution_risk:
     "Ownership fell by at least 0.50pp while the price fell at or below the cohort median on top-quartile volume: falling on rising participation while ownership dropped.",
   divergence:
@@ -607,7 +607,7 @@ export const OR_RETROSPECTIVE_NOTE =
   "This explains the past: it does not predict. Quarterly shareholding for Jul–Sep is disclosed in late "
   + "October, so the price move beside it was already over by the time the ownership figure existed. "
   + "Ownership change and price action are shown together because they happened in the same quarter — "
-  + "that is co-occurrence, not cause, and not a reason to buy or sell.";
+  + "that is co-occurrence, not cause, and not a trading call.";
 
 export const OR_SPLIT_CAVEAT =
   "Mutual-fund and Banks/FI percentages are the latest quarter's LEVEL, not a change: they exist for one "

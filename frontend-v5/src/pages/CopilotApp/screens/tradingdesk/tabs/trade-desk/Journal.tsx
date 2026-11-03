@@ -30,7 +30,7 @@ import { EXIT_WORDS, FLAG_LEAD, Kv, PAPER_ONLY, Pnl, STATE_WORDS, StatePill, ent
 
 export type JournalTrade = { kind: "cash"; t: PaperTrade } | { kind: "strategy"; t: StrategyPaperTrade };
 
-const ENTRY_STATUS_WORD: Record<string, string> = { assumed: "Filled when recorded", reached: "Entry reached", waiting: "Waiting for entry", not_reached: "Entry not reached" };
+const ENTRY_STATUS_WORD: Record<string, string> = { assumed: "Filled when recorded", reached: "Reference price reached", waiting: "Waiting for the reference price", not_reached: "Reference price not reached" };
 
 const dayShort = (iso: string | null) => {
   if (!iso) return "";
@@ -103,14 +103,14 @@ function Fills({ t }: { t: PaperTrade }) {
   const fill = entryEvent?.fillPrice ?? t.simEntryPrice ?? (t.entryStatus === "assumed" ? t.entry : null);
   const rows: Array<{ id: string; side: string; qty: string; requested: string; simulated: string; when: string; note: string }> = [];
   rows.push({
-    id: "entry", side: "Buy", qty: fmtNum(t.quantity), requested: fmtPrice(t.entry),
+    id: "entry", side: "Long", qty: fmtNum(t.quantity), requested: fmtPrice(t.entry),
     simulated: entered ? fmtPrice(fill) : "not filled",
     when: entered ? dayShort(t.entrySession ?? entryEvent?.session ?? t.openedAt) : "—",
-    note: entered ? (entryEvent?.slippage != null ? `slippage ${fmtPrice(entryEvent.slippage)}` : t.entryRule === "at_once" ? "at once, inside the last session's range" : "level traded") : t.entryStatus === "not_reached" ? "entry not reached" : "waiting for the entry",
+    note: entered ? (entryEvent?.slippage != null ? `slippage ${fmtPrice(entryEvent.slippage)}` : t.entryRule === "at_once" ? "at once, inside the last session's range" : "level traded") : t.entryStatus === "not_reached" ? "reference price not reached" : "waiting for the reference price",
   });
   if (t.status === "closed" && entered) {
     rows.push({
-      id: "exit", side: "Sell", qty: fmtNum(t.quantity), requested: t.exitReason === "target" ? fmtPrice(t.target) : t.exitReason === "stop" || t.exitReason === "trailing_stop" ? fmtPrice(t.currentStop ?? t.stop) : "—",
+      id: "exit", side: "Long", qty: fmtNum(t.quantity), requested: t.exitReason === "target" ? fmtPrice(t.target) : t.exitReason === "stop" || t.exitReason === "trailing_stop" ? fmtPrice(t.currentStop ?? t.stop) : "—",
       simulated: fmtPrice(exitEvent?.fillPrice ?? t.exitPrice), when: dayShort(t.exitSession ?? t.closedAt),
       note: EXIT_WORDS[t.exitReasonCode ?? ""]?.label ?? t.exitReasonCode ?? "—",
     });
@@ -124,7 +124,7 @@ function Fills({ t }: { t: PaperTrade }) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.id} data-testid={`td-journal-fill-${r.id}`} style={{ borderTop: "1px solid var(--cp-line)" }}>
-              <td style={td}>{r.id === "entry" ? "Entry" : "Exit"}</td><td style={td}>{r.side}</td>
+              <td style={td}>{r.id === "entry" ? "Open" : "Close"}</td><td style={td}>{r.side}</td>
               <td className="cp-num" style={{ ...td, textAlign: "right" }}>{r.qty}</td>
               <td className="cp-num" style={{ ...td, textAlign: "right" }}>{r.requested}</td>
               <td data-testid={`td-journal-fill-${r.id}-price`} className="cp-num" style={{ ...td, textAlign: "right" }}>{r.simulated}</td>
@@ -168,7 +168,7 @@ export function PnlBridge({ gross, costs, net, breakdown, model, basis, open }: 
         {statutory ? ": STT, exchange, SEBI, stamp duty and GST by segment" : ""}
         {model?.brokerageRsPerSide != null ? `; brokerage ${fmtINR(model.brokerageRsPerSide)} a side (a desk assumption)` : ""}
         {model?.slippagePctPerSide != null ? `; slippage ${fmtNum(model.slippagePctPerSide, 2)}% a side, charged as a cost line` : ""}.
-        {open ? " Open: the exit side is estimated at the last mark." : ""}{basis ? ` ${basis}.` : ""}
+        {open ? " Open: the closing side is estimated at the last mark." : ""}{basis ? ` ${basis}.` : ""}
       </span>
     </div>
   );
@@ -179,7 +179,7 @@ export function PnlBridge({ gross, costs, net, breakdown, model, basis, open }: 
 export function ExitFlags({ flags, testId = "td-journal-flags" }: { flags: PaperFlag[]; testId?: string }) {
   const lead = flags.filter((f) => FLAG_LEAD[f.code]);
   const rest = flags.filter((f) => !FLAG_LEAD[f.code]);
-  if (!flags.length) return <span data-testid={`${testId}-none`} style={quiet}>None: no gap through a level and no session that touched both the stop and the target.</span>;
+  if (!flags.length) return <span data-testid={`${testId}-none`} style={quiet}>None: no gap through a level and no session that touched both the risk level and the reward level.</span>;
   return (
     <ul className="m-0 flex flex-col" style={{ gap: 6, paddingLeft: 16 }}>
       {lead.map((f, i) => (
@@ -198,12 +198,12 @@ export function ExitFlags({ flags, testId = "td-journal-flags" }: { flags: Paper
 }
 
 function StopHistory({ t }: { t: PaperTrade }) {
-  if (!t.stopHistory.length) return <span data-testid="td-journal-stops-none" style={quiet}>The initial stop {fmtPrice(t.stop)}; no stop history recorded for this trade.</span>;
+  if (!t.stopHistory.length) return <span data-testid="td-journal-stops-none" style={quiet}>The initial risk level {fmtPrice(t.stop)}; no risk-level history recorded for this trade.</span>;
   return (
     <ol className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 18, fontSize: 12.5 }}>
       {t.stopHistory.map((v, i) => (
         <li key={`${v.version ?? i}-${v.session ?? "entry"}`} data-testid="td-journal-stop" data-reason={v.reason}>
-          <span className="cp-num">{fmtPrice(v.stop)}</span> · {v.session ? `set at the ${dayShort(v.session)} close, in force from the next session` : "at entry"} · {v.reason === "initial" ? "initial stop" : v.reason === "trailing_atr" ? "raised by the ATR trail" : v.reason}
+          <span className="cp-num">{fmtPrice(v.stop)}</span> · {v.session ? `set at the ${dayShort(v.session)} close, in force from the next session` : "when opened"} · {v.reason === "initial" ? "initial risk level" : v.reason === "trailing_atr" ? "raised by the ATR trail" : v.reason}
         </li>
       ))}
     </ol>
@@ -252,18 +252,18 @@ export function JournalPanel({ item, onChart }: { item: JournalTrade; onChart: (
         <Block title="P/L bridge" testId="td-journal-bridge">
           <PnlBridge gross={c.grossRs} costs={c.costsRs} net={c.netRs} breakdown={c.costsBreakdown} model={c.costModel} basis={c.costsBasis} open={open} />
         </Block>
-        <Block title="Exit flags" testId="td-journal-flags"><ExitFlags flags={c.flags} /></Block>
-        <Block title="Stop history" testId="td-journal-stops" note={c.currentStop != null ? `in force ${fmtPrice(c.currentStop)}` : undefined}><StopHistory t={c} /></Block>
+        <Block title="Close flags" testId="td-journal-flags"><ExitFlags flags={c.flags} /></Block>
+        <Block title="Risk-level history" testId="td-journal-stops" note={c.currentStop != null ? `in force ${fmtPrice(c.currentStop)}` : undefined}><StopHistory t={c} /></Block>
         <Block title="The record" testId="td-journal-record">
           <Kv testPrefix="td-journal-rec" rows={[
-            ["Entry rule", entryRuleLine(c), "rule"],
-            ["Entry", `${c.entryStatus ? ENTRY_STATUS_WORD[c.entryStatus] : "not recorded"}${c.entrySession ? ` · ${fmtDay(c.entrySession)}` : ""}${c.simEntryPrice != null ? ` · simulated at ${fmtPrice(c.simEntryPrice)}` : ""}`, "entry"],
-            ["Exit rule", `stop ${fmtPrice(c.currentStop ?? c.stop)}, target ${c.target != null ? fmtPrice(c.target) : "none"}${c.maxHoldSessions != null ? `, or the close of session ${c.maxHoldSessions} held` : ""}; a session touching both takes the stop`, "exit-rule"],
-            ["Exit", c.status === "closed" ? `${exitW?.label ?? c.exitReasonCode ?? "—"}${c.exitSession ? ` · ${fmtDay(c.exitSession)}` : ""}${c.exitPrice != null ? ` · ${fmtPrice(c.exitPrice)}` : ""}` : "Open", "exit"],
-            ["Research exit rules", c.exitRules.length ? c.exitRules.map((r) => `${r.label}${r.version ? ` (${r.version})` : ""} · opt-in research rule`).join("; ") : "None: stop, target and time only", "exit-rules"],
+            ["Reference-price rule", entryRuleLine(c), "rule"],
+            ["Opening", `${c.entryStatus ? ENTRY_STATUS_WORD[c.entryStatus] : "not recorded"}${c.entrySession ? ` · ${fmtDay(c.entrySession)}` : ""}${c.simEntryPrice != null ? ` · simulated at ${fmtPrice(c.simEntryPrice)}` : ""}`, "entry"],
+            ["Close rule", `risk level ${fmtPrice(c.currentStop ?? c.stop)}, reward level ${c.target != null ? fmtPrice(c.target) : "none"}${c.maxHoldSessions != null ? `, or the close of session ${c.maxHoldSessions} held` : ""}; a session touching both takes the risk level`, "exit-rule"],
+            ["Close", c.status === "closed" ? `${exitW?.label ?? c.exitReasonCode ?? "—"}${c.exitSession ? ` · ${fmtDay(c.exitSession)}` : ""}${c.exitPrice != null ? ` · ${fmtPrice(c.exitPrice)}` : ""}` : "Open", "exit"],
+            ["Research close rules", c.exitRules.length ? c.exitRules.map((r) => `${r.label}${r.version ? ` (${r.version})` : ""} · opt-in research rule`).join("; ") : "None: risk level, reward level and time only", "exit-rules"],
             ["MFE · MAE", `${c.mfePct != null ? fmtPct(c.mfePct, { signed: true, digits: 2 }) : "—"} · ${c.maePct != null ? fmtPct(c.maePct, { signed: true, digits: 2 }) : "—"}`, "excursion"],
             ["Signal", `${c.signalAt ? stamp(c.signalAt) : c.source?.signalDate ? `${fmtDay(c.source.signalDate)} (scan date)` : "not recorded"}${c.source?.kind ? ` · ${c.source.kind}${c.source.bucket ? ` ${c.source.bucket.replace(/_/g, " ")}` : ""}` : ""}`, "signal"],
-            ["Versions", `rules ${c.rulesVersion ?? "not recorded"}${c.exitRulesVersion ? ` · exits ${c.exitRulesVersion}` : ""}`, "versions"],
+            ["Versions", `rules ${c.rulesVersion ?? "not recorded"}${c.exitRulesVersion ? ` · closes ${c.exitRulesVersion}` : ""}`, "versions"],
           ]} />
         </Block>
       </>
@@ -280,11 +280,11 @@ export function JournalPanel({ item, onChart }: { item: JournalTrade; onChart: (
         <Block title="P/L bridge" testId="td-journal-bridge">
           <PnlBridge gross={s.grossRs} costs={s.costsRs} net={s.netRs} breakdown={s.costsBreakdown} model={s.costModel} basis={s.costsBasis} open={open} />
         </Block>
-        <Block title="Exit flags" testId="td-journal-flags"><ExitFlags flags={s.flags} /></Block>
+        <Block title="Close flags" testId="td-journal-flags"><ExitFlags flags={s.flags} /></Block>
         <Block title="The record" testId="td-journal-record">
           <Kv testPrefix="td-journal-rec" rows={[
-            ["Exit rule", [s.stopUnderlying != null ? `stop ${s.underlying} ${fmtPrice(s.stopUnderlying)}` : null, s.targetUnderlying != null ? `target ${fmtPrice(s.targetUnderlying)}` : null, s.maxHoldSessions != null ? `or session ${s.maxHoldSessions} held` : null, "or when every leg has expired"].filter(Boolean).join(", "), "exit-rule"],
-            ["Exit", s.status === "closed" ? `${EXIT_WORDS[s.exitReasonCode ?? ""]?.label ?? s.exitReasonCode ?? "—"}${s.exitSession ? ` · ${fmtDay(s.exitSession)}` : ""}${s.exitNote ? ` · ${s.exitNote}` : ""}` : "Open", "exit"],
+            ["Close rule", [s.stopUnderlying != null ? `risk level ${s.underlying} ${fmtPrice(s.stopUnderlying)}` : null, s.targetUnderlying != null ? `reward level ${fmtPrice(s.targetUnderlying)}` : null, s.maxHoldSessions != null ? `or session ${s.maxHoldSessions} held` : null, "or when every leg has expired"].filter(Boolean).join(", "), "exit-rule"],
+            ["Close", s.status === "closed" ? `${EXIT_WORDS[s.exitReasonCode ?? ""]?.label ?? s.exitReasonCode ?? "—"}${s.exitSession ? ` · ${fmtDay(s.exitSession)}` : ""}${s.exitNote ? ` · ${s.exitNote}` : ""}` : "Open", "exit"],
             ["Roll", s.rolledFrom ? `rolled from ${s.rolledFrom}` : s.rolledTo ? `rolled to ${s.rolledTo}` : "not rolled", "roll"],
             ["Signal", `${stamp(s.signal.signalAt)} · rules ${s.signal.ruleVersion ?? "—"}${s.signal.evidenceSummary ? ` · ${s.signal.evidenceSummary}` : ""}`, "signal"],
             ["Versions", `rules ${s.rulesVersion ?? "not recorded"}`, "versions"],
@@ -321,7 +321,7 @@ export function JournalPanel({ item, onChart }: { item: JournalTrade; onChart: (
               <CloseAction id={t.id}
                 label={item.kind === "cash" && item.t.entryStatus === "waiting" ? "Cancel paper trade" : "Close at the last close"}
                 what={item.kind === "cash"
-                  ? item.t.entryStatus === "waiting" ? `Cancel the ${symbol} paper trade? Its entry has not been reached, so there is no position and no P/L.` : `Close the ${symbol} paper trade at its last end-of-day close${item.t.lastClose != null ? ` (${fmtPrice(item.t.lastClose)})` : ""}?`
+                  ? item.t.entryStatus === "waiting" ? `Cancel the ${symbol} paper trade? Its reference price has not been reached, so there is no position and no P/L.` : `Close the ${symbol} paper trade at its last end-of-day close${item.t.lastClose != null ? ` (${fmtPrice(item.t.lastClose)})` : ""}?`
                   : `Close the ${symbol} structure at the last end-of-day marks of its legs?`} />
             )}
           </div>

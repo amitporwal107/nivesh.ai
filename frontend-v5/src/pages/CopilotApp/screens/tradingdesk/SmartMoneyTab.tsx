@@ -93,7 +93,7 @@ function Cr({ v, big }: { v: number | null; big?: boolean }) {
   return (
     <span className="cp-num" style={{ fontSize: big ? 20 : undefined, whiteSpace: "nowrap", color: toneColor(tone) }}>
       {v > 0 ? "+" : v < 0 ? "−" : ""}₹{fmtNum(Math.abs(v))} cr
-      <span className="sr-only">{v > 0 ? " net bought" : v < 0 ? " net sold" : " flat"}</span>
+      <span className="sr-only">{v > 0 ? " net inflow" : v < 0 ? " net outflow" : " flat"}</span>
     </span>
   );
 }
@@ -151,7 +151,7 @@ function Spark({ points, tone, label }: { points: number[]; tone: "mint" | "dang
  */
 function FlowCard({ title, kpi, points, tone }: { title: string; kpi: FlowKpi | null; points: number[]; tone: "mint" | "danger" | "indigo" }) {
   const change = kpi?.changeCr ?? null;
-  const word = change == null ? null : change > 0 ? "more buying than" : change < 0 ? "less buying than" : "level with";
+  const word = change == null ? null : change > 0 ? "more net inflow than" : change < 0 ? "less net inflow than" : "level with";
   return (
     <div className="cp-card flex flex-col" style={{ padding: "13px 15px", gap: 7 }}>
       <span className="cp-eyebrow">{title}</span>
@@ -404,7 +404,7 @@ function SectorBars({ rows, measure, selected, onPick }: {
               </span>
               <span className="cp-num" style={{ flex: "none", width: 66, textAlign: "right", fontSize: 11.5, color: "var(--cp-ink-2)" }}>
                 {v == null ? "—" : `${diverging && v > 0 ? "+" : diverging && v < 0 ? "−" : ""}${fmtNum(Math.abs(v), measure === "pct" ? 1 : 0)}`}
-                <span className="sr-only"> {unit}{diverging ? (v != null && v > 0 ? " net bought" : " net sold") : ""}</span>
+                <span className="sr-only"> {unit}{diverging ? (v != null && v > 0 ? " net inflow" : " net outflow") : ""}</span>
               </span>
             </span>
           </button>
@@ -876,8 +876,8 @@ export default function SmartMoneyTab() {
                 return (
                   <div data-testid="desk-smart-money-sector-totals" className="flex flex-wrap items-baseline"
                        style={{ gap: "4px 16px", marginBottom: 12, fontSize: 12, color: "var(--cp-ink-3)" }}>
-                    <span>Added <span className="cp-num" style={{ color: "var(--mint)" }}>+₹{fmtNum(t.added)} cr</span></span>
-                    <span>Reduced <span className="cp-num" style={{ color: "var(--cp-danger)" }}>−₹{fmtNum(t.reduced)} cr</span></span>
+                    <span>Raised <span className="cp-num" style={{ color: "var(--mint)" }}>+₹{fmtNum(t.added)} cr</span></span>
+                    <span>Cut <span className="cp-num" style={{ color: "var(--cp-danger)" }}>−₹{fmtNum(t.reduced)} cr</span></span>
                     <span>Net <span className="cp-num" style={{ color: "var(--cp-ink)" }}>{t.net >= 0 ? "+" : "−"}₹{fmtNum(Math.abs(t.net))} cr</span></span>
                     <span style={{ color: "var(--cp-ink-4)" }}>across {fmtNum(t.sectors)} sectors</span>
                   </div>
@@ -891,7 +891,7 @@ export default function SmartMoneyTab() {
           )}
           <Footnote>
             <strong style={{ color: "var(--cp-ink-2)" }}>Σ (share count this month − share count last month) × that month’s VWAP.</strong>{" "}
-            A <em>share-count</em> delta, never a market-value delta, so a price move alone cannot read as buying.
+            A <em>share-count</em> delta, never a market-value delta, so a price move alone cannot read as a holdings increase.
             It is still an estimate: it assumes every change traded at the month’s VWAP, and it does not yet adjust
             for bonuses, splits or scheme mergers, any of which change a share count without a trade.{" "}
             Click a sector to show only its stocks in the scanner below, then a stock for the fund houses behind it.{" "}
@@ -914,7 +914,7 @@ export default function SmartMoneyTab() {
               </span>
               <Tier label="Direct + proxy agree" n={m.risingDirectAndProxy} of={m.evaluated} tone="mint" note="A disclosed holdings change and a market proxy point the same way." />
               <Tier label="Direct evidence only" n={m.risingDirectOnly} of={m.evaluated} tone="indigo" note="A disclosed holdings change with no proxy confirmation." />
-              <Tier label="Proxy only, not confirmed" n={m.proxyOnly} of={m.evaluated} tone="amber" note="Delivery or volume moved and the buyer is unknown. Never called accumulation." />
+              <Tier label="Proxy only, not confirmed" n={m.proxyOnly} of={m.evaluated} tone="amber" note="Delivery or volume moved and who traded is unknown. Never called accumulation." />
               <div className="flex flex-wrap items-center" style={{ gap: 6, paddingTop: 2 }}>
                 {([["fresh", m.fresh], ["ageing", m.ageing], ["stale", m.stale]] as const).map(([k, v]) => (
                   <Pill key={k} tone={FRESH_TONE[k]}>{k} {fmtNum(v)}</Pill>
@@ -923,7 +923,7 @@ export default function SmartMoneyTab() {
               </div>
               <Footnote>
                 Disclosed portfolios of 11 reporting AMCs, as of {fmtDate(breadth?.disclosureAsOf)}. A proxy move on its
-                own is never called accumulation: delivery and volume do not disclose who bought.
+                own is never called accumulation: delivery and volume do not disclose who traded.
               </Footnote>
             </div>
           )}
@@ -1008,7 +1008,7 @@ export default function SmartMoneyTab() {
             Ordered by evidence class, then by how many fund houses raised the holding — a count of disclosures,
             not a model score. “Not checked” means that stock was never queried for deals, which is different from
             having no deals. A deal leg carries no counterparty classification, so it may be a market maker rather
-            than a long-term buyer, and matched same-day legs are already netted out as transfers.
+            than a long-term holder, and matched same-day legs are already netted out as transfers.
             {scanner?.quarters?.current && <> FII columns compare {fmtDate(scanner.quarters.previous)} with {fmtDate(scanner.quarters.current)} and are disclosed for only a minority of names.</>}
             {" "}Where two shareholding sources disagree, the figure is marked “±” and, where the disagreement is as
             large as the change itself, replaced by “sources differ” rather than printed as a measurement.
@@ -1034,7 +1034,7 @@ export default function SmartMoneyTab() {
       <div ref={measureRef} />
       <ScreenHeader
         eyebrow={<Eyebrow>Smart Money Movement</Eyebrow>}
-        title={persona === "investor" ? "Who is buying and selling" : "Smart Money Movement"}
+        title={persona === "investor" ? "Who is raising and cutting holdings" : "Smart Money Movement"}
         pills={
           <>
             <Chips
@@ -1051,7 +1051,7 @@ export default function SmartMoneyTab() {
           </>
         }
         sub={persona === "investor"
-          ? "What fund houses actually filed they bought or sold, plus the deals the exchanges published. It is a record of who moved, not advice to follow them."
+          ? "What fund houses actually filed as raised or cut holdings, plus the deals the exchanges published. It is a record of who moved, not advice to follow them."
           : "Disclosed holdings change, disclosed deal legs net of transfers, and market proxies — each labelled by what kind of evidence it is."}
       />
 
@@ -1078,7 +1078,7 @@ export default function SmartMoneyTab() {
       {/* ── the footer, shipped verbatim (spec 2.9) ── */}
       <div data-testid="desk-smart-money-disclaimer" style={{ paddingTop: 14, borderTop: "1px solid var(--cp-line)" }}>
         <Footnote>
-          <strong style={{ color: "var(--cp-ink-2)" }}>Smart money is evidence, not a buy signal.</strong>{" "}
+          <strong style={{ color: "var(--cp-ink-2)" }}>Smart money is evidence, not a trading signal.</strong>{" "}
           Ownership disclosures are periodic; deal disclosures may not identify beneficial intent; market proxies
           are indirect. Always validate with fundamentals, technicals and risk management. Educational market
           intelligence, not investment advice.

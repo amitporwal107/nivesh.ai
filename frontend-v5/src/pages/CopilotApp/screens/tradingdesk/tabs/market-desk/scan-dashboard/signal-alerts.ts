@@ -1,5 +1,5 @@
 /**
- * Browser alerts for the Scan dashboard's early signals (docs/scan_builder/DESIGN.md §9; owner 3 Nov ~17:15 IST: "in-app +
+ * Browser alerts for the Scan dashboard's early signals (docs/scan_builder/DESIGN.md §10; owner 3 Nov evening: "in-app +
  * browser"). While the page is open and the browser allows notifications, each signal newer than the last one this browser
  * saw raises a notification — one per signal, or ONE grouped notification when more than GROUP_OVER arrive in the same
  * refresh. The first answer after the page opens only SEEDS the "seen" list (no notification), so opening the page never

@@ -54,7 +54,7 @@ SRC_FUNDS = "Your broker accounts' funds (read from the broker)"
 SRC_MARGIN = "Margin required (Zerodha margin calculator)"
 SRC_KITE = "Share prices (the platform's Kite live feed)"
 READ_ONLY_TEXT = ("Nivesh reads your broker positions; it cannot place, modify or cancel an order. These are checks to review, "
-                  "not recommendations.")
+                  "not advice.")
 STATE_WORD = {bk.LIVE: "Live", bk.ENDED: "Session ended", bk.FAILED: "Read failed", bk.UNSUPPORTED: "Not supported",
               bk.UNREADABLE: "Not readable"}
 
@@ -177,10 +177,10 @@ POSITION_COLUMNS = [{"key": "symbol", "label": "Position", "align": "left", "for
                     {"key": "pnl", "label": "P&L", "align": "right", "format": "price"}]
 LEVEL_COLUMNS = [{"key": "symbol", "label": "Underlying", "align": "left", "format": "text"},
                  {"key": "spot", "label": "Price", "align": "right", "format": "price"},
-                 {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
-                 {"key": "target", "label": "Target", "align": "right", "format": "price"},
-                 {"key": "to_stop", "label": "To stop", "align": "right", "format": "pct"},
-                 {"key": "risk", "label": "Loss at stop", "align": "right", "format": "price"},
+                 {"key": "stop", "label": "Risk level", "align": "right", "format": "price"},
+                 {"key": "target", "label": "Reward level", "align": "right", "format": "price"},
+                 {"key": "to_stop", "label": "To risk level", "align": "right", "format": "pct"},
+                 {"key": "risk", "label": "Loss at risk level", "align": "right", "format": "price"},
                  {"key": "margin", "label": "Margin required", "align": "right", "format": "price"},
                  {"key": "expiry", "label": "Expires", "align": "left", "format": "text"}]
 ACCOUNT_COLUMNS = [{"key": "symbol", "label": "Account", "align": "left", "format": "text"},
@@ -228,18 +228,18 @@ def level_rows(groups: List[Dict[str, Any]], margins: Dict[str, Dict[str, Any]],
                             else f"From the plan you recorded ({lv.get('plan_id')}); you set none") + \
                 (f", trailing {lv['trail_pct']:g}% from the best price" if lv.get("trail_pct") else "")
         else:
-            stop_cell = "No stop set"
+            stop_cell = "No risk level set"
         risk: Any
         if pay.get("risk_basis") == "expiry":
             risk = r2(pay.get("max_loss")) if pay.get("max_loss") is not None else ("Unbounded" if pay.get("loss_unbounded") else None)
             tips["risk"] = "A defined-risk structure: the most it can lose at expiry, gross, before charges."
         elif pay.get("loss_at_stop_rs") is not None:
             risk = -abs(pay["loss_at_stop_rs"])
-            tips["risk"] = (f"If the price reaches your stop ({stop_cell:,.2f}), valued {pay.get('pnl_at_stop_basis') or 'at expiry'}; "
+            tips["risk"] = (f"If the price reaches your risk level ({stop_cell:,.2f}), valued {pay.get('pnl_at_stop_basis') or 'at expiry'}; "
                             "gross, before charges. Never the price falling to zero.")
         else:
-            risk = "No stop set" if not lv else None
-            tips["risk"] = "Without a stop the loss at a stop cannot be shown, and a to-zero figure is not the risk of a position."
+            risk = "No risk level set" if not lv else None
+            tips["risk"] = "Without a risk level the loss at a risk level cannot be shown, and a to-zero figure is not the risk of a position."
         m = margins.get(g["key"])
         req = margin_request(g)
         margin: Any
@@ -325,11 +325,11 @@ def commentary(groups: List[Dict[str, Any]], accounts: List[Dict[str, Any]], mar
             warn.append({"text": f"{u}: {wmap['near_stop']['text']} ({side} position)", "tone": "warn"})
         elif lv and lv.get("effective_stop") and a.get("distance_to_stop_pct") is not None:
             loss = pay.get("loss_at_stop_rs")
-            info.append({"text": f"{u}: {a['distance_to_stop_pct']:.2f}% {'above' if d == 'long' else 'below'} the stop "
-                                 f"{lv['effective_stop']:,.2f}" + (f"; the loss at that stop is {price(loss)} (gross)" if loss is not None else "")
+            info.append({"text": f"{u}: {a['distance_to_stop_pct']:.2f}% {'above' if d == 'long' else 'below'} the risk level "
+                                 f"{lv['effective_stop']:,.2f}" + (f"; the loss at that risk level is {price(loss)} (gross)" if loss is not None else "")
                                  + f" ({'your level' if lv.get('set_by') == 'you' else 'from your recorded plan'}).", "tone": None})
         elif not lv:
-            warn.append({"text": f"{u}: no stop of yours and no matching plan is on record, so the loss at a stop cannot be shown.", "tone": "warn"})
+            warn.append({"text": f"{u}: no risk level of yours and no matching plan is on record, so the loss at a risk level cannot be shown.", "tone": "warn"})
         if "target_reached" in wmap:
             info.append({"text": f"{u}: {wmap['target_reached']['text']}", "tone": "up"})
         for code in ("expiry_soon", "physical_settlement", "price_unavailable"):
@@ -343,12 +343,12 @@ def commentary(groups: List[Dict[str, Any]], accounts: List[Dict[str, Any]], mar
                 warn.append({"text": f"{u}: the plan you recorded {('on ' + day) if day else ''} is {pdir}, but this position is {side}: "
                                      "they point opposite ways.", "tone": "warn"})
             elif want and pdir == want:
-                bits = [f"entry {plan['entry']:,.2f}" if plan.get("entry") is not None else None,
-                        f"stop {plan['stop']:,.2f}" if plan.get("stop") is not None else None,
-                        f"target {plan['target']:,.2f}" if plan.get("target") is not None else None]
+                bits = [f"reference price {plan['entry']:,.2f}" if plan.get("entry") is not None else None,
+                        f"risk level {plan['stop']:,.2f}" if plan.get("stop") is not None else None,
+                        f"reward level {plan['target']:,.2f}" if plan.get("target") is not None else None]
                 info.append({"text": f"{u}: the plan you recorded {('on ' + day) if day else ''} ({pdir}; {', '.join(b for b in bits if b)}) "
                                      "points the same way as this position"
-                                     + ("; its stop and target are used here because you set none." if lv and lv.get("set_by") == "plan" else "."),
+                                     + ("; its risk and reward levels are used here because you set none." if lv and lv.get("set_by") == "plan" else "."),
                              "tone": None})
             else:
                 info.append({"text": f"{u}: a plan is recorded {('on ' + day) if day else ''} ({pdir or 'direction unknown'}), but this "
@@ -486,8 +486,8 @@ def book_blocks(v: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
                                  columns=POSITION_COLUMNS, rows=prow)
     lrow = level_rows(groups, margins, today)
     if lrow:
-        out["levels"] = block("ranked", "levels", "Stops, loss at the stop and margin, by underlying",
-                              "Your own stops and targets (or the plan you recorded when you set none). The loss at the stop is gross and is "
+        out["levels"] = block("ranked", "levels", "Risk levels, loss at the risk level and margin, by underlying",
+                              "Your own risk and reward levels (or the plan you recorded when you set none). The loss at the risk level is gross and is "
                               "never the price falling to zero. Margin is Zerodha's calculator for the F&O legs.",
                               columns=LEVEL_COLUMNS, rows=lrow)
     if accounts:
@@ -496,7 +496,7 @@ def book_blocks(v: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
                                 columns=ACCOUNT_COLUMNS, rows=account_rows(accounts, session))
     items = commentary(groups, accounts, margins)
     if items:
-        out["commentary"] = block("list", "commentary", "Checks against your stops and plans",
+        out["commentary"] = block("list", "commentary", "Checks against your risk levels and plans",
                                   "Worked out by the platform from the book above. The written commentary explains these; it adds no figure.",
                                   items=items)
     return out
@@ -551,24 +551,24 @@ def _paper_blocks(out: Any, err: Optional[BaseException], src: Sources) -> Tuple
           _kpi("Unrealised P&L", price(unreal) if unreal is not None else None,
                "net of estimated costs" if unreal is not None else "not every open trade is marked yet", tone_of(unreal))]
     if summ.get("entry_pending"):
-        kp.append(_kpi("Not yet triggered", str(summ["entry_pending"]), "waiting for its entry condition"))
+        kp.append(_kpi("Not yet triggered", str(summ["entry_pending"]), "waiting for its reference price to be reached"))
     blocks.append(block("kpis", "summary", "Your open paper trades", None, items=kp))
     if trades:
         rows = []
         for t in trades[:15]:
             sym = t.get("symbol")
             pnl = num(t.get("unrealized_pnl_rs"))
-            rows.append({"symbol": sym, "ask": f"Should I book profits or hold {sym}?" if sym else None, "tone": tone_of(pnl),
+            rows.append({"symbol": sym, "ask": f"Close or hold {sym}? Show my trade's levels" if sym else None, "tone": tone_of(pnl),
                          "cells": {"symbol": sym, "qty": t.get("quantity"), "entry": r2(t.get("entry_price")), "last": r2(t.get("last_close")),
                                    "stop": r2(t.get("stop_price")), "target": r2(t.get("target_price")), "pnl": r2(pnl)}})
         blocks.append(block("ranked", "trades", f"{n} open paper trade{'s' if n != 1 else ''}",
                             "Paper, not a broker's. Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
                             columns=[{"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
                                      {"key": "qty", "label": "Qty", "align": "right", "format": "int"},
-                                     {"key": "entry", "label": "Entry", "align": "right", "format": "price"},
+                                     {"key": "entry", "label": "Reference price", "align": "right", "format": "price"},
                                      {"key": "last", "label": "Last close", "align": "right", "format": "price"},
-                                     {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
-                                     {"key": "target", "label": "Target", "align": "right", "format": "price"},
+                                     {"key": "stop", "label": "Risk level", "align": "right", "format": "price"},
+                                     {"key": "target", "label": "Reward level", "align": "right", "format": "price"},
                                      {"key": "pnl", "label": "Unrealised P&L", "align": "right", "format": "price"}], rows=rows))
         tone = tone_of(unreal)
         head = f"{n} open paper trade{'s' if n != 1 else ''}" + (f", unrealised {price(unreal)}" if unreal is not None else "") + "."
@@ -660,7 +660,7 @@ async def build_open_trades(intent: Any, ctx: Dict[str, Any]) -> Dict[str, Any]:
         p["caveat"] = ("Read from your broker " + (f"at {hm(next(a['rows_at'] for a in v['accounts'] if a['state'] == bk.LIVE))} IST" if v["session"] else "")
                        + ("; shares move with Kite's live price, futures and options keep the broker's last price. " if v["session"]
                           else "; the market is closed, so prices are the last traded. ")
-                       + "Nivesh cannot place, modify or cancel an order. Ideas to review, not recommendations.").replace("broker ;", "broker;")
+                       + "Nivesh cannot place, modify or cancel an order. Ideas to review, not advice.").replace("broker ;", "broker;")
         if v["session"]:
             p["refresh"] = {"path": LIVE_PATH, "interval_s": LIVE_INTERVAL_S, "block_ids": [i for i in LIVE_BLOCKS if i in live_blocks]}
     return p

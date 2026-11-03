@@ -174,7 +174,7 @@ export type CardStatus = "watch" | "eligible" | "rejected" | "triggered" | "open
 
 /** The plan's state in plain words (owner, 29 Oct: no technical jargon on the card). */
 export const STATUS_TEXT: Record<CardStatus, string> = {
-  watch: "Waiting for entry", eligible: "Ready to enter", rejected: "Not tradeable", triggered: "Entered", open: "Open", closed: "Closed", no_setup: "No setup",
+  watch: "Waiting for the reference price", eligible: "Ready for a paper trade", rejected: "Not tradeable", triggered: "Reference price reached", open: "Open", closed: "Closed", no_setup: "No setup",
 };
 
 /** The lifecycle's status when a trade cites the plan (approved = a paper trade waits for its entry), else the plan's own

@@ -54,7 +54,7 @@
      "type": "briefs",
      "id": "declared",
      "title": "Declared results · AI summary, management commentary, source filings",
-     "note": "Showing 8 of 12 declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and confidence are the analysis's, not recommendations.",
+     "note": "Showing 8 of 12 declared results: the ones with an AI summary first, F&O names first within them. The badge rates a result Below, Meets or Above expectation, where expectation is the company's own baseline from its past quarters (no analyst consensus is held, so nothing here is a beat or a miss against the street). The five-line commentary is the stored AI read of the filing: its signal, impact and confidence are the analysis's, not advice.",
      "items": [
       {
        "title": "Reli Limited",
@@ -63,7 +63,7 @@
        "badge": "Above expectation",
        "tone": "up",
        "body": "RELI stored summary.",
-       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately positive. Not a recommendation.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately positive. Not advice.",
        "points": [
         {
          "text": "Investor presentation · 28 Oct: Investor deck: refining margins firmed.",
@@ -113,7 +113,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bullish — a moderately positive read of the results filing; rated above expectation against its own baseline."
+          "text": "Positive tone — a moderately positive read of the results filing; rated above expectation against its own baseline."
          },
          {
           "label": "What to watch",
@@ -121,7 +121,7 @@
          },
          {
           "label": "AI take",
-          "text": "Moderately positive · Medium impact · confidence 70% — an analysis of the filing, not a recommendation."
+          "text": "Moderately positive · Medium impact · confidence 70% — an analysis of the filing, not advice."
          }
         ]
        }
@@ -133,7 +133,7 @@
        "badge": "Well below expectation",
        "tone": "down",
        "body": "ALPHA stored summary.",
-       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not a recommendation.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: moderately negative. Not advice.",
        "points": [],
        "links": [],
        "ask": "Any recent announcements for ALPHA?",
@@ -155,7 +155,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bearish — a moderately negative read of the results filing; rated well below expectation against its own baseline."
+          "text": "Negative tone — a moderately negative read of the results filing; rated well below expectation against its own baseline."
          },
          {
           "label": "What to watch",
@@ -163,7 +163,7 @@
          },
          {
           "label": "AI take",
-          "text": "Moderately negative · High impact · confidence 70% — an analysis of the filing, not a recommendation."
+          "text": "Moderately negative · High impact · confidence 70% — an analysis of the filing, not advice."
          }
         ]
        }
@@ -175,7 +175,7 @@
        "badge": "Not rated",
        "tone": "neutral",
        "body": "BETA stored summary.",
-       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: neutral mixed. Not a recommendation.",
+       "body_note": "AI summary of the results filing, analysed 29 Oct 2026, filing read: neutral mixed. Not advice.",
        "points": [],
        "links": [],
        "ask": "Any recent announcements for BETA?",
@@ -205,7 +205,7 @@
          },
          {
           "label": "AI take",
-          "text": "Mixed or neutral · Low impact · confidence 70% — an analysis of the filing, not a recommendation."
+          "text": "Mixed or neutral · Low impact · confidence 70% — an analysis of the filing, not advice."
          }
         ]
        }
@@ -400,7 +400,7 @@
      "query": "Any M&A announcements today?"
     }
    ],
-   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not advice; nothing is sent to a broker."
   },
   "orders": {
    "schema": "visual-answer-v1",
@@ -428,7 +428,7 @@
        "badge": "Positive · high impact",
        "tone": "up",
        "body": "Gayatri won a Rs 342 crore contract.",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [],
        "links": [
         {
@@ -456,7 +456,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bullish — a positive reading by the filing classifier."
+          "text": "Positive tone — a positive reading by the filing classifier."
          },
          {
           "label": "What to watch",
@@ -464,7 +464,7 @@
          },
          {
           "label": "AI take",
-          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+          "text": "Positive · High impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -476,7 +476,7 @@
        "badge": "Positive · high impact",
        "tone": "up",
        "body": "No attachment here.",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [],
        "links": [],
        "ask": "Any recent announcements for NOURL?",
@@ -498,7 +498,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bullish — a positive reading by the filing classifier."
+          "text": "Positive tone — a positive reading by the filing classifier."
          },
          {
           "label": "What to watch",
@@ -506,7 +506,7 @@
          },
          {
           "label": "AI take",
-          "text": "Positive · High impact — an analysis of the filing, not a recommendation."
+          "text": "Positive · High impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -518,7 +518,7 @@
        "badge": "Positive · medium impact",
        "tone": "up",
        "body": "X0 summary.",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [],
        "links": [
         {
@@ -546,7 +546,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bullish — a positive reading by the filing classifier."
+          "text": "Positive tone — a positive reading by the filing classifier."
          },
          {
           "label": "What to watch",
@@ -554,7 +554,7 @@
          },
          {
           "label": "AI take",
-          "text": "Positive · Medium impact — an analysis of the filing, not a recommendation."
+          "text": "Positive · Medium impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -566,7 +566,7 @@
        "badge": "Positive · medium impact",
        "tone": "up",
        "body": "X1 summary.",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [],
        "links": [
         {
@@ -594,7 +594,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bullish — a positive reading by the filing classifier."
+          "text": "Positive tone — a positive reading by the filing classifier."
          },
          {
           "label": "What to watch",
@@ -602,7 +602,7 @@
          },
          {
           "label": "AI take",
-          "text": "Positive · Medium impact — an analysis of the filing, not a recommendation."
+          "text": "Positive · Medium impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -614,7 +614,7 @@
        "badge": "Negative · medium impact",
        "tone": "down",
        "body": "MSRDC re-invited bids. · Assessed as routine (importance 50/100)",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [],
        "links": [
         {
@@ -642,7 +642,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bearish — a negative reading by the filing classifier."
+          "text": "Negative tone — a negative reading by the filing classifier."
          },
          {
           "label": "What to watch",
@@ -650,7 +650,7 @@
          },
          {
           "label": "AI take",
-          "text": "Negative · Medium impact — an analysis of the filing, not a recommendation."
+          "text": "Negative · Medium impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -662,7 +662,7 @@
        "badge": "Neutral · low impact",
        "tone": "neutral",
        "body": "Zed won an order.",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [],
        "links": [
         {
@@ -698,7 +698,7 @@
          },
          {
           "label": "AI take",
-          "text": "Neutral · Low impact — an analysis of the filing, not a recommendation."
+          "text": "Neutral · Low impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -769,7 +769,7 @@
      "query": "Which stocks saw bulk deals today?"
     }
    ],
-   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not advice; nothing is sent to a broker."
   },
   "tcs": {
    "schema": "visual-answer-v1",
@@ -785,7 +785,7 @@
      "type": "briefs",
      "id": "events",
      "title": "Tata Consultancy Services Limited · latest results",
-     "note": "The badge rates the result Below, Meets or Above expectation where the desk has rated it (expectation = the company's own baseline from its past quarters; no analyst consensus is held, so nothing here is a beat or a miss against the street); without a desk rating it is an AI classifier's reading of the filing. The five-line commentary and the summaries are Nivesh's stored AI analyses of the filings, not recommendations.",
+     "note": "The badge rates the result Below, Meets or Above expectation where the desk has rated it (expectation = the company's own baseline from its past quarters; no analyst consensus is held, so nothing here is a beat or a miss against the street); without a desk rating it is an AI classifier's reading of the filing. The five-line commentary and the summaries are Nivesh's stored AI analyses of the filings, not advice.",
      "items": [
       {
        "title": "Tata Consultancy Services Limited",
@@ -794,7 +794,7 @@
        "badge": "Meets expectation",
        "tone": "neutral",
        "body": "TCS stored result summary.",
-       "body_note": "AI summary of the filing. Not a recommendation.",
+       "body_note": "AI summary of the filing. Not advice.",
        "points": [
         {
          "text": "Investor presentation · 9 Oct: TCS deck says deal wins were strong.",
@@ -845,7 +845,7 @@
          },
          {
           "label": "Market impact",
-          "text": "Bullish — a positive reading by the filing classifier."
+          "text": "Positive tone — a positive reading by the filing classifier."
          },
          {
           "label": "What to watch",
@@ -853,7 +853,7 @@
          },
          {
           "label": "AI take",
-          "text": "Positive · Medium impact — an analysis of the filing, not a recommendation."
+          "text": "Positive · Medium impact — an analysis of the filing, not advice."
          }
         ]
        }
@@ -912,7 +912,7 @@
      "query": "Which stocks saw bulk deals today?"
     }
    ],
-   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from exchange filings and board-meeting dates, data of 30 Oct 2026. AI summaries are Nivesh's stored analyses of each filing, not advice; nothing is sent to a broker."
   }
  }
 }

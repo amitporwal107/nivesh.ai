@@ -17,7 +17,7 @@ const sse = (frames: Array<Record<string, unknown>>) => frames.map((f) => `data:
 const TILES = ["Market pulse", "Find opportunities", "My positions", "F&O strategies", "Manage risk", "Daily review"];
 const LEAD: Record<string, string> = {
   pulse: "What is the market view today for Nifty and Bank Nifty?",
-  opportunities: "Find today's top 5 trading opportunities with entry, stop-loss and targets",
+  opportunities: "Find today's top 5 trading opportunities with their reference price and reward and risk levels",
   positions: "What are my open trades doing?",
   fno: "Which F&O setups are attractive?",
   risk: "How much should I risk?",
@@ -71,11 +71,11 @@ async function setup(page: Page, mode: "trader" | "investor", width = 1280, prom
 }
 
 const OPPORTUNITY_SET = [
-  "Find today's top 5 trading opportunities with entry, stop-loss and targets",
+  "Find today's top 5 trading opportunities with their reference price and reward and risk levels",
   "Which breakouts are confirmed?",
   "Which stocks have unusual volume?",
-  "Is this stock a buy now?",
-  "What is the entry, target and stop-loss for this stock?",
+  "What does the setup look like for this stock now?",
+  "What are the reference price and the reward and risk levels for this stock?",
 ];
 
 test.describe("MOCK — not real data: the Daily Trader home", () => {
@@ -108,10 +108,10 @@ test.describe("MOCK — not real data: the Daily Trader home", () => {
     await page.getByTestId("daily-tile-opportunities").click();
     const more = page.getByTestId("daily-more");
     await expect(more).toContainText("More in Find opportunities");
-    await expect(more.getByTestId("daily-more-q")).toHaveText(["Which breakouts are confirmed?", "Which stocks have unusual volume?", "Is this stock a buy now?", "What is the entry, target and stop-loss for this stock?"]);
-    await more.getByTestId("daily-more-q").filter({ hasText: "Is this stock a buy now?" }).click();
+    await expect(more.getByTestId("daily-more-q")).toHaveText(["Which breakouts are confirmed?", "Which stocks have unusual volume?", "What does the setup look like for this stock now?", "What are the reference price and the reward and risk levels for this stock?"]);
+    await more.getByTestId("daily-more-q").filter({ hasText: "What does the setup look like for this stock now?" }).click();
     const box = page.getByTestId("daily-question");
-    await expect(box).toHaveValue("Is this stock a buy now?");
+    await expect(box).toHaveValue("What does the setup look like for this stock now?");
     const sel = await box.evaluate((el: HTMLTextAreaElement) => el.value.slice(el.selectionStart, el.selectionEnd));
     expect(sel).toBe("this stock");
   });
@@ -131,11 +131,11 @@ test.describe("MOCK — not real data: the Daily Trader home", () => {
   test("DT-4 a typed name completes to the ticker (Tab), as in every ask box", async ({ page }) => {
     await setup(page, "trader");
     await page.getByTestId("daily-tile-opportunities").click();
-    await page.getByTestId("daily-more-q").filter({ hasText: "Is this stock a buy now?" }).click();
+    await page.getByTestId("daily-more-q").filter({ hasText: "What does the setup look like for this stock now?" }).click();
     await page.keyboard.type("tvs mo");
     await expect(page.getByTestId("daily-complete-item")).toHaveText(/TVSMOTOR/, SLOW);
     await page.keyboard.press("Tab");
-    await expect(page.getByTestId("daily-question")).toHaveValue("Is TVSMOTOR a buy now?");
+    await expect(page.getByTestId("daily-question")).toHaveValue("What does the setup look like for TVSMOTOR now?");
   });
 
   test("DT-5 Explore asks the Copilot the question in the box, as a trader", async ({ page }) => {

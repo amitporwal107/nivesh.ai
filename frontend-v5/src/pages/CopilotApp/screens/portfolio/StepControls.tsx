@@ -27,9 +27,9 @@ export function StepBadges({ step, idPrefix }: { step: PlanStep; idPrefix: strin
   const route = step.execution ? EXECUTION_LABEL[step.execution] ?? humanise(step.execution) : "";
   return (
     <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
-      <span data-testid={`${idPrefix}-verb`}><Pill tone={verb.tone}>{step.verb.replace(/_/g, " ")}</Pill></span>
+      <span data-testid={`${idPrefix}-verb`}><Pill tone={verb.tone}>{({ EXIT: "CLOSE OUT", SELL: "LOWER", TRIM: "LOWER", ADD: "RAISE", BUY: "INVEST" } as Record<string, string>)[step.verb] ?? step.verb.replace(/_/g, " ")}</Pill></span>
       {severity && <span data-testid={`${idPrefix}-severity`}><Pill tone={severity.tone} title="How far this holding is from where your profile says it should be">{severity.label}</Pill></span>}
-      {route && <span data-testid={`${idPrefix}-execution`}><Pill title="The route the plan engine suggests for this step">{route}</Pill></span>}
+      {route && <span data-testid={`${idPrefix}-execution`}><Pill title="The route the plan engine gives for this step">{route}</Pill></span>}
     </span>
   );
 }

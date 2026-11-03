@@ -260,8 +260,8 @@ function setupRows(d: SetupResearch): SetupRow[] {
 const perTrade = (f: number | null) => fmtPct(f == null ? null : f * 100, { signed: true, digits: 2 });
 
 const SETUP_COLUMNS: Column<SetupRow>[] = [
-  { key: "setup", header: "Entry setup", width: "minmax(150px,1.5fr)", render: (r) => <span data-testid="kpi-setup-row" style={{ color: "var(--cp-ink)" }} title={r.label || undefined}>{r.setup}</span> },
-  { key: "target", header: "Profit target", width: "100px", align: "right", num: true, render: (r) => r.target },
+  { key: "setup", header: "Setup", width: "minmax(150px,1.5fr)", render: (r) => <span data-testid="kpi-setup-row" style={{ color: "var(--cp-ink)" }} title={r.label || undefined}>{r.setup}</span> },
+  { key: "target", header: "Reward level", width: "100px", align: "right", num: true, render: (r) => r.target },
   { key: "trades", header: "Trades", width: "80px", align: "right", num: true, render: (r) => fmtNum(r.trades) },
   { key: "net", header: "Avg per trade", width: "110px", align: "right", num: true, render: (r) => <span data-testid="kpi-setup-net" style={{ color: r.net != null && r.net > 0 ? "var(--mint)" : r.net != null && r.net < 0 ? "var(--cp-danger)" : undefined }}>{perTrade(r.net)}</span> },
   { key: "baseline", header: "Baseline", width: "100px", align: "right", num: true, render: (r) => perTrade(r.baseline) },
@@ -273,7 +273,7 @@ export function EntrySetupStudy() {
   return (
     <QueryBlock
       query={study}
-      what="The entry-setup study"
+      what="The setup study"
       rows={3}
       forbidden="This study belongs to the Move odds feature, which is switched on for an allow-list of accounts, and this account is not on it (403)."
     >
@@ -282,9 +282,9 @@ export function EntrySetupStudy() {
         const cost = s.cost_round_trip != null ? fmtPct(s.cost_round_trip * 100, { digits: 2 }) : null;
         const period = s.first_signal_day && s.last_signal_day ? `${fmtDate(s.first_signal_day)} – ${fmtDate(s.last_signal_day)}` : null;
         const tile: TileItem[] = [{
-          k: "Entry setups that beat the baseline",
+          k: "Setups that beat the baseline",
           v: <span data-testid="kpi-setups-validated">{fmtNum(s.validated)} of {fmtNum(s.tested)}</span>,
-          s: "Setup and profit-target pairs tested, after costs",
+          s: "Setup and reward-level pairs tested, after costs",
           tone: s.validated > 0 ? "mint" : "ink",
         }];
         return (
@@ -292,7 +292,7 @@ export function EntrySetupStudy() {
             <Tiles items={tile} min={220} />
             <Section
               flush
-              title="Entry-setup study · result per setup"
+              title="Setup study · result per setup"
               note={[period, cost ? `after ${cost} round-trip cost` : null, d.decided ? `decided ${fmtDate(d.decided)}` : null].filter(Boolean).join(" · ")}
             >
               <DataTable columns={SETUP_COLUMNS} rows={setupRows(d)} rowKey={(r) => r.key} minWidth={700} empty="The study lists no setups." />
@@ -333,7 +333,7 @@ export function PositionalCalibration() {
             <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)", maxWidth: 620, overflowWrap: "anywhere" }}>
               {d._reason
                 ? `The calibration table could not be read: ${d._reason}`
-                : "The table that compares the positional engine’s scores with what followed is empty. An admin job fills it once enough past picks have a known outcome; until then there is no hit rate to show."}
+                : "The table that compares the positional engine’s scores with what followed is empty. An admin job fills it once enough past ideas have a known outcome; until then there is no hit rate to show."}
             </span>
           </div>
         ) : (

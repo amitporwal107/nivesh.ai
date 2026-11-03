@@ -579,7 +579,7 @@ const ROW_LABEL: Record<string, { trader: string; investor: string }> = {
   correlation: { trader: "Correlated positions", investor: "Holdings that move together" },
   gap: { trader: "Gap risk", investor: "Sudden overnight jumps" },
   volatility: { trader: "Volatility · 1M", investor: "How much it swings · 1 month" },
-  liquidity: { trader: "Liquidity", investor: "How easy to sell" },
+  liquidity: { trader: "Liquidity", investor: "How easy to turn into cash" },
   drawdown: { trader: "Drawdown · 1Y", investor: "Biggest fall · 1 year" },
   beta: { trader: "Beta", investor: "Moves with the market" },
   missing: { trader: "Missing price or position data", investor: "Missing prices or holdings" },
@@ -805,7 +805,7 @@ function useRiskChecks(view: PortfolioView): { checks: Check[]; overall: Level |
   }
 
   // 7 · Liquidity — traded value and days to sell each position (holding-risk).
-  const liqRule = h?.rules.liquidity?.text ?? "Average traded value over 20 sessions and the days to sell each position at 10% of the average daily volume.";
+  const liqRule = h?.rules.liquidity?.text ?? "Average traded value over 20 sessions and the days to unwind each position at 10% of the average daily volume.";
   const minAdv = typeof h?.rules.liquidity?.values.min_adv_cr === "number" ? (h.rules.liquidity.values.min_adv_cr as number) : 10;
   if (h && h.liquidity.level) {
     const l = h.liquidity;
@@ -813,13 +813,13 @@ function useRiskChecks(view: PortfolioView): { checks: Check[]; overall: Level |
       id: "liquidity", label: "Liquidity", value: l.slowest ? `${fmtNum(l.slowest.days, 1)} days` : "—", level: l.level, rule: liqRule,
       detail: (
         <span data-testid="desk-liquidity-summary">
-          {l.slowest ? <>Slowest to sell: <span className="inline-flex items-center" style={{ gap: 4, verticalAlign: "middle" }}><StockIcon symbol={l.slowest.symbol} size={14} />{l.slowest.symbol}</span>, {fmtNum(l.slowest.days, 1)} days at 10% of its daily volume</> : "Days to sell not worked out"}
+          {l.slowest ? <>Slowest to unwind: <span className="inline-flex items-center" style={{ gap: 4, verticalAlign: "middle" }}><StockIcon symbol={l.slowest.symbol} size={14} />{l.slowest.symbol}</span>, {fmtNum(l.slowest.days, 1)} days at 10% of its daily volume</> : "Days to unwind not worked out"}
           {l.belowThresholdValuePct != null ? ` · ${fmtPct(l.belowThresholdValuePct)} of stock value trades under ₹${fmtNum(minAdv)} Cr a day` : ""}
         </span>
       ),
       more: <HoldingList testId="desk-liquidity-holdings" rows={h.holdings.filter((x) => x.advCr != null).map((x) => ({
         symbol: x.symbol, figure: `₹${fmtNum(x.advCr, 2)} Cr a day`, warn: x.belowThreshold === true,
-        note: x.daysToExit != null ? `${fmtNum(x.daysToExit, 2)} days to sell this position at 10% of the average daily volume` : "Quantity not on record",
+        note: x.daysToExit != null ? `${fmtNum(x.daysToExit, 2)} days to unwind this position at 10% of the average daily volume` : "Quantity not on record",
       }))} />,
     });
   } else {
@@ -1228,7 +1228,7 @@ function YourTrades() {
                 </span>
                 <span data-testid="desk-paper-today-p" className="cp-pill" title={NO_P} style={{ fontSize: 9, padding: "2px 7px" }}>P —</span>
                 <span data-testid="desk-paper-today-levels" className="cp-num" style={{ gridColumn: "1 / -1", fontSize: 11, color: "var(--cp-ink-3)" }}>
-                  Entry {fmtPrice(t.entry)} · Stop {fmtPrice(t.stop)} · Target {t.target != null ? fmtPrice(t.target) : "none"}
+                  Reference price {fmtPrice(t.entry)} · Risk level {fmtPrice(t.stop)} · Reward level {t.target != null ? fmtPrice(t.target) : "none"}
                 </span>
               </li>
             ))}
@@ -1250,7 +1250,7 @@ function YourTrades() {
               const ret = tradeReturnPct(t);
               const r = tradeR(t);
               const days = heldDays(t);
-              const reason = t.exitReason === "target" ? "target" : t.exitReason === "stop" ? "stop" : t.exitReason === "trailing_stop" ? "trailing stop" : t.exitReason === "manual" ? "closed by you" : null;
+              const reason = t.exitReason === "target" ? "reward level" : t.exitReason === "stop" ? "risk level" : t.exitReason === "trailing_stop" ? "trailing risk level" : t.exitReason === "manual" ? "closed by you" : null;
               return (
                 <div key={t.id} role="row" data-testid="desk-paper-last5-row" data-id={t.id} className="grid items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 40px 84px 48px", gap: 8, padding: "7px 0", borderTop: line }}>
                   <span role="cell" className="flex min-w-0 flex-col" style={{ gap: 1 }}>
@@ -1275,7 +1275,7 @@ function YourTrades() {
           </div>
         )}
         <span style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-          Your desk paper trades. P is not stored with a trade, so it shows “—”. Outcome = exit vs entry; R = (exit − entry) ÷ (entry − stop). Close trades and manage alerts in the lists below.
+          Your desk paper trades. P is not stored with a trade, so it shows “—”. Outcome = close vs reference price; R = (close − reference price) ÷ (reference price − risk level). Close trades and manage alerts in the lists below.
         </span>
       </div>
     </div>

@@ -116,12 +116,12 @@ const PROFILE_UNKNOWN = (() => { const p = clone(CARD.risk_profile_default); p.l
 // GET /api/desk/paper-account (contract fixture; cash and blocked MOCK)
 const ACCOUNT = { ...CARD.paper_account, cash_rs: 975000, blocked_rs: 124617.8, available_rs: 850382.2, stored: true };
 // GET /api/desk/exit-job-status (services/job_runs.trader_status)
-const EXIT_OK = { job: "check_desk_alerts", status: "ok", state: "ok", message: "Exits were checked after the 2026-10-26 close.", schedule: "Mon–Fri 20:45 IST, retry 22:45 IST",
+const EXIT_OK = { job: "check_desk_alerts", status: "ok", state: "ok", message: "Paper trades were checked after the 2026-10-26 close.", schedule: "Mon–Fri 20:45 IST, retry 22:45 IST",
   last_checked: { session: "2026-10-26", started_at: "2026-10-26T15:15:00+00:00", finished_at: "2026-10-26T15:16:10+00:00" }, latest_run: null, expected_since: "2026-10-26T15:15:00+00:00", grace_minutes: 60, as_of: "2026-10-27T05:00:00+00:00" };
 // the staging answer of 27 Oct (test_reports/desk_redesign_backend_20261027.md)
-const EXIT_MISSED = { job: "check_desk_alerts", status: "missed", state: "never_run", message: "No evening exit check has been recorded.", last_checked: null, latest_run: null,
+const EXIT_MISSED = { job: "check_desk_alerts", status: "missed", state: "never_run", message: "No evening check has been recorded.", last_checked: null, latest_run: null,
   expected_since: "2026-10-26T17:15:00+00:00", schedule: "Mon–Fri 20:45 IST, retry 22:45 IST", grace_minutes: 60 };
-const EXIT_LATE = { ...EXIT_OK, status: "late", message: "The exit check due at Mon 27 Oct 20:45 IST has not been recorded yet." };
+const EXIT_LATE = { ...EXIT_OK, status: "late", message: "The evening check due at Mon 27 Oct 20:45 IST has not been recorded yet." };
 // GET /api/desk/strategy/templates (backend strategy_plan/templates.py CATALOG names; legs abridged)
 const TEMPLATES = { calculation_version: "payoff-v2", read_only: true, templates: ["long_call", "long_put", "bull_call_spread", "bear_put_spread", "iron_condor", "long_future", "short_future", "cash_long"].map((name) => ({
   name, label: name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()), kind: name.includes("future") ? "future" : name === "cash_long" ? "cash" : "option", legs: [], params: [], calculation_version: "payoff-v2" })) };
@@ -267,7 +267,7 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
       await expect(page.getByTestId("td-open-risk")).toHaveText("Open risk 1.2% of 3%");
       await expect(page.getByTestId("td-open-risk")).toHaveAttribute("data-pct", (12000 / PROFILE.live.equity.equity_rs * 100).toFixed(2));
       await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "ok");
-      await expect(page.getByTestId("td-exit-job")).toContainText("Exits checked after the 26 Oct close");
+      await expect(page.getByTestId("td-exit-job")).toContainText("Paper trades checked after the 26 Oct close");
       await expect(page.getByTestId("desk-paper-real-line")).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio");
     }
   });
@@ -276,12 +276,12 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
     await setup(page, { exit: { status: 200, body: EXIT_MISSED } });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "missed", SLOW);
-    await expect(page.getByTestId("td-exit-job")).toContainText("Exit check missed: No evening exit check has been recorded.");
+    await expect(page.getByTestId("td-exit-job")).toContainText("Evening check missed: No evening check has been recorded.");
     await page.unroute("**/api/desk/exit-job-status");
     await page.route("**/api/desk/exit-job-status", (r) => json(r, EXIT_LATE));
     await page.reload();
     await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "late", SLOW);
-    await expect(page.getByTestId("td-exit-job")).toContainText("Exit check late: The exit check due at Mon 27 Oct 20:45 IST has not been recorded yet.");
+    await expect(page.getByTestId("td-exit-job")).toContainText("Evening check late: The evening check due at Mon 27 Oct 20:45 IST has not been recorded yet.");
     await page.unroute("**/api/desk/exit-job-status");
     await page.route("**/api/desk/exit-job-status", (r) => json(r, { detail: "MOCK: down" }, 500));
     await page.reload();
@@ -377,10 +377,10 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
   test("TD-8 / TD-9 pending entries with rule and validity; open positions with state, net P/L and plan id", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
-    await expect(page.getByTestId("td-open-lead")).toHaveText("2 cash positions and 1 F&O structure open, 1 entry pending.", SLOW);
+    await expect(page.getByTestId("td-open-lead")).toHaveText("2 cash positions and 1 F&O structure open, 1 opening pending.", SLOW);
     const pend = page.getByTestId("td-pending");
     await expect(pend.getByTestId("td-pending-rule")).toHaveText(`Break above ₹${n2(1655)} · valid 3 sessions`);
-    await expect(pend.getByTestId("td-pending-state")).toHaveText(/waiting for entry/i);
+    await expect(pend.getByTestId("td-pending-state")).toHaveText(/waiting for the reference price/i);
     await expect(pend.getByTestId("td-row-plan")).toHaveText("tp_pending0001");
     const pos = page.getByTestId("td-positions");
     const infy = pos.getByRole("row").filter({ hasText: "INFY" });
@@ -498,10 +498,10 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await page.getByTestId("td-closed").getByRole("row").filter({ hasText: "AXISBANK" }).click(SLOW);
     const d = page.getByTestId("td-journal");
     await expect(d.getByTestId("td-journal-flag")).toHaveAttribute("data-code", "both_in_range");
-    await expect(d.getByTestId("td-journal-flag")).toContainText(`Stop and target both touched on 24 Oct: stop assumed. ${BOTH}`);
+    await expect(d.getByTestId("td-journal-flag")).toContainText(`Risk level and reward level both touched on 24 Oct: risk level assumed. ${BOTH}`);
     await expect(d).not.toContainText(/ambiguous/i);
     await page.getByTestId("td-closed").getByRole("row").filter({ hasText: "TCS" }).click();
-    await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the stop: filled at the open. ${GAP}`);
+    await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the risk level: filled at the open. ${GAP}`);
   });
 
   test("TD-20 the journal links to Chart Analysis › Live chart and to the plan's decision card", async ({ page }) => {

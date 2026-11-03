@@ -43,12 +43,12 @@ function flowsLine(latest: FiiDiiFlowRow, periods: FiiDiiFlowRow[], gran: Gran):
   if (latest.fii_net != null) {
     const sells = periods.filter((r) => (r.fii_net ?? 0) < 0).length;
     parts.push(
-      `FIIs ${latest.fii_net < 0 ? "sold" : "bought"} a net ${fmtCr(Math.abs(latest.fii_net))} in cash${when}`
-      + (periods.length > 1 ? `, and were net sellers in ${sells} of the last ${periods.length} ${unit}` : ""),
+      `FIIs had a net ${latest.fii_net < 0 ? "outflow" : "inflow"} of ${fmtCr(Math.abs(latest.fii_net))} in cash${when}`
+      + (periods.length > 1 ? `, with a net outflow in ${sells} of the last ${periods.length} ${unit}` : ""),
     );
   }
   if (latest.dii_net != null) {
-    parts.push(`DIIs ${latest.dii_net < 0 ? "sold" : "bought"} a net ${fmtCr(Math.abs(latest.dii_net))}${parts.length ? "" : when}`);
+    parts.push(`DIIs had a net ${latest.dii_net < 0 ? "outflow" : "inflow"} of ${fmtCr(Math.abs(latest.dii_net))}${parts.length ? "" : when}`);
   }
   return parts.length ? `${parts.join("; ")}.` : "Net figures for the latest period are not available yet.";
 }
@@ -92,11 +92,11 @@ export function FlowsTab() {
 
   const columns: Column<FiiDiiFlowRow>[] = [
     { key: "date", header: gran === "daily" ? "Date" : "Month", width: "minmax(0,1.3fr)", render: (r) => <NameCell name={periodLabel(r, { year: true })} /> },
-    { key: "fb", header: "FII buy", align: "right", num: true, render: (r) => fmtCrPlain(r.fii_buy) },
-    { key: "fs", header: "FII sell", align: "right", num: true, render: (r) => fmtCrPlain(r.fii_sell) },
+    { key: "fb", header: "FII purchases", align: "right", num: true, render: (r) => fmtCrPlain(r.fii_buy) },
+    { key: "fs", header: "FII sales", align: "right", num: true, render: (r) => fmtCrPlain(r.fii_sell) },
     { key: "fn", header: "FII net", align: "right", num: true, render: (r) => <Signed value={r.fii_net} testId="markets-fii-net">{fmtCrPlain(r.fii_net, { signed: true })}</Signed> },
-    { key: "db", header: "DII buy", align: "right", num: true, render: (r) => fmtCrPlain(r.dii_buy) },
-    { key: "ds", header: "DII sell", align: "right", num: true, render: (r) => fmtCrPlain(r.dii_sell) },
+    { key: "db", header: "DII purchases", align: "right", num: true, render: (r) => fmtCrPlain(r.dii_buy) },
+    { key: "ds", header: "DII sales", align: "right", num: true, render: (r) => fmtCrPlain(r.dii_sell) },
     { key: "dn", header: "DII net", align: "right", num: true, render: (r) => <Signed value={r.dii_net} testId="markets-dii-net">{fmtCrPlain(r.dii_net, { signed: true })}</Signed> },
     { key: "cn", header: "Both, net", align: "right", num: true, render: (r) => <Signed value={combined(r)} testId="markets-combined-net">{fmtCrPlain(combined(r), { signed: true })}</Signed> },
   ];
@@ -111,7 +111,7 @@ export function FlowsTab() {
 
       <Section
         title={`Cash market · ₹ Cr · ${fmtNum(series.length)} ${gran === "daily" ? "sessions" : "months"}`}
-        note="Net = buy − sell"
+        note="Net = purchases − sales"
         flush
       >
         <div data-testid="markets-flows-table">
@@ -205,7 +205,7 @@ function FlowBars({ rows, gran }: { rows: FiiDiiFlowRow[]; gran: Gran }) {
         })}
       </div>
       <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>
-        Bars above the line are net buying, below it net selling. Tallest bar: {fmtCr(max)}.
+        Bars above the line are net inflows, below it net outflows. Tallest bar: {fmtCr(max)}.
       </span>
     </section>
   );

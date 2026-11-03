@@ -1,6 +1,7 @@
-"""Realtime scan dashboard (docs/scan_builder/DESIGN.md §8): the 17 widgets of Chartink dashboard 247498, on our data.
+"""Realtime scan dashboards (docs/scan_builder/DESIGN.md §8, §9), on our data: "atlas" = the 17 widgets of Chartink dashboard
+247498, "daytrade" = the 20 widgets of Chartink dashboard 503347 (the owner's public copy of his private 225969).
 
-Only the widget DEFINITIONS come from Chartink (docs/scan_builder/chartink_247498/); every number is ours:
+Only the widget DEFINITIONS come from Chartink (docs/scan_builder/chartink_247498/, chartink_503347/); every number is ours:
   * prices: NSE end-of-day bars (NIDP warehouse, split/bonus adjusted) with TODAY's candle from Kite — live in the session,
     the saved Kite close after it (data.ScanData.today, the owner's 29 Oct rule);
   * fundamentals: NIDP feature store (DaaS /stocks/screener), as of the last end-of-day;
@@ -23,6 +24,7 @@ import numpy as np
 
 from . import engine
 from . import service as SV
+from . import early_movers as EM
 from . import signals as SIG
 from . import spec as S
 from .data import SOURCE_PRICES, SOURCE_TODAY, DataUnavailable, ScanData
@@ -67,13 +69,15 @@ class Widget:
     id: str
     chartink_id: str
     title: str
-    kind: str                                       # scan | strong | groups_ad | groups_vol | indices | not_computed
+    kind: str                                       # scan | strong | groups_ad | groups_vol | indices | early | not_computed
     universe: str                                   # cash | fno | nifty50
     spec: Optional[Dict[str, Any]] = None
     intraday: Optional[IntradayRule] = None
     flow: Optional[FlowRule] = None
     lines: List[Tuple[str, int, bool, Optional[str]]] = field(default_factory=list)   # (text, level, applied, note)
     note: Optional[str] = None
+    partial_note: Optional[str] = None              # a condition that cannot be applied on our data: always Partial, saying why
+    universe_note: Optional[str] = None             # on the "Universe:" line (e.g. a Chartink segment that is not published)
 
     @property
     def uses_results(self) -> bool:
@@ -270,6 +274,173 @@ def build_widgets() -> List[Widget]:
 WIDGETS = build_widgets()
 
 
+def _rsi_vwap_test(v: Dict[str, Optional[float]], close: float, prev: float) -> bool:
+    return v["rsi30"] > 60 and v["vwap"] < v["c15"]
+
+
+def _breakout15_test(v: Dict[str, Optional[float]], close: float, prev: float) -> bool:
+    return v["c0"] > v["mx20"] and v["v0"] > v["smav20"]
+
+
+HISTORY_NOTE = "our NSE daily history starts in April 2024 (about 640 sessions)"
+
+
+def build_daytrade_widgets() -> List[Widget]:
+    """The 20 widgets of Chartink dashboard 503347 in its layout order (row by row). Definitions only:
+    docs/scan_builder/chartink_503347/widgets.md has each Chartink query verbatim."""
+    W: List[Widget] = []
+    W.append(Widget("dt_rsi_vwap", "5518231", "RSI VWAP intraday", "scan", "fno", spec=_spec("dt_rsivwap", "fno", [
+        _f("a", x(m("close")), "gt", x(m("high", 1)))]),
+        intraday=IntradayRule("15minute", 5, [("rsi30", "rsi", {"period": 14, "bucket": 30}, 0),
+                                              ("vwap", "vwap", {}, 0), ("c15", "close", {}, 0)],
+                              ["30-minute RSI(14) > 60 (30-minute candles made from pairs of 15-minute candles)",
+                               "Today's VWAP < latest 5-minute Close (VWAP = Σ(typical price × volume) ÷ Σ volume over today's "
+                               "15-minute candles; the latest Close is the live price)"], _rsi_vwap_test)))
+    W.append(Widget("dt_explosive", "5518232", "Explosive movement", "scan", "cash", spec=_spec("dt_explosive", "cash", [
+        _f("a", x(m("max", source="close", period=5)), "gt", x(m("min", source="close", period=5), "*", n(1.15))),
+        _f("b", x(m("close")), "gt", x(n(20))),
+        _f("c", x(m("sma", source="volume", period=100)), "gt", x(n(100000))),
+        _f("d", x(m("max", source="volume", period=5)), "gt", x(m("sma", source="volume", period=40), "*", n(2))),
+        _f("e", x(F("market_cap_cr")), "gt", x(n(10000)))])))
+    W.append(Widget("dt_strong", "5518234", "Strong stocks", "scan", "cash", spec=_spec("dt_strong", "cash", [
+        _f("a", x(m("close")), "gt", x(m("close", 1))),
+        _f("b", x(m("close", 1)), "gt", x(m("close", 2))),
+        _f("c", x(m("close", 2)), "gt", x(m("close", 3))),
+        _f("d", x(m("close", 3)), "gt", x(m("close", 4))),
+        _f("e", x(m("close", 4)), "gt", x(m("close", 5)))])))
+    W.append(Widget("dt_high_growth", "5518233", "High growth stocks", "scan", "cash", spec=_spec("dt_growth", "cash", [
+        _f("a", x(m("close", 1, tf="1w")), "gte", x(m("close", 12, tf="1M"), "*", n(1.75))),
+        _f("b", x(F("market_cap_cr")), "gte", x(n(1000))),
+        _f("c", x(m("close")), "gt", x(n(50))),
+        _f("d", x(F("y_eps")), "gt", x(n(5))),
+        _f("e", x(m("volume")), "gt", x(n(100000)))])))
+    W.append(Widget("dt_short_breakouts", "5518236", "Short term breakouts", "scan", "cash", spec=_spec("dt_short", "cash", [
+        _f("a", x(m("max", source="close", period=5)), "gt", x(m("max", 6, source="close", period=120), "*", n(1.05))),
+        _f("b", x(m("volume")), "gt", x(m("sma", source="volume", period=5))),
+        _f("c", x(m("close")), "gt", x(m("close", 1))),
+        _f("d", x(F("market_cap_cr")), "gt", x(n(20)))])))
+    W.append(Widget("dt_multiyear", "5518237", "Multiyear breakout", "scan", "cash", spec=_spec("dt_multi", "cash", [
+        _grp("any", [_f("a", x(m("high")), "eq", x(m("max", source="high", period=520))),
+                     _f("b", x(F("market_cap_cr")), "gt", x(n(10000))),
+                     _f("c", x(m("volume")), "gt", x(n(1000000)))], join="any",
+             comment=("Chartink also lists 3- to 10-year highs (780–2,600 sessions): our history starts April 2024, and such "
+                      "a high is also a 520-session high, so they add no stock"))])))
+    W.append(Widget("dt_uptrend_52w", "5518240", "Uptrend - 52 Week High", "scan", "cash", spec=_spec("dt_up52", "cash", [
+        _f("a", x(m("close", tf="1w")), "gte", x(m("max", tf="1w", source="close", period=52))),
+        _f("b", x(m("sma", tf="1w", source="close", period=10)), "gte", x(m("sma", tf="1w", source="close", period=30))),
+        _f("c", x(m("sma", tf="1w", source="close", period=30)), "gte", x(m("sma", tf="1w", source="close", period=40))),
+        _f("d", x(F("market_cap_cr")), "gt", x(n(10000)))])))
+    W.append(Widget("dt_below_dma", "5518241", "Stocks below 50 DMA & 200 DMA", "scan", "cash", spec=_spec("dt_below", "cash", [
+        _f("a", x(m("close")), "gt", x(n(5))),
+        _f("b", x(m("close")), "lt", x(m("sma", source="close", period=50))),
+        _f("c", x(m("sma", source="close", period=50)), "lt", x(m("sma", source="close", period=200))),
+        _f("d", x(m("volume")), "gt", x(n(100000))),
+        _f("e", x(F("market_cap_cr")), "gt", x(n(10000))),
+        _f("g", x(F("y_eps")), "gt", x(n(20))),
+        _f("h", x(m("close"), "/", F("y_eps")), "gt", x(n(5))),
+        _f("i", x(m("close"), "/", F("y_eps")), "lt", x(n(25)))])))
+    W.append(Widget("dt_12y_high", "5518230", "12 Year High Breakout", "not_computed", "cash", lines=[
+        ("High ≥ Highest high of 3,000 (about 12 years of daily candles)", 0, False,
+         f"not computed — needs 3,000 sessions of history; {HISTORY_NOTE}")],
+        note=f"Not computed: this widget needs about 12 years of daily highs and {HISTORY_NOTE}."))
+    W.append(Widget("dt_52w_breakout", "5518228", "52 week high breakout", "scan", "cash", spec=_spec("dt_52wb", "cash", [
+        _f("a", x(m("close")), "gt", x(m("max", 1, source="high", period=240)))])))
+    W.append(Widget("dt_vol_price_breakout", "5518242", "High volume and price breakout stocks", "scan", "cash",
+                    spec=_spec("dt_vpb", "cash", [
+                        _f("a", x(m("volume")), "gt", x(m("sma", source="volume", period=20), "*", n(3))),
+                        _f("b", x(m("volume")), "gt", x(m("sma", source="volume", period=5), "*", n(3))),
+                        _f("c", x(m("close"), "-", m("close", 1), "/", m("close", 1)), "gt", x(n(0.01)))])))
+    W.append(Widget("dt_under_300", "5518245", "Stocks under 300", "scan", "cash", spec=_spec("dt_u300", "cash", [
+        _f("a", x(m("close")), "lt", x(n(300))),
+        _f("b", x(m("close")), "gt", x(n(30))),
+        _f("d", x(m("sma", source="close", period=50)), "gt", x(m("sma", source="close", period=200))),
+        _f("e", x(F("y_eps")), "gt", x(F("py_eps"))),
+        _f("g", x(F("y_eps")), "gt", x(n(50))),
+        _f("h", x(F("roce_pct")), "gt", x(n(20))),
+        _f("i", x(F("market_cap_cr")), "gt", x(n(1000)))]),
+        lines=[("Weekly SMA(close, 200) > 52 weeks ago Weekly SMA(close, 200)", 0, False,
+                f"not applied — needs 252 weeks of history; {HISTORY_NOTE}")],
+        partial_note=("The 200-week moving-average condition cannot be checked on our history (from April 2024); the list "
+                      "below passes the other conditions only.")))
+    W.append(Widget("dt_down10_large", "5518238", "10% down stock (market cap > ₹10,000 cr)", "scan", "fno",
+                    spec=_spec("dt_down10a", "fno", [
+                        _f("a", x(m("close")), "lt", x(m("close", 1, tf="1M"), "*", n(0.9))),
+                        _f("b", x(F("market_cap_cr")), "gt", x(n(10000))),
+                        _f("c", x(m("volume")), "gt", x(n(100000)))])))
+    W.append(Widget("dt_52w_high", "5518239", "52 week high stocks", "scan", "cash", spec=_spec("dt_52wh", "cash", [
+        _f("a", x(m("high")), "eq", x(m("max", source="high", period=260)))])))
+    W.append(Widget("dt_delivery_volume", "5518243", "Delivery % + Volume", "scan", "cash", spec=_spec("dt_delv", "cash", [
+        _f("a", x(m("volume")), "gt", x(m("volume", 1), "+", n(50000))),
+        _f("b", x(m("rsi", tf="1w", period=14)), "gte", x(n(69)))]),
+        note="Chartink's own conditions use no delivery figure; they are run as written."))
+    W.append(Widget("dt_high_momentum", "5518229", "High momentum stocks", "always_empty", "cash", lines=[
+        ("RSI(14) > 50", 0, True, None),
+        ("MACD line(26, 12, 9) > MACD signal(26, 12, 9)", 0, True, None),
+        ("CCI(20) > 0", 0, True, None),
+        ("Close > SMA(close, 200)", 0, True, None),
+        ("Close > EMA(close, 200)", 0, True, None),
+        ("RSI(14) > Highest RSI(14) of 3", 0, True,
+         "can never hold: the highest of the last 3 values includes today's, so RSI cannot be above it"),
+        ("Money flow index(14) > 60", 0, True, None),
+        ("Dividend > 0", 0, True, None),
+        ("Market cap (₹ cr) > 1,000", 0, True, None)],
+        note=("Always empty, on Chartink too: 'RSI(14) > highest RSI(14) of the last 3 days' can never hold because those "
+              "3 days include today.")))
+    W.append(Widget("dt_down10_all", "5518235", "10% down stock (all F&O)", "scan", "fno", spec=_spec("dt_down10b", "fno", [
+        _f("a", x(m("close")), "lt", x(m("close", 1, tf="1M"), "*", n(0.9)))])))
+    W.append(Widget("dt_swing_breakout", "5518244", "Swing trade breakout", "scan", "cash", spec=_spec("dt_swing", "cash", [
+        _f("a", x(m("close")), "gte", x(m("sma", source="close", period=30))),
+        _f("b", x(m("close")), "gte", x(m("sma", source="close", period=50))),
+        _f("c", x(m("close")), "gte", x(m("sma", source="close", period=100))),
+        _f("d", x(m("close")), "gte", x(m("sma", source="close", period=200))),
+        _f("e", x(F("y_eps")), "gt", x(F("py_eps"))),
+        _f("g", x(F("q_pat")), "gte", x(F("y_pat"))),
+        _f("h", x(F("market_cap_cr")), "gt", x(n(10000)))])))
+    atlas_10x = next(w for w in WIDGETS if w.id == "vol_10x_5min")
+    W.append(Widget("dt_vol_10x_5min", "5518247", atlas_10x.title, "scan", "cash", spec=atlas_10x.spec,
+                    intraday=atlas_10x.intraday, flow=atlas_10x.flow))
+    W.append(Widget("dt_breakout_15m", "5518246", "15 minute stock breakouts", "scan", "fno", spec=_spec("dt_b15", "fno", []),
+                    intraday=IntradayRule("15minute", 5, [("c0", "close", {}, 0),
+                                                          ("mx20", "max", {"source": "close", "period": 20}, 1),
+                                                          ("v0", "volume", {}, 0),
+                                                          ("smav20", "sma", {"source": "volume", "period": 20}, 0)],
+                                          ["Latest 15-minute Close > Highest 15-minute close of 20, as of the candle before",
+                                           "Latest 15-minute Volume > 15-minute SMA(volume, 20)"], _breakout15_test),
+                    universe_note=("Chartink runs this on its segment 57960, which is not published; here on F&O stocks "
+                                   "(owner, 3 Nov 2026)")))
+    return W
+
+
+DAYTRADE_WIDGETS = build_daytrade_widgets()
+
+
+@dataclass(frozen=True)
+class Dashboard:
+    key: str
+    title: str
+    chartink_id: str
+    attr: str                                       # the module-level widget list, read at run time (tests replace it)
+
+    @property
+    def widgets(self) -> List[Widget]:
+        return list(globals()[self.attr])
+
+    def meta(self) -> Dict[str, str]:
+        return {"key": self.key, "title": self.title, "chartink_id": self.chartink_id}
+
+
+# The study's top early indicator as a list of its own (early_movers.py; owner 3 Nov ~20:50 IST), not a Chartink widget.
+EARLY_WIDGETS = [Widget("early_movers", "", "Early movers: volume ≥ 5× usual and ≥ 2 % over the open", "early", "cash",
+                        note=None)]
+
+DASHBOARDS: Dict[str, Dashboard] = {
+    "atlas": Dashboard("atlas", "Atlas fresh", "247498", "WIDGETS"),
+    "daytrade": Dashboard("daytrade", "Day trade", "503347", "DAYTRADE_WIDGETS"),
+    "early": Dashboard("early", "Early movers", "", "EARLY_WIDGETS"),
+}
+DEFAULT_DASHBOARD = "atlas"
+
+
 # ── Criteria text, written from the definitions ─────────────────────────────────────────────────────────────────────
 
 _OP = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤", "eq": "=", "crosses_above": "crosses above", "crosses_below": "crosses below"}
@@ -358,7 +529,8 @@ def _group_lines(g: Dict[str, Any], level: int, out: List[Dict[str, Any]]) -> No
 def criteria_lines(w: Widget, intraday_applied: Optional[bool] = None, intraday_note: Optional[str] = None,
                    flow_applied: Optional[bool] = None, flow_note: Optional[str] = None) -> List[Dict[str, Any]]:
     """Every condition of `w`, one line each. Intraday lines carry applied/note from the run (None = not run yet)."""
-    out: List[Dict[str, Any]] = [{"text": f"Universe: {UNIVERSE_LABEL[w.universe]}", "level": 0, "applied": True, "note": None}]
+    out: List[Dict[str, Any]] = [{"text": f"Universe: {UNIVERSE_LABEL[w.universe]}", "level": 0, "applied": True,
+                                  "note": w.universe_note}]
     if w.spec is not None:
         _group_lines(w.spec["filters"], 0, out)
     if w.intraday is not None:
@@ -395,10 +567,13 @@ COLUMNS = {
     "groups_vol": [_col("group", "Marketcap", "text"), _col("net", "+-VOL", "number"), _col("pos", "Positive volume", "number"),
                    _col("neg", "Negative volume", "number")],
     "indices": [_col("symbol", "Symbol", "text"), _col("ltp", "Ltp", "price"), _col("chg", "% chg", "pct")],
+    "early": [_col("symbol", "Symbol", "text"), _col("over_open", "% over open", "pct"), _col("price", "Price", "price"),
+              _col("volume", "Volume", "volume"), _col("rvol", "Vol × usual", "number")],
     "not_computed": [],
 }
-ROW_KIND = {"scan": "symbol", "strong": "symbol", "groups_ad": "group", "groups_vol": "group", "indices": "index",
-            "not_computed": "symbol"}
+COLUMNS["always_empty"] = COLUMNS["scan"]
+ROW_KIND = {"early": "symbol", "scan": "symbol", "strong": "symbol", "groups_ad": "group", "groups_vol": "group", "indices": "index",
+            "not_computed": "symbol", "always_empty": "symbol"}
 
 
 def _r(v: Any, dp: int = 2) -> Optional[float]:
@@ -536,13 +711,16 @@ async def _apply_flow(w: Widget, order: List[int], symbols: Sequence[str], intra
     return True, None, kept
 
 
-async def compute(data: ScanData, *,
+async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
                   intraday_values: Optional[Callable[..., Awaitable[Any]]] = None,
                   index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
                   tick_flow: Optional[Callable[..., Awaitable[Any]]] = None,
                   now: Optional[Callable[[], datetime]] = None) -> Dict[str, Any]:
-    """The whole dashboard once. Raises DataUnavailable when prices cannot be read at all."""
+    """One dashboard (DASHBOARDS key) once. Raises DataUnavailable when prices cannot be read at all."""
     t0 = time.monotonic()
+    at = (now or (lambda: datetime.now(timezone.utc)))()
+    board = DASHBOARDS[dashboard]
+    widgets = board.widgets
     intraday_values = intraday_values or _default_intraday
     index_result = index_result or _default_indices
     tick_flow = tick_flow or _default_tick_flow
@@ -567,7 +745,7 @@ async def compute(data: ScanData, *,
     if results is not None:
         funds.update(SV.results_arrays(results, panel.symbols, overlay.day))
     run = _Run(panel, eligible, universes, funds, pos)
-    scans = [w for w in WIDGETS if w.spec is not None and not (w.uses_results and results is None)]
+    scans = [w for w in widgets if w.spec is not None and not (w.uses_results and results is None)]
     evaluated = await asyncio.to_thread(_evaluate_scans, scans, run)
 
     c0, c1 = panel.close[-1], panel.close[-2]
@@ -583,7 +761,7 @@ async def compute(data: ScanData, *,
 
     # Every widget's intraday request starts at once, so a first-read wait (a stock new to a list) is paid once, not per widget.
     intra_tasks: Dict[str, "asyncio.Task[Any]"] = {}
-    for w in WIDGETS:
+    for w in widgets:
         res = evaluated.get(w.id)
         if w.intraday is None or res is None or not res["order"]:
             continue
@@ -593,7 +771,7 @@ async def compute(data: ScanData, *,
             [panel.symbols[i] for i in order], w.intraday.interval, w.intraday.needs,
             lookback_days=w.intraday.lookback_days, live_prices=live))
 
-    for w in WIDGETS:
+    for w in widgets:
         item: Dict[str, Any] = {"id": w.id, "chartink_id": w.chartink_id, "title": w.title, "universe": UNIVERSE_LABEL[w.universe],
                                 "status": "ok", "note": w.note, "columns": COLUMNS[w.kind], "rows": [],
                                 "row_kind": ROW_KIND[w.kind], "count": 0, "as_of": basis_short}
@@ -601,11 +779,23 @@ async def compute(data: ScanData, *,
         intraday_note: Optional[str] = None
         flow_applied: Optional[bool] = None
         flow_note: Optional[str] = None
+        early_crit: List[Dict[str, Any]] = EM.criteria(at.astimezone(SIG.IST), False, None) if w.kind == "early" else []
         try:
             if w.kind == "not_computed":
                 item["status"] = "not_computed"
+            elif w.kind == "always_empty":
+                pass                                                     # no stock can pass (the note says why)
             elif w.kind in ("groups_ad", "groups_vol"):
                 item["rows"] = _group_rows(w.kind, run, groups)
+            elif w.kind == "early":
+                live_now = overlay.mode == "live" and bool(overlay.session_open)
+                share = EM.usual_share(at.astimezone(SIG.IST), live_now)
+                early_crit = EM.criteria(at.astimezone(SIG.IST), live_now, share)
+                if share is None:
+                    item["note"] = "The list starts at 09:30, the study's first evaluation step."
+                else:
+                    item["rows"] = EM.rows(list(panel.symbols), panel.open[-1], c0, v0, panel.volume[:-1],
+                                           eligible & universes["cash"], share)
             elif w.kind == "indices":
                 ir = await index_result(list(INDEX_NAMES))
                 rows = [[r.get("symbol"), _r((r.get("values") or [None])[0]), _r((r.get("values") or [None, None])[1])]
@@ -685,10 +875,18 @@ async def compute(data: ScanData, *,
                     item["rows"] = rows
                 else:
                     item["rows"] = [[panel.symbols[i], _r(values[i][0]), _r(values[i][1]), _vol(values[i][2])] for i in order]
+                matched = int((res.get("counts") or {}).get("matched") or 0)
+                if w.intraday is None and w.flow is None and matched > len(item["rows"]):
+                    capped = f"{matched:,} stocks pass; the {len(item['rows'])} with the largest % change are shown."
+                    item["note"] = f"{item['note']} {capped}" if item.get("note") else capped
+                if w.partial_note:
+                    item["status"] = "partial"
+                    item["note"] = f"{w.partial_note} {item['note']}" if item.get("note") else w.partial_note
         except Exception:  # noqa: BLE001 — one widget failing must not blank the dashboard; logged with its trace
             logger.exception("market dashboard: widget %s failed", w.id)
             item.update(status="error", rows=[], note="This widget could not be computed just now; it retries on the next refresh.")
-        item["criteria"] = criteria_lines(w, intraday_applied, intraday_note, flow_applied, flow_note)
+        item["criteria"] = (early_crit if w.kind == "early" else
+                            criteria_lines(w, intraday_applied, intraday_note, flow_applied, flow_note))
         item["count"] = len(item["rows"])
         out_widgets.append(item)
 
@@ -697,7 +895,6 @@ async def compute(data: ScanData, *,
 
     # Early signals (signals.py): record the stocks newly in a fully applied list, only on live data in the session; then
     # today's list with each stock's price now.
-    at = (now or (lambda: datetime.now(timezone.utc)))()
     recording = overlay.mode == "live" and bool(overlay.session_open)
     if recording:
         try:
@@ -718,6 +915,8 @@ async def compute(data: ScanData, *,
     used_rest = bool(overlay.counts.get("rest_quotes"))
     return {
         "ok": True,
+        "dashboard": board.meta(),
+        "dashboards": [b.meta() for b in DASHBOARDS.values()],
         "run_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "elapsed_ms": int((time.monotonic() - t0) * 1000),
         "cached": False,
@@ -783,13 +982,24 @@ async def attach_ideas(dash: Dict[str, Any], user_id: str, *,
     return out
 
 
-_cache: Dict[str, Any] = {"at": float("-inf"), "value": None}
-_lock = asyncio.Lock()
+_caches: Dict[str, Dict[str, Any]] = {k: {"at": float("-inf"), "value": None} for k in DASHBOARDS}
+_cache = _caches[DEFAULT_DASHBOARD]                  # the atlas dashboard's entry (kept under its old name)
+_locks: Dict[str, asyncio.Lock] = {}
 
 
-async def get_dashboard(data: ScanData, *, clock: Callable[[], float] = time.monotonic, **kw: Any) -> Dict[str, Any]:
-    """The dashboard, computed at most once per CACHE_S per worker (single flight); a failed refresh serves the last good
-    answer for up to STALE_OK_S with a warning, else raises DataUnavailable."""
+def reset_caches() -> None:
+    for c in _caches.values():
+        c.update(at=float("-inf"), value=None)
+
+
+async def get_dashboard(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD, clock: Callable[[], float] = time.monotonic,
+                        **kw: Any) -> Dict[str, Any]:
+    """One dashboard (DASHBOARDS key; KeyError for another), computed at most once per CACHE_S per worker (single flight, per
+    dashboard); a failed refresh serves the last good answer for up to STALE_OK_S with a warning, else raises DataUnavailable."""
+    if dashboard not in DASHBOARDS:
+        raise KeyError(dashboard)
+    _cache = _caches[dashboard]
+    _lock = _locks.setdefault(dashboard, asyncio.Lock())
     v = _cache["value"]
     if v is not None and clock() - _cache["at"] < CACHE_S:
         return {**v, "cached": True}
@@ -798,7 +1008,7 @@ async def get_dashboard(data: ScanData, *, clock: Callable[[], float] = time.mon
         if v is not None and clock() - _cache["at"] < CACHE_S:
             return {**v, "cached": True}
         try:
-            fresh = await compute(data, **kw)
+            fresh = await compute(data, dashboard=dashboard, **kw)
         except DataUnavailable as e:
             if v is not None and clock() - _cache["at"] < STALE_OK_S:
                 logger.warning("market dashboard: refresh failed (%s); serving the answer from %.0f s ago", e.message,

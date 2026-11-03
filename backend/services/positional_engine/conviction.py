@@ -125,10 +125,10 @@ def _penalties(features: Dict[str, Optional[float]],
             ext_pct = (live_ltp - entry) / entry * 100.0
             if ext_pct > 15.0:
                 out.append({"name": "extended_chasing", "points": -25,
-                            "reason": f"Already {ext_pct:.1f}% past entry — chasing"})
+                            "reason": f"Already {ext_pct:.1f}% past the reference price — chasing"})
             elif ext_pct > 8.0:
                 out.append({"name": "extended_late", "points": -15,
-                            "reason": f"Already {ext_pct:.1f}% past entry — late"})
+                            "reason": f"Already {ext_pct:.1f}% past the reference price — late"})
 
     # Overbought RSI
     rsi_v = features.get("rsi_14")

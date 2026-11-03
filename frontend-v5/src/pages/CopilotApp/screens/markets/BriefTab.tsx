@@ -42,7 +42,7 @@ export function BriefTab() {
         {picker}
         <EmptyBlock
           title="No brief for this day yet"
-          body="The Daily Iris Update is written after the market data refreshes. Pick an earlier day, or check back shortly."
+          body="The Daily Iris Update is written after the market data refreshes. Choose an earlier day, or check back shortly."
         />
       </>
     );

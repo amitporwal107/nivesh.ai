@@ -357,9 +357,9 @@ def test_ob7_levels_the_users_stop_distance_loss_at_the_stop_and_expiry(w):
     assert "Set by you" in lv["EXIDEIND"]["tips"]["stop"] and "Never the price falling to zero" in lv["EXIDEIND"]["tips"]["risk"]
     assert lv["SWIGGY"]["cells"]["to_stop"] == round((181.0 - 170.0) / 181.0 * 100, 2)         # shares with a put under them are LONG: the stop faces down
     assert not any(w_["code"] == "stop_breached" for w_ in [])                                    # (kept explicit below via the commentary)
-    assert not any("past your stop" in i["text"] for i in blk(p, "commentary")["items"])
-    assert lv["SWIGGY"]["cells"]["expiry"].endswith("24d") and lv["ADANIPORTS"]["cells"]["stop"] == "No stop set"
-    assert lv["ADANIPORTS"]["cells"]["risk"] == "No stop set"                    # no stop → no loss figure, and never a to-zero one
+    assert not any("past your risk level" in i["text"] for i in blk(p, "commentary")["items"])
+    assert lv["SWIGGY"]["cells"]["expiry"].endswith("24d") and lv["ADANIPORTS"]["cells"]["stop"] == "No risk level set"
+    assert lv["ADANIPORTS"]["cells"]["risk"] == "No risk level set"                    # no stop → no loss figure, and never a to-zero one
     risks = [r["cells"]["risk"] for r in blk(p, "levels")["rows"] if isinstance(r["cells"]["risk"], (int, float))]
     assert risks and all(abs(x) < 50000 for x in risks)                         # no "stock to zero" loss (EXIDEIND 500 × 381 = 190,500)
 
@@ -401,7 +401,7 @@ def test_ob9_the_plan_the_user_recorded_supplies_levels_when_it_points_the_same_
 def test_ob9b_a_plan_that_points_the_other_way_is_a_conflict_not_a_level(w):
     w.plan("EXIDEIND", direction="bearish", stop=450.0, entry=400.0, target=350.0)
     p = w.build()
-    assert cells(p, "levels")["EXIDEIND"]["cells"]["stop"] == "No stop set"
+    assert cells(p, "levels")["EXIDEIND"]["cells"]["stop"] == "No risk level set"
     texts = [i["text"] for i in blk(p, "commentary")["items"]]
     assert any("is bearish, but this position is long" in t for t in texts)
 
@@ -409,7 +409,7 @@ def test_ob9b_a_plan_that_points_the_other_way_is_a_conflict_not_a_level(w):
 def test_ob9c_a_plan_only_the_system_built_is_not_the_users_plan(w):
     w.plan("EXIDEIND", owners=("system:ai_watchlist",))
     p = w.build()
-    assert cells(p, "levels")["EXIDEIND"]["cells"]["stop"] == "No stop set"
+    assert cells(p, "levels")["EXIDEIND"]["cells"]["stop"] == "No risk level set"
     assert any("No plan of yours is on record for" in i["text"] and "EXIDEIND" in i["text"] for i in blk(p, "commentary")["items"])
 
 
@@ -600,7 +600,7 @@ def test_ob19_the_commentary_reaches_the_model_and_nothing_is_cut(w):
     p = w.build()
     f = facts(p)
     assert "[facts cut]" not in f and len(f) < FACTS_MAX
-    assert "Checks against your stops and plans" in f and "EXIDEIND:" in f
+    assert "Checks against your risk levels and plans" in f and "EXIDEIND:" in f
     for it in blk(p, "commentary")["items"]:
         assert it["text"] in f
     said = " ".join(i["text"] for i in blk(p, "commentary")["items"]).lower()

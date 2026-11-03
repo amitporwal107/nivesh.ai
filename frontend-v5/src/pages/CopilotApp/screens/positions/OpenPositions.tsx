@@ -53,15 +53,15 @@ function headline(book: PositionsBook): { title: ReactNode; sub: string } {
   if (s.positions === 0) {
     return { title: "No open positions", sub: "Nothing is open at your connected brokers or on the paper desk right now." };
   }
-  const risk = s.open_risk_at_stops_rs != null ? `Open risk at your stops is ${fmtINR(s.open_risk_at_stops_rs)}.` : "";
-  const noStop = s.without_stop ? ` ${plural(s.without_stop, "group has", "groups have")} no stop set.` : "";
+  const risk = s.open_risk_at_stops_rs != null ? `Open risk at your risk levels is ${fmtINR(s.open_risk_at_stops_rs)}.` : "";
+  const noStop = s.without_stop ? ` ${plural(s.without_stop, "group has", "groups have")} no risk level set.` : "";
   if (s.stop_breached) {
-    return { title: <>{plural(s.stop_breached, "position is", "positions are")} <em style={{ color: "var(--cp-danger)" }}>past their stops</em>.</>, sub: `${risk}${noStop}`.trim() };
+    return { title: <>{plural(s.stop_breached, "position is", "positions are")} <em style={{ color: "var(--cp-danger)" }}>past their risk levels</em>.</>, sub: `${risk}${noStop}`.trim() };
   }
   if (s.near_stop) {
-    return { title: <>{plural(s.near_stop, "position is", "positions are")} <em style={{ color: "var(--amber)" }}>near their stops</em>.</>, sub: `${risk}${noStop}`.trim() };
+    return { title: <>{plural(s.near_stop, "position is", "positions are")} <em style={{ color: "var(--amber)" }}>near their risk levels</em>.</>, sub: `${risk}${noStop}`.trim() };
   }
-  return { title: <>{plural(s.groups, "open position")}, <em>none near a stop</em>.</>, sub: `${risk}${noStop}`.trim() };
+  return { title: <>{plural(s.groups, "open position")}, <em>none near a risk level</em>.</>, sub: `${risk}${noStop}`.trim() };
 }
 
 // ── sources ──────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ function GroupsTable({ groups, open, onOpen, testId }: { groups: PositionGroup[]
         <span data-testid="positions-row" data-key={g.key} data-open={open === g.key} className="flex items-center" style={{ gap: 8 }}>
           <StockName symbol={g.underlying} sub={g.label ?? (g.legs.length === 1 ? g.legs[0].label : `${g.kind === "fno" ? "F&O" : "Shares"} · ${plural(g.legs.length, "leg")}`)} size={24} />
           {g.warnings.some((w) => w.code === "stop_breached" || w.code === "near_stop") && (
-            <span data-testid="positions-row-flag" style={{ color: "var(--amber)" }} aria-label="near or past its stop">●</span>
+            <span data-testid="positions-row-flag" style={{ color: "var(--amber)" }} aria-label="near or past its risk level">●</span>
           )}
         </span>
       ),
@@ -112,8 +112,8 @@ function GroupsTable({ groups, open, onOpen, testId }: { groups: PositionGroup[]
     { key: "avg", header: "Avg", align: "right", num: true, render: (g) => (g.legs.length === 1 ? fmtPrice(g.legs[0].avg_price) : "—") },
     { key: "ltp", header: "LTP", align: "right", num: true, render: (g) => fmtPrice(g.price.spot) },
     { key: "pnl", header: "P&L", align: "right", num: true, render: (g) => toned(money(g.pnl_rs), signTone(g.pnl_rs)) },
-    { key: "stop", header: "Stop", align: "right", num: true, render: (g) => fmtPrice(g.levels?.effective_stop ?? null) },
-    { key: "target", header: "Target", align: "right", num: true, render: (g) => fmtPrice(g.levels?.target ?? null) },
+    { key: "stop", header: "Risk level", align: "right", num: true, render: (g) => fmtPrice(g.levels?.effective_stop ?? null) },
+    { key: "target", header: "Reward level", align: "right", num: true, render: (g) => fmtPrice(g.levels?.target ?? null) },
     { key: "risk", header: "Risk left", align: "right", num: true, render: (g) => fmtINR(g.analytics?.payoff?.risk_to_stop_rs ?? null) },
   ];
   return (
@@ -148,10 +148,10 @@ function RiskLine({ g }: { g: PositionGroup }) {
   let risk: ReactNode;
   if (p.risk_basis === "stop") {
     risk = p.loss_at_stop_rs != null
-      ? <>Loss at your stop: <strong data-testid="positions-loss-at-stop">{fmtINR(p.loss_at_stop_rs)}</strong> (stop {fmtPrice(stop)})</>
-      : <span data-testid="positions-loss-at-stop-none">Set a stop to see the loss at the stop. A to-zero figure is not shown for shares or a long future.</span>;
+      ? <>Loss at your risk level: <strong data-testid="positions-loss-at-stop">{fmtINR(p.loss_at_stop_rs)}</strong> (risk level {fmtPrice(stop)})</>
+      : <span data-testid="positions-loss-at-stop-none">Set a risk level to see the loss at the risk level. A to-zero figure is not shown for shares or a long future.</span>;
   } else {
-    risk = <>Max loss at expiry: <strong data-testid="positions-max-loss">{fmtINR(p.max_loss != null ? -p.max_loss : null)}</strong>{p.loss_at_stop_rs != null ? <> · at your stop {fmtINR(p.loss_at_stop_rs)}</> : null}</>;
+    risk = <>Max loss at expiry: <strong data-testid="positions-max-loss">{fmtINR(p.max_loss != null ? -p.max_loss : null)}</strong>{p.loss_at_stop_rs != null ? <> · at your risk level {fmtINR(p.loss_at_stop_rs)}</> : null}</>;
   }
   const be = p.breakevens.filter((b): b is number => b != null);
   return (
@@ -159,7 +159,7 @@ function RiskLine({ g }: { g: PositionGroup }) {
       <span>{risk}</span>
       <span className="cp-mono-note">
         Max profit {p.profit_unbounded ? "not capped" : fmtINR(p.max_profit)} · breakeven {be.length ? be.map((b) => fmtNum(b, 2)).join(", ") : "—"}
-        {g.analytics?.distance_to_stop_pct != null ? ` · ${fmtPct(g.analytics.distance_to_stop_pct)} from the stop` : ""}
+        {g.analytics?.distance_to_stop_pct != null ? ` · ${fmtPct(g.analytics.distance_to_stop_pct)} from the risk level` : ""}
       </span>
     </div>
   );
@@ -228,7 +228,7 @@ function LevelsForm({ g }: { g: PositionGroup }) {
   const [target, setTarget] = useState(lv?.target != null ? String(lv.target) : "");
   const [trail, setTrail] = useState(lv?.trail_pct != null ? String(lv.trail_pct) : "");
   if (g.source === "paper") {
-    return <p className="m-0" style={{ fontSize: 13, color: "var(--cp-ink-3)" }} data-testid="positions-levels-paper">The stop and target are the paper trade’s own. Change them on the desk’s Paper trades.</p>;
+    return <p className="m-0" style={{ fontSize: 13, color: "var(--cp-ink-3)" }} data-testid="positions-levels-paper">The risk level and reward level are the paper trade’s own. Change them on the desk’s Paper trades.</p>;
   }
   const num = (s: string) => (s.trim() === "" ? null : Number(s));
   const body = { underlying: g.underlying, stop: num(stop), target: num(target), trail_pct: num(trail) };
@@ -241,10 +241,10 @@ function LevelsForm({ g }: { g: PositionGroup }) {
       style={{ gap: 10 }}
       onSubmit={(e) => { e.preventDefault(); if (!bad) save.mutate(body); }}
     >
-      <label className="flex flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>Stop (underlying)
+      <label className="flex flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>Risk level (underlying)
         <input data-testid="positions-stop-input" inputMode="decimal" value={stop} onChange={(e) => setStop(e.target.value)} style={{ ...INPUT_STYLE, width: 120 }} />
       </label>
-      <label className="flex flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>Target
+      <label className="flex flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>Reward level
         <input data-testid="positions-target-input" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} style={{ ...INPUT_STYLE, width: 120 }} />
       </label>
       <label className="flex flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>Trail %
@@ -254,7 +254,7 @@ function LevelsForm({ g }: { g: PositionGroup }) {
       {lv && <Btn data-testid="positions-levels-remove" disabled={del.isPending} onClick={() => del.mutate(g.underlying)}>Remove</Btn>}
       <span className="cp-mono-note" style={{ flexBasis: "100%" }}>
         Your own levels, kept by Nivesh: brokers send none, and nothing is sent to the broker.
-        {lv?.trail_pct ? ` Trailing ${fmtNum(lv.trail_pct, 1)}%: the stop in force is ${fmtPrice(lv.effective_stop)}.` : ""}
+        {lv?.trail_pct ? ` Trailing ${fmtNum(lv.trail_pct, 1)}%: the risk level in force is ${fmtPrice(lv.effective_stop)}.` : ""}
       </span>
       {bad && <span role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Each level must be a number above zero.</span>}
       {err && <span role="alert" data-testid="positions-levels-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>{err.message ?? "The levels were not saved."}</span>}
@@ -305,7 +305,7 @@ function GroupDetail({ g }: { g: PositionGroup }) {
         <LevelsForm key={`${g.key}-${g.levels?.updated_at ?? "none"}`} g={g} />
         <MarginLine g={g} />
         <AskChips items={[
-          `Should I trail the stop on my ${label}?`,
+          `How would a trailing risk level work on my ${label}?`,
           ...(g.kind === "fno" ? [`Show the effect of IV rising 3 points on my ${label}`] : []),
         ]} />
       </div>
@@ -327,10 +327,10 @@ function Body({ book }: { book: PositionsBook }) {
   const tiles: TileItem[] = [
     { k: "Unrealised P&L", v: <span data-testid="positions-unrealised">{toned(money(s.unrealised_pnl_rs), signTone(s.unrealised_pnl_rs))}</span>,
       s: s.unrealised_partial ? "Not every position has a P&L" : "Broker’s figures, paper marks" },
-    { k: "Open risk at stops", v: <span data-testid="positions-open-risk">{fmtINR(s.open_risk_at_stops_rs)}</span>,
-      s: s.without_stop ? `${plural(s.without_stop, "group")} without a stop` : "Loss if every stop is hit" },
+    { k: "Open risk at risk levels", v: <span data-testid="positions-open-risk">{fmtINR(s.open_risk_at_stops_rs)}</span>,
+      s: s.without_stop ? `${plural(s.without_stop, "group")} without a risk level` : "Loss if every risk level is hit" },
     { k: "Exposure", v: fmtINR(s.exposure_rs, { compact: true }), s: "Shares and futures, at their prices" },
-    { k: "Near a stop", v: <span data-testid="positions-near">{fmtNum(s.near_stop + s.stop_breached)}</span>,
+    { k: "Near a risk level", v: <span data-testid="positions-near">{fmtNum(s.near_stop + s.stop_breached)}</span>,
       s: `within ${fmtNum(book.method.near_stop_pct, 0)}% or past it`, tone: s.near_stop + s.stop_breached ? "amber" : "ink" },
     { k: "Day realised", v: <span data-testid="positions-day-realised">—</span>, s: <span title={s.day_realised_note}>Brokers don’t separate it</span> },
   ];
@@ -350,7 +350,7 @@ function Body({ book }: { book: PositionsBook }) {
           </div>}
       </Section>
       {openGroup && openGroup.source === "broker" && <GroupDetail key={openGroup.key} g={openGroup} />}
-      <Section title="Paper positions · desk" note={s.paper_waiting_entry ? `${plural(s.paper_waiting_entry, "trade")} still waiting for its entry` : undefined} flush>
+      <Section title="Paper positions · desk" note={s.paper_waiting_entry ? `${plural(s.paper_waiting_entry, "trade")} still waiting for its reference price` : undefined} flush>
         {paper.length ? <GroupsTable groups={paper} open={open} onOpen={toggle} testId="positions-paper-table" /> :
           <div style={{ padding: 16, fontSize: 13, color: "var(--cp-ink-3)" }} data-testid="positions-paper-empty">No open paper positions.</div>}
       </Section>
@@ -390,7 +390,7 @@ export default function OpenPositionsScreen() {
       </div>
       <Footnote>
         <span data-testid="positions-read-only">{q.data?.note ?? "Nivesh reads positions; it cannot place orders."}</span>{" "}
-        Payoff, scenarios and the loss at a stop are gross, before brokerage, taxes and slippage. {SEBI_FNO_NOTE}
+        Payoff, scenarios and the loss at a risk level are gross, before brokerage, taxes and slippage. {SEBI_FNO_NOTE}
       </Footnote>
     </Screen>
   );

@@ -72,7 +72,7 @@ const DEFAULT_BROKERAGE = "20";
 /** Sessions the gap-risk check looks back over (about 3 months). */
 const GAP_SESSIONS = 63;
 
-const STOP_NOTE = "A stop does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, so the loss can be larger than shown.";
+const STOP_NOTE = "A risk level does not guarantee the closing price: a gap or thin trading can fill the close beyond the risk level, so the loss can be larger than shown.";
 
 const pct1 = (p: number | null | undefined) => (p == null ? "—" : fmtPct(p * 100, { digits: 1 }));
 const crText = (cr: number) => `₹${fmtNum(cr, cr >= 100 ? 0 : 1)} Cr`;
@@ -339,9 +339,9 @@ function readFields(f: Fields): { inputs: Omit<ScenarioInputs, "portfolioValue" 
     }
     return n;
   };
-  const entry = pos("entry", "an entry price", true);
-  const stop = pos("stop", "a stop price", true);
-  const target = pos("target", "the target", false);
+  const entry = pos("entry", "a reference price", true);
+  const stop = pos("stop", "a risk level", true);
+  const target = pos("target", "the reward level", false);
   const capital = pos("capital", "the capital", true);
   const riskPct = pos("riskPct", "the risk per trade", true);
   const maxAlloc = pos("maxAllocPct", "the maximum allocation", true);
@@ -446,9 +446,9 @@ function ScenarioEditor({ st, setup }: { st: ScenarioState; setup: DeskSetup | n
   return (
     <div data-testid="desk-scn-editor" className="flex flex-col" style={{ gap: 10 }}>
       <div style={grid}>
-        <ScenarioField k="entry" label={plain ? "Buy at ₹" : "Entry ₹"} value={f.entry} onChange={(v) => st.set("entry", v)} problem={fieldProblem("entry")} />
-        <ScenarioField k="stop" label={plain ? "Exit if wrong ₹" : "Stop ₹"} value={f.stop} onChange={(v) => st.set("stop", v)} problem={fieldProblem("stop")} />
-        <ScenarioField k="target" label="Target ₹" value={f.target} onChange={(v) => st.set("target", v)} problem={fieldProblem("target")} hint="Optional" />
+        <ScenarioField k="entry" label="Reference price ₹" value={f.entry} onChange={(v) => st.set("entry", v)} problem={fieldProblem("entry")} />
+        <ScenarioField k="stop" label="Risk level ₹" value={f.stop} onChange={(v) => st.set("stop", v)} problem={fieldProblem("stop")} />
+        <ScenarioField k="target" label="Reward level ₹" value={f.target} onChange={(v) => st.set("target", v)} problem={fieldProblem("target")} hint="Optional" />
       </div>
       <div style={grid}>
         <ScenarioField k="capital" label={plain ? "Money you have ₹" : "Capital ₹"} value={f.capital} onChange={(v) => st.set("capital", v)} problem={fieldProblem("capital") ?? fieldProblem("risk" as FieldKey)} />
@@ -499,17 +499,17 @@ function ScenarioOutputs({ st }: { st: ScenarioState }) {
   const o = s.outcomes;
   return (
     <ul data-testid="desk-scn-out" data-current={st.current} className="m-0 flex flex-col" style={{ padding: 0, listStyle: "none", opacity: st.current ? 1 : 0.6 }}>
-      <OutRow testId="desk-scn-out-down" k="Downside a share (entry − stop)" v={fmtPrice(ps?.risk ?? null)} />
-      <OutRow testId="desk-scn-out-up" k="Upside a share (target − entry)" v={fmtPrice(ps?.reward ?? null)} sub={ps?.reward == null ? "No target entered." : undefined} />
+      <OutRow testId="desk-scn-out-down" k="Risk a share (reference price − risk level)" v={fmtPrice(ps?.risk ?? null)} />
+      <OutRow testId="desk-scn-out-up" k="Reward a share (reward level − reference price)" v={fmtPrice(ps?.reward ?? null)} sub={ps?.reward == null ? "No reward level entered." : undefined} />
       <OutRow testId="desk-scn-out-rr" k="Reward : risk" v={rrText(ps?.reward_to_risk ?? null)} />
       <OutRow testId="desk-scn-out-qty" k="Illustrative quantity" v={z ? `${fmtNum(z.quantity)} shares` : "—"} sub={z ? `Limited by ${BINDING[z.binding] ?? z.binding}: risk budget ${fmtINR(z.risk_budget)} → ${fmtNum(z.qty_by_risk)} shares${z.qty_by_allocation != null ? `; ${fmtNum(z.max_alloc_pct)}% cap → ${fmtNum(z.qty_by_allocation)}` : ""}${z.qty_by_max != null ? `; max ${fmtNum(z.qty_by_max)}` : ""}${z.lot_size > 1 ? `; lots of ${fmtNum(z.lot_size)}` : ""}.` : undefined} />
       <OutRow testId="desk-scn-out-gross" k="Gross exposure" v={z ? fmtINR(z.gross_exposure) : "—"} sub={z?.allocation_pct != null ? `${fmtPct(z.allocation_pct, { digits: 1 })} of capital` : undefined} />
-      <OutRow testId="desk-scn-out-costs" k="Estimated costs · round trip" v={c ? `${fmtINR(c.round_trip_at_stop)} at the stop · ${c.round_trip_at_target != null ? `${fmtINR(c.round_trip_at_target)} at the target` : "no target"}` : "—"}
+      <OutRow testId="desk-scn-out-costs" k="Estimated costs · round trip" v={c ? `${fmtINR(c.round_trip_at_stop)} at the risk level · ${c.round_trip_at_target != null ? `${fmtINR(c.round_trip_at_target)} at the reward level` : "no reward level"}` : "—"}
         sub={c?.breakdown_at_stop
-          ? `At the stop: ${costsBreakdownText(readCostsBreakdown(c.breakdown_at_stop), (n) => fmtPrice(n))}. ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side is a desk assumption, not a broker's tariff; ${plainNum(s.cost_model.slippage_pct_per_side)}% slippage a side also covers the spread; DP charges and income tax are not included (${s.cost_model.version ?? "desk cost card"}).`
+          ? `At the risk level: ${costsBreakdownText(readCostsBreakdown(c.breakdown_at_stop), (n) => fmtPrice(n))}. ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side is a desk assumption, not a broker's tariff; ${plainNum(s.cost_model.slippage_pct_per_side)}% slippage a side also covers the spread; DP charges and income tax are not included (${s.cost_model.version ?? "desk cost card"}).`
           : `${plainNum(s.cost_model.slippage_pct_per_side)}% slippage + ₹${fmtNum(s.cost_model.brokerage_inr_per_side)} brokerage a side; taxes not included.`} />
-      <OutRow testId="desk-scn-out-loss" k="Loss at the stop" v={o ? `−${fmtINR(o.loss_at_stop_net)} after costs` : "—"} sub={o ? `−${fmtINR(o.loss_at_stop)} before costs` : undefined} />
-      <OutRow testId="desk-scn-out-profit" k="Profit at the target" v={o?.profit_at_target_net != null ? `${fmtINR(o.profit_at_target_net, { signed: true })} after costs` : "—"} sub={o?.profit_at_target != null ? `${fmtINR(o.profit_at_target, { signed: true })} before costs` : "No target entered."} />
+      <OutRow testId="desk-scn-out-loss" k="Loss at risk level" v={o ? `−${fmtINR(o.loss_at_stop_net)} after costs` : "—"} sub={o ? `−${fmtINR(o.loss_at_stop)} before costs` : undefined} />
+      <OutRow testId="desk-scn-out-profit" k="Profit at reward level" v={o?.profit_at_target_net != null ? `${fmtINR(o.profit_at_target_net, { signed: true })} after costs` : "—"} sub={o?.profit_at_target != null ? `${fmtINR(o.profit_at_target, { signed: true })} before costs` : "No reward level entered."} />
       {s.warnings.map((w) => <li key={w.code} data-testid={`desk-scn-warn-${w.code}`} style={{ fontSize: 12, color: "var(--amber)", paddingTop: 4 }}>{w.message}</li>)}
     </ul>
   );
@@ -531,13 +531,13 @@ function RangeBar({ entry, stop, target, ltp, live, plain }: { entry: number; st
     else if (rr != null && target != null) at = Math.min(1, red + ((ltp - entry) / (target - entry)) * (1 - red));
     else at = 1;
   }
-  const where = ltp == null ? "" : ltp < stop ? " · below the stop" : target != null && ltp > target ? " · above the target" : target == null && ltp > entry ? " · above the entry" : "";
+  const where = ltp == null ? "" : ltp < stop ? " · below the risk level" : target != null && ltp > target ? " · above the reward level" : target == null && ltp > entry ? " · above the reference price" : "";
   return (
     <div data-testid="desk-risk-bar" className="flex flex-col" style={{ gap: 8 }}>
       <div style={{ position: "relative", paddingTop: ltp != null ? 16 : 0 }}>
         <div className="flex" style={{ height: 10, borderRadius: 999, overflow: "hidden", gap: 2 }}>
-          <div title="Risk: entry to stop" style={{ flex: 1, background: "var(--cp-danger-soft)", border: "1px solid var(--danger-line)", borderRadius: rr != null ? "999px 0 0 999px" : 999 }} />
-          {rr != null && <div title="Reward: entry to target" style={{ flex: rr, background: "var(--mint-soft)", border: "1px solid var(--mint-line)", borderRadius: "0 999px 999px 0" }} />}
+          <div title="Risk: reference price to risk level" style={{ flex: 1, background: "var(--cp-danger-soft)", border: "1px solid var(--danger-line)", borderRadius: rr != null ? "999px 0 0 999px" : 999 }} />
+          {rr != null && <div title="Reward: reference price to reward level" style={{ flex: rr, background: "var(--mint-soft)", border: "1px solid var(--mint-line)", borderRadius: "0 999px 999px 0" }} />}
         </div>
         {ltp != null && at != null && (
           <div
@@ -555,10 +555,10 @@ function RangeBar({ entry, stop, target, ltp, live, plain }: { entry: number; st
         )}
       </div>
       <div className="flex flex-wrap items-baseline" style={{ gap: "2px 12px" }}>
-        <span data-testid="desk-risk-stop" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-danger)" }}>{plain ? "Exit if wrong" : "Stop"} {fmtPrice(stop)}</span>
-        <span data-testid="desk-risk-entry" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-ink-2)" }}>{plain ? "Buy above" : "Entry"} {fmtPrice(entry)}</span>
+        <span data-testid="desk-risk-stop" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-danger)" }}>Risk level {fmtPrice(stop)}</span>
+        <span data-testid="desk-risk-entry" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-ink-2)" }}>Reference price {fmtPrice(entry)}</span>
         <span data-testid="desk-risk-target" className="cp-eyebrow" style={{ fontSize: 9.5, marginLeft: "auto", color: target != null ? "var(--mint)" : "var(--cp-ink-4)" }}>
-          {target != null ? `Target ${fmtPrice(target)}` : "No target"}
+          {target != null ? `Reward level ${fmtPrice(target)}` : "No reward level"}
         </span>
       </div>
     </div>
@@ -577,21 +577,21 @@ function riskChecks(st: ScenarioState, setup: DeskSetup | null, bars: DailyBar[]
   const capital = st.sent?.capital ?? null;
   const out: RiskCheck[] = [];
   out.push(z && o
-    ? { key: "size", label: plain ? "Size" : "Position size", tone: "mint", text: <>{fmtINR(z.risk_budget)} at risk ({plainNum(st.sent?.riskPct)}% of {fmtINR(capital)}); {plain ? "if wrong you lose" : "max loss"} {fmtINR(o.loss_at_stop_net)} at the {plain ? "exit" : "stop"} after costs.</> }
-    : { key: "size", label: plain ? "Size" : "Position size", tone: "na", text: z ? "— The risk budget fits no whole share." : "— Needs an entry with a stop below it, a capital and a risk per trade." });
+    ? { key: "size", label: plain ? "Size" : "Position size", tone: "mint", text: <>{fmtINR(z.risk_budget)} at risk ({plainNum(st.sent?.riskPct)}% of {fmtINR(capital)}); {plain ? "if wrong you lose" : "max loss"} {fmtINR(o.loss_at_stop_net)} at the risk level after costs.</> }
+    : { key: "size", label: plain ? "Size" : "Position size", tone: "na", text: z ? "— The risk budget fits no whole share." : "— Needs a reference price with a risk level below it, a capital and a risk per trade." });
   if (pf && z && z.quantity > 0) {
     const limit = z.max_alloc_pct;
     const over = pf.stock_weight_after_pct > limit;
     out.push({
       key: "concentration", label: plain ? "One-stock share" : "Concentration", tone: over ? "amber" : "mint",
-      text: <>{fmtPct(pf.stock_weight_after_pct, { digits: 1 })} of your portfolio after the buy ({fmtPct(pf.stock_weight_before_pct, { digits: 1 })} now){over ? `, above the ${fmtNum(limit)}% limit` : `, within the ${fmtNum(limit)}% limit`}.</>,
+      text: <>{fmtPct(pf.stock_weight_after_pct, { digits: 1 })} of your portfolio after this position ({fmtPct(pf.stock_weight_before_pct, { digits: 1 })} now){over ? `, above the ${fmtNum(limit)}% limit` : `, within the ${fmtNum(limit)}% limit`}.</>,
     });
   } else if (z && z.quantity > 0 && z.allocation_pct != null) {
     const capped = z.binding === "max_allocation";
     out.push({
       key: "concentration", label: plain ? "One-stock share" : "Concentration", tone: capped ? "amber" : "mint",
       text: capped
-        ? <>The {fmtNum(z.max_alloc_pct)}% single-stock limit caps it at {fmtNum(z.quantity)} shares ({fmtPct(z.allocation_pct, { digits: 1 })} of capital); the risk budget alone would buy {fmtNum(z.qty_by_risk)}.</>
+        ? <>The {fmtNum(z.max_alloc_pct)}% single-stock limit caps it at {fmtNum(z.quantity)} shares ({fmtPct(z.allocation_pct, { digits: 1 })} of capital); the risk budget alone would allow {fmtNum(z.qty_by_risk)}.</>
         : <>{fmtPct(z.allocation_pct, { digits: 1 })} of capital, within the {fmtNum(z.max_alloc_pct)}% single-stock limit.</>,
     });
   } else {
@@ -607,7 +607,7 @@ function riskChecks(st: ScenarioState, setup: DeskSetup | null, bars: DailyBar[]
     const big = stopDist != null && Math.abs(gap.pct) >= stopDist;
     out.push({
       key: "gap", label: plain ? "Sudden jumps" : "Gap risk", tone: big ? "amber" : "mint",
-      text: <>Largest opening gap in the last {fmtNum(recent.length - 1)} sessions: {fmtPct(gap.pct, { signed: true, digits: 1 })} ({fmtDay(gap.day)}){stopDist != null ? <>; the {plain ? "exit" : "stop"} is {fmtPct(stopDist, { digits: 1 })} below the {plain ? "buy level" : "entry"}{big ? ", so a gap that size would jump past it" : ""}.</> : "."}</>,
+      text: <>Largest opening gap in the last {fmtNum(recent.length - 1)} sessions: {fmtPct(gap.pct, { signed: true, digits: 1 })} ({fmtDay(gap.day)}){stopDist != null ? <>; the risk level is {fmtPct(stopDist, { digits: 1 })} below the reference price{big ? ", so a gap that size would jump past it" : ""}.</> : "."}</>,
     });
   } else {
     out.push({ key: "gap", label: plain ? "Sudden jumps" : "Gap risk", tone: "na", text: "— Needs the stock’s daily bars." });
@@ -685,7 +685,7 @@ function Gate({ checks, passed }: { checks: GateCheck[]; passed: number }) {
 function SizeTiles({ st, plain }: { st: ScenarioState; plain: boolean }) {
   const s = st.q.data ?? null;
   if (st.read.problems.length || (s && !s.valid && st.current)) {
-    return <span data-testid="desk-risk-nosize" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>Sizing needs an entry with a stop below it, a capital and a risk per trade; see the problems under “Edit the scenario”.</span>;
+    return <span data-testid="desk-risk-nosize" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>Sizing needs a reference price with a risk level below it, a capital and a risk per trade; see the problems under “Edit the scenario”.</span>;
   }
   if (st.q.isError) return <ErrorBlock title="The scenario didn’t compute" error={st.q.error} onRetry={() => st.q.refetch()} />;
   if (!s || !s.valid || !s.sizing) return <span data-testid="desk-risk-sizing" style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Working out the size…</span>;
@@ -702,17 +702,17 @@ function SizeTiles({ st, plain }: { st: ScenarioState; plain: boolean }) {
           tone={z.binding === "max_allocation" ? "amber" : "ink"}
           testId="desk-risk-used-tile"
         />
-        <StatTile k={plain ? "If wrong" : "Max loss"} v={<span data-testid="desk-risk-maxloss">{o ? fmtINR(o.loss_at_stop_net) : "—"}</span>} s={o ? `at the ${plain ? "exit" : "stop"}, after costs (${fmtINR(o.loss_at_stop)} before)` : "No whole share fits"} tone="danger" testId="desk-risk-maxloss-tile" />
+        <StatTile k={plain ? "If wrong" : "Max loss"} v={<span data-testid="desk-risk-maxloss">{o ? fmtINR(o.loss_at_stop_net) : "—"}</span>} s={o ? `at the risk level, after costs (${fmtINR(o.loss_at_stop)} before)` : "No whole share fits"} tone="danger" testId="desk-risk-maxloss-tile" />
         <StatTile
-          k={plain ? "If right" : "At target"}
+          k={plain ? "If right" : "At reward level"}
           v={<span data-testid="desk-risk-attarget">{o?.profit_at_target_net != null ? fmtINR(o.profit_at_target_net, { signed: true }) : "—"}</span>}
-          s={o?.profit_at_target != null ? `at the target, after costs (${fmtINR(o.profit_at_target, { signed: true })} before)` : "No target on this scenario"}
+          s={o?.profit_at_target != null ? `at the reward level, after costs (${fmtINR(o.profit_at_target, { signed: true })} before)` : "No reward level on this scenario"}
           tone={o?.profit_at_target_net != null ? "mint" : "ink"}
           testId="desk-risk-attarget-tile"
         />
       </div>
       <span data-testid="desk-risk-formula" className="cp-mono-note" style={{ lineHeight: 1.6 }}>
-        {fmtINR(st.sent?.capital ?? null)} × {plainNum(st.sent?.riskPct)}% = {fmtINR(z.risk_budget)} at risk ÷ {fmtPrice(s.per_share?.risk ?? null)} a share (entry − stop), capped at {fmtNum(z.max_alloc_pct)}% of capital. Costs: {plainNum(s.cost_model.slippage_pct_per_side)}% + ₹{fmtNum(s.cost_model.brokerage_inr_per_side)} a side.
+        {fmtINR(st.sent?.capital ?? null)} × {plainNum(st.sent?.riskPct)}% = {fmtINR(z.risk_budget)} at risk ÷ {fmtPrice(s.per_share?.risk ?? null)} a share (reference price − risk level), capped at {fmtNum(z.max_alloc_pct)}% of capital. Costs: {plainNum(s.cost_model.slippage_pct_per_side)}% + ₹{fmtNum(s.cost_model.brokerage_inr_per_side)} a side.
       </span>
       {z.quantity === 0 && <span data-testid="desk-risk-zero" style={{ fontSize: 12, color: "var(--amber)" }}>The risk budget is smaller than one share’s risk, so no whole share fits.</span>}
     </>
@@ -748,7 +748,7 @@ function PortfolioIdeaBlock({ st, symbol, plain }: { st: ScenarioState; symbol: 
           pf.existingValue ? `${fmtPct(pf.existingWeightPct, { digits: 2 })} of the portfolio, all accounts` : "Not in your holdings.", "desk-pf-existing")}
         {row(plain ? "Same kind of business" : `Sector exposure${pf.sector ? ` · ${pf.sector}` : ""}`,
           pf.sectorValue != null ? fmtPct(pf.sectorWeightPct, { digits: 2 }) : "—",
-          pf.sector ? (after?.sector_weight_after_pct != null ? `${fmtPct(after.sector_weight_after_pct, { digits: 2 })} after the buy. Direct stocks only; funds are not looked through.` : "Direct stocks only; funds are not looked through.") : "— The scanner gives no sector for this stock.",
+          pf.sector ? (after?.sector_weight_after_pct != null ? `${fmtPct(after.sector_weight_after_pct, { digits: 2 })} after this position. Direct stocks only; funds are not looked through.` : "Direct stocks only; funds are not looked through.") : "— The scanner gives no sector for this stock.",
           "desk-pf-sector")}
         <li data-testid="desk-pf-related" className="flex flex-col" style={{ gap: 6, padding: "6px 0", borderTop: "1px solid var(--cp-line)", fontSize: 12.5 }}>
           <span style={{ color: "var(--cp-ink-2)" }}>{plain ? "Other holdings like it" : "Related holdings"}{pf.sector ? ` · ${pf.sector}` : ""}</span>
@@ -765,11 +765,11 @@ function PortfolioIdeaBlock({ st, symbol, plain }: { st: ScenarioState; symbol: 
             <span style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>{pf.sector ? "No other stock you hold is in this sector." : "— Needs the stock’s sector."}</span>
           )}
         </li>
-        {row(plain ? "Share of your money in it after buying" : "Incremental concentration",
+        {row(plain ? "Share of your money in it after this position" : "Incremental concentration",
           after ? `${fmtPct(after.stock_weight_before_pct, { digits: 2 })} → ${fmtPct(after.stock_weight_after_pct, { digits: 2 })}` : "—",
           after ? `${fmtPct(after.stock_weight_change_pct, { signed: true, digits: 2 })} points. ${after.assumption ?? ""}` : "Needs a valid scenario.", "desk-pf-incremental")}
         {row(plain ? "Effect on your whole portfolio" : "Scenario impact on portfolio value",
-          after ? `${after.impact_at_stop_pct != null ? fmtPct(after.impact_at_stop_pct, { signed: true, digits: 2 }) : "—"} at the stop · ${after.impact_at_target_pct != null ? fmtPct(after.impact_at_target_pct, { signed: true, digits: 2 }) : "—"} at the target` : "—",
+          after ? `${after.impact_at_stop_pct != null ? fmtPct(after.impact_at_stop_pct, { signed: true, digits: 2 }) : "—"} at the risk level · ${after.impact_at_target_pct != null ? fmtPct(after.impact_at_target_pct, { signed: true, digits: 2 }) : "—"} at the reward level` : "—",
           after ? `Net of costs, against a portfolio of ${fmtINR(after.portfolio_value)}.` : "Needs a valid scenario.", "desk-pf-impact")}
       </ul>
     );
@@ -865,16 +865,16 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} live={live} plain={plain} />
         ) : (
           <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-            {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner suggests an entry, stop and target only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}{lv.reason ? ` (${lv.reason})` : ""}
+            {setup ? "This setup has no reference price with a risk level below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner works out a reference price, risk level and reward level only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}{lv.reason ? ` (${lv.reason})` : ""}
           </span>
         )}
         {lv.source === "rule" && lv.rule && (
           <span data-testid="desk-risk-rule" className="cp-mono-note" style={{ lineHeight: 1.5 }}>
-            {lv.rule.label}. Rule {lv.rule.name} v{lv.rule.version}: entry = last close; stop = {plainNum(lv.rule.constants.atr_multiple)} × ATR({lv.rule.constants.atr_period}) below it, or the 20-session low when that is closer; target = entry + {plainNum(lv.rule.constants.reward_multiple)} × the risk. These levels are in the calculator below.
+            {lv.rule.label}. Rule {lv.rule.name} v{lv.rule.version}: reference price = last close; risk level = {plainNum(lv.rule.constants.atr_multiple)} × ATR({lv.rule.constants.atr_period}) below it, or the 20-session low when that is closer; reward level = reference price + {plainNum(lv.rule.constants.reward_multiple)} × the risk. These levels are in the calculator below.
           </span>
         )}
         {setup && target == null && entry != null && (
-          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s ideas with a target carry one.</span>
+          <span className="cp-mono-note">Reward / risk needs a reward level; only the scanner’s ideas with a reward level carry one.</span>
         )}
 
         <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
@@ -889,8 +889,8 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
         </div>
         <p data-testid="desk-risk-explain" className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
           {plain
-            ? "The chance is the model’s estimate that the next trading day’s high gets 5% above the last close — one day only. A win rate would count how often whole trades like this reached the target before the exit; nobody publishes that for this setup yet, so it shows —."
-            : "Move probability is the move-odds model’s estimate that the next session’s high reaches the last close plus 5%, one session only. A trade win rate would count how often entry-to-target trades on this setup reached the target before the stop; none is published, so it shows —."}
+            ? "The chance is the model’s estimate that the next trading day’s high gets 5% above the last close — one day only. A win rate would count how often whole trades like this reached the reward level before the risk level; nobody publishes that for this setup yet, so it shows —."
+            : "Move probability is the move-odds model’s estimate that the next session’s high reaches the last close plus 5%, one session only. A trade win rate would count how often trades on this setup reached the reward level before the risk level; none is published, so it shows —."}
           {" "}
           <span data-testid="desk-risk-record">
             {record
@@ -903,7 +903,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
 
         <div data-testid="desk-risk-size" className="flex flex-col" style={{ gap: 10 }}>
           <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
-            <span className="cp-eyebrow" style={{ marginRight: "auto" }}>{plain ? "How much to buy" : "Position size"}</span>
+            <span className="cp-eyebrow" style={{ marginRight: "auto" }}>{plain ? "How much to put in" : "Position size"}</span>
             <Segmented label="Capital" value={capitalOpt} options={CAPITALS} onChange={(v) => st.set("capital", v)} idPrefix="desk-risk-capital" small />
             <Segmented label="Risk per trade" value={riskOpt} options={RISKS} onChange={(v) => st.set("riskPct", v)} idPrefix="desk-risk-pct" small />
           </div>
@@ -965,12 +965,12 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
         </div>
         {lv.source && entry != null && stop != null ? (
           <div data-testid="desk-risk-levels" className="flex flex-wrap items-baseline justify-between" style={{ gap: "4px 10px" }}>
-            <span data-testid="desk-risk-stop" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-danger)" }}>{plain ? "Exit if wrong" : "Stop"} {fmtPrice(stop)}</span>
-            <span data-testid="desk-risk-entry" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-ink-2)" }}>{plain ? "Buy above" : "Entry"} {fmtPrice(entry)}</span>
-            <span data-testid="desk-risk-target" className="cp-eyebrow" style={{ fontSize: 9.5, color: target != null ? "var(--mint)" : "var(--cp-ink-4)" }}>{target != null ? `Target ${fmtPrice(target)}` : "No target"}</span>
+            <span data-testid="desk-risk-stop" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-danger)" }}>Risk level {fmtPrice(stop)}</span>
+            <span data-testid="desk-risk-entry" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-ink-2)" }}>Reference price {fmtPrice(entry)}</span>
+            <span data-testid="desk-risk-target" className="cp-eyebrow" style={{ fontSize: 9.5, color: target != null ? "var(--mint)" : "var(--cp-ink-4)" }}>{target != null ? `Reward level ${fmtPrice(target)}` : "No reward level"}</span>
           </div>
         ) : (
-          <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>{setup ? "No entry with a stop below it on this setup." : "Not on today’s scanner — no levels."}</span>
+          <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>{setup ? "No reference price with a risk level below it on this setup." : "Not on today’s scanner — no levels."}</span>
         )}
         {lv.source === "rule" && lv.rule && (
           <span data-testid="desk-risk-rule" className="cp-mono-note" style={{ lineHeight: 1.5 }}>{lv.rule.label}. Rule {lv.rule.name} v{lv.rule.version}.</span>
@@ -1026,11 +1026,11 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
 
   let paperBody: NewPaperTrade | null = null;
   let paperWhy: string;
-  if (!setup) paperWhy = "Needs a scanner setup: this stock has no entry or stop.";
-  else if (setup.entry == null || setup.stop == null || !(setup.entry > setup.stop)) paperWhy = "Needs an entry with a stop below it; this setup does not have both.";
-  else if (st.q.isError) paperWhy = "The scenario didn’t compute, so there is no quantity to add.";
+  if (!setup) paperWhy = "Needs a scanner setup: this stock has no reference price or risk level.";
+  else if (setup.entry == null || setup.stop == null || !(setup.entry > setup.stop)) paperWhy = "Needs a reference price with a risk level below it; this setup does not have both.";
+  else if (st.q.isError) paperWhy = "The scenario didn’t compute, so there is no quantity to record.";
   else if (!s || !sent) paperWhy = st.read.problems.length || (st.current && st.q.data?.valid === false) ? "Fix the scenario’s inputs first." : "Working out the quantity…";
-  else if (qty == null || qty < 1) paperWhy = "The risk budget fits no whole share; pick more capital or a larger risk.";
+  else if (qty == null || qty < 1) paperWhy = "The risk budget fits no whole share; choose more capital or a larger risk.";
   else {
     // The setup's holding window (the scanner's timeframe_days_max) is the time exit: closed at that session's close.
     const maxHold = maxHoldFor(setup.daysMax);
@@ -1043,14 +1043,14 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
       source: { kind: "scanner", ...(setup.bucket ? { bucket: setup.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
       ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
     };
-    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${maxHoldNote(maxHold)}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
+    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, risk level ${fmtPrice(sent.stop)}${sendTarget != null ? `, reward level ${fmtPrice(sendTarget)}` : ", no reward level"}${maxHoldNote(maxHold)}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
   }
 
   const level = setup?.trigger ?? setup?.entry ?? null;
   const alertBody: NewAlert | null = level != null ? { symbol, condition: "above", level } : null;
   const alertWhy = alertBody
-    ? `Watches for a session whose high reaches ${fmtPrice(alertBody.level)} (the ${setup?.trigger != null ? "trigger" : "entry"}), checked after each close. Shown in your alerts list only.`
-    : "Needs a trigger or an entry level; this stock has neither on today’s scanner.";
+    ? `Watches for a session whose high reaches ${fmtPrice(alertBody.level)} (the ${setup?.trigger != null ? "trigger" : "reference price"}), checked after each close. Shown in your alerts list only.`
+    : "Needs a trigger or a reference price; this stock has neither on today’s scanner.";
 
   // An outcome belongs to the stock it was sent for; another stock starts clean.
   const paperDone = paper.variables?.symbol === symbol ? paper : null;

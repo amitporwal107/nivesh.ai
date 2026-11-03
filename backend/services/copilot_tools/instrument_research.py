@@ -595,20 +595,20 @@ def _build_recommendation(band: Optional[tuple], tech: Optional[tuple]) -> Optio
     if band:
         fs = band[0]
         if fs >= 65:
-            st, tone, why = "Buy", "pos", f"Strong fundamentals ({fs}/100) — suitable to accumulate."
+            st, tone, why = "Buy", "pos", f"Fundamentals score {fs}/100: the strong band."
         elif fs >= 48:
-            st, tone, why = "Hold", "warm", f"Fair fundamentals ({fs}/100) — hold; wait for better value."
+            st, tone, why = "Hold", "warm", f"Fundamentals score {fs}/100: the middle band."
         else:
-            st, tone, why = "Sell", "neg", f"Weak fundamentals ({fs}/100) — poor long-term outlook."
+            st, tone, why = "Sell", "neg", f"Fundamentals score {fs}/100: the weak band."
         out["long_term"] = {"stance": st, "tone": tone, "rationale": why}
     if tech:
         ts = tech[0]
         if ts >= 58:
-            st, tone, why = "Buy", "pos", f"Bullish technicals ({ts}/100) — momentum favours entry."
+            st, tone, why = "Buy", "pos", f"Technical score {ts}/100: the strong band."
         elif ts >= 42:
-            st, tone, why = "Hold", "warm", f"Neutral technicals ({ts}/100) — no clear near-term edge."
+            st, tone, why = "Hold", "warm", f"Technical score {ts}/100: the middle band."
         else:
-            st, tone, why = "Sell", "neg", f"Bearish technicals ({ts}/100) — weak momentum near-term."
+            st, tone, why = "Sell", "neg", f"Technical score {ts}/100: the weak band."
         out["short_term"] = {"stance": st, "tone": tone, "rationale": why}
     return out or None
 

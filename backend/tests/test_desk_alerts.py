@@ -272,7 +272,7 @@ def test_every_condition_is_stored_for_its_owner_with_its_settings(api, world):
         "Any company: a new results filing",
         "FIXA: a new bulk or block deal",
         "FIXA: volume at 2.5× its 20-session average",
-        "FIXA: enters the scanner's picks as breakout",
+        "FIXA: enters the scanner's ideas as breakout",
         "Nifty IT: moves 2% or more in a session",
         "FIXA: 14-session ATR at 5% of price or more",
     ]
@@ -393,8 +393,8 @@ def test_a_scanner_alert_fires_on_a_later_signal_date_in_the_stage(api, world):
         {"nse_symbol": "FIXA", "signal_date": date(2026, 10, 14), "stage": "BREAKOUT", "final_score": 0.74},
     ]
     got = by_id(listing(api))
-    assert got[any_stage["id"]]["reason"] == "FIXA entered the scanner's picks on 13 Oct 2026 as accumulation (score 0.61)."
-    assert got[brk["id"]]["reason"] == "FIXA entered the scanner's picks on 14 Oct 2026 as breakout (score 0.74)."
+    assert got[any_stage["id"]]["reason"] == "FIXA entered the scanner's ideas on 13 Oct 2026 as accumulation (score 0.61)."
+    assert got[brk["id"]]["reason"] == "FIXA entered the scanner's ideas on 14 Oct 2026 as breakout (score 0.74)."
 
 
 def test_a_scanner_alert_is_not_checked_when_the_picks_cannot_be_read(api, world):

@@ -167,9 +167,9 @@ def test_ti4_a_plan_gives_the_card_the_stored_plans_and_the_facts(builder):
     c = idea.context
     assert c.startswith("TRADE_PLAN:") and "ASSUMED" in c and "A card with this plan is shown above the answer." in c
     assert "STRATEGY PLAN plan_mock" in c and "Status: plan" in c                        # the desk's own facts text
-    assert "entry: 1840 (stop_trigger; desk entry rule break_above; valid for 3 sessions)" in c
-    assert "stop: 1790 (method structural) — invalidation: MOCK: a close back below the breakout base" in c
-    assert "target t1: 1940 (2R) — primary — 2R" in c
+    assert "reference price: 1840 (stop_trigger; desk reference-price rule break_above; valid for 3 sessions)" in c
+    assert "risk level: 1790 (method structural) — invalidation: MOCK: a close back below the breakout base" in c
+    assert "reward level t1: 1940 (2R) — primary — 2R" in c
     assert "evidence Trend (supports): MOCK: above a rising 50-day average" in c and "evidence Volume" not in c
     assert "warning Event: MOCK: results in 4 sessions" in c
     assert "Account sizing (risk service, saved risk profile): 12 shares; estimated risk ₹640.5 = 0.64% of paper equity ₹100000." in c
@@ -307,9 +307,10 @@ def test_ti11_a_question_from_a_position_keeps_the_position_card(stream, ideas):
 def test_ti12_the_stock_analyst_has_the_trade_plan_rules():
     from nidp.services.copilot_agent.nodes import stock
     s = stock._SYSTEM
-    for phrase in ("**How to trade it (an idea, not a recommendation)**", "Quote ONLY figures that appear in TRADE_PLAN",
-                   "entry waits until it is confirmed", "the invalidation (stop) level", "the capital at risk",
-                   "If TRADE_PLAN says no card is shown", "never say \"buy now\"", "Do not use \"recommend\""):
+    # Owner wording rule, 3 Nov 2026: reference price / risk level / reward level, never entry / stop / target.
+    for phrase in ("**The desk's plan (an idea to review, not advice)**", "Quote ONLY figures that appear in TRADE_PLAN",
+                   "the plan waits until it", "the invalidation (the risk level)", "the capital",
+                   "If TRADE_PLAN says no card is shown", "never use \"buy now\"", "Never use \"recommend\""):
         assert phrase in s, phrase
 
 

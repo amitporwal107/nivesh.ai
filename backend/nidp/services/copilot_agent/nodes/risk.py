@@ -32,7 +32,7 @@ Style:
 - When stress-test scenarios are present, report each scenario's expected
   drop in ₹ and %, and the recovery horizon (years). Cite ONLY the numbers
   from TOOL_DATA — never invent scenario impacts.
-- Misalignment alerts (if any) with specific suggested action
+- Misalignment alerts (if any) with the specific step to review
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
 
