@@ -6,7 +6,7 @@
  * The builder works out NO payoff, Greek, cost or capital figure: it builds the request from the chain's end-of-day option closes and shows what the route answered
  * (StrategyGraphs: PayoffChart, PayoffSummary, ScenarioControls). Probability of profit is what the route says it is (unavailable); margin and charges come from Zerodha's margin
  * calculator (POST /api/fno/margin), never estimated here. Prices are end-of-day closes, never live quotes. Option structures are recorded as paper trades from a plan in the full
- * Strategy Builder (PlanActions), not from here, and nothing here is sent to a broker. The mini payoff shapes on the tiles are illustrations of each structure, not figures.
+ * Chart Analysis paper basket (Strategy Lab was removed on 29 Oct), not from here, and nothing here is sent to a broker. The mini payoff shapes on the tiles are illustrations of each structure, not figures.
  */
 import { Widget } from "./widget";
 import { useEffect, useMemo, useState } from "react";
@@ -302,11 +302,11 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
               setLegs((ls) => [...ls, { id: nextId++, side: "buy", kind: "call", strike: at.strike, lots: 1, price: closeOf(at, "call") == null ? "" : String(closeOf(at, "call")) }]);
             }}>Add a trade</button>
             {legs.length > 0 && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-builder-clear" onClick={() => { setLegs([]); setTpl(null); setScn(dflt); }}>Clear</button>}
-            <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open the full Strategy Builder ›</button>
+            <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open on Chart Analysis ›</button>
           </div>
           <span data-testid="desk-builder-record-why" style={quiet}>
-            Option structures are recorded as paper trades from a plan: open the full Strategy Builder, build a plan for options and use “Paper trade this” on a defined-risk candidate.
-            The plan picks its own legs; the trades here are not carried over. Nothing is sent to a broker.
+            Option structures are recorded as paper trades from Chart Analysis: build them again in its paper basket, which places
+            defined-risk structures. The trades here are not carried over. Nothing is sent to a broker.
           </span>
         </Widget>
 

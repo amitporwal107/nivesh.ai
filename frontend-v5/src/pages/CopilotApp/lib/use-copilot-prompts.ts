@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { http } from "@/services/api/http";
 import { useImpersonationStore } from "@/stores/impersonation.store";
+import type { Mode } from "./views";
 
 const PromptC = z.object({
   id: z.string().optional(),
@@ -64,15 +65,17 @@ export interface CopilotPrompts {
 
 const EMPTY: CopilotPrompts = { prompts: [] };
 
-export function useCopilotPrompts() {
+/** `mode` is the app's mode (Investor, Trader, Advisor): the backend ranks the client book for Advisor mode only, and the
+ *  Daily Trader questions for Trader mode, so an advisor-workspace owner in Trader mode is not shown the advisor list. */
+export function useCopilotPrompts(mode?: Mode) {
   // Same cache scoping as useSuggestedPrompts: an advisor's own prompts and a
   // client's prompts must not bleed across a context switch.
   const activeProfileId = useImpersonationStore((s) => s.profileId);
   return useQuery<CopilotPrompts>({
-    queryKey: ["copilot", "prompts", activeProfileId ?? "self"],
+    queryKey: ["copilot", "prompts", activeProfileId ?? "self", mode ?? "any"],
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
-      const res = await http({ path: "/api/copilot/suggested-prompts", signal });
+      const res = await http({ path: "/api/copilot/suggested-prompts", query: { mode }, signal });
       const parsed = ResC.safeParse(res.data);
       if (!parsed.success) return EMPTY;
       const prompts: CopilotPrompt[] = [];

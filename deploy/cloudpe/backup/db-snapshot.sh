@@ -8,6 +8,8 @@
 #
 #   sudo bash db-snapshot.sh --target app      # nivesh-app-vm   45.64.105.88
 #   sudo bash db-snapshot.sh --target nidp     # nidp-staging-vm 45.64.105.224
+#   sudo bash db-snapshot.sh --target prod-nidp  # PRODUCTION warehouse, nivesh-prod-vm 45.64.105.249
+#   sudo bash db-snapshot.sh --target prod-app   # PRODUCTION app Postgres, same VM
 #   sudo bash db-snapshot.sh --target app --preflight   # checks only, no dump
 #
 # WHAT IT PRODUCES, in /opt/<stack>/dumps (mode 700, root-only):
@@ -90,7 +92,25 @@ case "$TARGET" in
         RELEASE_TAG="nidp-latest"
         VM_LABEL="nidp-staging-vm"
         ;;
-    *)  echo "usage: $0 --target app|nidp [--preflight]" >&2; exit 2 ;;
+    # PRODUCTION — both stacks live on the one CloudPe prod VM (45.64.105.249), see
+    # deploy/cloudpe-prod/README.md. The snapshot therefore sits on the same disk as the
+    # database it protects: it guards against bad data, a bad migration or a dropped table,
+    # NOT against losing the VM. Copy it off the VM for that.
+    prod-app)
+        PG_CONTAINER="nivesh-postgres"
+        DUMP_DIR="/opt/nivesh/dumps"
+        LOG_DIR="/opt/nivesh/logs"
+        RELEASE_TAG="prod-app-latest"
+        VM_LABEL="nivesh-prod-vm"
+        ;;
+    prod-nidp)
+        PG_CONTAINER="nidp-postgres"
+        DUMP_DIR="/opt/nidp/dumps"
+        LOG_DIR="/opt/nidp/logs"
+        RELEASE_TAG="prod-nidp-latest"
+        VM_LABEL="nivesh-prod-vm"
+        ;;
+    *)  echo "usage: $0 --target app|nidp|prod-app|prod-nidp [--preflight]" >&2; exit 2 ;;
 esac
 
 # ── Config ───────────────────────────────────────────────────────────────────

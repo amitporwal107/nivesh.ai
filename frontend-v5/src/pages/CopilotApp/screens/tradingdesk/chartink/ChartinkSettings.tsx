@@ -66,7 +66,7 @@ export default function ChartinkSettings({ asSection = false }: { asSection?: bo
           {plain ? <>Add your <em>Chartink</em> ideas to the desk</> : <>Chartink <em>scans</em></>}
         </Title>
         <p className="m-0" style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-          {plain ? "Your Chartink scans can sit beside the AI scanner’s ideas on the Overview, the AI Scanner and the Strategy Builder." : "Use your Chartink scans as opportunity sources next to the AI scanner on the Overview, the AI Scanner and the Strategy Builder."}
+          {plain ? "Your Chartink scans can sit beside the AI scanner’s ideas on the Overview and the AI Scanner." : "Use your Chartink scans as opportunity sources next to the AI scanner on the Overview and the AI Scanner."}
         </p>
         <p data-testid="chartink-no-api" role="note" className="m-0" style={noteStyle}>{CHARTINK_NO_API_NOTE}</p>
       </header>

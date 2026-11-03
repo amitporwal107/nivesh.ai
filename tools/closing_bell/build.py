@@ -20,7 +20,8 @@ import subprocess
 import sys
 
 FF_IMAGE = "jrottenberg/ffmpeg:6.1-ubuntu"
-BOX = {"idx", "brd", "res", "after", "sec", "n50", "n100", "n200", "n500", "s500", "fii", "ideas", "fno", "watch"}
+BOX = {"idx", "brd", "res", "after", "sec", "n50", "n100", "n200", "n500", "s500", "fii", "ideas", "fno", "watch",
+       "ovn", "pre", "lvl", "today"}      # the last four: Opening Bell
 NF = 36 / 25.0
 GAP, TAIL = 0.30, 0.7
 TRACK_SECONDS = 267.75   # "The Complex", Kevin MacLeod (CC BY 3.0)
@@ -79,7 +80,7 @@ def tts_path(lang, sid, i):
 def timeline(work, assets):
     segs = load(work, "script.json")["segments"]
     langs = langs_of(work)
-    out = probe(work, assets, "for f in /w/tts/*/s*_*.mp3; do echo \"$(basename $(dirname $f))/$(basename $f .mp3) $(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done")
+    out = probe(work, assets, "for f in /w/tts/*/*_*.mp3; do echo \"$(basename $(dirname $f))/$(basename $f .mp3) $(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done")
     D = {l.split()[0]: float(l.split()[1]) for l in out.splitlines() if l.strip()}
     tl, total = {}, 0.0
     for s in segs:
@@ -91,7 +92,7 @@ def timeline(work, assets):
             beats.append({"i": i, "start": round(t, 2), "dur": round(d, 2), "durs": {k: round(v, 2) for k, v in durs.items()}, "who": b["who"]})
             t += d + GAP
         end = beats[-1]["start"] + beats[-1]["dur"]
-        ln = math.ceil((end + TAIL) * 4) / 4
+        ln = max(math.ceil((end + TAIL) * 4) / 4, float(s.get("min_len") or 0))
         tl[s["id"]] = {"len": ln, "start": round(total, 2), "beats": beats}
         total += ln
     json.dump(tl, open(f"{work}/timeline.json", "w"), indent=1)
@@ -158,8 +159,17 @@ def card_spans(seg, tl):
 
 def montage_sources(tl):
     """Cold-open footage under the title and headline cards: borrowed from the segments each headline is about."""
-    pref = {"title": ("s3", 3.0), "h1": ("s1", 2.0), "h2": ("s5", 4.0), "h3": ("s2", 8.0), "h4": ("s3", 12.0)}
-    return {k: (src if src in tl else "s1", min(off, max(0.0, tl.get(src, tl["s1"])["len"] - 8))) for k, (src, off) in pref.items()}
+    if "o1" in tl:   # Opening Bell
+        pref = {"title": ("o1", 2.0), "h1": ("o2", 3.0), "h2": ("o3", 2.0), "h3": ("o4", 6.0), "h4": ("o5", 2.0)}
+        first = "o1"
+    else:
+        pref = {"title": ("s3", 3.0), "h1": ("s1", 2.0), "h2": ("s5", 4.0), "h3": ("s6", 6.0), "h4": ("s2", 8.0)}
+        first = "s1"
+    return {k: (src if src in tl else first, min(off, max(0.0, tl.get(src, tl[first])["len"] - 8))) for k, (src, off) in pref.items()}
+
+
+def is_opening(work) -> bool:
+    return load(work, "script.json").get("kind") == "opening"
 
 
 def seg(work, assets, sids):
@@ -168,6 +178,7 @@ def seg(work, assets, sids):
     order = [s["id"] for s in script["segments"]]
     tl_all = load(work, "timeline.json")
     LT = load(work, "gfx/ticker.json")["L"]
+    opening = script.get("kind") == "opening"
     os.makedirs(f"{work}/seg", exist_ok=True)
     for sid in sids:
         s, tl = segs[sid], tl_all[sid]
@@ -213,8 +224,9 @@ def seg(work, assets, sids):
             ii = add("-framerate", "25", "-i", f"/w/gfx/stinger_{sid}/f%03d.png")
             f.append(f"[{ii}:v]format=rgba,tpad=stop_mode=clone:stop_duration=0.2,fade=t=out:st=1.1:d=0.35:alpha=1[st]")
             ov("st", 24, 84, ":eof_action=pass")
-        i_tk = add("-loop", "1", "-framerate", "25", "-t", f"{L}", "-i", "/w/gfx/ticker.png")
-        ov(f"{i_tk}:v", f"'-mod(({OFF}+t)*120,{LT:.2f})'", 1024)
+        if not opening:
+            i_tk = add("-loop", "1", "-framerate", "25", "-t", f"{L}", "-i", "/w/gfx/ticker.png")
+            ov(f"{i_tk}:v", f"'-mod(({OFF}+t)*120,{LT:.2f})'", 1024)
         i_fr = add("-loop", "1", "-framerate", "25", "-t", f"{L}", "-i", f"/w/gfx/frame_{sid}.png")
         ov(f"{i_fr}:v", 0, 0)
         for j, b0 in enumerate(B):
@@ -229,6 +241,10 @@ def seg(work, assets, sids):
             f.append(f"[{cur}]fade=t=out:st={L - 1.0:.2f}:d=1.0,format=yuv420p[vout]")
         else:
             f.append(f"[{cur}]format=yuv420p[vout]")
+        if opening:
+            ff(work, assets, inp + ["-filter_complex", ";".join(f), "-map", "[vout]", "-an", "-t", f"{L}", "-r", "25",
+                                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-pix_fmt", "yuv420p", f"/w/seg/{sid}.mp4"], f"seg {sid} ({L}s)")
+            continue
         vx = []
         for j, b0 in enumerate(B):
             ii = add("-i", tts_path("en", sid, j))
@@ -250,6 +266,8 @@ def seg(work, assets, sids):
 
 # ------------------------------------------------------------------ final encodes + probe
 def final(work, assets):
+    if is_opening(work):
+        return final_open(work, assets)
     order = [s["id"] for s in load(work, "script.json")["segments"]]
     tl = load(work, "timeline.json")
     total = sum(tl[s]["len"] for s in order)
@@ -267,8 +285,34 @@ def final(work, assets):
 
 
 # ------------------------------------------------------------------ other languages: same picture, own narration
-def lang_track(work, assets, lang):
-    """web_<lang>.mp4 = the English web picture (copied) + this language's narration, the same bed and effects."""
+def final_open(work, assets):
+    """Opening Bell: segments are picture only, so the ticker and the English narration + bed + effects are laid over
+    the whole programme here (one continuous ticker and music bed, whichever segments the 9:08 rebuild re-rendered)."""
+    order = [s["id"] for s in load(work, "script.json")["segments"]]
+    tl = load(work, "timeline.json")
+    total = sum(tl[s]["len"] for s in order)
+    LT = load(work, "gfx/ticker.json")["L"]
+    os.makedirs(f"{work}/out", exist_ok=True)
+    open(f"{work}/seg/list.txt", "w").write("".join(f"file '/w/seg/{s}.mp4'\n" for s in order))
+    ff(work, assets, ["-f", "concat", "-safe", "0", "-i", "/w/seg/list.txt", "-c", "copy", "/w/seg/joined.mp4"], "concat")
+    program_mix(work, assets, "en")
+    flt = (f"[1:v]format=rgba[tk];[0:v][tk]overlay=x='-mod(t*120,{LT:.2f})':y=1024:shortest=0[v1];"
+           f"[2:v]crop=196:56:0:1024[lbl];[v1][lbl]overlay=0:1024,format=yuv420p[v]")
+    ff(work, assets, ["-i", "/w/seg/joined.mp4", "-loop", "1", "-framerate", "25", "-t", f"{total}", "-i", "/w/gfx/ticker.png",
+                      "-loop", "1", "-framerate", "25", "-t", f"{total}", "-i", f"/w/gfx/frame_{order[1]}.png", "-i", "/w/out/mix_en.wav",
+                      "-filter_complex", flt, "-map", "[v]", "-map", "3:a", "-t", f"{total}",
+                      "-af", f"afade=t=out:st={total - 3:.2f}:d=3,loudnorm=I={TARGET_LUFS}:TP=-1.0:LRA=9",
+                      "-c:v", "libx264", "-preset", "medium", "-crf", "31", "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.1",
+                      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-movflags", "+faststart", "/w/out/web.mp4"], "web encode")
+    os.remove(f"{work}/out/mix_en.wav")
+    ff(work, assets, ["-ss", "2.6", "-i", "/w/out/web.mp4", "-frames:v", "1", "-vf", "scale=1280:720:flags=lanczos", "-q:v", "4", "/w/out/poster.jpg"], "poster")
+    media = media_probe(work, assets, "/w/out/web.mp4", total)
+    json.dump(media, open(f"{work}/out/media.json", "w"), indent=1)
+    print("media", json.dumps(media), flush=True)
+
+
+def program_mix(work, assets, lang):
+    """out/mix_<lang>.wav: one language's narration placed on the whole timeline, with the bed (ducked) and effects."""
     script, tl = load(work, "script.json"), load(work, "timeline.json")
     order = [s["id"] for s in script["segments"]]
     total = sum(tl[s]["len"] for s in order)
@@ -296,6 +340,14 @@ def lang_track(work, assets, lang):
     f.append("".join(fx) + f"amix=inputs={len(fx)}:normalize=0:duration=longest,apad=whole_dur={total}[fx]")
     f.append(f"[vo1][bd][fx]amix=inputs=3:normalize=0:duration=first,atrim=0:{total},alimiter=limit=0.95[mix]")
     ff(work, assets, inp + ["-filter_complex", ";".join(f), "-map", "[mix]", "-c:a", "pcm_s16le", f"/w/out/mix_{lang}.wav"], f"mix {lang}")
+
+
+def lang_track(work, assets, lang):
+    """web_<lang>.mp4 = the English web picture (copied) + this language's narration, the same bed and effects."""
+    script, tl = load(work, "script.json"), load(work, "timeline.json")
+    order = [s["id"] for s in script["segments"]]
+    total = sum(tl[s]["len"] for s in order)
+    program_mix(work, assets, lang)
     ff(work, assets, ["-i", "/w/out/web.mp4", "-i", f"/w/out/mix_{lang}.wav", "-map", "0:v", "-map", "1:a", "-c:v", "copy",
                       "-af", f"afade=t=out:st={total - 3:.2f}:d=3,loudnorm=I={TARGET_LUFS}:TP=-1.0:LRA=9", "-c:a", "aac", "-b:a", "128k",
                       "-ar", "48000", "-movflags", "+faststart", f"/w/out/web_{lang}.mp4"], f"web {lang}")
@@ -320,10 +372,12 @@ def transcript(work, assets):
     """captions_<lang>.vtt + transcript_<lang>.json for every language (captions.vtt / transcript.json = English), and an English .md."""
     import i18n
     script, tl, cards = load(work, "script.json"), load(work, "timeline.json"), load(work, "cards.json")
+    if script.get("kind") == "opening":
+        import i18n_open  # noqa: F401 — the morning section titles
     langs = langs_of(work)
     mm = lambda t: f"{int(t // 60)}:{int(t % 60):02d}"
     vt = lambda t: f"{int(t // 3600):02d}:{int(t % 3600 // 60):02d}:{t % 60:06.3f}"
-    md = [f"# Closing Bell on the Nivesh Desk — {cards['L']['day_long']}", ""]
+    md = [f"# {'Opening' if script.get('kind') == 'opening' else 'Closing'} Bell on the Nivesh Desk — {cards['L']['day_long']}", ""]
     for lang in langs:
         vtt, sections, k = ["WEBVTT", ""], [], 0
         for s in script["segments"]:
@@ -353,7 +407,8 @@ def transcript(work, assets):
         print(f"transcript {lang} cues {k}", flush=True)
     for src, dst in (("captions_en.vtt", "captions.vtt"), ("transcript_en.json", "transcript.json")):
         open(f"{work}/out/{dst}", "w").write(open(f"{work}/out/{src}").read())
-    md += ["---", "", "Market information and education, not investment advice. Ideas are for review, not recommendations.",
+    md += ["---", "", "Market information and education, not investment advice. Ideas are for review, not recommendations."
+           + (" Ranges and levels are what the options market prices, not forecasts." if script.get("kind") == "opening" else ""),
            "Music: “The Complex” by Kevin MacLeod (incompetech.com), licensed under Creative Commons Attribution 3.0."]
     open(f"{work}/out/transcript.md", "w").write("\n".join(md))
 

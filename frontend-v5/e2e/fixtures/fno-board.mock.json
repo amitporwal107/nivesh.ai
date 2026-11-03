@@ -1,0 +1,715 @@
+{
+ "about": "MOCK — not real data. The F&O board payload shapes built by the real builder (services/copilot_visual/builders.fno_setups) over the unit tests' invented inputs (tests/test_copilot_visual.py, FB-*). Two shapes: eod_login (market closed, no Kite login: margin asks for a login) and live (in the session: premiums live for one structure, margin from a calculator).",
+ "payloads": {
+  "eod_login": {
+   "schema": "visual-answer-v1",
+   "intent": "fno_setups",
+   "title": "F&O setups that fit today",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-31T11:33:44+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "4 F&O setups fit today's regime (Bearish): 2 index, 2 stock.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "ranked",
+     "id": "fno_index",
+     "title": "Index options · 2 setups",
+     "note": "Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; R:R is measured at that move. Margin is Zerodha's calculator for the structure.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Underlying",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "structure",
+       "label": "Structure",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "view",
+       "label": "View",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "lots",
+       "label": "Lots",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "maxloss",
+       "label": "Max loss",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "maxprofit",
+       "label": "Max profit",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "atmove",
+       "label": "At exp. move",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R at move",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "margin",
+       "label": "Margin",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "fit",
+       "label": "Fit",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "BANKNIFTY",
+       "plan_id": "tp_banknifty_bear_put_spread",
+       "ask": "What's the setup for BANKNIFTY?",
+       "tone": "down",
+       "cells": {
+        "symbol": "BANKNIFTY",
+        "structure": "Bear put spread 53100/54700",
+        "view": "Bearish",
+        "lots": "1 lot × 30",
+        "maxloss": -14406.0,
+        "maxprofit": 33594.0,
+        "atmove": 4000.0,
+        "rr": 2.31,
+        "margin": "Needs login",
+        "fit": 92.5
+       },
+       "badge": "29 Oct close",
+       "alternatives": [
+        {
+         "symbol": "BANKNIFTY",
+         "plan_id": "tp_banknifty_long_put",
+         "ask": "What's the setup for BANKNIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "BANKNIFTY",
+          "structure": "Long put 54700",
+          "view": "Bearish",
+          "lots": "1 lot × 30",
+          "maxloss": -22813.5,
+          "maxprofit": "Not capped",
+          "atmove": 26235.0,
+          "rr": 1.15,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "29 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,618,186.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "BANKNIFTY",
+         "plan_id": "tp_banknifty_long_put",
+         "ask": "What's the setup for BANKNIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "BANKNIFTY",
+          "structure": "Long put 54600",
+          "view": "Bearish",
+          "lots": "1 lot × 30",
+          "maxloss": -21594.0,
+          "maxprofit": "Not capped",
+          "atmove": 24400.0,
+          "rr": 1.13,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "29 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,616,406.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      },
+      {
+       "symbol": "NIFTY",
+       "plan_id": "tp_nifty_bear_put_spread",
+       "ask": "What's the setup for NIFTY?",
+       "tone": "down",
+       "cells": {
+        "symbol": "NIFTY",
+        "structure": "Bear put spread 22800/23050",
+        "view": "Bearish",
+        "lots": "1 lot × 65",
+        "maxloss": -5450.25,
+        "maxprofit": 10799.75,
+        "atmove": 4000.0,
+        "rr": 1.7,
+        "margin": "Needs login",
+        "fit": 92.5
+       },
+       "badge": "29 Oct close",
+       "alternatives": [
+        {
+         "symbol": "NIFTY",
+         "plan_id": "tp_nifty_long_put",
+         "ask": "What's the setup for NIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "NIFTY",
+          "structure": "Long put 23050",
+          "view": "Bearish",
+          "lots": "1 lot × 65",
+          "maxloss": -8274.5,
+          "maxprofit": "Not capped",
+          "atmove": 13000.0,
+          "rr": 0.78,
+          "margin": "Needs login",
+          "fit": 92.5
+         },
+         "badge": "29 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,489,975.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "fno_stock",
+     "title": "Stock F&O · 2 setups",
+     "note": "Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; R:R is measured at that move. Margin is Zerodha's calculator for the structure.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Underlying",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "structure",
+       "label": "Structure",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "view",
+       "label": "View",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "lots",
+       "label": "Lots",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "maxloss",
+       "label": "Max loss",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "maxprofit",
+       "label": "Max profit",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "atmove",
+       "label": "At exp. move",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R at move",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "margin",
+       "label": "Margin",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "fit",
+       "label": "Fit",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "RELIANCE",
+       "plan_id": "tp_reliance_bear_put_spread",
+       "ask": "What's the setup for RELIANCE?",
+       "tone": "down",
+       "cells": {
+        "symbol": "RELIANCE",
+        "structure": "Bear put spread 1380/1400",
+        "view": "Bearish",
+        "lots": "1 lot × 500",
+        "maxloss": -6000.0,
+        "maxprofit": 14000.0,
+        "atmove": 4000.0,
+        "rr": 1.9,
+        "margin": "Needs login",
+        "fit": 80.0
+       },
+       "badge": "29 Oct close"
+      },
+      {
+       "symbol": "TCS",
+       "plan_id": "tp_tcs_bull_call_spread",
+       "ask": "What's the setup for TCS?",
+       "tone": "up",
+       "cells": {
+        "symbol": "TCS",
+        "structure": "Bull call spread 3000/3060",
+        "view": "Bullish",
+        "lots": "1 lot × 175",
+        "maxloss": -9000.0,
+        "maxprofit": 21000.0,
+        "atmove": 4000.0,
+        "rr": 1.5,
+        "margin": "Needs login",
+        "fit": 78.0
+       },
+       "badge": "29 Oct close"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "login",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Margin need a Kite login: ask an admin to log in to Kite for the day (the header's Log in to Kite), or connect your own Zerodha account in Brokers. Icici Direct has no margin calculator wired here, so it cannot supply this.",
+     "actions": [
+      {
+       "kind": "kite_login",
+       "label": "Log in to Kite"
+      },
+      {
+       "kind": "connect_broker",
+       "label": "Connect a broker"
+      }
+     ]
+    },
+    {
+     "type": "trade_plan",
+     "id": "first",
+     "title": "The first idea's plan · BANKNIFTY",
+     "note": null,
+     "plan_id": "tp_banknifty_bear_put_spread"
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Desk F&O board (StrategyPlan, fit to today's regime)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the expected move in Nifty?",
+     "query": "What is the expected move in Nifty?"
+    },
+    {
+     "label": "How much should I risk?",
+     "query": "How much should I risk?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "live": {
+   "schema": "visual-answer-v1",
+   "intent": "fno_setups",
+   "title": "F&O setups that fit today",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-31T11:33:44+05:30",
+   "mode": "mixed",
+   "headline": {
+    "text": "4 F&O setups fit today's regime (Bearish): 2 index, 2 stock.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "ranked",
+     "id": "fno_index",
+     "title": "Index options · 2 setups",
+     "note": "Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; R:R is measured at that move. Margin is Zerodha's calculator for the structure. Premiums live at 11:00 IST; the ranking and the regime are from the 29 Oct close.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Underlying",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "structure",
+       "label": "Structure",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "view",
+       "label": "View",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "lots",
+       "label": "Lots",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "maxloss",
+       "label": "Max loss",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "maxprofit",
+       "label": "Max profit",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "atmove",
+       "label": "At exp. move",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R at move",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "margin",
+       "label": "Margin",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "fit",
+       "label": "Fit",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "BANKNIFTY",
+       "plan_id": "tp_banknifty_bear_put_spread",
+       "ask": "What's the setup for BANKNIFTY?",
+       "tone": "down",
+       "cells": {
+        "symbol": "BANKNIFTY",
+        "structure": "Bear put spread 53100/54700",
+        "view": "Bearish",
+        "lots": "1 lot × 30",
+        "maxloss": -13800.0,
+        "maxprofit": 34200.0,
+        "atmove": 19016.98,
+        "rr": 1.38,
+        "margin": 60000.0,
+        "fit": 92.5
+       },
+       "badge": "Live",
+       "alternatives": [
+        {
+         "symbol": "BANKNIFTY",
+         "plan_id": "tp_banknifty_long_put",
+         "ask": "What's the setup for BANKNIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "BANKNIFTY",
+          "structure": "Long put 54700",
+          "view": "Bearish",
+          "lots": "1 lot × 30",
+          "maxloss": -19500.0,
+          "maxprofit": "Not capped",
+          "atmove": 13354.39,
+          "rr": 0.68,
+          "margin": 25000.0,
+          "fit": 92.5
+         },
+         "badge": "Live",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,621,500.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        },
+        {
+         "symbol": "BANKNIFTY",
+         "plan_id": "tp_banknifty_long_put",
+         "ask": "What's the setup for BANKNIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "BANKNIFTY",
+          "structure": "Long put 54600",
+          "view": "Bearish",
+          "lots": "1 lot × 30",
+          "maxloss": -21594.0,
+          "maxprofit": "Not capped",
+          "atmove": 24400.0,
+          "rr": 1.13,
+          "margin": 25000.0,
+          "fit": 92.5
+         },
+         "badge": "29 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,616,406.00, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      },
+      {
+       "symbol": "NIFTY",
+       "plan_id": "tp_nifty_bear_put_spread",
+       "ask": "What's the setup for NIFTY?",
+       "tone": "down",
+       "cells": {
+        "symbol": "NIFTY",
+        "structure": "Bear put spread 22800/23050",
+        "view": "Bearish",
+        "lots": "1 lot × 65",
+        "maxloss": -5450.25,
+        "maxprofit": 10799.75,
+        "atmove": 4000.0,
+        "rr": 1.7,
+        "margin": 60000.0,
+        "fit": 92.5
+       },
+       "badge": "29 Oct close",
+       "alternatives": [
+        {
+         "symbol": "NIFTY",
+         "plan_id": "tp_nifty_long_put",
+         "ask": "What's the setup for NIFTY?",
+         "tone": "down",
+         "cells": {
+          "symbol": "NIFTY",
+          "structure": "Long put 23050",
+          "view": "Bearish",
+          "lots": "1 lot × 65",
+          "maxloss": -8274.5,
+          "maxprofit": "Not capped",
+          "atmove": 13000.0,
+          "rr": 0.78,
+          "margin": 25000.0,
+          "fit": 92.5
+         },
+         "badge": "29 Oct close",
+         "tips": {
+          "maxprofit": "The theoretical top is ₹1,489,975.50, with the index at zero. That is not a realistic target, so the profit at the expected move is shown instead."
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "fno_stock",
+     "title": "Stock F&O · 2 setups",
+     "note": "Fit to today's measured regime, not a performance rank. Figures are for the lots shown, gross, before charges. A bought option's profit is not capped in practice, so the profit at the expected move is shown instead; R:R is measured at that move. Margin is Zerodha's calculator for the structure. Premiums live at 11:00 IST; the ranking and the regime are from the 29 Oct close.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Underlying",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "structure",
+       "label": "Structure",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "view",
+       "label": "View",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "lots",
+       "label": "Lots",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "maxloss",
+       "label": "Max loss",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "maxprofit",
+       "label": "Max profit",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "atmove",
+       "label": "At exp. move",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R at move",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "margin",
+       "label": "Margin",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "fit",
+       "label": "Fit",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "RELIANCE",
+       "plan_id": "tp_reliance_bear_put_spread",
+       "ask": "What's the setup for RELIANCE?",
+       "tone": "down",
+       "cells": {
+        "symbol": "RELIANCE",
+        "structure": "Bear put spread 1380/1400",
+        "view": "Bearish",
+        "lots": "1 lot × 500",
+        "maxloss": -6000.0,
+        "maxprofit": 14000.0,
+        "atmove": 4000.0,
+        "rr": 1.9,
+        "margin": 60000.0,
+        "fit": 80.0
+       },
+       "badge": "29 Oct close"
+      },
+      {
+       "symbol": "TCS",
+       "plan_id": "tp_tcs_bull_call_spread",
+       "ask": "What's the setup for TCS?",
+       "tone": "up",
+       "cells": {
+        "symbol": "TCS",
+        "structure": "Bull call spread 3000/3060",
+        "view": "Bullish",
+        "lots": "1 lot × 175",
+        "maxloss": -9000.0,
+        "maxprofit": 21000.0,
+        "atmove": 4000.0,
+        "rr": 1.5,
+        "margin": 60000.0,
+        "fit": 78.0
+       },
+       "badge": "29 Oct close"
+      }
+     ]
+    },
+    {
+     "type": "trade_plan",
+     "id": "first",
+     "title": "The first idea's plan · BANKNIFTY",
+     "note": null,
+     "plan_id": "tp_banknifty_bear_put_spread"
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Desk F&O board (StrategyPlan, fit to today's regime)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Kite live option premiums (REST quote, contracts traded today)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "Zerodha margin calculator · the platform's Kite login",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the expected move in Nifty?",
+     "query": "What is the expected move in Nifty?"
+    },
+    {
+     "label": "How much should I risk?",
+     "query": "How much should I risk?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Ranked on end-of-day data of 29 Oct 2026; premiums, max loss and profit are live from Kite at 11:00 IST. Ideas to review, not recommendations; nothing is sent to a broker."
+  }
+ }
+}

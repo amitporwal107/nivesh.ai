@@ -1,0 +1,315 @@
+"""Quick Hedge in Copilot chat: the portfolio_hedge intent (which questions it takes and which it must not), what a question states, the
+payload built from the real service result, and the flag gate in prepare(). The three service reads are faked; the calculator,
+the cost card and the visual-answer contract check (validate) run for real."""
+import asyncio
+from datetime import date
+
+import pytest
+
+from services import desk_cost_card as card
+from services import market_freshness
+from services.copilot_visual import builders, intents, prepare, readers as rd
+from services.copilot_visual.intents import Intent, hedge_params, resolve_intent
+from services.copilot_visual.payload import facts, price, rupees, validate
+from services.quick_hedge import service
+
+TODAY, FLOOR = date(2026, 10, 31), date(2026, 10, 30)
+WINDOW = market_freshness.Window(today=TODAY, floor=FLOOR, calendar_checked=True)
+SPOT = 23_000.0
+
+
+def _puts():
+    p = {float(k): round(120 * 4 ** (-((SPOT - k) / 50 - 23) / 46), 2) for k in range(19_000, 23_001, 50)}
+    p[21_850.0], p[19_550.0] = 120.0, 30.0
+    return p
+
+
+PF = {"portfolio_value_rs": 2_500_000.0, "hedgeable_value_rs": 2_000_000.0, "beta": 1.0, "beta_coverage": 1.0,
+      "excluded_rs": {"hybrid": 300_000.0, "debt": 0.0, "gold": 200_000.0, "overseas": 0.0, "other": 0.0, "unclassified": 0.0},
+      "holdings": [{"key": "A", "value_rs": 2_000_000.0}], "reasons": [], "as_of": "2026-10-30"}
+MARKET = {"ok": True, "as_of": "2026-10-30", "spot": SPOT, "lot": 65, "expiry": "2026-12-01", "days_to_expiry": 32, "tenor": "1m",
+          "expiries": ["2026-11-03", "2026-12-01"], "puts": _puts(), "source": "NSE"}
+FIT = {"r2": 0.83, "correlation": 0.91, "regression_beta": 1.0, "observations": 252, "coverage": 0.95, "series_used": 3,
+       "window_start": "2025-10-31", "window_end": "2026-10-30", "reason": None}
+
+
+class Fake:
+    def __init__(self, pf=None, market=None, fit=None):
+        self._pf, self._market, self._fit = pf or PF, market or MARKET, fit or FIT
+
+    async def portfolio(self, db, uid):
+        return self._pf
+
+    async def market(self, tenor):
+        return self._market
+
+    async def fit(self, pf):
+        return self._fit
+
+
+@pytest.fixture
+def world(monkeypatch):
+    state = {"fake": Fake(), "fail": False, "calls": []}
+
+    async def window():
+        return WINDOW
+
+    async def quick_hedge(uid, **kw):
+        state["calls"].append((uid, kw))
+        if state["fail"]:
+            raise RuntimeError("MOCK quick hedge down")
+        return await service.run(None, uid, readers=state["fake"], **kw)
+    monkeypatch.setattr(rd, "window", window)
+    monkeypatch.setattr(rd, "quick_hedge", quick_hedge)
+    return state
+
+
+def build(params=None, **kw):
+    p = asyncio.run(builders.build(Intent("portfolio_hedge", params=params or {}), {"user_id": "u1"}, request="REQ", **kw))
+    assert validate(p) == [], validate(p)
+    return p
+
+
+def blk(p, bid):
+    return next((b for b in p["blocks"] if b.get("id") == bid), None)
+
+
+# ── which questions are ours ───────────────────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("message", [
+    "Should I consider protecting my portfolio?", "Protect my portfolio against a 15% fall", "Hedge my portfolio",
+    "I don't want to lose more than ₹1 lakh", "What happens if Nifty falls 10%?", "What happens if the market falls?",
+    "Show me different hedge ideas.", "What type of hedge addresses my biggest risk?", "What is the cheapest protection option?",
+    "How much protection should I consider?", "How much of my portfolio would this hedge protect?", "What happens when the hedge expires?",
+    "Make my portfolio hedge cheaper", "downside protection for my holdings",
+])
+def test_hedge_questions_are_taken(message):
+    assert resolve_intent(message).name == "portfolio_hedge"
+
+
+@pytest.mark.parametrize("message,name", [
+    ("What is the expected move in Nifty?", "expected_move"), ("How much should I risk?", "position_size"),
+    ("What is the market view today?", "market_view"),
+    ("How is my portfolio doing?", None), ("Is my portfolio too risky?", None), ("What are my biggest risks?", None),
+    ("Are hedge funds a good investment?", None), ("Hedge my TCS position", None), ("Should I exit INFY, my stop loss is hit", "exit_options"),
+])
+def test_other_questions_keep_their_own_path(message, name):
+    got = resolve_intent(message)
+    assert (got.name if got else None) == name
+
+
+def test_the_hedge_check_does_not_open_the_portfolio_gate_for_other_portfolio_questions():
+    assert resolve_intent("What is my portfolio XIRR?") is None and resolve_intent("Rebalance my portfolio") is None
+
+
+# ── what a question states ─────────────────────────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("message,expected", [
+    ("Protect my portfolio against a 15% fall", {"expected_fall_pct": 15.0}),
+    ("What happens if Nifty falls 20%?", {"expected_fall_pct": 20.0}),
+    ("I don't want to lose more than ₹1 lakh", {"tolerance_rs": 100_000.0}),
+    ("I can afford to lose 2 crore, protect my portfolio", {"tolerance_rs": 20_000_000.0}),
+    ("hedge my portfolio, I can lose up to 50k", {"tolerance_rs": 50_000.0}),
+    ("protect my portfolio, I can lose at most 3%", {"tolerance_pct": 3.0}),
+    ("protect my holdings against a 12% correction for two weeks", {"expected_fall_pct": 12.0, "tenor": "2w"}),
+    ("protect my portfolio for 3 months", {"tenor": "3m"}), ("hedge my portfolio for a month", {"tenor": "1m"}),
+    ("Make my portfolio hedge cheaper", {"mode": "lowest_cost"}), ("Show the scenarios for the maximum protection hedge", {"mode": "maximum"}),
+    ("hedge my portfolio against a 60% fall", {}),                       # beyond the 50% the engine accepts: not read, so a default is said
+    ("hedge my portfolio", {}),
+])
+def test_what_the_question_states(message, expected):
+    assert hedge_params(message) == expected
+
+
+# ── the answer ─────────────────────────────────────────────────────────────────────────────────────────────────
+def test_the_default_answer_has_size_choices_a_scenario_table_and_says_what_it_assumed(world):
+    p = build()
+    assert p["intent"] == "portfolio_hedge" and p["as_of"] == "2026-10-30"
+    assert [b["type"] for b in p["blocks"] if b["type"] != "notice"] == ["kpis", "kpis", "kpis", "ranked", "ranked"]      # impact, portfolio, size, choices, scenarios
+    assert "Balanced" in p["headline"]["text"] and "21,850 put" in p["headline"]["text"] and "₹100,000.00 loss" in p["headline"]["text"]
+    choices, scen = blk(p, "choices"), blk(p, "scenarios")
+    assert [r["cells"]["choice"] for r in choices["rows"]] == ["Balanced", "Maximum protection", "Lowest cost"]
+    assert all(r["ask"] for r in choices["rows"])
+    assert len(scen["rows"]) == 7 and sum(1 for r in scen["rows"] if r["tone"] == "warn") == 1
+    flat = next(r for r in scen["rows"] if r["cells"]["move"] == "+0.00%")
+    assert flat["cells"]["hedge"].startswith("−₹7,") and flat["cells"]["without"] == "₹0.00"
+    assumed = blk(p, "assumed")["text"]
+    assert "10% fall" in assumed and "5% of your equity-linked holdings" in assumed and "about a month" in assumed
+    assert "Paper only" in blk(p, "paper-only")["text"]
+    assert p["data_quality"]["missing"] == [] and not p["data_quality"]["stale"]
+
+
+def test_everything_stated_means_nothing_is_assumed(world):
+    p = build({"expected_fall_pct": 15.0, "tolerance_rs": 100_000.0, "tenor": "1m"})
+    assert blk(p, "assumed") is None
+    assert world["calls"][0][1] == {"expected_fall_pct": 15.0, "tenor": "1m", "tolerance_rs": 100_000.0, "tolerance_pct": None}
+
+
+def test_asking_about_the_cheaper_choice_shows_its_scenarios_and_its_two_legs(world):
+    p = build({"mode": "lowest_cost", "expected_fall_pct": 15.0, "tolerance_rs": 100_000.0})
+    assert blk(p, "scenarios")["title"].startswith("Lowest cost")
+    assert "sell the 19,550 put" in p["headline"]["text"]
+
+
+def test_a_portfolio_under_one_lot_says_so_and_shows_no_hedge(world):
+    world["fake"] = Fake(pf={**PF, "portfolio_value_rs": 1_100_000.0, "hedgeable_value_rs": 1_000_000.0})
+    p = build()
+    assert "smaller than one efficient index-option hedge lot" in p["headline"]["text"]
+    assert blk(p, "scenarios") is None and blk(p, "choices") is None and blk(p, "portfolio") is not None
+
+
+def test_a_poor_fit_shows_the_scenarios_but_says_the_hedge_cannot_be_placed(world):
+    world["fake"] = Fake(fit={**FIT, "r2": 0.18, "correlation": 0.42})
+    p = build()
+    assert blk(p, "scenarios") is not None and p["headline"]["tone"] == "warn"
+    assert "poor hedge" in blk(p, "no-place")["text"]
+
+
+def test_missing_market_data_is_said_first_and_no_hedge_figure_appears(world):
+    world["fake"] = Fake(market={"ok": False, "reason": {"code": "market_data_unavailable", "message": "The data platform is unavailable."}})
+    p = build()
+    assert "data platform is unavailable" in p["headline"]["text"] and p["headline"]["tone"] == "warn"
+    assert blk(p, "scenarios") is None and blk(p, "choices") is None
+
+
+def test_a_failed_service_gives_a_valid_payload_that_names_the_missing_source(world):
+    world["fail"] = True
+    p = build()
+    assert p["data_quality"]["missing"] and "Quick Hedge" in p["data_quality"]["missing"][0]
+    assert not [b for b in p["blocks"] if b["type"] in ("kpis", "ranked")]
+
+
+def test_the_engine_is_given_figures_and_the_no_recommendation_rule(world):
+    text = facts(build())
+    assert "never say" in text and "Balanced" in text and "21,850" in text
+
+
+# ── the flag gate ──────────────────────────────────────────────────────────────────────────────────────────────
+def test_with_the_flag_off_the_question_takes_the_usual_chat_path(world, monkeypatch):
+    async def off(user):
+        return False
+    monkeypatch.setattr(rd, "hedge_enabled", off)
+    assert asyncio.run(prepare("REQ", {"user_id": "u1", "email": "x@example.com"}, "Protect my portfolio against a 15% fall", None, None, None)) is None
+    assert world["calls"] == []
+
+
+def test_with_the_flag_on_the_answer_is_pinned_to_the_portfolio_analyst(world, monkeypatch):
+    async def on(user):
+        return True
+    monkeypatch.setattr(rd, "hedge_enabled", on)
+    v = asyncio.run(prepare("REQ", {"user_id": "u1", "email": "x@example.com"}, "Protect my portfolio against a 15% fall", None, None, None))
+    assert v is not None and v.intent.name == "portfolio_hedge" and v.agent == "portfolio_analyst"
+    assert v.widget["data"]["intent"] == "portfolio_hedge" and "VISUAL_ANSWER" in v.facts
+
+
+# ── what a Nifty fall does to the portfolio, and where the holdings come from ───────────────────────────────────
+SRC_STALE = {"holdings": [{"source": "cas", "label": "CAS statement", "rows": 119, "last_updated": "2026-11-01"},
+                          {"source": "broker_native", "label": "Connected broker", "rows": 5, "last_updated": "2026-10-31"}],
+             "cas": {"statement_date": "31-Aug-2026", "statement_date_iso": "2026-08-31", "period": "Aug/2026", "age_days": 62, "older_than_a_month": True},
+             "brokers": [{"broker": "zerodha", "label": "Zerodha", "state": "ended"}, {"broker": "icicidirect", "label": "ICICI Direct", "state": "ended"}],
+             "needs_attention": True}
+SRC_FRESH = {"holdings": [{"source": "cas", "label": "CAS statement", "rows": 40, "last_updated": "2026-11-01"}],
+             "cas": {"statement_date": "2026-10-25", "statement_date_iso": "2026-10-25", "period": "Oct/2026", "age_days": 7, "older_than_a_month": False},
+             "brokers": [{"broker": "zerodha", "label": "Zerodha", "state": "active"}], "needs_attention": False}
+
+
+def test_the_card_opens_with_what_the_fall_does_and_what_the_hedge_changes(world):
+    p = build({"expected_fall_pct": 10.0, "tolerance_rs": 100_000.0})
+    first = next(b for b in p["blocks"] if b["type"] != "notice")
+    assert first["id"] == "impact" and first["title"] == "If Nifty falls 10%"
+    # by hand: exposure 20,00,000 x beta 1.0, so a 10% fall is -2,00,000; the Balanced put (21,850, one lot of 65) pays 65 x (21,850 - 20,700) = 74,750
+    entry, exit_ = card.order_side("options", "BUY", 7_800.0)["total"], card.order_side("options", "SELL", 74_750.0)["total"]
+    hedge_pnl = 74_750.0 - 7_800.0 - entry - exit_
+    items = {i["label"]: i for i in first["items"]}
+    assert items["Without a hedge"]["value"] == "−₹200,000.00" and "8.0% of your whole portfolio" in items["Without a hedge"]["sub"]      # 2,00,000 / 25,00,000
+    assert items["With the Balanced hedge"]["value"] == rupees(-200_000.0 + hedge_pnl)
+    assert items["The hedge changes it by"]["value"] == rupees(hedge_pnl)
+    assert p["headline"]["text"].startswith("If Nifty falls 10%, your equity-linked holdings would lose about ₹200,000.00 (8.0% of your whole portfolio). "
+                                            f"With the Balanced hedge it would be about {price(abs(-200_000.0 + hedge_pnl))}.")
+    assert "21,850 put" in p["headline"]["text"]                  # and then how it is hedged
+
+
+def _fear(res, mode):
+    m = next(x for x in res["modes"] if x["mode"] == mode)
+    return m, next(r for r in m["scenario_rows"] if r["is_expected_fall"])
+
+
+def test_a_fall_the_chosen_hedge_does_not_reach_is_said_plainly_and_a_choice_that_pays_is_named(world):
+    # Found on the real staging account: at a 5% fall the Balanced put was not reached, so "with the hedge" was the loss PLUS the
+    # cost, and the old headline read as if the hedge cut the loss. By hand: a 5% fall takes Nifty from 23,000 to 21,850, exactly
+    # the Balanced put's strike, so it pays nothing; Maximum protection (half the tolerance) buys a higher put that does pay.
+    p = build({"expected_fall_pct": 5.0, "tolerance_rs": 100_000.0})
+    res = asyncio.run(service.run(None, "u1", readers=world["fake"], expected_fall_pct=5.0, tenor="1m", tolerance_rs=100_000.0))
+    bal, bal_fear = _fear(res, "balanced")
+    mx, mx_fear = _fear(res, "maximum")
+    assert bal["legs"][0]["strike"] == 21_850.0 and bal_fear["hedge_pnl_rs"] < 0 < mx_fear["hedge_pnl_rs"]
+    head = p["headline"]["text"]
+    assert head.startswith("If Nifty falls 5%, your equity-linked holdings would lose about ₹100,000.00 (4.0% of your whole portfolio). "
+                           "The Balanced hedge starts paying only below Nifty 21,850 (5.0% down), so at a 5% fall it pays nothing and only adds its cost. "
+                           f"The Maximum protection choice would cut that loss to about {price(abs(mx_fear['with_hedge_rs']))}, "
+                           f"for about {price(mx['cost']['total_rs'])}. "), head
+    assert "With the Balanced hedge it would be about" not in head
+    items = {i["label"]: i for i in blk(p, "impact")["items"]}
+    assert items["The hedge changes it by"]["sub"] == "it pays nothing at this fall; it starts paying below Nifty 21,850 (5.0% down)"
+    assert items["With the Balanced hedge"]["value"] == rupees(bal_fear["with_hedge_rs"])     # the figure itself is still shown, unchanged
+
+
+def test_when_no_choice_pays_at_the_fall_none_is_named(world):
+    # A tolerance of 2,00,000 puts Balanced at 20,700 and Maximum (1,00,000) at 21,850: neither is reached by a 5% fall.
+    p = build({"expected_fall_pct": 5.0, "tolerance_rs": 200_000.0})
+    res = asyncio.run(service.run(None, "u1", readers=world["fake"], expected_fall_pct=5.0, tenor="1m", tolerance_rs=200_000.0))
+    assert all(_fear(res, m["mode"])[1]["hedge_pnl_rs"] <= 0 for m in res["modes"] if m["available"])
+    head = p["headline"]["text"]
+    assert "starts paying only below Nifty 20,700 (10.0% down), so at a 5% fall it pays nothing and only adds its cost. " in head, head
+    assert "would cut that loss" not in head and "With the Balanced hedge it would be about" not in head
+
+
+@pytest.mark.parametrize("message", ["What happens to my portfolio if Nifty falls 5%?", "How can I hedge my portfolio against a 5% fall?",
+                                     "If Nifty goes down 5% what is the impact on my portfolio?"])
+def test_the_manage_risk_questions_are_taken_with_the_fall_they_name(message):
+    got = resolve_intent(message)
+    assert got is not None and got.name == "portfolio_hedge" and got.params.get("expected_fall_pct") == 5.0
+
+
+def test_stale_sources_are_named_and_each_ended_broker_gets_a_sign_in_action(world):
+    world["fake"] = Fake(pf={**PF, "sources": SRC_STALE})
+    n = blk(build(), "holdings-source")
+    assert n["tone"] == "warn"
+    assert "your CAS statement dated 31 Aug 2026 (119 lines)" in n["text"] and "connected broker (5 lines" in n["text"]
+    assert "Zerodha and ICICI Direct sessions have ended" in n["text"] and "62 days old" in n["text"]
+    assert [a["label"] for a in n["actions"]] == ["Sign in to Zerodha again", "Sign in to ICICI Direct again", "Connect a broker or update your CAS"]
+    assert all(a["kind"] == "connect_broker" for a in n["actions"])
+
+
+def test_current_sources_are_named_without_an_alarm_or_an_action(world):
+    world["fake"] = Fake(pf={**PF, "sources": SRC_FRESH})
+    n = blk(build(), "holdings-source")
+    assert n["tone"] == "info" and "dated 25 Oct 2026 (40 lines)" in n["text"] and "actions" not in n
+
+
+def test_no_broker_connected_offers_to_connect_one(world):
+    world["fake"] = Fake(pf={**PF, "sources": {**SRC_FRESH, "brokers": []}})
+    n = blk(build(), "holdings-source")
+    assert "No broker is connected" in n["text"] and [a["label"] for a in n["actions"]] == ["Connect a broker"]
+
+
+def test_without_a_sources_summary_there_is_no_such_notice(world):
+    assert blk(build(), "holdings-source") is None
+
+
+def test_no_holdings_at_all_offers_the_connect_action_and_no_impact_figure(world):
+    world["fake"] = Fake(pf={**PF, "hedgeable_value_rs": 0.0, "portfolio_value_rs": 0.0, "beta": None, "holdings": [],
+                             "reasons": [{"code": "missing_portfolio", "message": "There are no equity-linked holdings to hedge. Connect a broker or upload a CAS statement so the hedge can see your holdings."}]})
+    p = build()
+    n = blk(p, "reason-missing_portfolio")
+    assert n["actions"] == [{"kind": "connect_broker", "label": "Connect a broker or upload a CAS"}]
+    assert blk(p, "impact") is None and "Connect a broker or upload a CAS statement" in p["headline"]["text"]
+
+
+@pytest.mark.parametrize("message,name", [("Will Nifty fall tomorrow?", None), ("What is the expected move in Nifty?", "expected_move"),
+                                          ("Why did the market fall today?", None), ("Is the market trending?", "market_view")])
+def test_a_bare_market_question_is_not_taken_as_a_portfolio_hedge(message, name):
+    got = resolve_intent(message)
+    assert (got.name if got else None) == name
+
+
+def test_a_fall_named_with_down_is_read_and_the_default_is_not_used():
+    assert hedge_params("If Nifty goes down 5% what is the impact on my portfolio?") == {"expected_fall_pct": 5.0}

@@ -61,7 +61,7 @@ export default function SecurityPage() {
           </a>
         </div>
         <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", marginTop: 24, letterSpacing: ".04em", textAlign: "center" as const }}>
-          Read-only · Encrypted · SEBI-aligned · ARN-128459 ·{" "}
+          Read-only · Encrypted · ARN-128459 ·{" "}
           <span onClick={() => navigate("/privacy")} style={{ color: "var(--mint)", cursor: "pointer" }}>Privacy</span>
         </div>
       </div>

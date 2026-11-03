@@ -263,6 +263,15 @@ def _evidence_quality(ledger: Dict[str, Any], segment: str) -> Dict[str, Any]:
     return {"groups": list(groups), **tot, "label": label}
 
 
+def _unfloored(c: Dict[str, Any]) -> bool:
+    """A combination that holds shares or a future long with no long put under them (the covered call): its expiry worst case is the
+    price at zero, while the plan exits at its stop (sizing and reward : risk already use the loss there)."""
+    legs = c.get("legs") or []
+    holds = any(l.get("kind") in ("cash", "future") and l.get("side") == "buy" for l in legs)
+    put = any(l.get("kind") == "option" and l.get("side") == "buy" and l.get("option_type") == "put" for l in legs)
+    return c["segment"] == "combination" and holds and not put
+
+
 def _comparison(cands: List[Dict[str, Any]], ledger: Dict[str, Any], horizon_days: int) -> List[Dict[str, Any]]:
     rows = []
     for c in cands:
@@ -270,12 +279,23 @@ def _comparison(cands: List[Dict[str, Any]], ledger: Dict[str, Any], horizon_day
         ex = res.get("expiry") or {}
         rr = c.get("risk_reward") or {}
         linear = c["segment"] in ("cash", "futures")
+        unfloored = _unfloored(c)
         flags = (c.get("options_selection") or {}).get("preferred_flags") or []
+        if linear:
+            max_loss = rr.get("risk_net")
+            basis = "loss at the stop (net); gaps can exceed it" + ("; futures losses can exceed margin" if c["segment"] == "futures" else "")
+        elif unfloored:
+            # A premium that covers the loss at the stop is a loss of 0 there, not a negative loss.
+            max_loss = None if rr.get("risk_net") is None else max(rr["risk_net"], 0.0)
+            to_zero = ex.get("max_loss")
+            basis = ("loss at the stop (net), where the plan exits; gaps can exceed it, and below the stop nothing limits the loss"
+                     + (f" (held to expiry, {abs(to_zero):,.2f} gross if the price falls to zero)" if to_zero is not None else ""))
+        else:
+            max_loss = ex.get("max_loss")
+            basis = "defined max loss at expiry (gross)" + ("; for a structure that holds shares or a future this is the loss if the price falls to the long put's strike" if c["segment"] == "combination" else "")
         rows.append({
             "id": c["id"], "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
-            "max_loss": rr.get("risk_net") if linear else ex.get("max_loss"),
-            "max_loss_basis": ("loss at the stop (net); gaps can exceed it" + ("; futures losses can exceed margin" if c["segment"] == "futures" else "")) if linear
-            else "defined max loss at expiry (gross)" + ("; for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put" if c["segment"] == "combination" else ""),
+            "max_loss": max_loss, "max_loss_basis": basis, "max_loss_at": "stop" if linear or unfloored else "expiry",
             "capital_at_risk": res.get("capital_at_risk"),
             "breakeven": ex.get("breakevens"), "reward_risk_net": rr.get("net"), "reward_risk_gross": rr.get("gross"),
             "liquidity_flags": flags, "horizon_days": horizon_days, "evidence_quality": _evidence_quality(ledger, c["segment"]),

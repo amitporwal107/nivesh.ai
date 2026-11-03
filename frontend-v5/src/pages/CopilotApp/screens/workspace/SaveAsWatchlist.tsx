@@ -26,12 +26,16 @@ export function OpenWatchlist({ testId, children = "Open the Watchlist ›" }: {
   );
 }
 
-export function SaveAsWatchlist({ idPrefix, defaultName = "", maxLength = 80, pending, error, savedName, onSave }: {
+export function SaveAsWatchlist({ idPrefix, defaultName = "", maxLength = 80, prompt = "Keep this screen as a watchlist. It will list whatever passes it each day.", buttonLabel = "Save as a watchlist", pending, error, savedName, onSave }: {
   /** Prefix for the test ids: `<prefix>`, `-name`, `-save`, `-error`, `-done`, `-open`. */
   idPrefix: string;
   defaultName?: string;
   /** The longest name the save call accepts. */
   maxLength?: number;
+  /** The sentence above the name field. */
+  prompt?: string;
+  /** The save button's words. */
+  buttonLabel?: string;
   pending: boolean;
   error: unknown;
   /** The name it was saved under; set once the save has succeeded. */
@@ -61,7 +65,7 @@ export function SaveAsWatchlist({ idPrefix, defaultName = "", maxLength = 80, pe
         <>
           <form onSubmit={submit} className="flex flex-wrap items-center" style={{ gap: 8 }}>
             <label htmlFor={inputId} style={{ flex: "1 1 100%", fontSize: 13, color: "var(--cp-ink-2)" }}>
-              Keep this screen as a watchlist. It will list whatever passes it each day.
+              {prompt}
             </label>
             <input
               id={inputId}
@@ -74,7 +78,7 @@ export function SaveAsWatchlist({ idPrefix, defaultName = "", maxLength = 80, pe
               style={{ flex: "1 1 180px", minWidth: 0, padding: "8px 10px", borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13 }}
             />
             <Btn type="submit" disabled={!trimmed || pending} data-testid={`${idPrefix}-save`}>
-              {pending ? "Saving…" : "Save as a watchlist"}
+              {pending ? "Saving…" : buttonLabel}
             </Btn>
           </form>
           {error != null && (

@@ -128,10 +128,10 @@ test.describe("MOCK — not real data: the Copilot's trade idea card", () => {
     await expect(page.getByTestId("tpc-plan")).toHaveAttribute("data-variant", "row");
   });
 
-  test("TI-14 'Paper trade ›' and 'Also fits' open the desk's own ticket for that plan", async ({ page }) => {
+  test("TI-14 'Paper trade ›' and 'Also fits' open Chart Analysis on the stock with that plan (Strategy Lab removed, owner 29 Oct)", async ({ page }) => {
     await inThread(page);
-    await expect(page.getByTestId("tpc-open-lab")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=lab&sub=build&tp=${CASH_ID}`);
-    await expect(page.getByTestId("tpc-other")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=lab&sub=build&tp=${FNO_ID}`);
+    await expect(page.getByTestId("tpc-open-lab")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=chart&sub=live&sym=FIXCO&tp=${CASH_ID}`);
+    await expect(page.getByTestId("tpc-other")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=chart&sub=live&sym=FIXCO&tp=${FNO_ID}`);
   });
 
   test("TI-15 'Plan a bearish trade instead' asks the Copilot again in words", async ({ page }) => {

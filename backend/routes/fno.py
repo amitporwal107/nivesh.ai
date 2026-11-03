@@ -14,7 +14,27 @@
                                                  summed), per N-bar window: price change, OI change, volume and the
                                                  build-up class, with the snapshot time. Kite candles with OI when the
                                                  platform Kite session works, else the latest bhavcopy day per expiry
-                                                 labelled end of day (services/fno_oi_windows.py). Read only
+                                                 labelled end of day (services/fno_oi_windows.py). Intraday, each
+                                                 contract and consolidated also carry `bars` [[t, close, volume, oi]]
+                                                 (the sessions sent plus one baseline bar). Read only.
+                                                 &daily=N (0 = off, max 250): every contract slot and consolidated also
+                                                 carry `daily_bars` [[day, close, volume, oi, oi_change, expiry]] for the
+                                                 last N bhavcopy sessions and `daily_windows` over them, in either mode
+                                                 (rules in services/fno_oi_windows.py; the read is `_daily_book` below)
+    GET /api/fno/{symbol}/chain/consolidated?around=N
+                                                 every option expiry still listed (the /expiries list), each read as /chain
+                                                 reads it, summed per strike: call / put oi, change_in_oi and volume (a
+                                                 figure null in every expiry stays null, else the non-null values are
+                                                 summed), the PCR, max pain and walls over the sums (summarise_chain), and
+                                                 the ±around strikes about the ATM strike. Only expiries read for the same
+                                                 day as the list are summed (any other is dropped and logged). No prices
+                                                 and no Greeks: they do not add across expiries. Read only
+    GET /api/fno/{symbol}/options/intraday?interval=15m&sessions=2&strikes=5
+                                                 the nearest expiry's calls and puts at the ATM strike ± `strikes` (max
+                                                 8): Kite candles with OI per contract, and per candle time the CE / PE
+                                                 OI and volume summed, the OI changes and the PCR
+                                                 (services/fno_options_intraday.py). 200 with `availability` naming why
+                                                 when Kite cannot answer. Read only
     GET /api/fno/{symbol}/iv-history?days=&bucket=  the recorded daily ATM implied volatility of the underlying, with IV
                                                  rank and IV percentile once 252 sessions are recorded
                                                  (services/fno_iv_history; written by scripts/record_iv_history.py
@@ -297,6 +317,35 @@ def window_around(strikes: Sequence[Dict[str, Any]], centre_strike: Optional[Num
         return []
     centre = next((i for i, r in enumerate(strikes) if r["strike"] == centre_strike), len(strikes) // 2)
     return list(strikes[max(0, centre - around): centre + around + 1])
+
+
+_SUMMED_FIELDS = ("oi", "change_in_oi", "volume")
+CONSOLIDATED_SUMMARY = ("atm_strike", "pcr", "max_pain", "put_wall", "call_wall", "total_call_oi", "total_put_oi",
+                        "total_call_oi_change", "total_put_oi_change")
+
+
+def sum_sides(sides: Iterable[Optional[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+    """One side (call or put) of one strike summed over the expiries that list it: each of oi / change_in_oi / volume is
+    the sum of the non-null values, null when it is null in every expiry. None when no expiry lists that side."""
+    present = [x for x in sides if isinstance(x, dict)]
+    if not present:
+        return None
+    out: Dict[str, Any] = {}
+    for f in _SUMMED_FIELDS:
+        vals = [x[f] for x in present if x.get(f) is not None]
+        out[f] = sum(vals) if vals else None
+    return out
+
+
+def consolidate_strikes(chains: Iterable[Sequence[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Shaped chains (shape_strikes) of several expiries as one strike-ascending list of {strike, call, put}, summed."""
+    by_strike: Dict[Number, Dict[str, List[Optional[Dict[str, Any]]]]] = {}
+    for strikes in chains:
+        for r in strikes:
+            slot = by_strike.setdefault(r["strike"], {"call": [], "put": []})
+            slot["call"].append(r["call"])
+            slot["put"].append(r["put"])
+    return [{"strike": k, "call": sum_sides(v["call"]), "put": sum_sides(v["put"])} for k, v in sorted(by_strike.items())]
 
 
 def live_option_expiries(rows: Any) -> Tuple[Optional[str], List[Dict[str, Any]]]:
@@ -840,14 +889,31 @@ async def futures_oi_buildup(
     interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
     window: int = Query(4, ge=1, le=12, description="Bars per window"),
     sessions: int = Query(2, ge=1, le=5, description="Sessions of windows sent"),
+    daily: int = Query(0, ge=0, le=fno_oi_windows.DAILY_MAX,
+                       description="Bhavcopy sessions of daily_bars / daily_windows per slot (0 = none)"),
 ) -> Dict[str, Any]:
     """The futures' OI build-up by window for the current / next / far month and consolidated (services/fno_oi_windows.py).
     Kite candles with open interest when the platform Kite session works (mode intraday); otherwise the latest bhavcopy day
-    per expiry (mode end_of_day, `kite_reason` says why). Read only: nothing is written and nothing is sent to a broker."""
+    per expiry (mode end_of_day, `kite_reason` says why). With `daily` > 0, each slot and consolidated also carry the last
+    `daily` bhavcopy sessions (`daily_bars`) and their windows of `window` sessions (`daily_windows`), in either mode; that
+    read failing is 502, never an answer without them. Read only: nothing is written and nothing is sent to a broker."""
     await get_current_user(request)
     if interval not in OI_INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
     sym = symbol.upper()
+    daily_read = asyncio.ensure_future(_daily_book(sym, daily)) if daily > 0 else None
+    try:
+        answer = await _oi_buildup_answer(sym, interval, window, sessions)
+    except BaseException:
+        if daily_read is not None:
+            daily_read.cancel()
+        raise
+    if daily_read is not None:
+        fno_oi_windows.add_daily(answer, await daily_read, daily, window)
+    return answer
+
+
+async def _oi_buildup_answer(sym: str, interval: str, window: int, sessions: int) -> Dict[str, Any]:
     from routes.research_chart_intraday import get_service
     from services.kite_live_feed import config as kite_cfg
     from services.kite_live_feed.feed import get_feed
@@ -870,6 +936,200 @@ async def futures_oi_buildup(
                                               _dt.now(_tz.utc).astimezone(kite_cfg.IST))
     as_of, _spot, _lot, contracts = await _latest_futures(sym)
     return fno_oi_windows.eod_answer(sym, as_of, contracts, kite_reason)
+
+
+# ── the daily futures series (?daily=N) ──────────────────────────────────────
+# Read through the data platform's contract history (GET /v1/fno/{symbol}/history?kind=future&expiry=E&start=S, the read
+# services/desk_strategy_trades.py marks legs with): one read per futures contract, every session of it from S. Which
+# expiries carry futures is not in the expiry list (its futures_count counts rows with no option_type, and the current
+# bhavcopy format marks futures "FUT"), so per calendar month the listed expiries are tried latest first until one
+# answers with futures rows: NSE lists one futures expiry a month, its monthly expiry, and an index's weekly or long-dated
+# option expiries in that month carry none (NIFTY March 2026: futures on 30 Mar, options alone on 31 Mar). A month whose
+# expiries all answer empty has no futures. About one read a month of the window (≈ 16 for 250 sessions), at most
+# _DAILY_CONCURRENCY at a time, kept _DAILY_TTL seconds per (symbol, sessions).
+_DAILY_CONCURRENCY = 4
+_DAILY_TTL = 600.0
+_DAILY_CACHE_MAX = 256
+_DAILY_CACHE: Dict[Tuple[str, int], Tuple[float, fno_oi_windows.Book]] = {}
+# A future is listed about three months before it expires, so no expiry further than this past the data's day has
+# futures rows in the window (long-dated index options beyond it are not read).
+_DAILY_FORWARD_DAYS = 120
+
+
+def daily_read_start(as_of: str, n: int) -> str:
+    """The first calendar day read: far enough back for n sessions plus the baseline one (5 sessions a week, plus room
+    for exchange holidays)."""
+    return (date.fromisoformat(as_of) - timedelta(days=int((n + 1) * 1.6) + 10)).isoformat()
+
+
+def expiries_by_month(rows: Any, start: str, as_of: str) -> List[List[str]]:
+    """The listed expiries that can have futures rows on or after `start`, grouped by calendar month (oldest month first),
+    each month's latest expiry first."""
+    last = (date.fromisoformat(as_of) + timedelta(days=_DAILY_FORWARD_DAYS)).isoformat()
+    months: Dict[str, List[str]] = {}
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        expiry, seen = _iso_day(r.get("expiry_date")), _iso_day(r.get("latest_seen"))
+        if expiry and seen and start <= expiry <= last and seen >= start:
+            months.setdefault(expiry[:7], []).append(expiry)
+    return [sorted(set(months[m]), reverse=True) for m in sorted(months)]
+
+
+def futures_book(rows: Iterable[Any]) -> fno_oi_windows.Book:
+    """{day: {expiry: (close, volume, oi)}} from futures history rows (option rows are ignored)."""
+    book: fno_oi_windows.Book = {}
+    for r in rows:
+        if not isinstance(r, dict) or r.get("option_type") in _OPTION_SIDES:
+            continue
+        day, expiry = _iso_day(r.get("as_of_date")), _iso_day(r.get("expiry_date"))
+        if day and expiry:
+            book.setdefault(day, {})[expiry] = (_num(r.get("close_price")), _qty(r.get("traded_volume")), _qty(r.get("open_interest")))
+    return book
+
+
+async def _future_history(sym: str, expiry: str, start: str) -> List[Dict[str, Any]]:
+    """One futures contract's rows from `start`, through every page. A failed read raises (502)."""
+    rows: List[Dict[str, Any]] = []
+    offset = 0
+    for _ in range(_SESSION_MAX_PAGES):
+        body = await _daas(f"/fno/{sym}/history",
+                           {"kind": "future", "expiry": expiry, "start": start, "limit": _SESSION_PAGE, "offset": offset}, sym)
+        page = [r for r in (body.get("data") if isinstance(body.get("data"), list) else []) if isinstance(r, dict)]
+        rows.extend(page)
+        nxt = (body.get("pagination") or {}).get("next_offset") if isinstance(body.get("pagination"), dict) else None
+        if not page or not isinstance(nxt, int) or isinstance(nxt, bool):
+            return rows
+        offset = nxt
+    logger.warning("fno DaaS /fno/%s/history %s ran past %d pages: refused, not truncated", sym, expiry, _SESSION_MAX_PAGES)
+    raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+
+
+async def _daily_book(sym: str, n: int) -> fno_oi_windows.Book:
+    """Every futures row of the underlying over about n + 1 sessions back from the data's latest day, as a book."""
+    import time
+    key = (sym, n)
+    hit = _DAILY_CACHE.get(key)
+    if hit is not None and time.time() - hit[0] < _DAILY_TTL:
+        return hit[1]
+    listing = await _daas(f"/fno/{sym}/expiries", {}, sym)
+    rows = listing.get("data")
+    days = [d for d in (_iso_day(r.get("latest_seen")) for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)) if d]
+    if not days:
+        return {}
+    start = daily_read_start(max(days), n)
+    gate = asyncio.Semaphore(_DAILY_CONCURRENCY)
+
+    async def month(expiries: List[str]) -> List[Dict[str, Any]]:
+        for e in expiries:
+            async with gate:
+                got = await _future_history(sym, e, start)
+            if got:
+                return got
+        return []
+
+    found = await asyncio.gather(*(month(m) for m in expiries_by_month(rows, start, max(days))))
+    book = futures_book(r for rows_ in found for r in rows_)
+    if len(_DAILY_CACHE) >= _DAILY_CACHE_MAX:
+        _DAILY_CACHE.pop(min(_DAILY_CACHE, key=lambda k: _DAILY_CACHE[k][0]))
+    _DAILY_CACHE[key] = (time.time(), book)
+    return book
+
+
+# ── consolidated chain ───────────────────────────────────────────────────────
+_CHAIN_CONCURRENCY = 4
+
+
+@router.get("/{symbol}/chain/consolidated")
+async def chain_consolidated(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    around: int = Query(DEFAULT_AROUND, ge=1, le=MAX_AROUND, description="Strikes sent each side of the ATM strike"),
+) -> Dict[str, Any]:
+    """Every option expiry still listed, summed per strike: open interest, its change and volume per side, with the PCR,
+    max pain and walls over the sums (`summary`, every strike) and the ±around strikes about the ATM strike (`strikes`).
+    No prices and no Greeks: they do not add across expiries. 404 when the underlying lists no options."""
+    await get_current_user(request)
+    sym = symbol.upper()
+    listing = await _daas(f"/fno/{sym}/expiries", {}, sym)
+    as_of, listed = live_option_expiries(listing.get("data"))
+    if as_of is None:
+        raise HTTPException(status_code=404, detail=no_data(sym))
+    if not listed:
+        raise HTTPException(status_code=404, detail=f"No option contracts are listed for {sym}")
+    gate = asyncio.Semaphore(_CHAIN_CONCURRENCY)
+
+    async def one(expiry: str) -> Dict[str, Any]:
+        async with gate:
+            return await _daas(f"/fno/{sym}/chain", {"expiry": expiry}, sym)
+
+    bodies = await asyncio.gather(*(one(e["expiry"]) for e in listed))
+    kept: List[str] = []
+    chains: List[List[Dict[str, Any]]] = []
+    sides: List[Any] = []
+    for e, body in zip(listed, bodies):
+        day, exp = _iso_day(body.get("as_of")), _iso_day(body.get("expiry"))
+        strikes = shape_strikes(body.get("strikes"))
+        if day != as_of or exp != e["expiry"] or not strikes:
+            logger.warning("fno consolidated chain %s: expiry %s dropped (read for %s, expiry %s, %d strikes; the list is for %s)",
+                           sym, e["expiry"], day, exp, len(strikes), as_of)
+            continue
+        kept.append(exp)
+        chains.append(strikes)
+        raw = body.get("strikes")
+        sides.extend(item.get(side) for item in (raw if isinstance(raw, list) else []) if isinstance(item, dict) for side in _OPTION_SIDES)
+    if not kept:
+        logger.warning("fno consolidated chain %s: no expiry was read for %s", sym, as_of)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    summed = consolidate_strikes(chains)
+    spot = find_spot(sides)
+    full = summarise_chain(summed, spot, as_of, "consolidated")
+    return {
+        "symbol": sym, "as_of": as_of, "expiries": kept, "spot": spot,
+        "strikes": window_around(summed, full["atm_strike"], around),
+        "summary": {k: full[k] for k in CONSOLIDATED_SUMMARY},
+        "basis": "summed over the listed expiries", "read_only": True,
+    }
+
+
+async def _option_ref(spot: str) -> Optional[Dict[str, Any]]:
+    """Today's Kite price of the options' cash symbol (live quote in the session, the saved Kite close after it), or None."""
+    from services.kite_live_feed import day_quote
+    from services.kite_live_feed.gateway import canon
+    dq = await day_quote.day_quotes([spot])
+    q = (dq.get("quotes") or {}).get(canon(spot))
+    price = _positive((q or {}).get("ltp"))
+    if q is None or price is None or dq.get("source") not in ("kite_live", "kite_close"):
+        return None
+    at = q.get("exchange_ts") or dq.get("as_of")
+    return {"price": price, "source": dq["source"], "at": str(at) if at is not None else None}
+
+
+@router.get("/{symbol}/options/intraday")
+async def options_intraday(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
+    sessions: int = Query(2, ge=1, le=5, description="Sessions of candles sent"),
+    strikes: int = Query(5, ge=1, le=8, description="Listed strikes each side of the ATM strike"),
+) -> Dict[str, Any]:
+    """The nearest expiry's calls and puts around the ATM strike, Kite candles with open interest, and their per-candle sums
+    (services/fno_options_intraday.py). Reloads the stored platform Kite login first. 200 with `availability` other than ok
+    when Kite cannot answer. Read only: nothing is written and nothing is sent to a broker."""
+    await get_current_user(request)
+    if interval not in OI_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
+    sym = symbol.upper()
+    from routes.research_chart_intraday import get_service
+    from services.kite_live_feed.feed import get_feed
+    await _refresh_platform_token()
+    try:
+        st = await get_feed().read_status() or {}
+    except Exception as e:  # noqa: BLE001 — the feed status only sets the cache time
+        logger.warning("fno options intraday: feed status unreadable (%s)", type(e).__name__)
+        st = {}
+    return await get_service().options_intraday(sym, interval, sessions, strikes, session_open=st.get("session") == "open",
+                                                ref_getter=_option_ref)
 
 
 _FORWARD_CACHE: Dict[str, Any] = {"ts": 0.0, "key": None, "bars": None}

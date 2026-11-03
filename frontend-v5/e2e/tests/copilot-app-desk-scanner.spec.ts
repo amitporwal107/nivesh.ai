@@ -830,20 +830,16 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-row-FIXACC").getByTestId("desk-scan-mrank")).toHaveText("100th pct");
   });
 
-  test("SP-10 the Scanner row's actions open the Strategy Builder with the stock and the scan it came from in the URL", async ({ page }) => {
+  test("SP-10 the Scanner row's actions open Chart Analysis on the stock (Strategy Lab removed, owner 29 Oct)", async ({ page }) => {
     await page.setViewportSize({ width: 1360, height: 900 });
     await scanMocks(page);
     await page.goto(DESK_SCAN);
     await page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-act").click();
+    await expect(page.getByTestId("desk-scan-actions-FIXBRK").getByTestId("desk-scan-act-strategy")).toHaveText("Chart & paper basket ›");
     await page.getByTestId("desk-scan-actions-FIXBRK").getByTestId("desk-scan-act-strategy").click();
-    await expect(page).toHaveURL(/tab=trade/); // was tab=more&view=strategy before the 2026-10-27 redesign
-    await expect(page).toHaveURL(/view=lab&sub=build/);
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/);
     await expect(page).toHaveURL(/sym=FIXBRK/);
-    await expect(page).toHaveURL(/src_kind=scanner/);
-    await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
-    await expect(page).toHaveURL(/src_date=2026-10-13/);
-    await expect(page.getByTestId("in-symbol")).toHaveValue("FIXBRK");
-    await expect(page.getByTestId("builder-source")).toHaveText("Started from the scanner: breakout confirmed, scan 13 Oct 2026");
+    await expect(page.getByTestId("ca-view")).toHaveAttribute("data-symbol", "FIXBRK");
   });
 
   test("SP-9 actions: open the analysis, add to a list (POST body), paper trade at the setup's levels (POST body); nothing else is written", async ({ page }) => {
@@ -965,7 +961,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-row-FIXPRE").getByTestId("desk-scan-setup").click();
     await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=FIXPRE(&|$)/);
-    await expect(page.getByTestId("lc-view")).toHaveAttribute("data-symbol", "FIXPRE");   // the Live chart (the owner's design of 28 Oct)
+    await expect(page.getByTestId("ca-view")).toHaveAttribute("data-symbol", "FIXPRE");   // Chart Analysis (the owner's design of 29 Oct)
   });
 
   test("TC-17 both scanner routes and the universe fail → error with retry", async ({ page }) => {
@@ -1693,17 +1689,14 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
   });
 
-  test("SP-11 Chart opportunity detail, section 7, links to the Strategy Builder for the symbol with the scan it carries", async ({ page }) => {
+  test("SP-11 Chart opportunity detail, section 7, links to Chart Analysis for the symbol (Strategy Lab removed, owner 29 Oct)", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK`);
     await page.getByTestId("desk-detail-levels-toggle").click();
+    await expect(page.getByTestId("desk-lvl-strategy")).toHaveText("Chart Analysis for FIXBRK ›");
     await page.getByTestId("desk-lvl-strategy").click();
-    await expect(page).toHaveURL(/tab=trade&view=lab&sub=build/); // Strategy Lab › Build a trade (was view=new, before that view=strategy)
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/);
     await expect(page).toHaveURL(/sym=FIXBRK/);
-    await expect(page).toHaveURL(/src_kind=chart/);
-    await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
-    await expect(page).toHaveURL(/src_date=2026-10-13/);
-    await expect(page.getByTestId("builder-source")).toContainText("Started from Chart Analysis: scanner bucket breakout confirmed");
   });
 
   test("not on the scanner: the rule's levels fill the section, the calculator and the full-chart link, labelled; the scanner's win when present", async ({ page }) => {

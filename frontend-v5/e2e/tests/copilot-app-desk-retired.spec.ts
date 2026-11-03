@@ -107,9 +107,9 @@ test.describe("MOCK — not real data: removed trading screens · Options lab an
   const LAB: Array<{ screen: string | null; tab: string; view?: string; sub?: string; host?: string }> = [
     { screen: null, tab: "market", view: "smartmoney" },
     { screen: "mi", tab: "market", view: "smartmoney" },
-    { screen: "prog", tab: "trade", view: "lab", sub: "build" },
-    { screen: "replay", tab: "trade", view: "lab", sub: "backtest" },
-    { screen: "shadow", tab: "trade", view: "lab", sub: "backtest" },
+    { screen: "prog", tab: "trade", view: "chart", sub: "live" },   // Strategy Lab removed (owner, 29 Oct)
+    { screen: "replay", tab: "trade", view: "chart", sub: "live" },   // Strategy Lab removed (owner, 29 Oct)
+    { screen: "shadow", tab: "trade", view: "chart", sub: "live" },   // Strategy Lab removed (owner, 29 Oct)
     { screen: "live", tab: "risk", view: "controls", host: "rd-live" },
     { screen: "cert", tab: "risk", view: "controls", host: "rd-live" },
     { screen: "audit", tab: "risk", view: "log", host: "risk-decisions" },
@@ -131,10 +131,11 @@ test.describe("MOCK — not real data: removed trading screens · standalone URL
     await traderMode(page);
   });
 
-  for (const [from, sub] of [["/v5/pro-trader", "build"], ["/v5/strategy-builder", "backtest"]]) {
-    test(`RM-4 / RM-5 ${from} opens Trade Desk › Strategy Lab › ${sub}`, async ({ page }) => {
+  // Strategy Lab was removed (owner, 29 Oct "completely"): its standalone URLs open Chart Analysis › Live chart.
+  for (const from of ["/v5/pro-trader", "/v5/strategy-builder"]) {
+    test(`RM-4 / RM-5 ${from} opens Trade Desk › Chart Analysis › Live chart`, async ({ page }) => {
       await page.goto(from);
-      await expectDesk(page, "trade", "lab", { sub });
+      await expectDesk(page, "trade", "chart", { sub: "live" });
     });
   }
 

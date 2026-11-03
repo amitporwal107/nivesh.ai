@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import AppLayout from "./components/layout/AppLayout";
 import LiteLayout from "./components/layout/LiteLayout";
 import { RequireAuth } from "./components/layout/RequireAuth";
@@ -69,8 +70,10 @@ import WatchlistPage from "./pages/Watchlist";
 export function AppRoutes() {
   return (
     <Routes>
-      {/* Public landing — full-bleed, no sidebar */}
-      <Route index element={<HomepagePage />} />
+      {/* Public landing — full-bleed, no sidebar. The mobile app opens on the
+          one-screen Copilot instead; RequireAuth on /app sends a signed-out
+          user to /login. */}
+      <Route index element={Capacitor.isNativePlatform() ? <Navigate to="/app" replace /> : <HomepagePage />} />
 
       {/* Public marketing pages — full-bleed, no sidebar */}
       <Route path="/product" element={<ProductPage />} />
@@ -147,11 +150,11 @@ export function AppRoutes() {
       <Route path="/flows" element={<RequireAuth><RouteErrorBoundary pageName="Flow Ledger"><FlowLedgerPage /></RouteErrorBoundary></RequireAuth>} />
 
       {/* Removed in the desk redesign's step 6 (2026-10-27, docs/desk_redesign_20261027/PLAN.md §4): the Pro Trader
-          basket page and the duplicate Strategy Builder URL. Both open the desk's Trade Desk › Strategy Lab: the basket
-          builder's place is Build a trade, the Strategy Builder's backtest is Backtest & validation. The Strategy Builder
+          basket page and the duplicate Strategy Builder URL. They opened Trade Desk › Strategy Lab, which was removed on
+          29 Oct (owner); both open Trade Desk › Chart Analysis, whose paper basket builds trades now. The Strategy Builder
           page itself is still mounted at /app/trader/strategy. */}
-      <Route path="/pro-trader" element={<Navigate to="/app/trader/desk?tab=trade&view=lab&sub=build" replace />} />
-      <Route path="/strategy-builder" element={<Navigate to="/app/trader/desk?tab=trade&view=lab&sub=backtest" replace />} />
+      <Route path="/pro-trader" element={<Navigate to="/app/trader/desk?tab=trade&view=chart&sub=live" replace />} />
+      <Route path="/strategy-builder" element={<Navigate to="/app/trader/desk?tab=trade&view=chart&sub=live" replace />} />
 
       {/* Authenticated app — sidebar layout. RequireAppAccess confines a
           research-only user (research_only flag) to /research: every route in

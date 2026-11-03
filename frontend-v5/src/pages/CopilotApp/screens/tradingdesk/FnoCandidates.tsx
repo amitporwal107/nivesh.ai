@@ -165,8 +165,8 @@ function CandidateCard({ c, rank, of, onOpen, cash, fut, kind, focused, links }:
         )}
         {links?.onStrategy && (
           <button type="button" data-testid={`desk-cand-strategy-open-${c.symbol}`} onClick={() => links.onStrategy?.(c.symbol)} style={secondaryBtn}
-            title="Build a plan for this stock in the Strategy Builder, where it can be recorded as a paper trade">
-            Strategy &amp; paper trade ›
+            title="Open this stock on Chart Analysis, where the paper basket builds the trade">
+            Chart &amp; paper basket ›
           </button>
         )}
       </div>
