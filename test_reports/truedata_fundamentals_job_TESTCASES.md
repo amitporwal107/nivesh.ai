@@ -44,11 +44,28 @@ Database tests run on a throwaway `postgres:16-alpine` container with `--network
 | TC-27 | migration | 190 applies on a fresh PG and re-applies cleanly (idempotent) | integration | no error |
 | TC-28 | job | switch `current` → no TrueData call, no warehouse write except the SKIPPED job_log row; `shadow` → runs; rollback works at any switch setting | unit | gate honoured |
 | TC-29 | job | raw cache: cached statements not refetched; the last 3 days' lists always refetched; EMPTY answers cached; RATE_LIMITED not cached; deadline stops fetching and still loads | unit | incremental, bounded |
-| TC-30 | job | CLI: `--days --symbols --dry-run --rollback --offline --max-minutes`; exit codes 0 / 1 / 2 | unit | parses, codes |
+| TC-30 | job | CLI: `--days --symbols --dry-run --rollback --offline --max-minutes`; return codes 0 / 1 / 2 | unit | parses, codes |
 | TC-31 | real data | transform over the real raw files (/home/deploy/nivesh-truedata-raw, read-only) vs the staging rows of the 2 Nov loads | data | identical, or each difference explained |
 | TC-32 | real data | finance-cost meaning: TrueData FY `Expenses.NonOperating.InterestExpense` / unit vs our `screener_in_annual` finance_costs_cr, same FY | data | match rate reported; field trusted only if it matches |
 | TC-33 | live | a handful of real calls through the new client methods (list, balance sheet, cash flow, P&L) | app | records, no secret printed |
 | TC-34 | regression | existing TrueData client + crosscheck tests and DQ suite tests still pass | unit | all pass |
+
+### Added 3 Nov 2026 (owner rules of 3 Nov), written before implementing them
+
+Owner: "keep on staging.. on prod please use our snapshot data" and "do not use words like buy, stop loss, target".
+The environment gate is the shared `backend/nidp/shared/deploy_env.py` (`truedata_load_gate(conn)`), kept
+byte-identical with PR #455: staging only when the database written to is `nidp_staging` and no production signal is
+present (NIDP_HOME=/opt/nidp, NIDP_ENV/APP_ENV prod|production); NIDP_ENV=staging alone is not trusted.
+
+| ID | Area | Scenario | Type | Expected |
+|----|------|----------|------|----------|
+| TC-35 | env gate | staging database, no production signal | unit | the job runs as before |
+| TC-36 | env gate | any production signal (database `nidp`, NIDP_HOME=/opt/nidp, NIDP_ENV or APP_ENV prod/production) | unit | refused: no TrueData call, no warehouse write, no job_log row |
+| TC-37 | env gate | unknown or conflicting signals (other database; NIDP_ENV=staging on a non-staging database) | unit | refused: no TrueData call, no data write; one SKIPPED job_log row, error_class NOT_STAGING |
+| TC-38 | env gate | `--rollback` in staging, production and unknown environments | unit | allowed everywhere |
+| TC-39 | deploy | production's NIDP cron is generated from `nidp-staging.cron` only; this job's cron file is separate and staging-only | unit | job absent from the prod cron source |
+| TC-40 | CI | the "Backend unit tests (allowlist)" list, run in one image on this branch and on untouched origin/dev | regression | no failure the branch adds |
+| TC-41 | wording | every string this PR adds: no buy / sell / stop loss / target / entry / exit / accumulate / upside / recommend | review | none (TrueData field names excepted) |
 
 Out of scope for this PR (UNVERIFIED until after merge): the job running on the staging NIDP VM (needs merge, deploy
 of migration 190, and the owner installing the cron file). Steps to verify then are listed in the final report.

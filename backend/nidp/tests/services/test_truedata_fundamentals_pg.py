@@ -369,3 +369,34 @@ def test_read_references_shares_from_market_cap_and_close_on_its_date(monkeypatc
             await pool.close()
             await conn.close()
     run(go())
+
+
+# ── TC-35 / TC-36 / TC-37: the real gate reads the database it would write to ────────────────────────────────
+
+def test_tc35_to_tc37_gate_reads_current_database(monkeypatch):
+    async def go():
+        import asyncpg
+        admin = await asyncpg.connect(DSN)
+        if not await admin.fetchval("SELECT 1 FROM pg_database WHERE datname = 'nidp_staging'"):
+            await admin.execute("CREATE DATABASE nidp_staging")
+        other = await admin.fetchval("SELECT current_database()")
+        await admin.close()
+        staging_dsn = DSN.rsplit("/", 1)[0] + "/nidp_staging"
+        cases = [(staging_dsn, {}, ("staging", True)),
+                 (staging_dsn, {"NIDP_HOME": "/opt/nidp-staging"}, ("staging", True)),
+                 (staging_dsn, {"NIDP_HOME": "/opt/nidp"}, ("production", False)),
+                 (staging_dsn, {"APP_ENV": "production"}, ("production", False))]
+        if other not in ("nidp_staging", "nidp"):
+            cases.append((DSN, {"NIDP_ENV": "staging"}, ("unknown", False)))
+        for dsn, env, want in cases:
+            pool = await asyncpg.create_pool(dsn, min_size=1, max_size=1)
+
+            async def get_pool(p=pool):
+                return p
+            monkeypatch.setattr(L, "get_pool", get_pool)
+            try:
+                v = await L.Warehouse().load_gate(env)
+                assert (v.environment, v.allowed) == want, (dsn.rsplit("/", 1)[1], env, v.reason)
+            finally:
+                await pool.close()
+    run(go())
