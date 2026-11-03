@@ -304,6 +304,14 @@ jobs:
           tests/test_risk_routes.py
           tests/test_risk_service.py
           tests/test_rs63_readiness.py
+          tests/test_scan_builder_data.py
+          tests/test_scan_builder_engine.py
+          tests/test_scan_builder_fno_indices.py
+          tests/test_scan_builder_indicators.py
+          tests/test_scan_builder_intraday.py
+          tests/test_scan_builder_market_dashboard.py
+          tests/test_scan_builder_results.py
+          tests/test_scan_builder_routes.py
           tests/test_scan_rules_v2.py
           tests/test_scanner_bar_integrity.py
           tests/test_scheme_resolver.py

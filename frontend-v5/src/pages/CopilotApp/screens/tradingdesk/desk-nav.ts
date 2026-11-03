@@ -16,14 +16,15 @@
  *                                         Live chart with its sym and tp (LAB_TO_CHART). The old Trade Desk views land in their
  *                                         sections: view=open / paper → paper live, closed → paper journal, new → the chart;
  *                                         Market Desk's watchlists → here.
- *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener
+ *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener (sub=: screens · dashboard · builder;
+ *                                         the last two flagged: Scan dashboard, Scan builder; docs/scan_builder/DESIGN.md §7)
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
  *   04 Risk Desk         tab=risk         limits · controls · log · hedge (flagged: Portfolio hedge)
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
  *
- * Trade Desk goes three deep (tab → section → sub-view); every other tab two. `section=` names a part of a view to open and scroll to (Market Overview's collapsed
+ * Trade Desk goes three deep (tab → section → sub-view), and Market Desk › Screener (its scan sub-views); every other view two. `section=` names a part of a view to open and scroll to (Market Overview's collapsed
  * "All scanner candidates", the Events calendar under Market Intelligence, the F&O sections, Chartink sources).
  *
  * Every URL of the old desk (Overview · AI Scanner · Market Intelligence · Chart Analysis · Portfolio & Risk · Smart
@@ -78,11 +79,20 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
 /** Views that exist but are shown in the switcher only when the account has the named feature flag. */
 export const FLAGGED_VIEWS: Readonly<Record<string, string>> = { "risk/hedge": "portfolio_hedge" };
 
+/** Sub-views ("<tab>/<view>/<sub>") shown in the sub-view switcher only when the account has the named feature flag. The
+ *  owner's Chartink-style scans live under the existing Screener (3 Nov): Scan dashboard and Scan builder (DESIGN.md §7). */
+export const FLAGGED_SUBS: Readonly<Record<string, string>> = {
+  "market/screener/dashboard": "scan_builder",
+  "market/screener/builder": "scan_builder",
+};
+
 /** The sub-views of a view ("<tab>/<view>"), the default first. A view with none is one page. */
 export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
   "trade/scanner": [{ key: "ranked", label: "Ranked candidates" }, { key: "library", label: "Signal library & sources" }, { key: "scorecard", label: "Scorecard" }],
   "trade/chart": [{ key: "live", label: "Live chart" }, { key: "record", label: "Signal record" }],
   "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }],
+  // Market Desk › Screener: the screener as it was, then the Chartink-style scans on our own data (owner, 3 Nov)
+  "market/screener": [{ key: "screens", label: "Screener" }, { key: "dashboard", label: "Scan dashboard" }, { key: "builder", label: "Scan builder" }],
 };
 
 /** A tab whose default view is not its first (the design's order is kept in SECTION_VIEWS). None today: Trade Desk opens
@@ -128,7 +138,10 @@ export function subLabel(loc: DeskLocation): string | null {
 /** The breadcrumb: the location to the sub-view ("Trading desk › Trade Desk › Paper Trading › Live desk"), never the
  *  click path. */
 export function crumbsOf(loc: DeskLocation): { tab: string; view: string | null; sub: string | null } {
-  return { tab: PLACE_LABEL[loc.tab], view: viewLabel(loc), sub: subLabel(loc) };
+  const view = viewLabel(loc);
+  const sub = subLabel(loc);
+  // A sub-view named like its view (Market Desk › Screener › Screener) adds nothing to the trail.
+  return { tab: PLACE_LABEL[loc.tab], view, sub: sub && sub !== view ? sub : null };
 }
 
 /** Params the old desk kept for one tab's view; a tab change drops them (with `view` and `section`). */
@@ -140,6 +153,8 @@ export const VIEW_PARAMS = [
   "lab", "lab_sym", "lab_focus", "in_chip", "in_ev",
   // Trade Desk: the sub-view, the chart's plan (?tp=) and the journal's trade (Paper Trading)
   "sub", "tp", "trade",
+  // Market Desk › Screener › Scan builder: the open saved scan
+  "scan",
 ];
 
 /** The Strategy Lab's own params (its wizard, the Strategy Builder, the F&O lab's hand-off), dropped when a lab URL opens the chart. */
@@ -219,6 +234,10 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
   if (tab === "market" && params.get("view") === "screener" && params.get("section") === "chartink") {
     // Chartink sources moved from Market Desk › Screener to Trade Desk › AI Scanner › Signal library & sources (owner's design).
     return set("trade", "scanner", "chartink", "library");
+  }
+  if (tab === "market" && params.get("view") === "scanbuilder") {
+    // The Scan Builder was its own Market Desk view for a day; it lives under the Screener now (owner, 3 Nov), keeping ?scan=.
+    return set("market", "screener", undefined, "builder");
   }
   if (tab === "market" && MOVED_TO_TRADE.has(params.get("view") ?? "")) {
     // Watchlists and the Idea scorecard belong to Trade Desk (the owner's design; 27 Oct 19:40 IST).
