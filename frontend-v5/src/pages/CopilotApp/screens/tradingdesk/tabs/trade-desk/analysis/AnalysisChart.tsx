@@ -183,6 +183,7 @@ export function AnalysisChart(p: AnalysisChartProps) {
   };
   const inPlot = (pt: { x: number; y: number }) => pt.x >= plotL && pt.x <= plotR && pt.y >= topPad && pt.y <= vBot;
   const onDown = (e: PointerEvent<SVGSVGElement>) => {
+    justPanned.current = false;                                // a new press: the previous gesture's pan no longer swallows a click
     if (tool !== "cursor" || drag.current) return;
     const pt = toLocal(e);
     if (!inPlot(pt)) return;

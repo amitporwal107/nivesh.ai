@@ -486,7 +486,7 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
           {TOOL_NAME[tool]}: {TWO_CLICK.has(tool) ? "CLICK TWO POINTS ON THE PRICE PANE · ESC CANCELS" : "CLICK THE PRICE PANE"} · ＋ RETURNS TO THE CROSSHAIR
         </div>
       )}
-      <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-4)", lineHeight: 1.6 }}>
+      <div data-testid="ca-legend" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-4)", lineHeight: 1.6 }}>
         {signals.length || BAR_SIGNALS.some((m) => sigOn[m.key]) ? "▲ ▼ BAR SIGNALS: HOVER A TRIANGLE FOR ITS RULE · " : ""}{smaOn ? "SMA 20 AMBER · " : ""}EMA 20 INDIGO · DRAG TO PAN, WHEEL TO ZOOM · BUILD-UP BY {weekly ? "5-SESSION" : daily ? "4-SESSION" : "4-BAR"} WINDOW · LB LONG BUILD-UP · SB SHORT BUILD-UP · SC SHORT COVERING · LU LONG UNWINDING{basket.legs.length ? " · DRAG STOP OR TGT TO MOVE IT" : ""}{events.length ? " · R RESULTS · B BOARD · F FILING · C CORPORATE ACTION · M MACRO · X F&O EXPIRY · $ FII/DII DAY" : ""}
       </div>
       {oi && (oi.missing_note || (slot !== "consolidated" && oi.missing_slots.includes(slot))) && <span style={{ ...quiet, fontSize: 11, marginTop: 4 }}>{oi.missing_note}</span>}
