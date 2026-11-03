@@ -71,3 +71,34 @@ the existing strategy builder (owner's compliance wording rules of 25 Oct and 3 
 - TC-S1: after merge + deploy, the route with `ideas` over HTTP and the page in a browser (needs the owner's staging session token).
 
 ## Verdict: IN PROGRESS — verified up to deployment; staging HTTP/browser check pending merge and the owner's session token
+
+### Early signals, alerts and trading plans (DESIGN.md §9, owner decisions 3 Nov ~17:15 IST) — branch feat/scan-dashboard-signals
+| ID | Area | Scenario | Type | Expected | Result |
+|----|------|----------|------|----------|--------|
+| TC-P1 | backend | plan: long stop = lower of day low / entry − ATR; T1 2R capped at the 20-session high; T2 3R; R:R1 < 1.5 → no plan with the reason; short mirror; no price / no room | unit | exact numbers | 12 passed (signals suite) |
+| TC-P2 | backend | plan inputs = engine's ATR(14) at offset 1 and the previous 20 sessions' high/low | unit | equal to indicators.py | passed |
+| TC-P3 | backend | record only fully applied stock lists; once per (day, widget, stock); first writer wins across workers; at open ≤ 09:20; falling OI stock short | unit | exact | passed |
+| TC-P4 | backend | today(): newest first, price now, move since; unreadable store → empty list + reason; dashboard carries signals + signals_meta (recording false outside the session) | unit | exact | passed |
+| TC-P5 | backend | leader loop: one worker, session only (09:15–15:30 IST weekdays); enabled on APP_ENV=staging, SCAN_SIGNALS_ENABLED switch | unit | exact | passed |
+| TC-P6 | data | plans on today's real lists (staging container, Kite close, local stores) | data | levels by the rule | 180 signals, 107 with plans; MARICO entry 878.40 / stop loss 826.05 (today's low) / T1 983.10 / T2 1,035.45; ANGELONE no plan (20-session high only 0.63 × risk away) |
+| TC-P7 | staging | live recording at the open on 4 Nov (after merge + deploy) | live | signals with first_seen from 09:15 | NOT RUN — needs the merge and a market session |
+
+- Backend scan-builder suite on this branch: `255 passed` (20:23 IST); pyflakes clean; `import server` ok.
+
+### Merged with dev (#468 merged by the twin window, #470 Day trade tab, #469 wording) + Early movers + plan rule v2 (owner 3 Nov ~20:50 IST)
+| ID | Area | Scenario | Type | Expected | Result |
+|----|------|----------|------|----------|--------|
+| TC-M1 | backend | plan v2: Stop loss = Entry − 1 %, Target 1 +1.5 %, Target 2 +3 %, R:R 1.5/3.0; short mirror; no price → no plan | unit | exact | passed |
+| TC-M2 | backend | Early movers: curve (75 cumulative shares, monotonic), usual share by time (linear in a candle, none before 09:30, 1.0 after the close), rule (≥ 5× usual, ≥ 2 % over open, ADV ≥ 50,000, price ≥ 20, ≥ 10 sessions), criteria text | unit | exact | passed |
+| TC-M3 | backend | three tabs atlas / daytrade / early; the signal loop computes every tab; Day trade tests kept green | unit | as contract | passed |
+| TC-M4 | e2e | merged UI: Day trade tabs + signals feed + ideas; wording checks exclude only the plan blocks | e2e | 62 passed | passed |
+| TC-M5 | data | Early movers on real data after the close (whole-day version) + v2 plans | data | rows + levels | 25 stocks (TRIDENT 76.6× usual, +3.43 %; KITEX 47.6×; KRBL 31.7× …); KITEX Entry 133.23 / Stop loss 131.90 / T1 135.23 / T2 137.23 |
+
+- Backend scan-builder suite on the merged branch: `269 passed` (incl. dev's Day trade tests); pyflakes clean.
+- Frontend: `tsc exit: 0`, `build exit: 0`, Playwright dashboard + scan builder + screener `62 passed (44.1s)` (mocked API + the REAL snapshot replay).
+
+## Not verified (needs the merge, a deploy and a market session)
+- TC-P7 / TC-S1: live recording from 09:15 on 4 Nov on staging (signals with first_seen in the session, browser alerts), the
+  route over HTTP and the page in a browser (owner's session token).
+
+## Verdict: IN PROGRESS — verified up to deployment; the live session check runs at the 4 Nov open after the merge

@@ -19,8 +19,11 @@ from tests.test_scan_builder_routes import H, _client, _reset  # noqa: F401  (_r
 
 @pytest.fixture(autouse=True)
 def _fresh_caches():
+    from services.scan_builder import signals as SIG
     MD.reset_caches()
+    saved, SIG._store = SIG._store, SIG.LocalSignalStore()          # signals never touch Redis in these tests
     yield
+    SIG._store = saved
     MD.reset_caches()
 
 
@@ -127,7 +130,7 @@ async def _no_candles(symbols, interval, needs, *, lookback_days, **kw):
 
 def test_the_day_trade_dashboard_answers_its_twenty_widgets_with_honest_statuses(tmp_path):
     out = _run(tmp_path, _no_candles)
-    assert out["dashboard"]["key"] == "daytrade" and [d["key"] for d in out["dashboards"]] == ["atlas", "daytrade"]
+    assert out["dashboard"]["key"] == "daytrade" and [d["key"] for d in out["dashboards"]] == ["atlas", "daytrade", "early"]
     w = _by_id(out)
     assert [x["chartink_id"] for x in out["widgets"]] == CHARTINK_503347
     assert w["dt_12y_high"]["status"] == "not_computed" and "12 years" in w["dt_12y_high"]["note"]

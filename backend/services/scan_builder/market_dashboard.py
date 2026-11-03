@@ -24,6 +24,8 @@ import numpy as np
 
 from . import engine
 from . import service as SV
+from . import early_movers as EM
+from . import signals as SIG
 from . import spec as S
 from .data import SOURCE_PRICES, SOURCE_TODAY, DataUnavailable, ScanData
 
@@ -67,7 +69,7 @@ class Widget:
     id: str
     chartink_id: str
     title: str
-    kind: str                                       # scan | strong | groups_ad | groups_vol | indices | not_computed
+    kind: str                                       # scan | strong | groups_ad | groups_vol | indices | early | not_computed
     universe: str                                   # cash | fno | nifty50
     spec: Optional[Dict[str, Any]] = None
     intraday: Optional[IntradayRule] = None
@@ -427,9 +429,14 @@ class Dashboard:
         return {"key": self.key, "title": self.title, "chartink_id": self.chartink_id}
 
 
+# The study's top early indicator as a list of its own (early_movers.py; owner 3 Nov ~20:50 IST), not a Chartink widget.
+EARLY_WIDGETS = [Widget("early_movers", "", "Early movers: volume ≥ 5× usual and ≥ 2 % over the open", "early", "cash",
+                        note=None)]
+
 DASHBOARDS: Dict[str, Dashboard] = {
     "atlas": Dashboard("atlas", "Atlas fresh", "247498", "WIDGETS"),
     "daytrade": Dashboard("daytrade", "Day trade", "503347", "DAYTRADE_WIDGETS"),
+    "early": Dashboard("early", "Early movers", "", "EARLY_WIDGETS"),
 }
 DEFAULT_DASHBOARD = "atlas"
 
@@ -560,10 +567,12 @@ COLUMNS = {
     "groups_vol": [_col("group", "Marketcap", "text"), _col("net", "+-VOL", "number"), _col("pos", "Positive volume", "number"),
                    _col("neg", "Negative volume", "number")],
     "indices": [_col("symbol", "Symbol", "text"), _col("ltp", "Ltp", "price"), _col("chg", "% chg", "pct")],
+    "early": [_col("symbol", "Symbol", "text"), _col("over_open", "% over open", "pct"), _col("price", "Price", "price"),
+              _col("volume", "Volume", "volume"), _col("rvol", "Vol × usual", "number")],
     "not_computed": [],
 }
 COLUMNS["always_empty"] = COLUMNS["scan"]
-ROW_KIND = {"scan": "symbol", "strong": "symbol", "groups_ad": "group", "groups_vol": "group", "indices": "index",
+ROW_KIND = {"early": "symbol", "scan": "symbol", "strong": "symbol", "groups_ad": "group", "groups_vol": "group", "indices": "index",
             "not_computed": "symbol", "always_empty": "symbol"}
 
 
@@ -705,9 +714,11 @@ async def _apply_flow(w: Widget, order: List[int], symbols: Sequence[str], intra
 async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
                   intraday_values: Optional[Callable[..., Awaitable[Any]]] = None,
                   index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
-                  tick_flow: Optional[Callable[..., Awaitable[Any]]] = None) -> Dict[str, Any]:
+                  tick_flow: Optional[Callable[..., Awaitable[Any]]] = None,
+                  now: Optional[Callable[[], datetime]] = None) -> Dict[str, Any]:
     """One dashboard (DASHBOARDS key) once. Raises DataUnavailable when prices cannot be read at all."""
     t0 = time.monotonic()
+    at = (now or (lambda: datetime.now(timezone.utc)))()
     board = DASHBOARDS[dashboard]
     widgets = board.widgets
     intraday_values = intraday_values or _default_intraday
@@ -768,6 +779,7 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
         intraday_note: Optional[str] = None
         flow_applied: Optional[bool] = None
         flow_note: Optional[str] = None
+        early_crit: List[Dict[str, Any]] = EM.criteria(at.astimezone(SIG.IST), False, None) if w.kind == "early" else []
         try:
             if w.kind == "not_computed":
                 item["status"] = "not_computed"
@@ -775,6 +787,15 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
                 pass                                                     # no stock can pass (the note says why)
             elif w.kind in ("groups_ad", "groups_vol"):
                 item["rows"] = _group_rows(w.kind, run, groups)
+            elif w.kind == "early":
+                live_now = overlay.mode == "live" and bool(overlay.session_open)
+                share = EM.usual_share(at.astimezone(SIG.IST), live_now)
+                early_crit = EM.criteria(at.astimezone(SIG.IST), live_now, share)
+                if share is None:
+                    item["note"] = "The list starts at 09:30, the study's first evaluation step."
+                else:
+                    item["rows"] = EM.rows(list(panel.symbols), panel.open[-1], c0, v0, panel.volume[:-1],
+                                           eligible & universes["cash"], share)
             elif w.kind == "indices":
                 ir = await index_result(list(INDEX_NAMES))
                 rows = [[r.get("symbol"), _r((r.get("values") or [None])[0]), _r((r.get("values") or [None, None])[1])]
@@ -864,12 +885,26 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
         except Exception:  # noqa: BLE001 — one widget failing must not blank the dashboard; logged with its trace
             logger.exception("market dashboard: widget %s failed", w.id)
             item.update(status="error", rows=[], note="This widget could not be computed just now; it retries on the next refresh.")
-        item["criteria"] = criteria_lines(w, intraday_applied, intraday_note, flow_applied, flow_note)
+        item["criteria"] = (early_crit if w.kind == "early" else
+                            criteria_lines(w, intraday_applied, intraday_note, flow_applied, flow_note))
         item["count"] = len(item["rows"])
         out_widgets.append(item)
 
     if intra_tasks:                      # a widget that failed before reading its task: collect it (its error is logged above)
         await asyncio.gather(*intra_tasks.values(), return_exceptions=True)
+
+    # Early signals (signals.py): record the stocks newly in a fully applied list, only on live data in the session; then
+    # today's list with each stock's price now.
+    recording = overlay.mode == "live" and bool(overlay.session_open)
+    if recording:
+        try:
+            await SIG.record(out_widgets, lambda syms: SIG.plan_inputs(panel, syms), at)
+        except Exception:  # noqa: BLE001 — the dashboard stands without new signals this round; logged with its trace
+            logger.exception("market dashboard: recording signals failed")
+    prices = {s: float(c0[i]) for s, i in pos.items() if np.isfinite(c0[i])}
+    sig_today = await SIG.today(at, prices)
+    if sig_today["error"]:
+        warnings.append(sig_today["error"])
     no_today = int(len(panel.symbols) - int(eligible.sum()))
     if overlay.mode == "eod" and no_today:
         warnings.append(f"{no_today} stock(s) have no candle on {overlay.day.isoformat()} (suspended, or not traded) and are left out.")
@@ -899,6 +934,9 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
                                "101–250 Midcap, 251+ Smallcap (AMFI ranks on a six-month average)")},
         "warnings": warnings,
         "widgets": out_widgets,
+        "signals": sig_today["signals"],
+        "signals_meta": {"day": at.astimezone(SIG.IST).date().isoformat(), "count": len(sig_today["signals"]),
+                         "recording": recording, "rules": SIG.RULES_TEXT, "caveat": SIG.CAVEAT},
     }
 
 
@@ -916,8 +954,9 @@ async def attach_ideas(dash: Dict[str, Any], user_id: str, *,
     cache (strategy_ideas.py): never waits for a build. ideas[SYMBOL] = a compact idea, or None when no structure has a
     favorable reward : risk; a symbol still being built is absent. Per user, so it is added after the shared computation."""
     ideas_for = ideas_for or _default_ideas
-    syms = list(dict.fromkeys(r[0] for w in dash.get("widgets") or [] if w.get("row_kind") == "symbol"
-                              for r in w.get("rows") or [] if r and isinstance(r[0], str)))
+    syms = list(dict.fromkeys([r[0] for w in dash.get("widgets") or [] if w.get("row_kind") == "symbol"
+                               for r in w.get("rows") or [] if r and isinstance(r[0], str)]
+                              + [g["symbol"] for g in dash.get("signals") or [] if isinstance(g.get("symbol"), str)]))
     out = dict(dash)
     if not syms:
         out["ideas"], out["ideas_meta"] = {}, None
