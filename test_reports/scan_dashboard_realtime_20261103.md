@@ -56,3 +56,36 @@ criteria, written from its own definition.
   (844.30, a few ticks later); 360ONE 4.28 vs 4.35; ASHOKLEY 3.82 vs 3.83; INDIGO 3.67 vs 3.70; FIVESTAR 3.06 = 3.06;
   IOC 2.61 vs 2.59; SHRIRAMFIN 2.44 = 2.44; MRPL 2.27 vs 2.16 (REST quote, up to 30 s older). Previous closes identical
   (MARICO 798.55, IOC 134.59, SHRIRAMFIN 863.35).
+- **TC-R1/R2, TC-K1** (fork R, 09:26–09:28): results loader tests 23 + RestQuotes token reload tests; staging read-only — first
+  load 63.3 s, 2,141 companies, file cache read by a second instance in 0.016 s; 30 random companies equal to the SQL extract
+  on every field; all 2,141: equal except ttm_pat for 7 companies where the SQL summed non-consecutive quarters (the loader's
+  280-day TTM rule leaves them missing).
+- **TC-I1, TC-L2** (fork I, 09:28): intraday tests 22; live — 15-minute first_high / EMA(21) for 5 Nifty 50 stocks and 1-hour
+  ADX / +DI / −DI for 5 F&O stocks; RELIANCE 15-minute candles vs Kite quote(): open 1287.9 = 1287.9, high 1307 = 1307.0, low
+  1282.5 = 1282.5, last 1301 = 1301.0 (live-merged); 10 historical calls, 1 instruments, 1 quote.
+- **TC-L1 full** (09:32–09:35, staging container, all real modules, process-local candle cache): results 84.5 s first load;
+  runs 19.9 / 12.5 / 11.6 / 5.7 s; by 09:34:43 every intraday widget applied (Long Build Up: 105 of 217 F&O stocks pass the
+  1-hour ADX/DI conditions; Nifty 50 Top Gainers, Supertrend RSI, Today's strong movers on 15-minute candles to 09:30).
+- **Two bugs found in that run and fixed with regression tests** (09:39–09:45):
+  1. Stocks with today's candle alternated 2,601 → 2,358 → 2,605 → 2,363 between refreshes: the newest batch of Kite REST
+     quotes aged past the 30 s TTL while the older batches were re-read and was dropped from the answer. Freshness is now
+     judged at the start of the request (`test_rest_copies_fresh_when_asked_are_not_dropped_while_the_others_are_refetched`:
+     failed 1000 ≠ 1201 before the fix, passes after).
+  2. Never-read 15-minute candles waited ~2.5 min behind the 1-hour backlog after a restart; ties now go to 15 minutes
+     (`test_never_read_15_minute_candles_go_before_a_one_hour_backlog`: failed H1 ≠ Q1 before, passes after).
+- **Backend suite** (after the fixes and after merging origin/dev 408ab610 → 77e5d911): `210 passed, 2 warnings in 7.77s`;
+  `import server` lists /api/scan-builder/market-dashboard.
+- **TC-E1…E4** (10:0x, before the merge): `tsc exit: 0`, `build exit: 0`, Playwright dashboard + scan builder + screener
+  `43 passed (19.9s)` — mocked API, labelled MOCK.
+- **TC-L1 after the fixes** (09:45–09:48, committed code 4de94ba1 in the staging container, process-local candle cache): stocks
+  with today's candle 2,619 → 2,620 → 2,620 → 2,622 → 2,622 (no more alternation); 15-minute candles for Supertrend RSI and
+  Today's strong movers on the first run (09:45:13), Nifty 50 Top Gainers fully applied by 09:46:43; 1-hour candles filling
+  217 F&O stocks at 1.5 calls/s (21 → 48 → 68 … with a "left out until they arrive" note meanwhile); refresh times 11.9 s (cold)
+  then 5.6 / 2.3 / 4.5 / 2.4 s (the slower ones include the 30-second Kite REST quote re-read).
+
+## Not verified (needs PR #464 merged and deployed)
+- TC-S1: GET /api/scan-builder/market-dashboard over HTTP on staging with the owner's session, and the page in the browser.
+- The cross-worker Redis candle cache in the deployed app (the live checks used a process-local cache so staging Redis was not
+  written to from a test process).
+
+## Verdict: IN PROGRESS — code verified (unit, e2e on mocked API, live data in the staging container); staging deployment pending
