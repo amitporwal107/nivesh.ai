@@ -147,3 +147,80 @@ Left: saved scans list (+ New scan, templates). Right: the editor, as in the own
 
 Warm run, All NSE stocks (~2,700), ≤10 filters: < 1.5 s on the staging VM (measured in the report). Cold first run of the
 day (panel load): < 60 s, with the UI saying so. REST quotes for stocks outside the feed: ≤ 6 calls per 30 s per process.
+
+## 7. Scan dashboard (v1.1, owner 3 Nov: "chartink like scans … under the existing screener" + design `docs/Scan Dashboard Standalone (3).html`)
+
+### 7.1 Where
+Market Desk › Screener gets three sub-views (`?tab=market&view=screener&sub=…`): **Screener** (`screens`, the existing screener,
+default) · **Scan dashboard** (`dashboard`) · **Scan builder** (`builder`, the editor of §5, moved here). The last two show only
+with the `scan_builder` flag. The old `view=scanbuilder` URL redirects to `view=screener&sub=builder` (keeps `scan=`).
+
+### 7.2 Grouped scans (the market-cap widgets)
+`ScanSpec.group_by`: `"symbol"` (default, §3) | `"marketcap"`. When `"marketcap"`, every column carries an aggregate:
+
+```
+Column + agg:   "share" | "count" | "sum" | "avg" | "diff"      required when grouped, must be absent/null when not
+         where: Filter | null       share/count/sum/avg only: the stocks counted/summed are those passing the scan's filters AND `where`
+         of:    [colIdA, colIdB]    diff only: value(A) − value(B); A and B are other (non-diff) columns of the scan
+share = % of the group's matched stocks passing `where` (no where → 100) · count = how many · sum / avg = of `expr` (missing skipped)
+```
+Groups: every stock with a market cap in the NIDP feature store (last EOD) ranked by it, largest first: 1–100 **Largecap**,
+101–250 **Midcap**, 251+ **Smallcap** (the SEBI/AMFI rank rule; AMFI ranks on a 6-month average, we on the latest value — said in
+`sources.groups`). A stock with no market cap is in no group. `limit` = number of groups shown (1–3). Sort is by a column, as before.
+Grouped RunResult: `group_by: "marketcap"`; `rows: [{symbol: "Largecap", name: "<n> stocks", values, today}]` (symbol is the group
+label, never a link); `counts.matched` = stocks in all groups. Ungrouped RunResults carry `group_by: "symbol"`.
+
+### 7.3 F&O fields (the open-interest widgets)
+Four more `fundamental` fields (catalog entries carry `group: "F&O (NSE end of day)"`; the others `group: "Fundamentals"`):
+`fno_price_chg_pct` Futures price change % · `fno_oi_chg_pct` Futures OI change % · `fno_prev_price_chg_pct` and
+`fno_prev_oi_chg_pct` (the session before). Source: DaaS `/v1/desk/fno-buildup` (nidp.fno_bhavcopy, stock futures: nearest expiry's
+price change, OI summed over expiries) for the latest session and the one before. Used only when the latest session is today or the
+previous trading session (owner rule 28 Oct); otherwise the fields are missing and a warning says why. A run that uses them adds
+`sources.fno` = "NSE F&O bhavcopy, <day> …". Live intraday OI is a later step.
+
+### 7.4 Dashboard API (signed-in user, `scan_builder` flag)
+| Method | Path | Body → answer |
+|---|---|---|
+| GET | `/dashboard` | → `{dashboard, is_default}` (the user's saved dashboard, else the default "Fresh") |
+| PUT | `/dashboard` | `{dashboard}` → `{dashboard, is_default: false}`; each widget's spec validated (422 `invalid_spec`, `path` = `widgets[i].spec.<path>`) |
+| DELETE | `/dashboard` | → `{dashboard: <default>, is_default: true}` (back to the default) |
+| POST | `/dashboard/run` | `{widgets?: [id]}` (default all) → DashboardRun. One per user per 4 s (429 `run_too_soon`, `retry_after_s`) |
+
+```
+Dashboard { name: str(1..60), widgets: Widget[0..20] }
+Widget    { id: [A-Za-z0-9_-]{1,24} unique, title: str(1..80), size: "s"|"m"|"l" (card height 300 / 320 / 400 px),
+            kind: "scan", spec: ScanSpec  |  kind: "indices", indices: [Kite index name, 1..10] (e.g. "NIFTY 50", "NIFTY BANK") }
+DashboardRun { ok, run_at, elapsed_ms, market: {open, refresh_seconds: 10}, results: { <widget id>: WidgetResult } }
+WidgetResult  RunResult (§4, + group_by)  |  IndexResult  |  { ok: false, error: { code, message } }   (one widget failing never fails the rest)
+IndexResult { ok: true, kind: "indices", group_by: "symbol", basis: {mode: "live"|"kite_close"|"none", day, quote_as_of, text},
+              columns: [{id: "ltp", alias: "LTP", format: "price"}, {id: "chg", alias: "% chg", format: "pct"}],
+              rows: [{symbol: "NIFTY", name: "NIFTY 50", values: [ltp, pct], today}], counts: {matched}, warnings }
+```
+Index source: Kite (live in session, the saved Kite close after it — `kite_live_feed.day_quote.day_quotes`); % chg against Kite's
+previous close. Short names: NIFTY 50 → NIFTY, NIFTY BANK → BANKNIFTY, NIFTY FIN SERVICE → FINNIFTY, NIFTY MID SELECT → MIDCPNIFTY.
+
+### 7.5 The default dashboard "Fresh" (each widget is a real scan; Edit opens ITS definition)
+| id | Title (design title → ours) | Definition |
+|---|---|---|
+| mcap_ad | Marketcap advances / declines | All NSE, by market cap; Advances = share where Close > 1 day ago Close; Declines = share where Close < 1 day ago Close |
+| mcap_vol | Positive vs negative volumes | by market cap, in lakh shares; Positive = sum Volume ÷ 100000 where up; Negative = same where down; +/- vol = Positive − Negative |
+| indices | Index stats | NIFTY BANK, NIFTY 50 |
+| n50_gainers | Nifty 50 top gainers | Nifty 50, % change > 0, by % change |
+| long_buildup | Long build-up (fresh) | F&O stocks: futures price ↑ and OI ↑ in the latest session, and NOT both ↑ the session before |
+| strong_movers | "Today's top buy" → **Today's strong movers** | % change > 5, Volume ÷ 1-day-ago SMA(Volume, 20) × 100 > 200, CCI(20) > 100, ADX(14) > 25. Buy% and Dbuy are dropped: we have no buyer/seller-initiated trade data, and "buy" is barred wording (owner 3 Nov) |
+| good_results | Good quarter result stocks | Net profit growth YoY > 25 %, revenue growth YoY > 15 %, market cap > ₹500 cr |
+| open_interest | Open interest | F&O stocks, futures OI change ≥ 10 % in the latest session, by OI change |
+| vol_10x | "10x volume first 5 min" → **10x volume (day)** | Volume > 10 × 1-day-ago SMA(Volume, 20). The first-5-minute version needs intraday candles (next step) |
+
+### 7.6 UI (design `Scan Dashboard Standalone`, adapted)
+Header: dashboard name, data badge (Kite live hh:mm:ss · Kite close · NSE EOD <day>), widget search (filters cards by title),
+stock search (filters rows by symbol in every card), Auto-refresh toggle (default on: every 10 s while the market is open and the
+tab visible), **Add scan** (editor with a new scan; Save adds a widget), **Reset to default** (when customised).
+Card: title, basis sub-line, count pill ("50 stocks" = matched), buttons Expand (full width) · Chart (first symbol in Trade Desk ›
+Chart Analysis) · Info (description, sources, counts, warnings) · Copy (rows as tab-separated text) · CSV (download) · Edit · Remove
+(saved). Sortable headers (click again reverses), % columns mint/red by sign, symbols are mint links ↗ opening the chart in a new tab
+(group rows and index rows: no links except index → none). Edit panel opens ABOVE the grid: rail Columns · Filters · Group/Sort,
+Design · Result, Run · Save · Cancel (Cancel closes). Group/Sort adds "Group by: Symbol | Market cap"; grouped Columns rows edit
+the aggregate, its "where" condition and, for a difference, the two columns.
+Left out of the design on purpose (say so in the report): social share chips, Access, Copy dashboard, the premium-subscription
+banner (Chartink's own), Show chart preview (no preview to show yet), Y-axis / Transpose (chart options; no charts yet).
