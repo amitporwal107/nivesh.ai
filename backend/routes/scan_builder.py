@@ -10,6 +10,9 @@ Endpoints (signed-in user, behind the `scan_builder` feature flag; every saved s
     PUT    /api/scan-builder/scans/{id} {spec} -> {scan}
     POST   /api/scan-builder/scans/{id}/copy  -> {scan}
     DELETE /api/scan-builder/scans/{id}       -> {ok: true}
+    GET    /api/scan-builder/market-dashboard -> the realtime scan dashboard (DESIGN.md §8): the 17 widgets of Chartink
+                                              dashboard 247498 on our data, each with its criteria; one computation per
+                                              market_dashboard.CACHE_S per worker, shared by every viewer
 
 Typed errors: {"detail": {"code", "message", ...}} plus status/error/code/message at the top level (the desk client reads
 detail): invalid_spec (422, with `path`), run_too_soon (429, retry_after_s), data_unavailable (503), scan_not_found (404),
@@ -27,7 +30,7 @@ from fastapi.responses import JSONResponse
 
 from deps import db, get_current_user
 from feature_gate import require_feature
-from services.scan_builder import service, spec as specmod, store
+from services.scan_builder import market_dashboard, service, spec as specmod, store
 from services.scan_builder.data import DataUnavailable, get_data
 
 logger = logging.getLogger(__name__)
@@ -100,6 +103,15 @@ async def run(request: Request):
     _last_run[uid] = now
     try:
         return await service.run(spec, get_data())
+    except DataUnavailable as e:
+        return _answer(503, "data_unavailable", e.message)
+
+
+@router.get("/market-dashboard")
+async def market_dashboard_view(request: Request):
+    await _user_id(request)
+    try:
+        return await market_dashboard.get_dashboard(get_data())
     except DataUnavailable as e:
         return _answer(503, "data_unavailable", e.message)
 

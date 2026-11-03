@@ -118,7 +118,18 @@ FUNDAMENTALS: "OrderedDict[str, Dict[str, str]]" = OrderedDict([
     ("promoter_pledged_pct", {"label": "Promoter pledge", "unit": "%"}),
     ("fii_pct", {"label": "FII holding", "unit": "%"}),
     ("dii_pct", {"label": "DII holding", "unit": "%"}),
+    # Company results (nidp.nse_financials_quarterly via DaaS /financials/{symbol}, loaded once a day: data.results_fields).
+    # Consolidated figures where the company files them, else standalone.
+    ("q_pat", {"label": "Net profit, latest quarter", "unit": "₹ cr", "group": "Results"}),
+    ("q1_pat", {"label": "Net profit, 1 quarter ago", "unit": "₹ cr", "group": "Results"}),
+    ("q4_pat", {"label": "Net profit, 4 quarters ago", "unit": "₹ cr", "group": "Results"}),
+    ("q_pbdt", {"label": "PBDT, latest quarter", "unit": "₹ cr", "group": "Results"}),
+    ("ttm_pat", {"label": "Net profit, last 4 quarters", "unit": "₹ cr", "group": "Results"}),
+    ("y_pat", {"label": "Net profit, latest year", "unit": "₹ cr", "group": "Results"}),
+    ("y_eps", {"label": "EPS, latest year", "unit": "₹", "group": "Results"}),
+    ("py_eps", {"label": "EPS, previous year", "unit": "₹", "group": "Results"}),
 ])
+RESULT_FIELDS = ("q_pat", "q1_pat", "q4_pat", "q_pbdt", "ttm_pat", "y_pat", "y_eps", "py_eps")
 
 OPERATORS: List[Dict[str, str]] = [
     {"key": "gt", "label": "Greater than"},

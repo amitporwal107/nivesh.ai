@@ -2,7 +2,7 @@
  * Smart trading desk · 03 Market Desk — the deeper context after the trader's paper trades (the owner's workflow of
  * 2026-10-27; docs/desk_redesign_20261027/PLAN.md §1 and step "Market Desk"). One frame for every view: the view
  * switcher (the shell's), then a view head (eyebrow, one sentence, the parts of the view and where related data lives),
- * then the view. At most two levels: tab → view; `section=` scrolls to a part of a view.
+ * then the view. Two levels (tab → view), three for the Screener (its sub-views); `section=` scrolls to a part of a view.
  *
  *   intel       Market Intelligence   IntelTab (filings, SEBI circulars, bulk / block deals), the sector-rotation readout
  *                                     (SectorReadout.tsx) and the Events calendar (EventsTab), as the owner's design draws it
@@ -13,9 +13,15 @@
  *   research    Stock Research        ChartTab (chart, fundamentals, filings, setup) for one stock (?sym=), with the
  *                                     symbol strip: the stock shown, its option chain in Smart Money › F&O, and the full
  *                                     chart workspace
- *   screener    Screener              the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
- *   scanbuilder Scan Builder          scan-builder/ScanBuilder.tsx: your own scans (filters · columns · group/sort) run on our data;
- *                                     flag `scan_builder` (the switcher hides it otherwise; the view says it is not enabled)
+ *   screener    Screener              three sub-views (sub=, desk-nav.ts SUB_VIEWS; owner, 3 Nov: the Chartink-style scans live
+ *                                     under the existing Screener):
+ *                                       screens    the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
+ *                                       dashboard  scan-dashboard/ScanDashboard.tsx: the 17 widgets of Chartink dashboard 247498 on our
+ *                                                  own data, each with its criteria, refreshed every 10 s while the market is open
+ *                                       builder    scan-builder/ScanBuilder.tsx: your own scans (filters · columns · group/sort) run on
+ *                                                  our data (the old view=scanbuilder URL lands here)
+ *                                     dashboard and builder need the `scan_builder` flag (the switcher hides them otherwise; each
+ *                                     says it is not enabled)
  *
  * Watchlists and the Idea scorecard are Trade Desk's in the owner's design (27 Oct 19:40 IST): the scorecard component is
  * tradingdesk/scorecard/IdeaScorecard.tsx, for the Trade Desk tab to mount; ?tab=market&view=watchlists|scorecard opens
@@ -47,11 +53,12 @@ const ChartTab = lazy(() => import("../../ChartTab"));
 const SectorHeatmap = lazy(() => import("../../../SectorHeatmap"));
 const Screener = lazy(() => import("../../../Screener"));
 const ScanBuilder = lazy(() => import("./scan-builder/ScanBuilder"));
+const ScanDashboard = lazy(() => import("./scan-dashboard/ScanDashboard"));
 
 /** The F&O lab's views on Smart Money: build-up, candidates, indices and the option chain. */
 const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
 
-export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener" | "scanbuilder";
+export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener";
 
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)", textAlign: "left" };
 
@@ -165,10 +172,10 @@ function useGoView() {
   }, [setParams]);
 }
 
-export default function MarketDesk({ view }: { view: string | null }) {
+export default function MarketDesk({ view, sub = null }: { view: string | null; sub?: string | null }) {
   const desk = useDesk();
   const goView = useGoView();
-  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener", "scanbuilder"] as const).find((x) => x === view) ?? "intel";
+  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener"] as const).find((x) => x === view) ?? "intel";
   const jump = (section: string, go: () => void) => () => { go(); scrollTo(section); };
 
   switch (v) {
@@ -213,6 +220,32 @@ export default function MarketDesk({ view }: { view: string | null }) {
         </>
       );
     case "screener":
+      if (sub === "dashboard") {
+        return (
+          <>
+            <ViewHead
+              view={v}
+              label="Screener · Scan dashboard"
+              line="The Chartink “Atlas fresh” scans on our own data: Kite live quotes over NSE end-of-day bars, refreshed every 10 seconds while the market is open."
+              elsewhere="Each widget lists its criteria; a dimmed line is not applied yet and says why."
+            />
+            <Hosted id="scandashboard" name="the Scan dashboard"><ScanDashboard /></Hosted>
+          </>
+        );
+      }
+      if (sub === "builder") {
+        return (
+          <>
+            <ViewHead
+              view={v}
+              label="Screener · Scan builder"
+              line="Build your own stock scans on our live data: Kite quotes over NSE end-of-day bars, with fundamentals."
+              elsewhere="Daily, weekly and monthly candles today; 5-minute, 15-minute and hourly candles are the next step."
+            />
+            <Hosted id="scanbuilder" name="the Scan Builder"><ScanBuilder /></Hosted>
+          </>
+        );
+      }
       return (
         <>
           <ViewHead
@@ -222,18 +255,6 @@ export default function MarketDesk({ view }: { view: string | null }) {
             parts={[{ id: "chartink", label: "Chartink sources (Trade Desk › AI Scanner) ›", onClick: () => desk.openChartink() }]}
           />
           <Hosted id="screener" name="the Screener"><Screener /></Hosted>
-        </>
-      );
-    case "scanbuilder":
-      return (
-        <>
-          <ViewHead
-            view={v}
-            label="Scan Builder"
-            line="Build your own stock scans on our live data: Kite quotes over NSE end-of-day bars, with fundamentals."
-            elsewhere="Daily, weekly and monthly candles today; 5-minute, 15-minute and hourly candles are the next step."
-          />
-          <Hosted id="scanbuilder" name="the Scan Builder"><ScanBuilder /></Hosted>
         </>
       );
     default:

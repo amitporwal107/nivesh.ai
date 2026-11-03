@@ -450,7 +450,8 @@ def test_validate_fills_defaults_and_drops_unknown_keys():
 def test_catalog_default_spec_templates_and_readers():
     cat = S.catalog()
     assert [u["key"] for u in cat["universes"]] == list(S.UNIVERSES)
-    assert len(cat["fundamentals"]) == 19 and len(cat["operators"]) == 7
+    assert len(cat["fundamentals"]) == 19 + len(S.RESULT_FIELDS) and len(cat["operators"]) == 7
+    assert [f["key"] for f in cat["fundamentals"] if f.get("group") == "Results"] == list(S.RESULT_FIELDS)
     tfs = {t["key"]: t for t in cat["timeframes"]}
     assert all(tfs[k]["available"] for k in ("1d", "1w", "1M"))
     assert all(not tfs[k]["available"] and tfs[k]["reason"] for k in ("5m", "15m", "1h"))

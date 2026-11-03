@@ -303,6 +303,19 @@ def test_rest_copies_are_reused_within_the_ttl_and_refetched_after():
     assert len(kite.calls) == 2
 
 
+def test_rest_copies_fresh_when_asked_are_not_dropped_while_the_others_are_refetched():
+    # Staging 3 Nov 09:39–09:41: the last batch of a fetch (~262 stocks) aged past the TTL WHILE the older batches were being
+    # re-read, so every other refresh left those stocks without today's candle. Freshness is judged when the request starts.
+    kite = FakeKite()
+    r, t, sleeps = rest_with(kite)
+    syms = [f"S{i}" for i in range(1201)]                     # batches of 500, 500, 201 at t = 0, 1.1, 2.2
+    run(r.get(syms, open_session=True))
+    t["v"] = 31.5                                             # batches 1-2 are stale (> 30 s), batch 3 is 29.3 s old
+    out, why = run(r.get(syms, open_session=True))
+    assert why is None and [len(c) for c in kite.calls[3:]] == [500, 500]     # only the stale batches are re-read …
+    assert len(out) == 1201 and "S1200" in out                # … and batch 3, still fresh when asked, is in the answer
+
+
 def test_rest_without_a_token_calls_nothing():
     kite = FakeKite()
     r, _, _ = rest_with(kite, token="")

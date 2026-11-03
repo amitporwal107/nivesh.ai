@@ -1,6 +1,7 @@
 /**
- * One-screen Copilot app (/v5/app) — Smart trading desk, Market Desk › Scan Builder (screens/tradingdesk/tabs/market-desk/
- * scan-builder/; contract docs/scan_builder/DESIGN.md). Cases TC-E1 … TC-E8 of test_reports/scan_builder_20261103_0431.md.
+ * One-screen Copilot app (/v5/app) — Smart trading desk, Market Desk › Screener › Scan builder (screens/tradingdesk/tabs/
+ * market-desk/scan-builder/; contract docs/scan_builder/DESIGN.md; a Screener sub-view since 3 Nov, §8). Cases TC-E1 … TC-E8 of
+ * test_reports/scan_builder_20261103_0431.md.
  *
  * MOCK — not real data. Every /api/scan-builder answer below is hand-written to the contract (DESIGN.md §4): the catalog, the
  * run results (three invented stocks with invented prices) and an in-memory scan store. Nothing here is market data; the
@@ -17,8 +18,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const load = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", name), "utf-8"));
 
 const DESK = "/v5/app/trader/desk";
-const SB = `${DESK}?tab=market&view=scanbuilder`;
-const INTEL = `${DESK}?tab=market&view=intel`;
+const SCREENER = `${DESK}?tab=market&view=screener`;
+const SB = `${SCREENER}&sub=builder`;
 const SLOW = { timeout: 15_000 };
 const reply = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -176,28 +177,28 @@ async function openBuilder(page: Page) {
   await expect(panel(page).getByTestId("scan-builder")).toBeVisible(SLOW);
 }
 
-test.describe("MOCK — not real data: Market Desk › Scan Builder", () => {
-  test("TC-E1a with the flag off the view is not offered, and its URL asks the scan builder nothing", async ({ page }) => {
+test.describe("MOCK — not real data: Market Desk › Screener › Scan builder", () => {
+  test("TC-E1a with the flag off the sub-view is not offered, and its URL asks the scan builder nothing", async ({ page }) => {
     const be = await desk(page, { flag: false });
-    await page.goto(INTEL);
-    await expect(page.getByTestId("desk-view-intel")).toBeVisible(SLOW);
-    await expect(page.getByTestId("desk-view-scanbuilder")).toHaveCount(0);
+    await page.goto(SCREENER);
+    await expect(page.getByTestId("desk-panel-screener")).toBeAttached(SLOW);
+    await expect(page.getByTestId("desk-sub-builder")).toHaveCount(0);
     await page.goto(SB);
     await expect(page.getByTestId("sb-off")).toContainText("not enabled for your account", SLOW);
     await expect(page.getByTestId("scan-builder")).toHaveCount(0);
     expect(be.sbCalls).toEqual([]);
   });
 
-  test("TC-E1b with the flag on the view is offered last, opens from the switcher, and reads the catalog", async ({ page }) => {
+  test("TC-E1b with the flag on Scan builder is the Screener's last sub-view, opens from the switcher, and reads the catalog", async ({ page }) => {
     const be = await desk(page);
-    await page.goto(INTEL);
-    await expect(page.getByTestId("desk-view-scanbuilder")).toBeVisible(SLOW);
-    const keys = await page.getByTestId("desk-views").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    expect(keys).toEqual(["desk-view-intel", "desk-view-smartmoney", "desk-view-sectors", "desk-view-research", "desk-view-screener", "desk-view-scanbuilder"]);
-    await expect(page.getByTestId("desk-view-scanbuilder")).toHaveText("Scan Builder");
-    await page.getByTestId("desk-view-scanbuilder").click();
-    await expect(page).toHaveURL(/[?&]view=scanbuilder(&|$)/);
-    await expect(page.getByTestId("md-eyebrow")).toHaveText("Market Desk · Scan Builder");
+    await page.goto(SCREENER);
+    await expect(page.getByTestId("desk-sub-builder")).toBeVisible(SLOW);
+    const keys = await page.getByTestId("desk-subviews").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    expect(keys).toEqual(["desk-sub-screens", "desk-sub-dashboard", "desk-sub-builder"]);
+    await expect(page.getByTestId("desk-sub-builder")).toHaveText("Scan builder");
+    await page.getByTestId("desk-sub-builder").click();
+    await expect(page).toHaveURL(/[?&]view=screener&sub=builder(&|$)/);
+    await expect(page.getByTestId("md-eyebrow")).toHaveText("Market Desk · Screener · Scan builder");
     await expect(panel(page).getByTestId("scan-builder")).toBeVisible(SLOW);
     expect(be.sbCalls).toContain("GET /catalog");
     expect(be.sbCalls.filter((c) => c.startsWith("POST /run"))).toEqual([]);   // nothing runs until Run is pressed

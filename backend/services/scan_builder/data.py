@@ -63,6 +63,21 @@ FNO_PREV_WALK_DAYS = 7                  # calendar days walked back from the lat
 FNO_ROW_FIELDS = (("fno_price_chg_pct", "price_chg_pct"), ("fno_oi_chg_pct", "oi_chg_pct"))
 FNO_PREV_FIELDS = (("fno_prev_price_chg_pct", "price_chg_pct"), ("fno_prev_oi_chg_pct", "oi_chg_pct"))
 
+# Company results (DESIGN.md §8): quarterly and annual figures filed with NSE, nidp.nse_financials_quarterly through DaaS
+# GET /v1/financials/{symbol} (one call per company: the platform has no bulk route), loaded once and shared by the workers.
+RESULT_FIELDS = ("q_pat", "q1_pat", "q4_pat", "q_pbdt", "ttm_pat", "y_pat", "y_eps", "py_eps")
+RESULTS_TTL_S = 6 * 3600                # results arrive daily in results season
+RESULTS_PARTIAL_TTL_S = 1800            # a load that missed more than RESULTS_MAX_FAILED_SHARE of the companies is retried sooner
+RESULTS_MAX_FAILED_SHARE = 0.02
+RESULTS_FAIL_BACKOFF_S = 300.0          # after a load that read nothing, no new attempt for this long
+RESULTS_CONCURRENCY = 3                 # gentle on the shared DaaS
+RESULTS_TIMEOUT_S = 20.0
+RESULTS_RETRY_S = 1.0                   # one retry per company after this pause
+RESULTS_ROWS = 400                      # every row of a company (~12 on average, both period types and both flavours)
+RESULTS_FILE, RESULTS_LOCK_FILE = "results.json", "results.lock"
+SOURCE_RESULTS = ("Company results filed with NSE (NIDP warehouse, nidp.nse_financials_quarterly via DaaS /v1/financials); "
+                  "consolidated figures where the company files them, else standalone")
+
 
 class DataUnavailable(Exception):
     """The price panel or the reference data could not be read and there is no earlier copy to fall back on."""
@@ -109,6 +124,24 @@ class FnoFields:
     prev_as_of: Optional[str] = None                 # the session before it
     source: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ResultsFields:
+    """Per-company results for the RESULT_FIELDS: field -> symbol -> value (₹ crore; EPS in ₹). A figure the filing does not
+    carry, or a rule that does not hold (a quarter missing in between), leaves the value missing, never 0.
+
+    `symbols` counts the companies with at least one figure; `asked` the companies read; `complete` is False when more than
+    RESULTS_MAX_FAILED_SHARE of them could not be read (such a copy is refreshed sooner). A copy with `symbols == 0` is a failed
+    load and `warnings` says why."""
+    values: Dict[str, Dict[str, float]] = field(default_factory=lambda: {f: {} for f in RESULT_FIELDS})
+    q_end: Dict[str, str] = field(default_factory=dict)          # symbol -> its latest quarter's end (ISO day)
+    loaded_at: str = ""                                          # ISO time (UTC) of the load
+    symbols: int = 0
+    source: str = SOURCE_RESULTS
+    warnings: List[str] = field(default_factory=list)
+    complete: bool = True
+    asked: int = 0
 
 
 @dataclass
@@ -222,29 +255,63 @@ class _FileLock:
             self._fd = None
 
 
+async def _refresh_platform_token() -> None:
+    """Reload the day's stored platform Kite login into this worker, as the F&O routes do (routes/fno.py): only the live feed's
+    leader keeps that cache fresh by itself, so another worker keeps the token it started with, and Kite refuses it once the
+    day's login has replaced it (seen live 3 Nov 09:23 IST: TokenException, 2,262 of 2,756 stocks without today's candle).
+    A failed read is logged (no secrets) and leaves what the worker held."""
+    try:
+        from deps import db
+        from services.kite_live_feed import platform_token
+        await platform_token.refresh_cache(db)
+    except Exception as e:  # noqa: BLE001 — the quotes then use whatever token the worker holds
+        logger.warning("scan builder: the platform Kite token could not be reloaded (%s)", type(e).__name__)
+
+
+_UNSET: Any = object()
+
+
 class RestQuotes:
     """Kite REST quote() for stocks the live feed does not carry, shared by every scan in this process.
 
     One fetch at a time; batches of at most REST_BATCH (500) symbols at least REST_SPACING_SECONDS (1.1 s) apart (Kite allows
     one quote call a second); a symbol is re-read only when its copy is older than the TTL (30 s while the market is open,
-    10 minutes otherwise). After Kite refuses, nothing is asked for FAIL_BACKOFF_S. Without a token or key nothing is called."""
+    10 minutes otherwise). After Kite refuses, nothing is asked for FAIL_BACKOFF_S. Without a token or key nothing is called.
+    Before a fetch the day's platform token is reloaded from Mongo, at most once per TOKEN_REFRESH_S (`token_refresher`; by
+    default only with the default token getter, which reads that cache)."""
 
     TTL_OPEN_S, TTL_CLOSED_S, FAIL_BACKOFF_S, MAX_SYMBOLS = 30.0, 600.0, 30.0, 3000
+    TOKEN_REFRESH_S = 300.0
 
     def __init__(self, *, token_getter: Callable[[], str] = kcfg.get_token, key_getter: Callable[[], str] = kcfg.get_api_key,
                  kite_factory: Callable[[str, str], Any] = gw.default_kite_factory,
                  clock: Callable[[], float] = time.monotonic, wall: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
                  sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-                 spacing: float = kcfg.REST_SPACING_SECONDS, batch: int = kcfg.REST_BATCH):
+                 spacing: float = kcfg.REST_SPACING_SECONDS, batch: int = kcfg.REST_BATCH,
+                 token_refresher: Any = _UNSET):
         self._token, self._key, self._factory = token_getter, key_getter, kite_factory
         self._clock, self._wall, self._sleep = clock, wall, sleep
         self._spacing, self._batch = spacing, batch
+        if token_refresher is _UNSET:
+            token_refresher = _refresh_platform_token if token_getter is kcfg.get_token else None
+        self._refresh: Optional[Callable[[], Awaitable[Any]]] = token_refresher
+        self._refreshed_at = float("-inf")
         self._cache: Dict[str, Tuple[float, dict]] = {}
         self._lock = asyncio.Lock()
         self._last_call = float("-inf")
         self._fail_until = float("-inf")
         self.calls = 0                                   # quote() calls made (tests and the run's counts read it)
         self.last_fetch_at: Optional[str] = None
+
+    async def _refresh_token(self) -> None:
+        """At most once per TOKEN_REFRESH_S, reload the day's platform token into this process. Never raises."""
+        if self._refresh is None or self._clock() - self._refreshed_at < self.TOKEN_REFRESH_S:
+            return
+        self._refreshed_at = self._clock()
+        try:
+            await self._refresh()
+        except Exception as e:  # noqa: BLE001 — an injected refresher that fails must not stop the quotes
+            logger.warning("scan builder: the platform Kite token could not be reloaded (%s)", type(e).__name__)
 
     async def get(self, symbols: Iterable[str], *, open_session: bool) -> Tuple[Dict[str, dict], Optional[str]]:
         """({symbol: quote in the live feed's shape}, why) — why is None, no_kite_token or kite_refused."""
@@ -259,6 +326,7 @@ class RestQuotes:
             if stale and now < self._fail_until:
                 why = "kite_refused"
             elif stale:
+                await self._refresh_token()
                 token, key = await asyncio.to_thread(self._token), await asyncio.to_thread(self._key)
                 if not token or not key:
                     why = "no_kite_token"
@@ -285,7 +353,9 @@ class RestQuotes:
                             if q:
                                 self._cache[gw.canon(k)] = (stamp, q)
                         self.last_fetch_at = at.isoformat()
-            now = self._clock()
+            # Freshness is judged against `now` from the START of this request: a copy that was fresh when asked stays in the
+            # answer even if it crosses the TTL while the stale ones are re-read (a 5-batch fetch takes ~5 s). Judged at the
+            # end instead, the last batch of the previous fetch dropped out of every other refresh (staging, 3 Nov).
             out = {s: self._cache[s][1] for s in want if s in self._cache and now - self._cache[s][0] <= ttl}
         return out, why
 
@@ -321,6 +391,121 @@ def _fill_fno(values: Dict[str, Dict[str, float]], rows: Iterable[Dict[str, Any]
                 values[fld][sym] = float(v)
 
 
+# ── company results (DESIGN.md §8) ──────────────────────────────────────────────────────────────────────────────────
+def _num(v: Any) -> Optional[float]:
+    """A finite number, or None (null, text, NaN). Never 0 for a missing figure."""
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if np.isfinite(x) else None
+
+
+def _day(v: Any) -> Optional[date]:
+    iso = _iso(v)
+    return date.fromisoformat(iso) if iso else None
+
+
+def _flavour_rows(rows: Iterable[Dict[str, Any]], period_type: str) -> List[Tuple[date, Dict[str, Any]]]:
+    """One period type's rows of one company, newest first, in ONE flavour: consolidated when the company has any consolidated
+    row of that type, else standalone (the SQL's `consolidated = bool_or(consolidated)` over the company's rows)."""
+    rs = [(_day(r.get("period_end")), r) for r in rows
+          if isinstance(r, dict) and str(r.get("period_type") or "").lower() == period_type and isinstance(r.get("consolidated"), bool)]
+    rs = [(d, r) for d, r in rs if d is not None]
+    if not rs:
+        return []
+    has_cons = any(r["consolidated"] for _, r in rs)
+    chosen = [(d, r) for d, r in rs if r["consolidated"] is has_cons]
+    chosen.sort(key=lambda x: x[0], reverse=True)
+    return chosen
+
+
+def company_results(rows: Iterable[Dict[str, Any]]) -> Tuple[Dict[str, float], Optional[str]]:
+    """One company's RESULT_FIELDS from its DaaS /financials rows (any order; both period types and flavours), and its latest
+    quarter's end. Quarterly rows newest first (rn1, rn2, …):
+
+      q_pat   PAT of rn1                                   q1_pat  PAT of rn2, only when rn2 ends 80-100 days before rn1
+      q4_pat  PAT of rn5, only when it ends 355-375 days before rn1 (the same quarter a year earlier)
+      q_pbdt  PBT + depreciation of rn1 (no depreciation figure counts as 0; no PBT leaves it missing)
+      ttm_pat PAT of rn1..rn4 summed, only when all four exist and rn4 ends at most 280 days before rn1 (four quarters in a row)
+    Annual rows newest first: y_pat and y_eps of the latest year, py_eps of the year before it. Missing stays missing."""
+    rows = list(rows)
+    out: Dict[str, float] = {}
+    q = _flavour_rows(rows, "quarterly")
+    q_end: Optional[str] = None
+    if q:
+        e1, r1 = q[0]
+        q_end = e1.isoformat()
+        pat1 = _num(r1.get("pat_cr"))
+        if pat1 is not None:
+            out["q_pat"] = pat1
+        if len(q) > 1 and 80 <= (e1 - q[1][0]).days <= 100:
+            v = _num(q[1][1].get("pat_cr"))
+            if v is not None:
+                out["q1_pat"] = v
+        if len(q) > 4 and 355 <= (e1 - q[4][0]).days <= 375:
+            v = _num(q[4][1].get("pat_cr"))
+            if v is not None:
+                out["q4_pat"] = v
+        pbt = _num(r1.get("pbt_cr"))
+        if pbt is not None:
+            out["q_pbdt"] = pbt + (_num(r1.get("depreciation_cr")) or 0.0)
+        if len(q) >= 4 and (e1 - q[3][0]).days <= 280:
+            four = [_num(r.get("pat_cr")) for _, r in q[:4]]
+            if all(v is not None for v in four):
+                out["ttm_pat"] = float(sum(four))      # type: ignore[arg-type]
+    a = _flavour_rows(rows, "annual")
+    if a:
+        for key, col in (("y_pat", "pat_cr"), ("y_eps", "eps_basic")):
+            v = _num(a[0][1].get(col))
+            if v is not None:
+                out[key] = v
+        if len(a) > 1:
+            v = _num(a[1][1].get("eps_basic"))
+            if v is not None:
+                out["py_eps"] = v
+    return out, q_end
+
+
+def _results_fresh(rf: ResultsFields, now: datetime) -> bool:
+    """A copy younger than its TTL (6 h; 30 min for a copy that missed many companies). A copy without a load time is stale."""
+    try:
+        t = datetime.fromisoformat(rf.loaded_at)
+    except (TypeError, ValueError):
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    age = (now - t).total_seconds()
+    return -60.0 <= age < (RESULTS_TTL_S if rf.complete else RESULTS_PARTIAL_TTL_S)
+
+
+def save_results(rf: ResultsFields, folder: Path) -> None:
+    """Write the results atomically (temp file + rename) for the other worker processes."""
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / (RESULTS_FILE + ".tmp")
+    tmp.write_text(json.dumps({"loaded_at": rf.loaded_at, "symbols": rf.symbols, "asked": rf.asked, "complete": rf.complete,
+                               "source": rf.source, "warnings": rf.warnings, "q_end": rf.q_end, "values": rf.values}))
+    os.replace(tmp, folder / RESULTS_FILE)
+
+
+def read_results_file(folder: Path) -> Optional[ResultsFields]:
+    """The results another worker wrote, or None when there is no readable file."""
+    try:
+        raw = json.loads((folder / RESULTS_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("values"), dict):
+        return None
+    values = {f: {str(s): float(v) for s, v in (raw["values"].get(f) or {}).items() if _num(v) is not None}
+              for f in RESULT_FIELDS}
+    return ResultsFields(values=values, q_end={str(k): str(v) for k, v in (raw.get("q_end") or {}).items()},
+                         loaded_at=str(raw.get("loaded_at") or ""), symbols=int(raw.get("symbols") or 0),
+                         source=str(raw.get("source") or SOURCE_RESULTS), warnings=[str(w) for w in raw.get("warnings") or []],
+                         complete=bool(raw.get("complete", True)), asked=int(raw.get("asked") or 0))
+
+
 class ScanData:
     """The per-process holder of the panel and reference data, plus today's candles. One instance per worker (`get_data`)."""
 
@@ -351,6 +536,11 @@ class ScanData:
         self._fno: Optional[FnoFields] = None
         self._fno_at = float("-inf")
         self._fno_lock = asyncio.Lock()
+        self._results: Optional[ResultsFields] = None              # the last good copy (in memory)
+        self._results_task: Optional[asyncio.Task] = None          # the running load, at most one per process
+        self._results_failed: Optional[ResultsFields] = None       # the last load that read nothing, and when (monotonic)
+        self._results_failed_at = float("-inf")
+        self.results_source: Optional[str] = None                  # "file" | "daas" — how the last load was served
 
     @property
     def loaded_panel(self) -> Optional[BasePanel]:
@@ -372,6 +562,116 @@ class ScanData:
                 raise
             self._ref, self._ref_at = ref, self._clock()
             return ref
+
+    # ── company results (DESIGN.md §8) ──────────────────────────────────────────────────────────────────────────────
+    async def results_fields(self, *, wait: bool = False) -> Optional[ResultsFields]:
+        """Every company's RESULT_FIELDS, read once and shared by the worker processes (RESULTS_FILE), refreshed after
+        RESULTS_TTL_S. Never raises.
+
+        wait=False answers at once: the fresh copy (this process's, or the one another worker wrote); while a refresh runs,
+        the previous copy; None while the FIRST load runs in the background (it is started if it is not running). After a
+        load that read nothing, that failed copy (`symbols == 0`, warnings say why) is answered for RESULTS_FAIL_BACKOFF_S
+        before the next attempt. wait=True awaits the running or a new load."""
+        now = self._now()
+        mem = self._results
+        if mem is not None and _results_fresh(mem, now):
+            return mem
+        disk = await asyncio.to_thread(read_results_file, self._dir)
+        if disk is not None and disk.symbols > 0 and _results_fresh(disk, now):
+            self._results = disk
+            return disk
+        if self._results_failed is not None and self._clock() - self._results_failed_at < RESULTS_FAIL_BACKOFF_S:
+            return mem or self._results_failed
+        task = self._results_task
+        if task is None or task.done():
+            task = self._results_task = asyncio.create_task(self._refresh_results())
+        if wait:
+            return await asyncio.shield(task)
+        return mem
+
+    async def _refresh_results(self) -> ResultsFields:
+        try:
+            out = await self._load_results_shared()
+        except DataUnavailable as e:
+            out = ResultsFields(loaded_at=self._now().isoformat(),
+                                warnings=[f"Company results could not be loaded: the stock list is unavailable ({e.message})"])
+        except Exception as e:  # noqa: BLE001 — the dashboard shows the reason; a later call tries again after the backoff
+            logger.warning("scan builder: company results load failed (%s)", type(e).__name__)
+            out = ResultsFields(loaded_at=self._now().isoformat(),
+                                warnings=[f"Company results could not be loaded ({type(e).__name__})."])
+        if out.symbols > 0:
+            self._results, self._results_failed = out, None
+            return out
+        self._results_failed, self._results_failed_at = out, self._clock()
+        prev = self._results
+        if prev is not None:                       # keep showing the last good copy, and say the refresh failed
+            return ResultsFields(values=prev.values, q_end=prev.q_end, loaded_at=prev.loaded_at, symbols=prev.symbols,
+                                 source=prev.source, warnings=prev.warnings + out.warnings, complete=prev.complete,
+                                 asked=prev.asked)
+        return out
+
+    async def _load_results_shared(self) -> ResultsFields:
+        """One load across the worker processes: under the file lock, a fresh file another worker wrote meanwhile wins."""
+        async with _FileLock(self._dir / RESULTS_LOCK_FILE):
+            disk = await asyncio.to_thread(read_results_file, self._dir)
+            if disk is not None and disk.symbols > 0 and _results_fresh(disk, self._now()):
+                self.results_source = "file"
+                return disk
+            out = await self._load_results_from_daas()
+            if out.symbols > 0:
+                try:
+                    await asyncio.to_thread(save_results, out, self._dir)
+                except OSError as e:
+                    logger.warning("scan builder: results file not written (%s); this worker keeps them in memory",
+                                   type(e).__name__)
+            self.results_source = "daas"
+            return out
+
+    async def _load_results_from_daas(self) -> ResultsFields:
+        base = await self.panel()
+        symbols = list(base.symbols)
+        sem = asyncio.Semaphore(RESULTS_CONCURRENCY)
+        out = ResultsFields(asked=len(symbols))
+        failed: List[str] = []
+
+        async def one(sym: str) -> None:
+            body: Any = None
+            async with sem:
+                for attempt in (0, 1):
+                    try:
+                        body = await self._get(f"/financials/{urllib.parse.quote(sym, safe='')}", {"limit": RESULTS_ROWS},
+                                               timeout=RESULTS_TIMEOUT_S)
+                        break
+                    except Exception as e:  # noqa: BLE001 — one company's failure never stops the load; it is counted
+                        if attempt:
+                            logger.debug("scan builder: results for %s unreadable (%s)", sym, type(e).__name__)
+                            failed.append(sym)
+                            return
+                        await asyncio.sleep(RESULTS_RETRY_S)
+            rows = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(rows, list) or not rows:
+                return
+            vals, q_end = company_results(rows)
+            for k, v in vals.items():
+                out.values[k][sym] = v
+            if q_end:
+                out.q_end[sym] = q_end
+
+        t0 = time.monotonic()
+        await asyncio.gather(*[one(s) for s in symbols])
+        now = self._now()
+        out.loaded_at = now.isoformat()
+        out.symbols = len({s for f in RESULT_FIELDS for s in out.values[f]} | set(out.q_end))
+        out.complete = len(failed) <= RESULTS_MAX_FAILED_SHARE * max(len(symbols), 1)
+        if failed:
+            out.warnings.append(f"{len(failed)} of {len(symbols)} companies could not be read from the data platform; "
+                                "their results are missing.")
+        if not out.symbols:
+            out.warnings.append("Company results could not be loaded: the data platform returned none.")
+        out.source = f"{SOURCE_RESULTS}; loaded {now.astimezone(kcfg.IST).strftime('%d %b %Y %H:%M')} IST"
+        logger.info("scan builder: company results loaded from DaaS: %d of %d companies (%d unreadable) in %.1f s",
+                    out.symbols, len(symbols), len(failed), time.monotonic() - t0)
+        return out
 
     # ── F&O fields (DESIGN.md §7.3) ─────────────────────────────────────────────────────────────────────────────────
     async def fno_fields(self) -> FnoFields:

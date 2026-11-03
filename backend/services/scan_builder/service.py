@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -18,6 +18,24 @@ from . import spec as specmod
 from .data import SOURCE_PRICES, SOURCE_TODAY, BasePanel, Reference, ScanData, TodayOverlay
 
 REFRESH_SECONDS = 10
+RESULTS_MAX_AGE_DAYS = 270          # a latest quarter older than this (about three quarters) is a stale filing: not used
+QUARTER_FIELDS = ("q_pat", "q1_pat", "q4_pat", "q_pbdt", "ttm_pat")
+
+
+def results_arrays(results: Any, symbols: Sequence[str], day: date) -> Dict[str, np.ndarray]:
+    """Company-results fields as (N,) arrays in `symbols` order (NaN = missing). Quarterly figures of a company whose latest
+    filed quarter ended more than RESULTS_MAX_AGE_DAYS before `day` are left out: an old filing is not this quarter's result."""
+    cutoff = (day - timedelta(days=RESULTS_MAX_AGE_DAYS)).isoformat()
+    q_end = getattr(results, "q_end", None) or {}
+    out: Dict[str, np.ndarray] = {}
+    for fld in specmod.RESULT_FIELDS:
+        vals = results.values.get(fld) or {}
+        arr = np.array([vals.get(s, np.nan) for s in symbols], dtype=float)
+        if fld in QUARTER_FIELDS:
+            stale = np.array([not (q_end.get(s) and q_end[s] >= cutoff) for s in symbols], dtype=bool)
+            arr[stale] = np.nan
+        out[fld] = arr
+    return out
 
 
 def universe_symbols(key: str, base: BasePanel, ref: Reference) -> List[str]:
@@ -116,7 +134,19 @@ async def run(spec: Dict[str, Any], data: ScanData) -> Dict[str, Any]:
                 mask[i] = True
         universes[key] = mask
     fundamentals: Dict[str, np.ndarray] = {}
-    for fld in specmod.fundamentals_in(spec):
+    used = specmod.fundamentals_in(spec)
+    results_warning = None
+    if used & set(specmod.RESULT_FIELDS):
+        results = await data.results_fields(wait=False)
+        if results is None:
+            results_warning = ("Company results are still loading (the first load of the day takes about a minute); "
+                               "conditions on them count as unknown in this run.")
+        else:
+            fundamentals.update(results_arrays(results, panel.symbols, overlay.day))
+    for fld in used:
+        if fld in specmod.RESULT_FIELDS:
+            fundamentals.setdefault(fld, np.full(len(panel.symbols), np.nan))
+            continue
         vals = ref.fundamentals.get(fld) or {}
         fundamentals[fld] = np.array([vals.get(s, np.nan) for s in panel.symbols], dtype=float)
     res = await asyncio.to_thread(engine.evaluate, spec, panel, eligible=eligible, universes=universes,
@@ -126,6 +156,8 @@ async def run(spec: Dict[str, Any], data: ScanData) -> Dict[str, Any]:
             for i, vals in zip(res["order"], res["values"])]
     used_rest = bool(overlay.counts.get("rest_quotes"))
     warnings = list(overlay.warnings)
+    if results_warning:
+        warnings.append(results_warning)
     no_today = int(len(panel.symbols) - int(eligible.sum()))
     if overlay.mode == "eod" and no_today:
         warnings.append(f"{no_today} stock(s) have no candle on {overlay.day.isoformat()} (suspended, or not traded) and are left out.")
