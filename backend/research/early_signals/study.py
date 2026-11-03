@@ -62,6 +62,9 @@ def label_of(sig: str, titles: Dict[str, str]) -> str:
     m = re.fullmatch(r"rvol(\d)_up(\d)", name)
     if m:
         return f"Volume so far ≥ {m[1]}× its usual and ≥ {m[2]} % over the open"
+    m = re.fullmatch(r"rvolA(\d)_up(\d)", name)
+    if m:
+        return f"Volume so far ≥ {m[1]}× its usual (estimated: 20-day average × the day's volume curve) and ≥ {m[2]} % over the open"
     m = re.fullmatch(r"fut_oi(\d+)_up(\d)", name)
     if m:
         return f"Futures OI ≥ {m[1]} % over the previous close and the price ≥ {m[2]} % over the open"

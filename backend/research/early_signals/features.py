@@ -89,7 +89,17 @@ async def run(bars_dir: str, out_dir: str, days: Optional[int], step_min: int = 
     hi_all, lo_all, cl_all = base.high[:, cols], base.low[:, cols], base.close[:, cols]
     ema20, ema50 = _ema(cl_all, 20), _ema(cl_all, 50)
     per_step = max(1, step_min // 5)
+    # The live estimate of "its usual volume by this time": 20-session average daily volume x the market's typical share of
+    # the day's volume traded by that time (median over stock-days of the first sessions) — no per-stock intraday history.
+    shares = []
+    for x in all_days[:20]:
+        cv = cums[x]["cumvol"]
+        with np.errstate(all="ignore"):
+            shares.append(cv / cv[:, -1:])
+    curve = np.nanmedian(np.vstack(shares), axis=0) if shares else np.full(SLOTS, np.nan)
+    vol_all = base.volume[:, cols]
     os.makedirs(out_dir, exist_ok=True)
+    json.dump({"curve": [round(float(v), 5) for v in curve]}, open(os.path.join(out_dir, "volume_curve.json"), "w"))
     f = open(os.path.join(out_dir, "features.csv"), "w", newline="")
     w = csv.writer(f)
     w.writerow(["day", "step", "symbol", "widget", "close_at_step"])
@@ -115,6 +125,7 @@ async def run(bars_dir: str, out_dir: str, days: Optional[int], step_min: int = 
             avg_cumv = None
         o = cu["open"]
         with np.errstate(all="ignore"):
+            adv20 = np.nanmean(vol_all[idx - 19:idx + 1], axis=0)
             gap = o / prev_close - 1.0
             orb_high = cu["high"][:, 2]                               # first 15 minutes = slots 0–2
         for k in range(per_step, SLOTS + 1, per_step):
@@ -130,6 +141,10 @@ async def run(bars_dir: str, out_dir: str, days: Optional[int], step_min: int = 
                         sig[f"rvol{kk}"] = rv >= kk
                         for r in UP_R:
                             sig[f"rvol{kk}_up{r}"] = (rv >= kk) & (up >= r / 100.0)
+                rva = cu["cumvol"][:, s] / (adv20 * curve[s])
+                for kk in RVOL_K:
+                    for r in UP_R:
+                        sig[f"rvolA{kk}_up{r}"] = (rva >= kk) & (up >= r / 100.0)
                 for r in UP_R:
                     sig[f"vwap_up{r}"] = (c > vw) & (up >= r / 100.0)
                 for g in GAP_G:
