@@ -1,6 +1,6 @@
 # Compliance wording — test cases, inventory and planned replacements (written BEFORE any edit)
 
-Branch `fix/compliance-wording` (from origin/dev `19d8d974`), worktree `/home/deploy/nivesh-wt-wording`. Status: **IN PROGRESS**.
+Branch `fix/compliance-wording` (from origin/dev `19d8d974`, later rebased), worktree `/home/deploy/nivesh-wt-wording`. Results: `test_reports/compliance_wording_20261103.md`.
 
 ## 1. The rule (owner, 3 Nov 2026)
 
