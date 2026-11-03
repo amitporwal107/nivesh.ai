@@ -113,9 +113,16 @@ def resolve(legs: List[Dict[str, Any]], instruments: Dict[Tuple[str, str, Option
     return keys, unresolved
 
 
-def prices_from(quote: Dict[str, Any], keys: Dict[int, str]) -> Dict[int, Dict[str, Any]]:
+def traded_since(row: Dict[str, Any], floor: date) -> bool:
+    """True when the contract last traded on or after `floor` (the previous session). Kite answers `last_price` for a
+    contract that has not traded for days, and 1970-01-01 for one that never traded: that price is not today's."""
+    return (_day(row.get("last_trade_time")) or "")[:10] >= floor.isoformat()
+
+
+def prices_from(quote: Dict[str, Any], keys: Dict[int, str], floor: Optional[date] = None) -> Dict[int, Dict[str, Any]]:
     """Kite's quote() answer reduced to what a screen needs, per leg index. A key the answer does not
-    carry is simply absent — it is never defaulted to the last known or to zero."""
+    carry is simply absent — it is never defaulted to the last known or to zero. With `floor`, a contract that has
+    not traded since before it is absent too (traded_since)."""
     out: Dict[int, Dict[str, Any]] = {}
     for i, key in keys.items():
         row = (quote or {}).get(key)
@@ -123,6 +130,8 @@ def prices_from(quote: Dict[str, Any], keys: Dict[int, str]) -> Dict[int, Dict[s
             continue
         last = row.get("last_price")
         if last is None:
+            continue
+        if floor is not None and not traded_since(row, floor):
             continue
         entry: Dict[str, Any] = {"key": key, "last_price": float(last)}
         ohlc = row.get("ohlc") if isinstance(row.get("ohlc"), dict) else None

@@ -187,3 +187,13 @@ def history_answer(underlying: str, docs: Iterable[Dict[str, Any]], bucket: str,
     if out["iv_rank"] is None:
         out["reason"] = "The ATM IV did not change over the window, so IV rank is undefined."
     return out
+
+
+def without_stale_current(out: Dict[str, Any], w: Any) -> Dict[str, Any]:
+    """The answer with `current`, IV rank and IV percentile removed when the latest recorded session is older than the
+    previous session (`w`: services/market_freshness.Window). The dated `series` stays: it is history and says its days."""
+    current = out.get("current")
+    if not current or w.current(current.get("date")):
+        return out
+    return {**out, "current": None, "iv_rank": None, "iv_percentile": None, "window": None,
+            "reason": w.stale_reason(f"{out.get('symbol')} implied volatility", current.get("date"))}

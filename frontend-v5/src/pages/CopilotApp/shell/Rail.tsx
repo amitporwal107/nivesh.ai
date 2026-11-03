@@ -9,7 +9,7 @@ import { useMe } from "@/hooks/use-auth";
 import { usePortfolioContext } from "../lib/use-portfolio-context";
 import { fmtINR } from "../components/ui";
 import { ThreadRow } from "./ThreadRow";
-import { INTERNAL_NAV, MODE_LABEL, workspaceNav, isRecentThread, threadView, toolsNav, type Mode, type NavItem } from "../lib/views";
+import { INTERNAL_NAV, MODE_LABEL, workspaceNav, isNavCurrent, isRecentThread, threadView, toolsNav, type Mode, type NavItem } from "../lib/views";
 
 const MODE_TONE: Record<Mode, "ink" | "mint" | "indigo"> = { investor: "ink", trader: "mint", advisor: "indigo" };
 
@@ -20,7 +20,7 @@ function initials(name?: string, email?: string): string {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || src[0].toUpperCase();
 }
 
-function NavRows({ items, view, onGo, quiet }: { items: NavItem[]; view: string; onGo: (v: string) => void; quiet?: boolean }) {
+function NavRows({ items, view, search, onGo, quiet }: { items: NavItem[]; view: string; search: string; onGo: (v: string) => void; quiet?: boolean }) {
   return (
     <>
       {items.map((it) => (
@@ -29,7 +29,7 @@ function NavRows({ items, view, onGo, quiet }: { items: NavItem[]; view: string;
           type="button"
           className="cp-rail-row"
           data-quiet={quiet ? "true" : undefined}
-          aria-current={view === it.view ? "page" : undefined}
+          aria-current={isNavCurrent(it, items, view, search) ? "page" : undefined}
           onClick={() => onGo(it.view)}
         >
           <span>{it.label}</span>
@@ -40,10 +40,12 @@ function NavRows({ items, view, onGo, quiet }: { items: NavItem[]; view: string;
   );
 }
 
-export function Rail({ mode, view, drawer, isAdmin, onGo, onNewQuestion, onToggleMode }: {
+export function Rail({ mode, view, search = "", drawer, isAdmin, onGo, onNewQuestion, onToggleMode }: {
   mode: Mode;
   /** Current view path below the app base. */
   view: string;
+  /** Its query string ("?tab=market&view=screener"): rail rows that open a desk view are matched on it. */
+  search?: string;
   /** Rendered as an overlay drawer (narrow screens). */
   drawer: boolean;
   isAdmin: boolean;
@@ -162,16 +164,16 @@ export function Rail({ mode, view, drawer, isAdmin, onGo, onNewQuestion, onToggl
 
       <nav aria-label="Tools and workspace" className="flex flex-col" style={{ gap: 2 }}>
         <div className="cp-eyebrow" style={{ padding: "0 10px 8px" }}>Tools</div>
-        <NavRows items={toolsNav(mode)} view={view} onGo={onGo} />
+        <NavRows items={toolsNav(mode)} view={view} search={search} onGo={onGo} />
         <div style={{ height: 14 }} />
         <div className="cp-eyebrow" style={{ padding: "0 10px 8px" }}>Workspace</div>
-        <NavRows items={workspaceNav(mode)} view={view} onGo={onGo} />
+        <NavRows items={workspaceNav(mode)} view={view} search={search} onGo={onGo} />
       </nav>
 
       {isAdmin && (
         <nav aria-label="Internal" data-testid="rail-internal" className="flex flex-col" style={{ gap: 2 }}>
           <div className="cp-eyebrow" style={{ padding: "0 10px 8px" }}>Internal</div>
-          <NavRows items={INTERNAL_NAV} view={view} onGo={onGo} quiet />
+          <NavRows items={INTERNAL_NAV} view={view} search={search} onGo={onGo} quiet />
         </nav>
       )}
 

@@ -28,9 +28,26 @@ def test_ms1_current():
         ("current", "current", True, False, ())
 
 
-def test_ms2_not_integrated_stays_current():
+def test_ms2_not_integrated_cannot_serve_runs_shadow():
+    """SH-2 (truedata_live_dq_TESTCASES.md): TrueData cannot serve until integrated; it may run beside our feeds."""
     r = mds.resolve(cfg("truedata", licence=True), READY, integrated=False)
-    assert r.effective == "current" and r.our_feeds_on and "TRUEDATA_NOT_INTEGRATED" in r.reasons
+    assert (r.effective, r.serve_from, r.our_feeds_on, r.truedata_feeds_on) == ("shadow", "current", True, True)
+    assert r.reasons == ("TRUEDATA_NOT_INTEGRATED",)
+
+
+def test_sh1_shadow_does_not_need_the_integrated_gate():
+    r = mds.resolve(cfg("shadow"), READY, integrated=False)
+    assert (r.effective, r.our_feeds_on, r.truedata_feeds_on, r.reasons) == ("shadow", True, True, ())
+
+
+def test_sh3_shadow_without_credentials_stays_current():
+    r = mds.resolve(cfg("shadow"), {}, integrated=False)
+    assert r.effective == "current" and r.reasons == ("TRUEDATA_NOT_CONFIGURED",) and not mds.truedata_is_on(r)
+
+
+def test_sh4_force_current_wins_over_shadow():
+    r = mds.resolve(cfg("shadow"), {**READY, "MARKET_DATA_SOURCE_FORCE_CURRENT": "1"}, integrated=False)
+    assert r.effective == "current" and r.reasons[0] == "FORCED_CURRENT_BY_ENV"
 
 
 def test_ms3_no_credentials_stays_current():
@@ -91,12 +108,16 @@ def test_ms10_only_replaced_feeds_follow_the_switch():
     assert "bhavcopy" not in mds.REPLACED_FEEDS and "fno_bhavcopy" not in mds.REPLACED_FEEDS
 
 
-def test_ms11_committed_file_is_current():
+def test_ms11_committed_file_cannot_let_truedata_serve():
+    """The committed switch is `current` or `shadow` (owner, 30 Oct 2026: shadow on staging, PR #416), never `truedata`
+    while TrueData is not integrated and the licence flag is false. Without credentials every server resolves to
+    `current`, and our feeds stay on whichever of the two the file says."""
     data = json.loads(mds.CONFIG_PATH.read_text())
-    assert data["source"] == "current" and data["truedata_licence_confirmed"] is False
+    assert data["source"] in ("current", "shadow") and data["truedata_licence_confirmed"] is False
     assert mds.TRUEDATA_INTEGRATED is False
     r = mds.resolve(env={})
-    assert r.effective == "current" and r.our_feeds_on and r.reasons == ()
+    assert r.effective == "current" and r.our_feeds_on
+    assert r.reasons == (() if data["source"] == "current" else ("TRUEDATA_NOT_CONFIGURED",))
 
 
 # ── Wiring ────────────────────────────────────────────────────────────────────────────────────

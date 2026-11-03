@@ -239,9 +239,12 @@ def test_a_bad_strategy_is_refused_with_its_code_and_nothing_is_stored(api, swor
 GOOD = [
     ("long future", dict(family="long_future", legs=[future("buy", 1215)])),
     ("long put", dict(family="long_put", direction="bearish", stop_underlying=1250.0, target_underlying=1150.0, legs=[put("buy", 1200, 25)])),
-    ("bull put spread", dict(family="bull_put_spread", legs=[put("sell", 1200, 25), put("buy", 1150, 10)])),
+    # The two credit structures carry a net credit of at least 1/3 of their 50-point width after the estimate's costs:
+    # from universal-risk-v2 (owner decision 2026-10-28) that, not min_reward_risk, is their reward check, and it is a
+    # policy constant the loose profile does not relax (tests/test_risk_credit_rule.py).
+    ("bull put spread", dict(family="bull_put_spread", legs=[put("sell", 1200, 32), put("buy", 1150, 10)])),
     ("iron condor", dict(family="iron_condor", direction="neutral", stop_underlying=None, target_underlying=None,
-                         legs=[put("buy", 1100, 5), put("sell", 1150, 12), call("sell", 1300, 14), call("buy", 1350, 6)])),
+                         legs=[put("buy", 1100, 5), put("sell", 1150, 16), call("sell", 1300, 18), call("buy", 1350, 6)])),
     ("covered long future hedged by a call", dict(family="hedged_future", legs=[future("sell", 1215), call("buy", 1300, 20)],
                                                    direction="bearish", stop_underlying=1250.0, target_underlying=1150.0)),
 ]

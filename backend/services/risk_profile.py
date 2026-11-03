@@ -138,7 +138,10 @@ DEFINITIONS: Dict[str, Dict[str, str]] = {
     "min_reward_risk": {
         "label": "Minimum reward:risk",
         "basis": "(gain at the target - estimated costs) / (loss at the stop + estimated costs); options: maximum "
-                 "gain at expiry over maximum loss, both after costs; unbounded gain passes",
+                 "gain at expiry over maximum loss, both after costs; unbounded gain passes. Not applied to a "
+                 "defined-risk credit structure (bull put / bear call spread, iron condor, a collar opened for a "
+                 "credit): its net credit after costs must instead be at least 1/3 of its strike width "
+                 "(credit_too_small; services/risk_gate/service.py, universal-risk-v2)",
         "reset": "none: judged per entry",
         "breach": "BLOCKED (reward_risk_too_low); an entry with no target where one is needed is BLOCKED "
                   "(target_required)"},

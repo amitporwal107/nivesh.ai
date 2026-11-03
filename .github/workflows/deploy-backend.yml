@@ -1,22 +1,34 @@
-name: Deploy backend → nivesh-app-vm [prod]
+name: Deploy backend → CloudPe prod VM [prod]
 
 # Triggers on pushes to main when backend code changes.
-# Passes --backend-only so the frontend image is NOT rebuilt.
-on:
+# Passes --backend-only so the frontend images are NOT rebuilt.
+#
+# Production runs on the CloudPe prod VM, together with the NIDP stack (see
+# deploy/cloudpe-prod/README.md). The whole deploy is one on-VM command,
+# deploy/cloudpe-prod/ci-deploy.sh, which syncs the checkout to origin/main, builds,
+# restarts, health-checks through the host nginx on loopback, reinstalls the
+# cron jobs and clears the performance caches. It refuses any branch but main.
+"on":
   push:
     branches: [main]
     paths:
       - 'backend/**'
       - '!backend/nidp/**'
+      # copilot_agent lives under backend/nidp/ but EXECUTES in the Nivesh app
+      # backend (imported by routes/chat.py), not the NIDP stack — so its
+      # changes must redeploy the app. Re-include it after the nidp
+      # exclusion (last matching pattern wins).
+      - 'backend/nidp/services/copilot_agent/**'
       - 'deploy/nivesh-app/Dockerfile.backend.prod'
-      - 'deploy/nivesh-app/docker-compose.prod.yml'
+      - 'deploy/nivesh-staging/app-frontend-nginx.conf'
+      - 'deploy/cloudpe-prod/app/**'
+      - 'deploy/cloudpe-prod/edge/**'
+      - 'deploy/cloudpe-prod/lib.sh'
+      - 'deploy/cloudpe-prod/deploy-app.sh'
+      - 'deploy/cloudpe-prod/ci-deploy.sh'
 
   workflow_dispatch:
     inputs:
-      branch:
-        description: 'Branch to deploy (default: main)'
-        type: string
-        default: main
       run_migrations:
         description: 'Run DB migrations after redeploy'
         type: boolean
@@ -32,86 +44,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Resolve branch
-        id: config
-        run: |
-          BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-
-      - name: SSH → redeploy backend [prod]
+      # Secrets (prod; the staging workflows use the STAGING_* ones):
+      #   PROD_VM_HOST   IP of the CloudPe prod VM
+      #   PROD_SSH_USER  CI user on the VM (sudo limited to ci-deploy.sh)
+      #   PROD_SSH_KEY   that user's Ed25519 private key
+      - name: SSH → deploy backend [prod]
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:            ${{ secrets.NIVESH_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          host:            ${{ secrets.PROD_VM_HOST }}
+          username:        ${{ secrets.PROD_SSH_USER }}
+          key:             ${{ secrets.PROD_SSH_KEY }}
           port:            22
           timeout:         10m
-          command_timeout: 20m
+          command_timeout: 30m
           script: |
             set -euo pipefail
             echo "=== PROD backend deploy ==="
-            echo "    Branch : ${{ steps.config.outputs.branch }}"
             echo "    Commit : ${{ github.sha }}"
-
-            BRANCH="${{ steps.config.outputs.branch }}"
-
-            # Refresh the deploy script from the repo BEFORE running it. redeploy.sh
-            # re-syncs itself into /opt/nivesh/deploy on every run; older copies did
-            # an in-place `cp` over the file bash was still executing, shifting the
-            # running shell's read offset and killing the deploy with
-            # "line N: ...: command not found" (status 127). Pull + atomically
-            # install the latest script first, so the version we execute is already
-            # current and never rewrites itself underfoot.
-            sudo git config --global --add safe.directory /opt/nivesh/repo 2>/dev/null || true
-            sudo git -C /opt/nivesh/repo fetch --quiet origin "$BRANCH"
-            sudo git -C /opt/nivesh/repo reset --hard "origin/$BRANCH"
-            sudo install -m 755 /opt/nivesh/repo/deploy/nivesh-app/redeploy.sh \
-              /opt/nivesh/deploy/redeploy.sh
-
-            sudo BRANCH="$BRANCH" \
-              bash /opt/nivesh/deploy/redeploy.sh --backend-only
-
-            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then
-              echo "=== Running DB migrations ==="
-              sudo docker compose \
-                -f /opt/nivesh/deploy/docker-compose.prod.yml \
-                --env-file /opt/nivesh/.env.prod \
-                --profile migrate \
-                run --rm migrate
-            fi
-
-      - name: Install cache-clear cron [prod]
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:            ${{ secrets.NIVESH_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
-          port:            22
-          timeout:         1m
-          command_timeout: 1m
-          script: |
-            sudo install -m 644 /opt/nivesh/repo/deploy/nivesh-app/cache-clear.cron \
-              /etc/cron.d/nivesh-cache-clear
-
-      - name: Health check [prod]
-        run: |
-          sleep 15
-          HTTP=$(curl -sf -o /dev/null -w "%{http_code}" \
-            --max-time 10 https://niveshcopilot.com/api/health \
-            2>/dev/null || echo "000")
-          echo "Health check → HTTP $HTTP"
-          [[ "$HTTP" == "200" ]] || echo "::warning::Health check returned $HTTP"
-
-      - name: Clear performance caches [prod]
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:            ${{ secrets.NIVESH_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
-          port:            22
-          timeout:         2m
-          command_timeout: 3m
-          script: |
-            echo "=== Clearing performance caches ==="
-            sudo /usr/bin/docker exec nivesh-backend python -m scripts.clear_performance_caches
-            echo "=== Cache clear done ==="
+            MIGRATE=""
+            if [[ "${{ github.event.inputs.run_migrations }}" == "true" ]]; then MIGRATE="--migrate"; fi
+            # The health check runs on the VM, through the host nginx on loopback:
+            # Cloudflare returns 403 to Actions runners, so a check from here could never pass.
+            sudo /usr/bin/bash /opt/nivesh/repo/deploy/cloudpe-prod/ci-deploy.sh \
+              app main --backend-only $MIGRATE

@@ -233,20 +233,13 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(page.getByTestId("desk-top10-stock-TATASTEEL").getByTestId("desk-top10-stock-strategy")).toContainText("Price has not closed above the 160.00 trigger yet.");
   });
 
-  test("F-3 Strategy › opens the plan in the Strategy Builder with its inputs and the strategy that fits", async ({ page }) => {
+  test("F-3 the Strategy chip went with Strategy Lab (owner, 29 Oct); Chart › opens Chart Analysis on the stock", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
-    // The Strategy Builder takes ?cand= once and then drops it from the URL ("used once", StrategyBuilder.tsx), so the
-    // URL the click produced is recorded as it lands instead of read after the builder has run.
-    const urls: string[] = [];
-    page.on("framenavigated", (f) => { if (f === page.mainFrame()) urls.push(f.url()); });
-    await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-plan").click();
-    await expect(page.getByTestId("desk-panel-strategy")).toBeVisible(SLOW);
-    const landed = [page.url(), ...urls].find((u) => new URL(u).searchParams.get("cand")) ?? page.url();
-    const p = new URL(landed).searchParams;
-    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["trade", "lab", "ICICIBANK", "stock", "1"]); // Strategy Lab (was view=new; before that more/strategy)
-    expect([p.get("cand"), p.get("src_kind"), p.get("src_date"), p.get("direction")]).toEqual(["options:bull_call_spread", "ideas", "2026-10-19", "bullish"]);
+    await expect(page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-plan")).toHaveCount(0);
+    await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-chart").click();
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sub"), params(page).get("sym")]).toEqual(["trade", "chart", "live", "ICICIBANK"]);
   });
 
   test("F-4 Option chain › only on F&O stocks, and it opens that stock's chain in the lab", async ({ page }) => {
@@ -572,7 +565,7 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
     await expect(page.getByTestId("desk-lab-focus-missing")).toContainText("LB1 is not on the current Top 10", SLOW);
   });
 
-  test("F-14 a candidate card opens its futures OI build-up and the Strategy Builder", async ({ page }) => {
+  test("F-14 a candidate card opens its futures OI build-up and Chart Analysis", async ({ page }) => {
     await desk(page);
     await page.goto(`${DESK}?tab=fno&lab=candidates`);
     await page.getByTestId("desk-cand-buildup-LB1").click(SLOW);
@@ -580,7 +573,7 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
     await expect(page.getByTestId("desk-fno-view-buildup")).toHaveAttribute("aria-selected", "true");
     await page.getByTestId("desk-fno-view-candidates").click();
     await page.getByTestId("desk-cand-strategy-open-LB1").click();
-    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["trade", "lab", "LB1", "lab"]); // Strategy Lab (was view=new; before that more/strategy)
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sub"), params(page).get("sym")]).toEqual(["trade", "chart", "live", "LB1"]); // Strategy Lab removed (owner, 29 Oct)
     expect(params(page).get("lab")).toBeNull();                       // a tab change drops the lab's own params
   });
 });

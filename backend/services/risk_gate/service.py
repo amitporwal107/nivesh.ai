@@ -35,7 +35,13 @@ CHECKS (CHECK_ORDER; each recorded as pass / fail / skipped with a detail). A bl
                     per_trade_risk_pct of equity: REDUCE to the largest valid quantity / lot count, or BLOCK when the
                     smallest valid one exceeds the budget (min_qty_exceeds_budget). An add (journal fill) must stay
                     within the original plan's reserved budget (add_exceeds_original_budget)
-    reward_risk     (reward - costs) / (stop loss + costs) >= min_reward_risk
+    reward_risk     (reward - costs) / (stop loss + costs) >= min_reward_risk (reward_risk_too_low). EXCEPT a defined-risk
+                    credit structure (estimate.credit_terms: no futures, payoff flat beyond the outer strikes, the
+                    options open for a net credit; from universal-risk-v2, owner decision 2026-10-28): the 1.5 minimum
+                    does not apply; instead the net credit less the estimate's round-trip costs must be at least
+                    CREDIT_MIN_WIDTH_FRACTION (1/3) of the strike width (credit_too_small, value = credit after
+                    costs, limit = width / 3). Its maximum loss + costs must still fit the per-trade budget
+                    (per_trade_risk above). Every other trade keeps min_reward_risk.
     governor        shares: risk_governor.evaluate on the server-resolved intent and the shared book, with the
                     profile's limits (stop distance, already held, positions, position size, net exposure, sector,
                     liquidity, VIX, regime, drawdown halt); halt / reject / defer -> block, reduce -> reduce
@@ -87,7 +93,18 @@ from . import gate, inputs, policy, reference
 
 logger = logging.getLogger(__name__)
 
-POLICY_VERSION = "universal-risk-v1"
+POLICY_VERSION = "universal-risk-v2"
+#: The policies decide() can apply. Every decision records the one it was made under, and replay.py replays it under
+#: that one, so a decision made before a rule changed still replays to itself.
+#:   universal-risk-v1  min_reward_risk for every entry
+#:   universal-risk-v2  defined-risk credit structures: the credit rule replaces min_reward_risk (owner, 2026-10-28)
+POLICY_VERSIONS = ("universal-risk-v1", "universal-risk-v2")
+CREDIT_RULE_POLICIES = ("universal-risk-v2",)
+#: The credit rule: net credit after costs >= this fraction of the strike width. A policy constant, not a profile field.
+CREDIT_MIN_WIDTH_FRACTION = 1.0 / 3.0
+CREDIT_MIN_WIDTH_TEXT = "1/3"
+RULE_CREDIT = "credit_vs_width"
+RULE_REWARD_RISK = "min_reward_risk"
 SNAPSHOT_VERSION = "risk-service-snapshot-v1"
 SOURCE = "risk_service"
 PATHS = ("desk_paper_trade", "desk_paper_roll", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm")
@@ -280,8 +297,11 @@ def _structure_doc(req: EntryRequest, legs: List[Dict[str, Any]]) -> Dict[str, A
             "stop_underlying": req.stop_underlying, "cost_model": req.cost_model or desk.COST_MODEL}
 
 
-def decide(req: EntryRequest, snap: Dict[str, Any]) -> Dict[str, Any]:
-    """The checks in CHECK_ORDER on the request and its snapshot. No I/O. Returns the decision body (no ids)."""
+def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POLICY_VERSION) -> Dict[str, Any]:
+    """The checks in CHECK_ORDER on the request and its snapshot, under `policy_version` (one of POLICY_VERSIONS: the
+    current one, or a recorded decision's own for a replay). No I/O. Returns the decision body (no ids)."""
+    if policy_version not in POLICY_VERSIONS:
+        raise ValueError(f"unknown risk policy {policy_version!r}")
     run = _Run()
     profile = (snap.get("book") or {}).get("profile")
     limits = (profile or {}).get("limits") or {}
@@ -540,9 +560,29 @@ def decide(req: EntryRequest, snap: Dict[str, Any]) -> Dict[str, Any]:
             return cash_est(approved_qty) if approved_qty else None
         return struct_est(approved_lots) if (approved_lots or requested_lots is None) else estimate
 
-    # reward : risk after costs
-    if sizable and not run.blocked() and req.action == "open":
-        e1 = cur_est()
+    # reward : risk after costs; for a defined-risk credit structure (universal-risk-v2) the credit rule instead
+    credit = None
+    if sizable and not run.blocked() and req.action == "open" and not cash and policy_version in CREDIT_RULE_POLICIES:
+        credit = est.credit_terms(_scaled_legs(legs, approved_lots) if approved_lots else legs)
+    e1 = cur_est() if sizable and not run.blocked() and req.action == "open" else None
+    if credit is not None and e1:
+        # The same lots as the estimate (the approved size), and the estimate's own round-trip costs.
+        credit_after = float(credit["net_credit_rs"]) - float(e1["costs"])
+        width = float(credit["width_rs"])
+        need = width * CREDIT_MIN_WIDTH_FRACTION
+        budget.update(reward_risk_rule=RULE_CREDIT, reward_risk=None, min_reward_risk=None,
+                      credit_rs=credit["net_credit_rs"], credit_costs_rs=e1["costs"],
+                      credit_after_costs_rs=round(credit_after, 2), strike_width_rs=round(width, 2),
+                      min_credit_rs=round(need, 2), min_credit_fraction_of_width=CREDIT_MIN_WIDTH_TEXT)
+        if credit_after < need - 1e-9:
+            run.reason("reward_risk", "credit_too_small",
+                       f"Net credit after costs is Rs {credit_after:,.2f}; a credit structure needs at least "
+                       f"{CREDIT_MIN_WIDTH_TEXT} of its strike width (Rs {width:,.2f}), Rs {need:,.2f}.",
+                       value=round(credit_after, 2), limit=round(need, 2))
+        run.done("reward_risk", f"credit structure: net credit after costs Rs {credit_after:,.2f} against "
+                                f"{CREDIT_MIN_WIDTH_TEXT} of the width Rs {need:,.2f} (the reward:risk minimum does not "
+                                f"apply; {policy_version})")
+    elif sizable and not run.blocked() and req.action == "open":
         if cash and target and e1:
             reward = est.cash_reward(approved_qty, entry, target, model)
             rr = reward / e1["stop_based"] if e1["stop_based"] > 0 else None
@@ -554,7 +594,8 @@ def decide(req: EntryRequest, snap: Dict[str, Any]) -> Dict[str, Any]:
                 rr = float("inf")
         else:
             rr = None
-        budget.update(reward_risk=None if rr is None or rr == float("inf") else round(rr, 4),
+        budget.update(reward_risk_rule=RULE_REWARD_RISK,
+                      reward_risk=None if rr is None or rr == float("inf") else round(rr, 4),
                       min_reward_risk=limits["min_reward_risk"])
         if rr is None:
             run.reason("reward_risk", "reward_risk_unknown", "Reward against risk could not be worked out.")

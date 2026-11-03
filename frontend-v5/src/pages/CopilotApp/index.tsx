@@ -28,6 +28,7 @@ import { useThreadTurns } from "./lib/use-thread-turns";
 import { APP_BASE, MODE_HOME, threadIdOf, threadView, viewOf, viewPath, type Mode } from "./lib/views";
 import { ADMIN_SCREENS, SCREENS } from "./screens";
 import { TRADER_TOOL_TO_DESK } from "./screens/tradingdesk/desk-nav";
+import { DailyQuestionBar } from "./components/DailyQuestionBar";
 import { Composer, type ComposerHandle } from "./shell/Composer";
 import { ClientBar } from "./shell/ClientBar";
 import { Evidence } from "./shell/Evidence";
@@ -194,7 +195,7 @@ export default function CopilotAppPage() {
           <button type="button" aria-label="Close menu" data-testid="rail-scrim" onClick={() => setNavOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 29, border: 0, padding: 0, cursor: "default" }} />
         )}
         {(!compact || navOpen) && (
-          <Rail mode={mode} view={view} drawer={compact} isAdmin={isAdmin} onGo={go} onNewQuestion={newQuestion} onToggleMode={toggleMode} />
+          <Rail mode={mode} view={view} search={location.search} drawer={compact} isAdmin={isAdmin} onGo={go} onNewQuestion={newQuestion} onToggleMode={toggleMode} />
         )}
 
         <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0, position: "relative" }}>
@@ -256,6 +257,14 @@ export default function CopilotAppPage() {
                 </span>
                 <button type="button" data-testid="ask-failed-retry" onClick={() => { const q = engine.local?.question; engine.clearLocal(); if (q) ask(q); }} style={{ fontSize: 13, color: "var(--cp-ink)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>Retry ›</button>
                 <button type="button" onClick={engine.clearLocal} style={{ fontSize: 13, color: "var(--cp-ink-3)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>Dismiss</button>
+              </div>
+            </div>
+          )}
+          {/* The Daily Trader questions stay with a Trader's conversation: Home's entry panel is gone once a question is asked. */}
+          {mode === "trader" && !!threadId && !ownAskBox && (
+            <div style={{ padding: `0 ${padX}px` }}>
+              <div className="mx-auto" style={{ maxWidth: 880 }}>
+                <DailyQuestionBar onAsk={ask} busy={engine.busy} mobile={mobile} />
               </div>
             </div>
           )}

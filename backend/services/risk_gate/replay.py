@@ -1,7 +1,9 @@
 """Replay and lineage for a recorded risk decision (PRD P0.3, first part). Read only: nothing here writes.
 
 replay(row)          runs gate.decide() again on the snapshot stored with the decision, under the code and policy
-                     running now, and compares the outcome, the reason codes and the checks with what was recorded.
+                     running now (a universal risk service decision: service.decide() under the policy version the
+                     decision recorded, so a decision made before a rule changed replays under its own rules), and
+                     compares the outcome, the reason codes and the checks with what was recorded.
                      It also re-hashes the stored request and snapshot, so a row edited after the fact cannot report
                      a match. A row recorded before snapshots existed (or written by the older control stream) is
                      `replayable: false` with the reason, not an error.
@@ -146,9 +148,15 @@ def _replay_service(row: Dict[str, Any]) -> Dict[str, Any]:
     if row.get("snapshot_version") != service.SNAPSHOT_VERSION:
         return _not_replayable(row, f"The snapshot is version {row.get('snapshot_version')!r}; this code reads "
                                     f"{service.SNAPSHOT_VERSION}.")
+    # Under the policy it was decided by (service.POLICY_VERSIONS): a decision made before a rule changed (e.g. the
+    # universal-risk-v2 credit rule) replays under its own rules, so it still matches; the current policy is reported.
+    then = row.get("policy_version")
+    if then not in service.POLICY_VERSIONS:
+        return _not_replayable(row, f"The decision was made under policy {then!r}; this code replays "
+                                    f"{', '.join(service.POLICY_VERSIONS)}.")
     try:
         req = service.EntryRequest(**(snapshot.get("request") or {}))
-        body = service.decide(req, snapshot)
+        body = service.decide(req, snapshot, policy_version=then)
     except (TypeError, ValidationError):
         return _not_replayable(row, "The stored request no longer fits the service's request contract.")
     except Exception as e:  # noqa: BLE001 — a replay that cannot run is reported, never a 500
@@ -166,9 +174,7 @@ def _replay_service(row: Dict[str, Any]) -> Dict[str, Any]:
                      (outcome_then == body["outcome"], f"Outcome was {outcome_then}, replays as {body['outcome']}."),
                      (reasons_then == reasons_now, "The reason codes differ."),
                      (checks_then == checks_now, "The check results differ."),
-                     (qty_then == qty_now, "The approved size differs."),
-                     (row.get("policy_version") == service.POLICY_VERSION,
-                      f"The policy was {row.get('policy_version')}, it is {service.POLICY_VERSION} now.")):
+                     (qty_then == qty_now, "The approved size differs.")):
         if not ok:
             differences.append(text)
     return {"decision_id": row.get("_id"), "replayable": True, "match": not differences,
@@ -176,8 +182,8 @@ def _replay_service(row: Dict[str, Any]) -> Dict[str, Any]:
             "reasons_now": reasons_now, "checks_then": checks_then, "checks_now": checks_now,
             "approved_then": qty_then, "approved_now": qty_now, "inputs_hash_match": inputs_ok,
             "snapshot_hash_match": snapshot_ok, "policy_version_then": row.get("policy_version"),
-            "policy_version_now": service.POLICY_VERSION, "snapshot_version": row.get("snapshot_version"),
-            "differences": differences,
+            "policy_version_now": service.POLICY_VERSION, "replayed_under_policy": then,
+            "snapshot_version": row.get("snapshot_version"), "differences": differences,
             "replayed_on": "the request and every server-resolved input as stored (the book, the last close, the "
                            "sector, the market state, the exchange reference); the bars themselves are not stored",
             "replay_version": REPLAY_VERSION, "writes": "none"}

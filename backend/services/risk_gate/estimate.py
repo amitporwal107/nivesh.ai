@@ -30,6 +30,10 @@ SIZING (services/risk_gate/service.py)
     the same lot count) whose `total` stays within a budget, found exactly by bisection on the pricing function. When
     the smallest valid quantity already exceeds the budget the entry is refused, never rounded up.
 
+CREDIT STRUCTURES (credit_terms): whether a structure is a defined-risk credit structure, its net credit and its
+strike width, for the credit rule of the reward_risk check (service.py, universal-risk-v2). The rule itself reads the
+round-trip costs from the risk estimate above, so the credit after costs and the risk use the same costs.
+
 GAP_STRESS_PCT is a named research constant, NOT calibrated: 1% of the stop price, about one typical overnight gap of
 a large-cap NSE share; event days and small caps gap more. Changing it is a policy change: bump ESTIMATE_VERSION.
 """
@@ -197,6 +201,49 @@ def structure_reward(raw_legs: List[Dict[str, Any]], *, direction: Optional[str]
     best = max(points, key=lambda s: _payoff(legs, s))
     gain = _payoff(legs, best)
     return _r(gain - _costs(legs, best, model, floor_short_at_entry=False)), "maximum gain at expiry"
+
+
+def credit_terms(raw_legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The terms of a DEFINED-RISK CREDIT STRUCTURE, or None when the legs are not one (owner decision 2026-10-28; the
+    rule itself is in service.py, policy universal-risk-v2). Decided from the legs and the payoff, never a template name:
+
+      1. no futures leg (a futures leg is not defined risk under the desk rule);
+      2. at least one option leg, every option leg one expiry;
+      3. the payoff at expiry is FLAT beyond the outermost strikes on both sides: slope 0 as the underlying rises without
+         limit (cash, futures and calls) and as it falls to 0 (cash and futures less puts). The loss is then bounded by
+         long options, not by a share price of zero: a covered call (loss runs to zero) and a long call or protective
+         put (open upside) are not credit structures;
+      4. the option legs open for a NET CREDIT: premium of the sold options x quantity - premium of the bought ones > 0.
+
+    Bull put and bear call spreads, iron condors (and other flat-winged credit structures) and a collar whose options
+    open for a credit qualify; debit spreads, long options, a collar opened for a debit and a covered call do not.
+
+    width_rs is the maximum loss at expiry BEFORE the premiums (the payoff with every option premium set to 0): the
+    strike difference x lots x lot size for a vertical spread; the wider wing for an iron condor (only one wing can be in
+    the money at expiry); for a collar, the fall from the share price to the put strike x shares."""
+    legs, failures = gate.clean_legs(raw_legs)
+    if failures or not legs:
+        return None
+    options = [leg for leg in legs if leg["kind"] == "option"]
+    if not options or any(leg["kind"] == "future" for leg in legs):
+        return None
+    if len({leg["expiry"] for leg in options}) > 1:
+        return None
+    up = sum(leg["sign"] * leg["qty"] for leg in legs if leg["kind"] == "cash" or leg["option_type"] == "call")
+    down = (sum(leg["sign"] * leg["qty"] for leg in legs if leg["kind"] == "cash")
+            - sum(leg["sign"] * leg["qty"] for leg in options if leg["option_type"] == "put"))
+    if up != 0 or down != 0:
+        return None
+    net_credit = sum(-leg["sign"] * leg["qty"] * leg["entry_price"] for leg in options)
+    if net_credit <= 0:
+        return None
+    unpriced = [{**leg, "entry_price": 0.0} if leg["kind"] == "option" else leg for leg in legs]
+    points = [0.0] + sorted({leg["strike"] for leg in options})
+    width = max(0.0, -min(_payoff(unpriced, s) for s in points))
+    max_loss = max(0.0, -min(_payoff(legs, s) for s in points))
+    return {"net_credit_rs": _r(net_credit), "width_rs": _r(width), "max_loss_at_expiry_rs": _r(max_loss),
+            "basis": "options net credit (sold premium - bought premium, x quantity); width = the maximum loss at "
+                     "expiry before the premiums"}
 
 
 def common_lots(raw_legs: List[Dict[str, Any]]) -> Optional[int]:

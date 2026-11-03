@@ -413,7 +413,7 @@ def test_a1_every_refusal_is_recorded_with_its_code_path_and_correlation_id(capi
     assert (row["action"], row["outcome"], row["path"], row["correlation_id"]) == (
         "desk_paper_trade", "blocked", "desk_paper_trade", "corr-a1")
     assert code in [x["code"] for x in row["reasons"]] and row["symbol"] == symbol
-    assert row["policy_version"] == "universal-risk-v1"
+    assert row["policy_version"] == "universal-risk-v2"
     if row.get("source") != "risk_service":                          # the desk's own refusals carry the HTTP status
         assert row["detail"]["http_status"] == status
 

@@ -552,7 +552,7 @@ def test_a_cleared_paper_intent_opens_exactly_one_trade_at_the_governors_quantit
         (APPROVED, 200.0, 180.0, 240.0)
     assert trade["source"] == {"kind": "ai_trader", "bucket": None, "signal_date": AS_OF}
     assert (trade["strategy_version"], trade["signal_at"], trade["status"]) == ("mockversion000001", AS_OF, "open")
-    assert trade["rules_version"] == desk.RULES_VERSION and "risk decision reduce (universal-risk-v1)" in trade["rationale"]
+    assert trade["rules_version"] == desk.RULES_VERSION and "risk decision reduce (universal-risk-v2)" in trade["rationale"]
     assert ticket["text"] and execution.SELF_PLACE_LINE in ticket["text"]
 
 

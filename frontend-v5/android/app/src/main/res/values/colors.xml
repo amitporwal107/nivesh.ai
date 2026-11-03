@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nivesh V5 dark palette, from the Android design system (docs/Android design system files.zip,
+     xml/values-night/colors.xml). It lives in values/ on purpose: the web app inside the WebView is
+     dark by default and switches theme in-app, not with the system, so the native frame (status bar,
+     navigation bar, splash) stays dark in both system modes. -->
+<resources>
+    <color name="nv_bg_0">#06080F</color>
+    <color name="nv_bg_1">#0A0E1A</color>
+    <color name="nv_bg_2">#10162A</color>
+    <color name="nv_ink">#F5F7FF</color>
+    <color name="nv_ink_2">#BCC4DC</color>
+    <color name="nv_mint">#6AF0A8</color>
+    <color name="nv_mint_2">#36C57E</color>
+    <color name="nv_on_primary">#06120B</color>
+</resources>

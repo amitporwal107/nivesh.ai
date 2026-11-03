@@ -54,6 +54,9 @@ def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
         if isinstance(cond, dict) and "$ne" in cond:
             if any(v == cond["$ne"] for v in found):
                 return False
+        elif isinstance(cond, dict) and "$nin" in cond:
+            if any(v in cond["$nin"] for v in found):
+                return False
         elif isinstance(cond, dict) and "$exists" in cond:
             if bool(found) != cond["$exists"]:
                 return False
@@ -138,7 +141,10 @@ class FakeCollection:
             after = copy.deepcopy(d)
             after.update(copy.deepcopy(update.get("$set", {})))
             for field, value in update.get("$push", {}).items():
-                after.setdefault(field, []).append(copy.deepcopy(value))
+                if isinstance(value, dict) and "$each" in value:
+                    after.setdefault(field, []).extend(copy.deepcopy(value["$each"]))
+                else:
+                    after.setdefault(field, []).append(copy.deepcopy(value))
             for field, cond in update.get("$pull", {}).items():
                 after[field] = [item for item in after.get(field, []) if not _matches(item, cond)]
             self._check_unique(after, skip=d)
@@ -813,3 +819,176 @@ def test_a_symbol_look_up_that_raises_is_the_master_not_answering(api, world, mo
     monkeypatch.setattr(route.daas_client, "search_symbols", broken)
     assert _add(api, wid, "FIXALPHX").status_code == 503
     assert _symbols(api, wid) == []
+
+
+# ── W2 (2026-11-01): add many stocks at once, and no list writes while an advisor views a client ─────────────────
+# docs/plans_20261031/SCREENER_WATCHLIST_PLAN.md slice W2. MOCK — not real data: every symbol below is made up.
+BULK = "symbols/bulk"
+
+
+def _bulk(api: TestClient, list_id: str, symbols: List[str], who: Dict[str, str] = A):
+    return api.post(f"{URL}/{list_id}/{BULK}", json={"symbols": symbols}, headers=who)
+
+
+def _many(world, n: int, prefix: str = "BLK") -> List[str]:
+    """n made-up stocks, all known to the instrument list."""
+    names = [f"{prefix}{i:03d}" for i in range(n)]
+    for name in names:
+        world.master[name] = f"{name} Limited"
+    return names
+
+
+def test_bulk_adds_a_hundred_in_one_write_and_a_repeat_adds_none(api, world, monkeypatch):
+    wid = _make(api, "Screen")["watchlist_id"]
+    names = _many(world, 100)
+    writes: List[Dict[str, Any]] = []
+    real = world.db.user_watchlists.update_one
+
+    async def counting(query, update, upsert=False):
+        writes.append(update)
+        return await real(query, update, upsert)
+
+    monkeypatch.setattr(world.db.user_watchlists, "update_one", counting)
+    r = _bulk(api, wid, names)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [a["symbol"] for a in body["added"]] == names                  # input order kept
+    assert body["already"] == [] and body["refused"] == []
+    assert body["watchlist"]["symbol_count"] == 100
+    assert len(writes) == 1 and "$each" in writes[0]["$push"]["symbols"]   # ONE guarded write, not 100
+    assert body["added"][0] == {"symbol": "BLK000", "company_name": "BLK000 Limited"}
+    # The same call again changes nothing.
+    again = _bulk(api, wid, names).json()
+    assert again["added"] == [] and again["already"] == names and again["refused"] == []
+    assert _symbols(api, wid) == names
+
+
+def test_bulk_refuses_what_does_not_fit_by_name_and_never_exceeds_the_limit(api, world):
+    wid = _make(api, "Full")["watchlist_id"]
+    names = _many(world, 101)
+    # 101 in one request is over the request's own cap
+    assert _bulk(api, wid, names).status_code == 422
+    # 99 first, then two more: one fits, one is refused as list_full
+    assert len(_bulk(api, wid, names[:99]).json()["added"]) == 99
+    body = _bulk(api, wid, names[99:101]).json()
+    assert [a["symbol"] for a in body["added"]] == ["BLK099"]
+    assert body["refused"] == [{"symbol": "BLK100", "code": "list_full", "detail": "A list holds up to 100 stocks."}]
+    assert body["watchlist"]["symbol_count"] == 100
+    assert len(_symbols(api, wid)) == 100
+    # a full list takes none, and says list_full for each
+    full = _bulk(api, wid, ["FIXALPHA"]).json()
+    assert full["added"] == [] and [r["code"] for r in full["refused"]] == ["list_full"]
+
+
+def test_bulk_sorts_the_request_into_added_already_and_refused(api, world):
+    wid = _make(api, "Mix")["watchlist_id"]
+    assert _add(api, wid, "FIXALPHA").json()["added"] is True
+    body = _bulk(api, wid, ["fixalpha", " FIXBRAVO ", "FIXBRAVO", "NOSUCH", "bad symbol!", "FIX&CO", "FIXNONAME"]).json()
+    assert [a["symbol"] for a in body["added"]] == ["FIXBRAVO", "FIX&CO", "FIXNONAME"]     # trimmed, upper-cased, de-duplicated
+    assert body["added"][2]["company_name"] is None                                      # a master row with no name is still a stock
+    assert body["already"] == ["FIXALPHA"]
+    assert {(r["symbol"], r["code"]) for r in body["refused"]} == {("bad symbol!", "invalid_symbol"), ("NOSUCH", "not_in_instrument_list")}
+    assert _symbols(api, wid) == ["FIXALPHA", "FIXBRAVO", "FIX&CO", "FIXNONAME"]
+
+
+def test_bulk_is_bounded_and_needs_something_to_add(api, world):
+    wid = _make(api, "Edge")["watchlist_id"]
+    assert _bulk(api, wid, []).status_code == 422
+    assert api.post(f"{URL}/{wid}/{BULK}", json={}, headers=A).status_code == 422
+    nothing = _bulk(api, wid, ["???"]).json()
+    assert nothing["added"] == [] and nothing["refused"][0]["code"] == "invalid_symbol"
+    assert world.master_calls == []                                                      # a malformed symbol is never looked up
+
+
+def test_bulk_into_a_list_that_is_not_yours_is_a_404_and_writes_nothing(api, world):
+    theirs = _make(api, "Theirs", B)["watchlist_id"]
+    r = _bulk(api, theirs, ["FIXALPHA"])                                                 # A writes into B's list
+    assert r.status_code == 404
+    assert _symbols(api, theirs, B) == []
+    assert _bulk(api, "wl_missing", ["FIXALPHA"]).status_code == 404
+
+
+def test_bulk_when_the_instrument_list_cannot_be_checked_adds_nothing(api, world):
+    wid = _make(api, "Down")["watchlist_id"]
+    world.master = None                                                                  # the master does not answer
+    world.research = {}                                                                  # and no research list vouches for a symbol
+    r = _bulk(api, wid, ["FIXALPHA", "FIXBRAVO"])
+    assert r.status_code == 503 and "nothing was added" in r.json()["detail"]
+    assert _symbols(api, wid) == []
+
+
+def test_bulk_looks_symbols_up_a_few_at_a_time(api, world, monkeypatch):
+    import asyncio
+    wid = _make(api, "Gate")["watchlist_id"]
+    names = _many(world, 40)
+    running = {"now": 0, "peak": 0}
+
+    async def slow_master(q: str, limit: int = 8):
+        running["now"] += 1
+        running["peak"] = max(running["peak"], running["now"])
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        running["now"] -= 1
+        return {"data": [{"symbol": q.upper(), "company_name": f"{q.upper()} Limited", "sector": None}]}
+
+    monkeypatch.setattr(route.daas_client, "search_symbols", slow_master)
+    assert len(_bulk(api, wid, names).json()["added"]) == 40
+    assert 1 < running["peak"] <= route._STORED_CONCURRENCY                              # concurrent, but never above the module's limit
+
+
+def test_bulk_only_looks_up_stocks_that_are_not_already_there(api, world):
+    wid = _make(api, "Skip")["watchlist_id"]
+    _add(api, wid, "FIXALPHA")
+    world.master_calls.clear()
+    _bulk(api, wid, ["FIXALPHA", "FIXBRAVO"])
+    assert world.master_calls == ["FIXBRAVO"]
+
+
+def test_bulk_that_loses_a_race_reads_again_and_still_respects_the_rules(api, world, monkeypatch):
+    wid = _make(api, "Race")["watchlist_id"]
+    real = world.db.user_watchlists.update_one
+    state = {"raced": False}
+
+    async def racing(query, update, upsert=False):
+        if not state["raced"] and "$push" in update and "$each" in update["$push"]["symbols"]:
+            state["raced"] = True
+            # another request adds FIXBRAVO between our read and our write
+            await real({"watchlist_id": wid}, {"$push": {"symbols": {"symbol": "FIXBRAVO", "company_name": "x", "added_at": "t"}}})
+        return await real(query, update, upsert)
+
+    monkeypatch.setattr(world.db.user_watchlists, "update_one", racing)
+    body = _bulk(api, wid, ["FIXALPHA", "FIXBRAVO", "FIXCHARLIE"]).json()
+    assert state["raced"] is True
+    assert [a["symbol"] for a in body["added"]] == ["FIXALPHA", "FIXCHARLIE"]
+    assert body["already"] == ["FIXBRAVO"]
+    assert sorted(_symbols(api, wid)) == ["FIXALPHA", "FIXBRAVO", "FIXCHARLIE"]          # no symbol twice
+
+
+def test_bulk_needs_a_signed_in_user(api):
+    assert api.post(f"{URL}/wl_x/{BULK}", json={"symbols": ["FIXALPHA"]}).status_code == 401
+
+
+# ── an advisor looking at a client cannot change that client's lists ──
+CLIENT = {"X-Test-User": "client_c", "X-Test-Client": "profile_9"}
+
+
+def test_every_list_write_is_refused_while_an_advisor_views_a_client(api, world):
+    own = _make(api, "Client list", {"X-Test-User": "client_c"})["watchlist_id"]       # the client's own list, made by the client
+    _add(api, own, "FIXALPHA", {"X-Test-User": "client_c"})
+    before = copy.deepcopy(world.db.user_watchlists.docs)
+    writes = [
+        ("post", URL, {"name": "Advisor's idea"}),
+        ("patch", f"{URL}/{own}", {"name": "Renamed"}),
+        ("delete", f"{URL}/{own}", None),
+        ("post", f"{URL}/{own}/symbols", {"symbol": "FIXBRAVO"}),
+        ("post", f"{URL}/{own}/{BULK}", {"symbols": ["FIXBRAVO"]}),
+        ("delete", f"{URL}/{own}/symbols/FIXALPHA", None),
+    ]
+    for method, url, body in writes:
+        r = api.request(method, url, json=body, headers=CLIENT) if body is not None else api.request(method, url, headers=CLIENT)
+        assert r.status_code == 403, f"{method} {url} → {r.status_code} {r.text}"
+        assert "viewing a client" in r.json()["detail"]
+    assert world.db.user_watchlists.docs == before                                       # nothing changed
+    # reading is still allowed
+    assert api.get(URL, headers=CLIENT).status_code == 200
+    assert api.get(f"{URL}/{own}", headers=CLIENT).status_code == 200

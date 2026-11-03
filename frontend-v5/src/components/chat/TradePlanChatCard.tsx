@@ -47,8 +47,9 @@ const VIEW: Record<string, string> = { bullish: "Long view", bearish: "Short vie
 const OTHER: Record<string, string> = { bullish: "bearish", bearish: "bullish", neutral: "bullish" };
 const SEGMENT: Record<string, string> = { cash: "shares", futures: "futures", options: "options", combination: "shares + options" };
 
-/** The desk's paper-trade ticket for one TradePlan (Strategy Lab › Build a trade, the risk-service ticket above the wizard). */
-export const labTicketPath = (planId: string) => viewPath(`trader/desk?tab=trade&view=lab&sub=build&tp=${encodeURIComponent(planId)}`);
+/** The desk's chart for one TradePlan (Trade Desk › Chart Analysis with the plan's levels and its paper basket; Strategy Lab was removed on 29 Oct). */
+export const labTicketPath = (planId: string, symbol?: string | null) =>
+  viewPath(`trader/desk?tab=trade&view=chart&sub=live${symbol ? `&sym=${encodeURIComponent(symbol.toUpperCase())}` : ""}&tp=${encodeURIComponent(planId)}`);
 
 const quiet = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" } as const;
 const link = { fontSize: 12.5, fontWeight: 600, color: "var(--mint)", textDecoration: "none" } as const;
@@ -93,7 +94,7 @@ export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onA
         <div data-testid="tpc-others" className="flex min-w-0 flex-wrap items-center" style={{ gap: "4px 12px", ...quiet }}>
           <span>Also fits:</span>
           {others.map((p) => (
-            <Link key={p.plan_id} data-testid="tpc-other" to={labTicketPath(p.plan_id)} style={{ ...link, fontWeight: 500 }}>
+            <Link key={p.plan_id} data-testid="tpc-other" to={labTicketPath(p.plan_id, data.symbol)} style={{ ...link, fontWeight: 500 }}>
               {p.label ?? p.family ?? p.plan_id}{p.segment ? ` (${SEGMENT[p.segment] ?? p.segment})` : ""} ›
             </Link>
           ))}
@@ -106,7 +107,7 @@ export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onA
             {full ? "Compact card" : "Full card ›"}
           </button>
         )}
-        {preferred && <Link data-testid="tpc-open-lab" to={labTicketPath(preferred)} className="cp-btn" data-variant="ghost" style={{ textDecoration: "none" }}>Paper trade ›</Link>}
+        {preferred && <Link data-testid="tpc-open-lab" to={labTicketPath(preferred, data.symbol)} className="cp-btn" data-variant="ghost" style={{ textDecoration: "none" }}>Paper trade ›</Link>}
         {other && onAction && (
           <button type="button" data-testid="tpc-flip" className="cp-btn" data-variant="ghost"
             onClick={() => onAction({ query: `Plan a ${other} trade for ${symbol} instead` })}>

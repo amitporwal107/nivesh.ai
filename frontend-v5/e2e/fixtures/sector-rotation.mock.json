@@ -1,0 +1,164 @@
+{
+ "about": "MOCK — not real data. The sector_rotation payload built by the real builder (services/copilot_visual/builders.sector_rotation) over the unit tests' invented inputs (tests/test_copilot_visual.py, SR-*). Cement's members are left out on purpose (a sector whose list could not be read).",
+ "payloads": {
+  "sector_rotation": {
+   "schema": "visual-answer-v1",
+   "intent": "sector_rotation",
+   "title": "Sector rotation",
+   "as_of": "2026-10-29",
+   "generated_at": "2026-10-31T11:59:14+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Pharma leads the week (+7.10%) and Cement lags (−1.80%).",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "Sector leaders and laggards",
+     "note": null,
+     "items": [
+      {
+       "label": "Leading",
+       "value": "Pharma",
+       "sub": "+7.10% over 1 week",
+       "tone": "up"
+      },
+      {
+       "label": "Lagging",
+       "value": "Cement",
+       "sub": "−1.80% over 1 week",
+       "tone": "down"
+      },
+      {
+       "label": "Sectors up today",
+       "value": "2 of 3",
+       "sub": "by the sector index's 1-day move"
+      }
+     ]
+    },
+    {
+     "type": "heatmap",
+     "id": "rotation",
+     "title": "Sector rotation · 1 week",
+     "note": "Sector index returns over 1 week, best first. Select a sector for its top 5 stocks by the day's move (with index weight): a rank of today's move, not a recommendation.",
+     "unit": "%",
+     "cells": [
+      {
+       "label": "Pharma",
+       "value": 7.1,
+       "group": null,
+       "sub": "1d +0.30% · 1m +0.70%",
+       "members": [
+        {
+         "label": "S0",
+         "value": 3.0,
+         "sub": "weight 10.00%",
+         "ask": "Trade plan for S0"
+        },
+        {
+         "label": "S1",
+         "value": 2.3,
+         "sub": "weight 9.00%",
+         "ask": "Trade plan for S1"
+        },
+        {
+         "label": "S2",
+         "value": 1.6,
+         "sub": "weight 8.00%",
+         "ask": "Trade plan for S2"
+        }
+       ]
+      },
+      {
+       "label": "IT",
+       "value": 2.5,
+       "group": null,
+       "sub": "1d +1.20% · 1m −1.00%",
+       "members": [
+        {
+         "label": "S0",
+         "value": 3.0,
+         "sub": "weight 10.00%",
+         "ask": "Trade plan for S0"
+        },
+        {
+         "label": "S1",
+         "value": 2.3,
+         "sub": "weight 9.00%",
+         "ask": "Trade plan for S1"
+        },
+        {
+         "label": "S2",
+         "value": 1.6,
+         "sub": "weight 8.00%",
+         "ask": "Trade plan for S2"
+        },
+        {
+         "label": "S3",
+         "value": 0.9,
+         "sub": "weight 7.00%",
+         "ask": "Trade plan for S3"
+        },
+        {
+         "label": "S4",
+         "value": 0.2,
+         "sub": "weight 6.00%",
+         "ask": "Trade plan for S4"
+        }
+       ]
+      },
+      {
+       "label": "Cement",
+       "value": -1.8,
+       "group": null,
+       "sub": "1d −1.30% · 1m −3.30%"
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "NSE sector indices (desk sector returns)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE index lists with bhavcopy closes (stocks of each sector index)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": [
+     "NSE index lists with bhavcopy closes (stocks of each sector index) (Nifty Cement): RuntimeError: MOCK constituents of Nifty Cement down"
+    ]
+   },
+   "follow_ups": [
+    {
+     "label": "Where is smart money moving?",
+     "query": "Where is smart money moving?"
+    },
+    {
+     "label": "Which stocks have unusual volume?",
+     "query": "Which stocks have unusual volume?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  }
+ }
+}

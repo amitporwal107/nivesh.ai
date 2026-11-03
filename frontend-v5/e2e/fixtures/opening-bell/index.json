@@ -1,0 +1,116 @@
+{
+ "schema": "opening-bell-index-v1",
+ "latest": "2026-11-03",
+ "updated_at": "2026-11-03T00:16:19+05:30",
+ "editions": [
+  {
+   "date": "2026-11-03",
+   "kind": "opening",
+   "day_long": "Tuesday, 3 November 2026",
+   "title": "Opening Bell — Tuesday, 3 November 2026",
+   "duration_s": 412,
+   "duration_label": "6:52",
+   "headlines": [
+    {
+     "kicker": "Pre-open",
+     "big": "Pre-open points higher",
+     "small": "Nifty indicated near 23,637 (+0.84%) · F&O 152 up · 45 down · NSE pre-open 09:09 IST"
+    },
+    {
+     "kicker": "Range to watch",
+     "big": "Range 23,251–23,631",
+     "small": "India VIX 15.50 · about ±190 pts · OI support 23,000 · resistance 24,000"
+    },
+    {
+     "kicker": "AI Top 10",
+     "big": "AI list: Petronet LNG leads",
+     "small": "AI Top 10 · #1 Petronet LNG · #2 Punjab National Bank · #3 Anand Rathi Wealth"
+    },
+    {
+     "kicker": "Today",
+     "big": "Nifty expiry day",
+     "small": "Nifty expiry today · 23,450 straddle 179.45 pts · Results: State Bank · Bajaj Finserv · Solar Industries · Lupin"
+    }
+   ],
+   "segments": [
+    {
+     "tag": "HEADLINES",
+     "title": "This morning's headlines"
+    },
+    {
+     "tag": "PREVIOUS SESSION",
+     "title": "Where we left off, and overnight"
+    },
+    {
+     "tag": "PRE-OPEN",
+     "title": "What the 9:08 pre-open says"
+    },
+    {
+     "tag": "RANGES & LEVELS",
+     "title": "What the options market is pricing"
+    },
+    {
+     "tag": "TOP 10 AI IDEAS",
+     "title": "Today's AI lists, idea by idea"
+    },
+    {
+     "tag": "TODAY",
+     "title": "Tuesday, 3 November"
+    }
+   ],
+   "files": {
+    "video": "2026-11-03/opening-bell-2026-11-03.mp4",
+    "poster": "2026-11-03/poster.jpg",
+    "captions": "2026-11-03/captions.vtt",
+    "transcript": "2026-11-03/transcript.json"
+   },
+   "languages": [
+    {
+     "code": "en",
+     "label": "English",
+     "video": "2026-11-03/opening-bell-2026-11-03.mp4",
+     "captions": "2026-11-03/captions.vtt",
+     "transcript": "2026-11-03/transcript.json"
+    },
+    {
+     "code": "hi",
+     "label": "हिंदी",
+     "video": "2026-11-03/opening-bell-2026-11-03-hi.mp4",
+     "captions": "2026-11-03/captions_hi.vtt",
+     "transcript": "2026-11-03/transcript_hi.json"
+    },
+    {
+     "code": "ta",
+     "label": "தமிழ்",
+     "video": "2026-11-03/opening-bell-2026-11-03-ta.mp4",
+     "captions": "2026-11-03/captions_ta.vtt",
+     "transcript": "2026-11-03/transcript_ta.json"
+    },
+    {
+     "code": "mr",
+     "label": "मराठी",
+     "video": "2026-11-03/opening-bell-2026-11-03-mr.mp4",
+     "captions": "2026-11-03/captions_mr.vtt",
+     "transcript": "2026-11-03/transcript_mr.json"
+    },
+    {
+     "code": "gu",
+     "label": "ગુજરાતી",
+     "video": "2026-11-03/opening-bell-2026-11-03-gu.mp4",
+     "captions": "2026-11-03/captions_gu.vtt",
+     "transcript": "2026-11-03/transcript_gu.json"
+    }
+   ],
+   "published_at": "2026-11-03T00:16:19+05:30",
+   "voices": {
+    "en": "en-US-AndrewMultilingualNeural",
+    "hi": "hi-IN-MadhurNeural",
+    "ta": "ta-IN-ValluvarNeural",
+    "mr": "mr-IN-ManoharNeural",
+    "gu": "gu-IN-NiranjanNeural"
+   },
+   "music": "“The Complex” by Kevin MacLeod (incompetech.com), CC BY 3.0",
+   "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations. Ranges and levels are what the options market prices, not forecasts."
+  }
+ ]
+}

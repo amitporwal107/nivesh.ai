@@ -30,7 +30,8 @@ test.describe("Homepage", () => {
 
   test("renders trust badges", async ({ page }) => {
     const trust = page.locator(".trust");
-    await expect(trust.getByText("SEBI-aligned")).toBeVisible();
+    // No claim about SEBI status: Nivesh holds no SEBI registration (compliance P0-1).
+    await expect(trust).not.toContainText(/SEBI/i);
     await expect(trust.getByText("Read-only access")).toBeVisible();
     await expect(trust.getByText("No card needed")).toBeVisible();
   });

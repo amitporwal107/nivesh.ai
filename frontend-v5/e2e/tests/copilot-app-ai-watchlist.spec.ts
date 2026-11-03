@@ -179,7 +179,7 @@ test.describe("AI scanner watchlist", () => {
     await expect(page.getByTestId("aiw-price-mode")).toContainText("Live prices · Kite");
   });
 
-  test("F-5 cash links open the desk's chart, the plan and the chain; a paper trade posts the scanner's levels", async ({ page }) => {
+  test("F-5 cash links open the desk's chart and the chain; a paper trade posts the scanner's levels", async ({ page }) => {
     const seen = await open(page);
     const icici = page.getByTestId("aiw-cash-ICICIBANK");
     await expect(page.getByTestId("aiw-cash-CRISIL").getByTestId("aiw-cash-chain")).toHaveCount(0, SLOW);  // not F&O
@@ -196,14 +196,10 @@ test.describe("AI scanner watchlist", () => {
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
-    await icici.getByTestId("aiw-cash-plan").click();
-    await expect(page).toHaveURL(/\/v5\/app\/trader\/desk\?/);
-    const p = params(page);
-    expect([p.get("tab"), p.get("view"), p.get("mode"), p.get("build"), p.get("sym"), p.get("cand"), p.get("src_kind"), p.get("src_date")])
-      .toEqual(["trade", "lab", "stock", "1", "ICICIBANK", "options:bull_call_spread", "ideas", "2026-10-26"]); // Strategy Lab › Build a trade
-    await page.goBack();
+    // The Strategy chip went with Strategy Lab (owner, 29 Oct): the chart is where a plan becomes a paper basket.
+    await expect(icici.getByTestId("aiw-cash-plan")).toHaveCount(0);
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chart").click(SLOW);
-    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym")]).toEqual(["trade", "chart", "ICICIBANK"]); // Trade Desk › Chart Analysis › Live chart
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sub"), params(page).get("sym")]).toEqual(["trade", "chart", "live", "ICICIBANK"]); // Trade Desk › Chart Analysis › Live chart
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chain").click(SLOW);
     expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["market", "chain", "ICICIBANK"]); // the lab is Smart Money's F&O section since 2026-10-27

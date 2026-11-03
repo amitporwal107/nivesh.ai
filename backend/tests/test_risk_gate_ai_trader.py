@@ -55,7 +55,7 @@ def test_a_paper_signal_is_judged_reserved_and_stamped_whatever_the_flag(api, ga
     # The intent is sized on the gross stop distance (500); the service reduces it for costs and the gap stress.
     assert (row["mode"], row["outcome"], row["requested_qty"]) == ("paper", "reduced", 500) and row["correlation_id"]
     assert row["approved_qty"] == APPROVED and row["budget"]["funding_rs"] == APPROVED * 200.0
-    assert row["policy_version"] == "universal-risk-v1"
+    assert row["policy_version"] == "universal-risk-v2"
     assert {c["check"]: c["status"] for c in row["checks"]}["governor"] == "pass"        # the governor is one check
     (ticket,) = gate.db.tickets.docs
     (trade,) = gate.db.trades.docs

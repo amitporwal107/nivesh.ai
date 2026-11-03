@@ -264,7 +264,7 @@ def test_p1_the_rolls_new_structure_is_decided_by_the_risk_service_and_reserved_
     assert len(roll_rows) == 1 and roll_rows[0]["outcome"] == "allowed"
     assert roll_rows[0]["snapshot"]["request"]["replaces_trade_id"] == tid
     new = next(d for d in chain.db.trades.docs if d["_id"] == new_id)
-    assert new["risk_reservation_id"] == roll_rows[0]["_id"] and new["risk_policy_version"] == "universal-risk-v1"
+    assert new["risk_reservation_id"] == roll_rows[0]["_id"] and new["risk_policy_version"] == "universal-risk-v2"
     (account,) = chain.db[acct.ACCOUNTS].docs
     assert [e["trade_id"] for e in account["reservations"]] == [new_id]
     assert acct.reservation_invariants(account) == []

@@ -41,7 +41,7 @@ from tests.test_ai_trader_execution import NOW, candidate, strategy_record, worl
 U = {"X-Test-User": "user_a"}
 EXPIRY = "2026-10-29"
 PATHS = ("P1_desk_cash", "P2_desk_strategy", "P3_journal_create", "P4_journal_fill", "P5_ai_signal", "P6_ai_confirm")
-POLICY = "universal-risk-v1"
+POLICY = "universal-risk-v2"
 
 
 def leg(side, strike, price, lots=1):

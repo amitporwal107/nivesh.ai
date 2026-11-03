@@ -146,7 +146,7 @@ export function planFailure(e: unknown, what: string): string {
   if (e instanceof ZodError) return `${what}: the answer was not in the expected form.`;
   if (e instanceof ApiError) {
     if (e.kind === "auth") return `${what}: you are signed out. Sign in again.`;
-    if (e.kind === "forbidden") return `${what}: this account is not allowed to use the Strategy Builder.`;
+    if (e.kind === "forbidden") return `${what}: this account is not allowed to build strategy plans.`;
     if (e.kind === "network") return `${what}: the network request failed.`;
     if (e.kind === "timeout") return `${what}: the request took too long.`;
     if (e.kind === "contract_drift") return `${what}: the answer was not in the expected form, so nothing is shown.`;

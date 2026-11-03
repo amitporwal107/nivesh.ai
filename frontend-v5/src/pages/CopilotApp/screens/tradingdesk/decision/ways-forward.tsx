@@ -78,7 +78,7 @@ function advice(check: string | null, code: string | null): Omit<WayForward, "ke
     options: ["Only an admin can switch trading back on (Risk Desk › Controls & profile)"], admin: true };
   if (c === "defined_risk") return {
     why: "This structure could lose more than the money put in.",
-    options: ["Add a protective option to turn it into a spread", "Pick a limited-risk template in Strategy Lab"], admin: false };
+    options: ["Add a protective option to turn it into a spread", "Build a limited-risk basket on Chart Analysis"], admin: false };
   if (c === "fno_additional") return {
     why: "F&O limits: at most 4 legs and 10 lots per leg.",
     options: ["Use fewer legs or fewer lots"], admin: false };
@@ -87,7 +87,7 @@ function advice(check: string | null, code: string | null): Omit<WayForward, "ke
     options: ["Trade the smaller size your limits allow", "Choose a stock that trades more easily"], admin: false };
   if (c === "levels" || c === "structure") return {
     why: "The plan's prices or legs do not line up (an entry, exit or target is missing or on the wrong side).",
-    options: ["Rebuild the plan in Strategy Lab"], admin: false };
+    options: ["Rebuild the trade on Chart Analysis"], admin: false };
   if (c === "inputs") return {
     why: "Some data the check needs could not be read just now.",
     options: ["Try again in a few minutes"], admin: false };

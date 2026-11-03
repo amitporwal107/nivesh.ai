@@ -1,0 +1,233 @@
+{
+ "date": "2026-10-27",
+ "lang": "mr",
+ "sections": [
+  {
+   "tag": "ठळक बातम्या",
+   "title": "आजचे मथळे",
+   "start": "0:00",
+   "cues": [
+    {
+     "t": "0:03",
+     "text": "नमस्कार, निवेश डेस्कवरील क्लोजिंग बेलमध्ये आपले स्वागत आहे.",
+     "sup": "Closing Bell · Tuesday, 27 October 2026"
+    },
+    {
+     "t": "0:08",
+     "text": "आजच्या ठळक बातम्या.",
+     "sup": "Closing Bell · Tuesday, 27 October 2026"
+    },
+    {
+     "t": "0:11",
+     "text": "निफ्टी सपाट बंद झाला, पण स्मॉलकॅप शेअर्स 2.2 टक्क्यांनी वाढले.",
+     "sup": "Nifty 50 22,749.75 −0.02% · Smallcap 250 +2.19% · 356 of 494 Nifty 500 stocks up"
+    },
+    {
+     "t": "0:16",
+     "text": "परदेशी गुंतवणूकदारांनी 4,240 कोटी रुपयांची निव्वळ खरेदी केली; 2 सप्टेंबर नंतरचा हा खरेदीचा सर्वात मोठा दिवस.",
+     "sup": "FIIs +₹4,240 Cr · DIIs −₹1,250 Cr · biggest FII buying day since 2 September"
+    },
+    {
+     "t": "0:26",
+     "text": "निकालांच्या दिवशी OneSource, Acutaas Chemicals, Sona BLW आणि Tata Consumer यांच्या शेअर्समध्ये तेजी आली.",
+     "sup": "OneSource +13.8% · Acutaas Chemicals +13.3% · Sona BLW +8.9% · Tata Consumer +6.8%"
+    },
+    {
+     "t": "0:33",
+     "text": "आणि Media क्षेत्र 3.66 टक्क्यांनी वाढून आघाडीवर राहिले. हे सर्व, थेट स्मार्ट ट्रेडिंग डेस्कवरून.",
+     "sup": "Nifty Media +3.66%, 9 of 10 up"
+    }
+   ]
+  },
+  {
+   "tag": "बाजाराचा आढावा",
+   "title": "बाजार कसा बंद झाला",
+   "start": "0:42",
+   "cues": [
+    {
+     "t": "0:43",
+     "text": "सुरुवातीला बाजाराचा आढावा. निफ्टी 50 3.45 अंकांनी म्हणजे 0.02 टक्क्यांनी घसरून 22,749.75 वर बंद झाला.",
+     "sup": "Nifty 50 22,749.75 · −3.45 pts (−0.02%) · range 22,636.85–22,829.75"
+    },
+    {
+     "t": "0:56",
+     "text": "बँक निफ्टी 0.72 टक्क्यांनी घसरला, निफ्टी नेक्स्ट 50 1.30 टक्क्यांनी वाढला, मिडकॅप 150 0.92 टक्क्यांनी वाढला आणि स्मॉलकॅप 250 2.19 टक्क्यांनी वाढला.",
+     "sup": "Bank Nifty −0.72% · Next 50 +1.30% · Midcap 150 +0.92% · Smallcap 250 +2.19%"
+    },
+    {
+     "t": "1:11",
+     "text": "बाजाराची व्याप्ती मजबूत होती: निफ्टी 500 मधील 356 शेअर्स वाढले, तर 138 घसरले. इंडिया VIX 4.4 टक्क्यांनी घटून 16.4 वर आला.",
+     "sup": "Nifty 500: 356 up · 138 down · India VIX 16.40 (−4.41%)"
+    },
+    {
+     "t": "1:24",
+     "text": "डेस्कचे रेजीम मॉडेल संमिश्र स्थिती दाखवते, आणि कल खालच्या दिशेने आहे.",
+     "sup": "Desk regime: Mixed · trend down · as of 27 Oct"
+    }
+   ]
+  },
+  {
+   "tag": "निकाल",
+   "title": "निकाल आणि बाजाराचा कौल",
+   "start": "1:31",
+   "cues": [
+    {
+     "t": "1:32",
+     "text": "आता निकालांविषयी. डेस्कच्या रिझल्ट्स वीक ट्रॅकरनुसार या आठवड्यात 103 कंपन्यांनी निकाल जाहीर केले आहेत, तर 383 कंपन्यांचे निकाल अजून यायचे आहेत.",
+     "sup": "Results week · 103 declared · 383 upcoming"
+    },
+    {
+     "t": "1:44",
+     "text": "प्रणालीमध्ये विश्लेषकांचा अंदाज नसल्याने, डेस्क प्रत्येक तिमाहीची तुलना कंपनीच्या स्वतःच्या कलाशी करतो: 4 अपेक्षेपेक्षा चांगले, 31 अपेक्षेनुसार, आणि 5 अपेक्षेपेक्षा कमी.",
+     "sup": "Vs the company's own past trend, not consensus · 4 above · 31 in line · 5 below"
+    },
+    {
+     "t": "1:57",
+     "text": "OneSource चा शेअर 13.8 टक्क्यांनी उसळला, सामान्यपेक्षा 36 पट व्यवहारासह; तिमाही नफा वर्षभरापूर्वीच्या तुलनेत 444 टक्क्यांनी वाढला.",
+     "sup": "OneSource +13.78% · volume 36× its 20-day average · PAT +444% YoY"
+    },
+    {
+     "t": "2:07",
+     "text": "याशिवाय Acutaas Chemicals 13.3 टक्क्यांनी, Sona BLW 8.9 टक्क्यांनी आणि Tata Consumer 6.8 टक्क्यांनी वाढले.",
+     "sup": "Acutaas Chemicals +13.27% · Sona BLW +8.95% · Tata Consumer +6.78%"
+    },
+    {
+     "t": "2:17",
+     "text": "घसरणीत, Aegis Logistics 7.0 टक्क्यांनी (सामान्यपेक्षा 3.3 पट व्यवहार), Dalmia Bharat 6.6 टक्क्यांनी आणि Mazagon Dock 6.5 टक्क्यांनी घसरले.",
+     "sup": "Aegis Logistics −7.05% · Dalmia Bharat −6.57% · Mazagon Dock −6.45%"
+    }
+   ]
+  },
+  {
+   "tag": "सेक्टर रोटेशन",
+   "title": "पैसा कुठे फिरला",
+   "start": "2:30",
+   "cues": [
+    {
+     "t": "2:32",
+     "text": "आता सेक्टर रोटेशन. Media 3.66 टक्क्यांनी वाढून आघाडीवर राहिला. त्यानंतर Capital Goods, Realty, Pharma आणि Telecommunications.",
+     "sup": "Day: Media +3.66% · Capital Goods +2.01% · Realty +1.94% · Pharma +1.91% · Telecommunications +1.91%"
+    },
+    {
+     "t": "2:43",
+     "text": "Cement सर्वात कमकुवत ठरला, 2.03 टक्क्यांनी खाली. त्यातील 12 पैकी 10 शेअर्स लाल निशाणीत राहिले.",
+     "sup": "Cement −2.03% · Private Bank −0.73% · Bank −0.72% · Financial Services −0.62%"
+    },
+    {
+     "t": "2:52",
+     "text": "महिनाभरात IT मध्ये 14.1 टक्क्यांची वाढ आहे, तर Consumer Durables मध्ये 9.7 टक्क्यांची घसरण आहे. डेस्कचा रोटेशन मॅट्रिक्स IT, Telecom आणि Consumer Services यांना आघाडीवर दाखवतो.",
+     "sup": "Month: Nifty IT +14.11% · Consumer Durables −9.66% · Leading: IT · Telecom · Consumer Services"
+    }
+   ]
+  },
+  {
+   "tag": "मोठ्या हालचाली",
+   "title": "निफ्टी 50 · 100 · 200 · 500",
+   "start": "3:07",
+   "cues": [
+    {
+     "t": "3:09",
+     "text": "आता निर्देशांकनिहाय मोठ्या हालचाली. निफ्टी 50 मध्ये 25 शेअर्स वाढले, तर 25 घसरले. वाढीत Tata Consumer 6.8 टक्क्यांनी आणि Bharti Airtel 3.2 टक्क्यांनी. घसरणीत Asian Paints 1.9 टक्क्यांनी आणि Coal India 1.7 टक्क्यांनी.",
+     "sup": "Nifty 50: 25 up · 25 down · Tata Consumer +6.78% · Bharti Airtel +3.20% · Asian Paints −1.94% · Coal India −1.73%"
+    },
+    {
+     "t": "3:28",
+     "text": "निफ्टी 100 मध्ये 61 शेअर्स वाढले, तर 39 घसरले. वाढीत Hitachi Energy 5.8 टक्क्यांनी आणि Divi's 5.0 टक्क्यांनी. घसरणीत Mazagon Dock 6.5 टक्क्यांनी.",
+     "sup": "Nifty 100: 61 up · 39 down · Hitachi Energy +5.75% · Divi's +5.03% · Mazagon Dock −6.45%"
+    },
+    {
+     "t": "3:43",
+     "text": "निफ्टी 200 मध्ये 128 शेअर्स वाढले, तर 72 घसरले. वाढीत Mankind Pharma 8.2 टक्क्यांनी आणि APL Apollo Tubes 6.5 टक्क्यांनी. घसरणीत M एंड M Financial 6.6 टक्क्यांनी.",
+     "sup": "Nifty 200: 128 up · 72 down · Mankind Pharma +8.24% · APL Apollo Tubes +6.55% · M&M Financial −6.59%"
+    },
+    {
+     "t": "3:59",
+     "text": "निफ्टी 500 मध्ये 356 शेअर्स वाढले, तर 138 घसरले. वाढीत Ola Electric 16.2 टक्क्यांनी आणि OneSource 13.8 टक्क्यांनी. घसरणीत Aegis Logistics 7.0 टक्क्यांनी.",
+     "sup": "Nifty 500: 356 up · 138 down · Ola Electric +16.23% · OneSource +13.78% · Aegis Logistics −7.05%"
+    },
+    {
+     "t": "4:14",
+     "text": "क्षेत्रनिहाय: निफ्टी 500 मधील Realty क्षेत्रातील सर्व शेअर्स वाढले, निफ्टी 500 मधील Textiles क्षेत्रातील सर्व शेअर्स वाढले आणि Construction materials क्षेत्रातील 11 पैकी फक्त 1 शेअर्स वाढले.",
+     "sup": "Nifty 500 by sector: Realty 11/11 · Textiles 5/5 · Construction materials 1/11"
+    }
+   ]
+  },
+  {
+   "tag": "FII / DII",
+   "title": "पैशाचा ओघ",
+   "start": "4:27",
+   "cues": [
+    {
+     "t": "4:29",
+     "text": "आता पैशाचा ओघ. प्रोव्हिजनल आकडेवारीनुसार आज FII नी रोख बाजारात 4,240 कोटी रुपयांची निव्वळ खरेदी केली. 2 सप्टेंबर नंतरचा हा त्यांचा खरेदीचा सर्वात मोठा दिवस आहे. DII नी 1,250 कोटी रुपयांची विक्री केली.",
+     "sup": "27 Oct (provisional): FII +₹4,240 Cr · DII −₹1,250 Cr"
+    },
+    {
+     "t": "4:46",
+     "text": "ऑक्टोबर महिन्यात आतापर्यंत FII नी 48,688 कोटींची निव्वळ विक्री केली आहे, तर DII नी 60,470 कोटींची निव्वळ खरेदी केली आहे. तीन महिन्यांत FII नी 1,01,175 कोटींची विक्री केली, तर DII नी 2,08,557 कोटींची खरेदी केली.",
+     "sup": "October so far: FII −₹48,688 Cr · DII +₹60,470 Cr · Three months: FII −₹1,01,175 Cr · DII +₹2,08,557 Cr"
+    },
+    {
+     "t": "5:07",
+     "text": "एका दिवसाचा ओघ हा संकेत आहे, अजून कल नाही.",
+     "sup": "One day of flows is a signal, not a trend"
+    }
+   ]
+  },
+  {
+   "tag": "टॉप 10 कल्पना",
+   "title": "आढाव्यासाठी डेस्कच्या कल्पना",
+   "start": "5:12",
+   "cues": [
+    {
+     "t": "5:13",
+     "text": "आता डेस्कच्या टॉप 10 कल्पना. या आढाव्यासाठीच्या कल्पना आहेत, शिफारसी नाहीत, आणि डेस्कच्या स्वतःच्या स्कोअरकार्डमध्ये अजून मोजता येईल अशी क्रमवारी क्षमता दिसलेली नाही.",
+     "sup": "Ideas for review, not recommendations · no measurable ranking skill yet"
+    },
+    {
+     "t": "5:25",
+     "text": "कॅश यादीत Coforge आणि ICICI Bank आघाडीवर आहेत.",
+     "sup": "Coforge: 0.6% below ₹2008.80 resistance · volume 1.6× avg · ICICI Bank: Strong uptrend (above 50 & 200 DMA, 50 above 200)"
+    },
+    {
+     "t": "5:37",
+     "text": "Sagility, Anand Rathi Wealth, Union Bank, GE Shipping, Mankind Pharma, Sona BLW, Persistent आणि Petronet LNG यांचाही या यादीत समावेश आहे.",
+     "sup": "Sagility · Anand Rathi Wealth · Union Bank · GE Shipping · Mankind Pharma · Sona BLW · Persistent · Petronet LNG"
+    },
+    {
+     "t": "5:48",
+     "text": "एफ अँड ओ बोर्ड संमिश्र रेजीम आणि खालच्या दिशेने कल दाखवतो, म्हणून मर्यादित जोखमीच्या रणनीती योग्य ठरतात, उदाहरणार्थ 3 नोव्हेंबर एक्स्पायरीचा Nifty bear put spread 22350 ते 22750. जिथे या कॅशमधील तेजीच्या सेटअपशी विसंगत आहेत, तिथे डेस्क त्या फक्त माहितीसाठी दाखवतो.",
+     "sup": "F&O board: regime Mixed · trend down · NIFTY Bear put spread 22350/22750, 3 Nov expiry"
+    }
+   ]
+  },
+  {
+   "tag": "पुढे काय पाहावे",
+   "title": "28 ऑक्टोबर",
+   "start": "6:10",
+   "cues": [
+    {
+     "t": "6:11",
+     "text": "बुधवार रोजी: भारतीय वेळेनुसार सायंकाळी 4 वाजता औद्योगिक उत्पादनाची आकडेवारी आणि भारतीय वेळेनुसार रात्री 11:30 वाजता अमेरिकी फेडचा व्याजदर निर्णय.",
+     "sup": "Wed 16:00 IST India Industrial production YoY · Wed 23:30 IST US Fed interest rate decision"
+    },
+    {
+     "t": "6:22",
+     "text": "तसेच Hindustan Unilever, Adani Ports आणि Adani Enterprises यांचे निकाल.",
+     "sup": "Results due Wed: Hindustan Unilever · Adani Ports · Adani Enterprises · TVS Motor · Hyundai Motor · Pidilite"
+    },
+    {
+     "t": "6:28",
+     "text": "निवेश डेस्कवरून क्लोजिंग बेल आज इथेच संपते.",
+     "sup": "Source: NSE end-of-day data and exchange filings, read on the Nivesh Smart Trading Desk"
+    },
+    {
+     "t": "6:33",
+     "text": "ही बाजाराची माहिती आणि शिक्षण आहे, गुंतवणूक सल्ला नाही. शुभ रात्री.",
+     "sup": "Market information and education, not investment advice"
+    }
+   ]
+  }
+ ],
+ "cue_count": 34
+}

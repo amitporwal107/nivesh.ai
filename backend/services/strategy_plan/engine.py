@@ -61,7 +61,8 @@ def compute_payoff(body: Any, today: Optional[date] = None) -> Dict[str, Any]:
     }
     pre = None
     if parsed["pre_expiry"] is not None:
-        pre = pre_expiry(legs, ref, grid, parsed["as_of"], parsed["pre_expiry"], model, RISK_FREE_RATE)
+        pre = pre_expiry(legs, ref, grid, parsed["as_of"], parsed["pre_expiry"], model, RISK_FREE_RATE,
+                         scenarios=parsed["scenarios"])
 
     has_future = any(l["kind"] == "future" for l in legs)
     caveats = [

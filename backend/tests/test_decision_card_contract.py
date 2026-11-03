@@ -103,7 +103,7 @@ def test_be11_the_plan_route_carries_only_real_risk_decisions(built):
     allowed = b["cash"]["allowed"]
     assert allowed["paper_status"] == 201, allowed
     d = allowed["trade_plan_response"]["risk_decision"]
-    assert d["outcome"] == "allow" and d["approved_qty"] == b["cash"]["body"]["quantity"] and d["policy_version"] == "universal-risk-v1"
+    assert d["outcome"] == "allow" and d["approved_qty"] == b["cash"]["body"]["quantity"] and d["policy_version"] == "universal-risk-v2"
     assert d["estimated_risk_rs"]["total"] > 0 and d["limits_version"]
     assert allowed["trade_plan_response"]["lifecycle"]["status"] == "open"
     reduced = b["cash"]["reduced"]

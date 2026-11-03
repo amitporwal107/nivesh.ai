@@ -277,10 +277,12 @@ def test_r5_what_the_service_decides_today_on_the_default_profile():
     """Recorded as found, rules unchanged (reported to the owner): every first-wave structure passes defined risk, but
     with the default profile (0.5% per trade, min reward:risk 1.5) the sizing checks still decide —
       * covered call: its maximum loss is the shares to zero, so `min_lot_exceeds_budget` even at Rs 1 crore equity;
-      * credit spreads and the collar: reward:risk below 1.5 (500 : 2,000 here), `reward_risk_too_low`;
+      * credit spreads: net credit after costs below 1/3 of the strike width, `credit_too_small` (risk policy v2, PR
+        #382: the credit rule replaces the 1.5 reward:risk minimum for credit structures);
+      * the collar: reward:risk below 1.5, `reward_risk_too_low`;
       * protective put: allowed."""
-    expect = {"covered_call": ("block", "min_lot_exceeds_budget"), "bull_put_spread": ("block", "reward_risk_too_low"),
-              "bear_call_spread": ("block", "reward_risk_too_low"), "collar": ("block", "reward_risk_too_low"),
+    expect = {"covered_call": ("block", "min_lot_exceeds_budget"), "bull_put_spread": ("block", "credit_too_small"),
+              "bear_call_spread": ("block", "credit_too_small"), "collar": ("block", "reward_risk_too_low"),
               "protective_put": ("allow", None)}
     for name, strikes, direction in FIRST_WAVE:
         d = decide(paper_legs(build(name, strikes)), direction, equity=10_000_000.0)

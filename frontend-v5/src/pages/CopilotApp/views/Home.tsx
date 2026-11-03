@@ -1,6 +1,7 @@
 /**
- * Home — greeting, live market strip, the statement bar, "for your portfolio
- * today" cards and starter questions. Design: Nivesh Copilot.dc.html, the
+ * Home — greeting, live market strip, the statement bar, the suggestion tabs
+ * (SuggestionsPanel: GET /api/suggestions), "for your portfolio today" cards and
+ * starter questions. Design: Nivesh Copilot.dc.html, the
  * `isHome` block.
  *
  * It shows the same facts the existing dashboard (/dashboard) shows, from the
@@ -23,7 +24,9 @@ import { useHealthAnalysis, useInsightsList } from "@/hooks/use-insights";
 import { useMarketsHome } from "@/hooks/use-markets";
 import { targetAllocationFor, useRiskProfile } from "@/hooks/use-risk-profile";
 import { GmailSyncModal } from "@/pages/Dashboard/GmailSyncModal";
+import { DailyTraderPanel } from "../components/DailyTraderPanel";
 import { StockIcon } from "../components/EntityIcon";
+import { SuggestionsPanel } from "../components/SuggestionsPanel";
 import { fmtNum, fmtPct, humaniseTag, signTone, TONE_COLOR, type Tone } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
 import { useCasState } from "../lib/use-cas-state";
@@ -275,7 +278,7 @@ function usePortfolioCards(enabled: boolean): { cards: Card[]; settling: boolean
 export default function Home() {
   const { ask, go, mobile, mode, firstName } = useCopilotShell();
   const markets = useMarketsHome();
-  const prompts = useCopilotPrompts();
+  const prompts = useCopilotPrompts(mode);
   const pf = usePortfolioContext();
 
   const noPf = pf.status === "empty";
@@ -307,7 +310,9 @@ export default function Home() {
     onOpen: () => ask(c.query),
   });
   // Cards carry a figure the backend computed for this user; the rest are questions.
-  const withFact = ranked.filter((p) => p.badge);
+  // A figure about the user's own money needs a portfolio: without one it is never
+  // shown as a fact (the client book's prompts are about the clients' portfolios).
+  const withFact = hasPf || bookView ? ranked.filter((p) => p.badge) : [];
   const promptCards = (withFact.length ? withFact : bookView ? ranked : []).map(promptCard);
   // Two rows at most: the portfolio's own signals first, then ranked prompts.
   const cards = [...portfolioCards, ...promptCards].slice(0, 6);
@@ -322,8 +327,19 @@ export default function Home() {
       ? "Ask in plain English. Nivesh picks the tools and shows the evidence behind every answer. Connect a portfolio to make answers about your money."
       : "Ask in plain English. Nivesh picks the tools and shows you the evidence behind every answer.";
 
+  // Trader mode: the Daily Trader Copilot's six entry points (DailyTraderPanel) in place of the headline and the
+  // starter questions; the market strip, the statement bar and the cards stay as in the other modes.
+  const trader = mode === "trader";
+
   return (
-    <div data-testid="copilot-home" className="mx-auto flex flex-col" style={{ maxWidth: 840, padding: `${mobile ? 28 : 80}px 0 40px`, gap: 44 }}>
+    <div data-testid="copilot-home" data-mode={mode} className="mx-auto flex flex-col" style={{ maxWidth: 840, padding: `${mobile ? 28 : trader ? 48 : 80}px 0 40px`, gap: trader ? 28 : 44 }}>
+      {trader ? (
+        <div className="flex flex-col" style={{ gap: 12 }}>
+          <DailyTraderPanel onAsk={(q) => ask(q)} eyebrow={`${today}${marketState ? ` · ${marketState}` : ""}`} mobile={mobile} />
+          <MarketStrip />
+          <StatementBar />
+        </div>
+      ) : (
       <div className="flex flex-col" style={{ gap: 14 }}>
         <span className="cp-eyebrow" data-testid="home-eyebrow">{today}{marketState ? ` · ${marketState}` : ""}</span>
         <h1 className="cp-display m-0" data-testid="home-headline" style={{ fontSize: mobile ? 40 : 60 }}>
@@ -342,6 +358,9 @@ export default function Home() {
           </div>
         )}
       </div>
+      )}
+
+      <SuggestionsPanel />
 
       {(cards.length > 0 || showNews || settling) && (
         <section className="flex flex-col" style={{ gap: 12 }}>
@@ -376,6 +395,7 @@ export default function Home() {
         </section>
       )}
 
+      {!trader && (
       <section className="flex flex-col" style={{ gap: 10 }}>
         <span className="cp-eyebrow">Try asking</span>
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,280px),1fr))", columnGap: 28 }}>
@@ -396,6 +416,7 @@ export default function Home() {
           ))}
         </div>
       </section>
+      )}
     </div>
   );
 }

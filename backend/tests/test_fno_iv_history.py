@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 from routes import fno as route
 from services import fno_iv_history as store
 from services.copilot_tools import daas_client
+from tests import market_day
 
 DAY = "2026-10-12"
 NEAR = "2026-10-27"
@@ -295,6 +296,7 @@ def test_iv8_session_atm_iv_is_the_chain_routes_atm_iv_on_the_same_rows(monkeypa
     async def fake_user(request: Request):
         return {"user_id": "u1"}
     monkeypatch.setattr(route, "get_current_user", fake_user)
+    market_day.pin(monkeypatch, DAY)
     app = FastAPI()
     app.include_router(route.router)
     s = TestClient(app).get(f"/api/fno/TESTCO/chain?expiry={NEAR}").json()["summary"]
@@ -488,6 +490,7 @@ def _route_client(monkeypatch, docs: List[Dict[str, Any]], *, signed_in: bool = 
         col.docs[store.doc_id(d["underlying"], d["date"])] = {"_id": store.doc_id(d["underlying"], d["date"]), **d}
     col.fail = fail
     monkeypatch.setattr(deps, "db", db)
+    market_day.pin(monkeypatch, "2025-06-02")   # _weekdays() starts here: every recorded session is current
     if signed_in:
         async def fake_user(request: Request):
             return {"user_id": "u1"}

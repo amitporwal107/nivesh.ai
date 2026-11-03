@@ -166,7 +166,7 @@ def test_flag_on_a_bad_body_is_still_the_desks_422(capi, gate):
     # validator 422 left no trace in risk_decisions.
     (row,) = decisions(gate)
     assert row["source"] == "desk_validation" and row["path"] == "desk_paper_trade" and row["outcome"] == "blocked"
-    assert row["policy_version"] == "universal-risk-v1"
+    assert row["policy_version"] == "universal-risk-v2"
     assert row["reasons"][0]["code"] == "invalid_quantity" and row["correlation_id"] == "corr-bad"
 
 
