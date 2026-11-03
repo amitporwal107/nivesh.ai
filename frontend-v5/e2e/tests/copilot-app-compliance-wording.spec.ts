@@ -142,14 +142,13 @@ test.describe("Compliance wording — the Trading Desk shows no trading-call wor
     expect(found, JSON.stringify(found, null, 1)).toEqual([]);
   });
 
-  test("CW-3 a scanner row opened to its levels says reference price / risk level / reward level", async ({ page }) => {
+  test("CW-3 the AI Scanner with ranked rows (levels, reward column) says reference price / risk level / reward level", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await deskMocks(page);
     await page.goto(`${DESK}?tab=trade&view=scanner&sub=ranked`);
-    const row = page.getByTestId("desk-scan-row-FIXBRK");
-    await expect(row).toBeVisible({ timeout: 15000 });
-    await row.click();                                                  // selects the row: its levels and sizing open beside it
-    await expect(row).toHaveAttribute("data-selected", "true");
+    await expect(page.getByTestId("desk-scan-row-FIXBRK")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId("desk-scan-row-FIXPRE")).toBeVisible();
+    await expect(page.getByTestId("desk-scan-footnote")).toContainText("Reference price, risk level and reward level are hypothetical");
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(400);
     const found = (await shownText(page)).flatMap((line) => (hits(line).length ? [{ line: line.slice(0, 160), words: hits(line) }] : []));
