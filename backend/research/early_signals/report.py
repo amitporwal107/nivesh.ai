@@ -74,7 +74,8 @@ def signal_stats(rows: pd.DataFrame, sd: pd.DataFrame, brates: Dict[Tuple[str, s
     catchable = int((t5.notna() & (t5 > first_ts)).sum())
     buckets = {}
     for name, test in BUCKETS:
-        b = eligible[eligible["step"].map(test)]
+        # astype(bool): on an empty frame map() gives an object Series, which pandas would read as column labels
+        b = eligible.loc[eligible["step"].map(test).astype(bool).to_numpy()]
         bh = int(b["hit"].astype(bool).sum())
         buckets[name] = {"eligible": len(b), "hits": bh, "precision": (bh / len(b)) if len(b) else None}
     return {

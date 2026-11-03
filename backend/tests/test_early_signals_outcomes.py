@@ -172,3 +172,15 @@ def test_the_report_never_uses_barred_trading_words(tmp_path):
     other.mkdir()
     with pytest.raises(ValueError):
         run_report(other, titles={"A": "Top buy", "B": "B"})       # a barred word in a title stops the report
+
+
+def test_signal_with_only_late_flags_scores_without_error():
+    # Staging smoke run 3 Nov: a signal whose every flag came after the +5 % crossing left an empty frame, and the
+    # time-of-day buckets indexed it with an empty object Series (read as column labels) -> KeyError 'hit'.
+    import pandas as pd
+    from research.early_signals import outcomes as O, report as R
+    rows = pd.DataFrame([{c: None for c in O.OUTCOME_COLUMNS}])
+    rows.loc[0, ["signal", "kind", "day", "step", "early", "hit", "late"]] = ["w:x", "widget", "2026-11-03", "10:00", False, False, True]
+    sd = pd.DataFrame({"day": ["2026-11-03"], "symbol": ["AAA"], "t5": [None]})
+    st = R.signal_stats(rows, sd, {})
+    assert st["eligible"] == 0 and st["precision"] is None and st["late"] == 1
