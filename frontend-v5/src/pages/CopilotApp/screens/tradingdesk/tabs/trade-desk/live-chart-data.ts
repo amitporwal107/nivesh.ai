@@ -2,7 +2,9 @@
  * Trade Desk › Chart Analysis › Live chart — the two reads of the owner's design (28 Oct), validated before use:
  *
  *   GET /api/desk/live-chart/{symbol}?plan_id=&interval=15m&sessions=2     useLiveChart
- *       the candles (Kite 15m, or daily with the reason), EMA 20 and RVOL on the same bars, the plan's or the scanner
+ *       interval 1m 3m 5m 15m 30m 60m (Kite) · 1d (end of day) · 1w (weeks built from the daily bars); the timeframe pills
+ *       of Chart Analysis pick it (analysis/timeframes.ts)
+ *       the candles (Kite, or daily with the reason), EMA 20, SMA 20 and RVOL on the same bars, the plan's or the scanner
  *       signal's levels, the signal conditions with status and value, the WATCH / READY / CONFIRMED / RVOL markers
  *       (backend routes/desk_live_chart.py; nothing is computed here)
  *   GET /api/fno/{symbol}/futures/oi-buildup?interval=15m&window=4&sessions=2   useOiBuildup
@@ -63,6 +65,7 @@ const LiveChartC = z.object({
   }),
   bars: z.array(Bar),
   ema20: z.array(N),
+  sma20: z.array(N).optional().default([]),
   rvol: z.array(N),
   last: z.object({ price: z.number(), at: z.string(), bar_complete: z.boolean(), source: S }),
   levels: LevelsC,
@@ -79,11 +82,17 @@ const LiveChartC = z.object({
 });
 export type LiveChart = z.infer<typeof LiveChartC>;
 
-export const LIVE_CHART_KEY = (symbol: string, planId: string | null) => ["copilot", "desk", "live-chart", symbol, planId ?? ""] as const;
+export const LIVE_CHART_KEY = (symbol: string, planId: string | null, interval = "15m", sessions = 2) =>
+  ["copilot", "desk", "live-chart", symbol, planId ?? "", interval, sessions] as const;
 
-export function useLiveChart(symbol: string | null, planId: string | null, sessionOpen: boolean) {
+/** The candles asked for: Kite `interval` over `sessions` sessions, or "1d" / "1w" (end of day; sessions ignored). */
+export interface ChartAsk { interval: string; sessions: number }
+const DEFAULT_ASK: ChartAsk = { interval: "15m", sessions: 2 };
+
+export function useLiveChart(symbol: string | null, planId: string | null, sessionOpen: boolean, ask: ChartAsk = DEFAULT_ASK) {
   return useQuery<LiveChart>({
-    queryKey: LIVE_CHART_KEY(symbol ?? "", planId),
+    queryKey: LIVE_CHART_KEY(symbol ?? "", planId, ask.interval, ask.sessions),
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[3] === (symbol ?? "") ? prev : undefined),
     enabled: !!symbol,
     staleTime: 30_000,
     refetchInterval: sessionOpen ? 60_000 : false,
@@ -91,7 +100,7 @@ export function useLiveChart(symbol: string | null, planId: string | null, sessi
     queryFn: async ({ signal }) => {
       const res = await http({
         path: `/api/desk/live-chart/${encodeURIComponent((symbol ?? "").toUpperCase())}`,
-        query: { interval: "15m", sessions: 2, ...(planId ? { plan_id: planId } : {}) },
+        query: { interval: ask.interval, sessions: ask.sessions, ...(planId ? { plan_id: planId } : {}) },
         signal,
         timeoutMs: 30_000,
       });
@@ -146,10 +155,11 @@ export type OiBuildup = z.infer<typeof OiBuildupC>;
 
 export type OiResult = { kind: "ok"; data: OiBuildup } | { kind: "none"; message: string };
 
-/** `daily` > 0 also asks for that many sessions of daily bars and daily build-up windows (the daily chart). */
-export function useOiBuildup(symbol: string | null, sessionOpen: boolean, daily = 0) {
+/** `daily` > 0 also asks for that many sessions of daily bars and daily build-up windows (the daily and weekly charts).
+ *  `ask` is the intraday read: Kite interval (1m 3m 5m 15m 30m 60m), sessions, bars (or sessions) per build-up window. */
+export function useOiBuildup(symbol: string | null, sessionOpen: boolean, daily = 0, ask: { interval: string; sessions: number; window: number } = { interval: "15m", sessions: 2, window: 4 }) {
   return useQuery<OiResult>({
-    queryKey: ["copilot", "desk", "oi-buildup", symbol ?? "", daily],
+    queryKey: ["copilot", "desk", "oi-buildup", symbol ?? "", daily, ask.interval, ask.sessions, ask.window],
     enabled: !!symbol,
     staleTime: 30_000,
     refetchInterval: sessionOpen ? 60_000 : false,
@@ -158,7 +168,7 @@ export function useOiBuildup(symbol: string | null, sessionOpen: boolean, daily 
       try {
         const res = await http({
           path: `/api/fno/${encodeURIComponent((symbol ?? "").toUpperCase())}/futures/oi-buildup`,
-          query: { interval: "15m", window: 4, sessions: 2, ...(daily > 0 ? { daily } : {}) },
+          query: { interval: ask.interval, window: ask.window, sessions: ask.sessions, ...(daily > 0 ? { daily } : {}) },
           signal,
           timeoutMs: 30_000,
         });
