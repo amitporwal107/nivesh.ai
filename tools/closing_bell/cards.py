@@ -36,6 +36,8 @@ ALIASES = {
     "Hindustan Aeronautics": "HAL",
     "Bharat Electronics": "BEL",
     "Adani Enterprises": "Adani Enterprises",
+    "Fertilisers and Chemicals Travancore": "FACT",
+    "Solar Industries India": "Solar Industries",
 }
 
 
@@ -45,13 +47,17 @@ def short_name(name: Optional[str], sym: str) -> str:
         n = " ".join(w if len(w) <= 3 else w.title() for w in n.split())
     n = re.sub(r"\s+(Ltd\.?|Limited)$", "", n, flags=re.I).strip()
     n = re.sub(r"\s+(Ltd\.?|Limited)$", "", n, flags=re.I).strip()
-    n = ALIASES.get(n, n)
+    if n in ALIASES:
+        return ALIASES[n]        # an alias is the spoken name as is ("Solar Industries", not "Solar")
     for suffix in (" of India", " India", " Industries", " Company", " Corporation", " Laboratories", " Mobility",
                    " Systems", " Precision Forgings"):
         if len(n) > 15 and n.endswith(suffix):
             n = n[: -len(suffix)].strip()
     if len(n) > 24:  # long legal names: keep the first two words, never an ellipsis (it is read aloud)
-        n = " ".join(n.split()[:2])
+        w = n.split()[:2]
+        if len(w) > 1 and w[-1].lower() in ("and", "&", "of", "the", "for"):
+            w = w[:1]            # never end a spoken name on a connector ("Fertilisers and")
+        n = " ".join(w)
     return n
 
 

@@ -7,11 +7,17 @@
  *
  * Up to three cards: the engine's actionable candidates in its own order (1st PRIMARY, 2nd ALTERNATE, 3rd DIRECTIONAL for
  * futures or cash, else ALTERNATE). Every figure on a card is the route's (payoff block and comparison row); "Unlimited"
- * only where the payoff says unbounded. ADD TO BASKET writes the candidate's own legs and prices. When nothing qualifies
+ * only where the payoff says unbounded. LOSS AT STOP (with the stop) wherever the engine's row prices the risk at the stop:
+ * cash, futures, and shares with no long put under them (owner 30 Oct: a covered call's loss is not the shares at zero).
+ *
+ *   POST /api/fno/margin   MARGIN · ZERODHA: Zerodha's calculator through the platform Kite session for the card's option and
+ *        future legs (the basket's query, so the same legs make one call); shares are bought for delivery, paid in full.
+ *
+ * ADD TO BASKET writes the candidate's own legs and prices. When nothing qualifies
  * the section says so with the engine's reasons and shows no card. Wording rule (SEBI, owner 25 Oct): strategies that fit,
  * never "recommended" or "picks". Educational, paper only; nothing is sent to a broker.
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -21,8 +27,11 @@ import { PlanSchema, type Candidate, type StrategyPlan } from "../../../strategy
 import { PLAN_PATH, planFailure, planProblems } from "../../../strategy/plan-data";
 import { ratio } from "../../../strategy/plan-format";
 import { useBasket, type NewLeg } from "./basket";
+import { useBasketMargin } from "./basket-routes";
 import type { AnalysisChain } from "./chain-data";
-import { CHAIN_CLOSE_NOTE, candidateLegs, cardExpiry, cardFigures, cardTag, cardWhy, legsText, noTradeReasons, notQualifying, topActionable, type Figure } from "./reco-data";
+import {
+  CHAIN_CLOSE_NOTE, candidateLegs, cardExpiry, cardFigures, cardMarginBody, cardShares, cardTag, cardWhy, legsText, noTradeReasons, notQualifying, topActionable, type Figure,
+} from "./reco-data";
 
 export type RecoDirection = "bullish" | "bearish" | "neutral";
 
@@ -86,13 +95,49 @@ function failureText(e: unknown): string {
 
 const figureText = (f: Figure, abs = false) => (f.kind === "unlimited" ? "Unlimited" : f.value == null ? DASH : fmtPrice(abs ? Math.abs(f.value) : f.value));
 
-function Stat({ k, v, color, title, testId, wide }: { k: string; v: ReactNode; color: string; title?: string; testId: string; wide?: boolean }) {
+function Stat({ k, v, color, title, testId, wide, sub, subWarn }: {
+  k: string; v: ReactNode; color: string; title?: string; testId: string; wide?: boolean; sub?: ReactNode; subWarn?: boolean;
+}) {
   return (
     <div data-testid={testId} title={title} className="flex min-w-0 flex-col" style={{ gap: 2, gridColumn: wide ? "1 / -1" : undefined }}>
       <span style={{ ...mono(9.5), letterSpacing: "0.1em", color: "var(--cp-ink-3)" }}>{k}</span>
       <span className="cp-num" style={{ fontSize: 13, color, overflowWrap: "anywhere" }}>{v}</span>
+      {sub && <span data-testid={`${testId}-sub`} style={{ fontSize: 11.5, lineHeight: 1.45, color: subWarn ? "var(--amber)" : "var(--cp-ink-3)", overflowWrap: "anywhere" }}>{sub}</span>}
     </div>
   );
+}
+
+const MARGIN_TITLE = "Zerodha's margin calculator through the platform's Kite login: SPAN + exposure for these legs on their own (open positions not netted). An estimate; nothing is placed.";
+
+/** MARGIN · ZERODHA: Kite's required margin for the card's option and future legs; shares are paid in full for delivery. */
+function MarginStat({ symbol, c }: { symbol: string; c: Candidate }) {
+  const body = useMemo(() => cardMarginBody(symbol, c.legs), [symbol, c.legs]);
+  const q = useBasketMargin(body);
+  const shares = cardShares(c);
+  const sharesNote = shares ? `${fmtPrice(shares.quantity * shares.price)} for ${fmtNum(shares.quantity)} shares, paid in full (delivery)` : null;
+  let v: string;
+  let sub: string | null;
+  let warn = false;
+  if (!body) {
+    v = "No F&O margin";
+    sub = sharesNote ? `Shares only: ${sharesNote}.` : null;
+  } else {
+    const m = q.data;
+    const legs = legsText(c.legs.filter((l) => l.kind !== "cash"));
+    if (m?.kind === "ok") {
+      v = fmtPrice(m.required);
+      sub = m.required == null ? "Kite's calculator returned no total for these legs."
+        : `Kite's margin calculator for ${legs}${shares ? " alone (the shares are not counted against it)" : ""}${sharesNote ? `; plus ${sharesNote}` : ""}.`;
+    } else if (m?.kind === "unavailable") {
+      v = DASH;
+      sub = m.reason;
+      warn = true;
+    } else {
+      v = "…";
+      sub = "Asking Zerodha's margin calculator…";
+    }
+  }
+  return <Stat testId="ca-reco-margin" k="MARGIN · ZERODHA" v={v} color="var(--cp-ink)" title={MARGIN_TITLE} sub={sub} subWarn={warn} wide />;
 }
 
 function premiumLine(plan: StrategyPlan, c: Candidate): string {
@@ -107,8 +152,8 @@ function premiumLine(plan: StrategyPlan, c: Candidate): string {
   return `NET PREMIUM ${DASH} · ${f.size}`;
 }
 
-function Card({ plan, c, index, chain, headExpiry, refused, onAdd }: {
-  plan: StrategyPlan; c: Candidate; index: number; chain: AnalysisChain | null; headExpiry: string | null; refused: string | null; onAdd: (legs: NewLeg[]) => void;
+function Card({ symbol, plan, c, index, chain, headExpiry, refused, onAdd }: {
+  symbol: string; plan: StrategyPlan; c: Candidate; index: number; chain: AnalysisChain | null; headExpiry: string | null; refused: string | null; onAdd: (legs: NewLeg[]) => void;
 }) {
   const tag = cardTag(index, c);
   const f = cardFigures(plan, c);
@@ -128,11 +173,13 @@ function Card({ plan, c, index, chain, headExpiry, refused, onAdd }: {
       {why && <div data-testid="ca-reco-why" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>{why}</div>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "10px 12px", paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
         <Stat testId="ca-reco-max-profit" k="MAX PROFIT" v={figureText(f.maxProfit)} color="var(--mint)" title="At expiry, before costs (the strategy engine's payoff)" />
-        <Stat testId="ca-reco-max-loss" k={f.lossLabel} v={figureText(f.maxLoss, true)} color="var(--cp-danger)" title={f.lossBasis ?? undefined} />
+        <Stat testId="ca-reco-max-loss" k={f.lossLabel} v={figureText(f.maxLoss, true)} color="var(--cp-danger)" title={f.lossBasis ?? undefined}
+          sub={f.stop != null ? `stop ${fmtNum(f.stop, 2)}` : undefined} />
         <Stat testId="ca-reco-rr" k="R : R" v={f.rr ? `${ratio(f.rr.value)}${f.rr.basis === "before costs" ? " before costs" : ""}` : DASH} color="var(--cp-ink)"
           title={c.risk_reward?.basis ?? undefined} />
         <Stat testId="ca-reco-breakeven" k="BREAKEVEN" v={f.breakevens.length ? f.breakevens.map((b) => fmtNum(b, 2)).join(", ") : DASH} color="var(--amber)" title="Underlying price at expiry" />
         <Stat testId="ca-reco-premium" k="" v={premiumLine(plan, c)} color="var(--cp-ink-2)" wide />
+        <MarginStat symbol={symbol} c={c} />
       </div>
       {built.chainPriced && <span data-testid="ca-reco-chain-priced" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>A leg had no price from the engine: {CHAIN_CLOSE_NOTE}.</span>}
       <button type="button" data-testid="ca-reco-add" disabled={built.problem != null} title={built.problem ?? "Put these legs in the paper basket"}
@@ -189,7 +236,7 @@ export function RecoStrategies({ symbol, chain, direction, directionWhy, compact
       <>
         <div className="grid" style={{ gridTemplateColumns: compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 12 }}>
           {cards.map((c, i) => (
-            <Card key={c.id} plan={plan} c={c} index={i} chain={chain} headExpiry={headExpiry}
+            <Card key={c.id} symbol={symbol} plan={plan} c={c} index={i} chain={chain} headExpiry={headExpiry}
               refused={addedFrom === c.id ? basket.refused : null}
               onAdd={(legs) => { setAddedFrom(c.id); basket.replaceLegs(legs); }} />
           ))}

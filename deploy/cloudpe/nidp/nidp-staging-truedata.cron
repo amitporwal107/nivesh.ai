@@ -1,0 +1,15 @@
+# /etc/cron.d/nidp-staging-truedata — TrueData data-quality checks on the NIDP staging VM.
+#
+# A separate file so it never overwrites /etc/cron.d/nidp-staging. Install (root, on the NIDP VM):
+#   install -m 644 /opt/nidp/dev-repo/nivesh.ai/deploy/cloudpe/nidp/nidp-staging-truedata.cron /etc/cron.d/nidp-staging-truedata
+#
+# The cross-check obeys backend/config/market_data_source.json: at `current` it records a SKIPPED run (SWITCHED_OFF)
+# and calls nothing. It runs for real in `shadow` / `truedata` with TRUEDATA_USERNAME / TRUEDATA_PASSWORD in nidp.env.
+# 22:45 IST: after the last F&O bhavcopy run (22:15) and the equity bhavcopy (19:00).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+NIDP_HOME=/opt/nidp-staging
+
+45 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh truedata_crosscheck --record

@@ -55,6 +55,7 @@ from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
 from routes.screeners import router as screeners_router
 from routes.watchlists import router as watchlists_router  # personal watchlists (per-user lists of stocks)
+from routes.suggestions import router as suggestions_router  # Copilot home suggestion cards (services/suggestions)
 from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
@@ -82,6 +83,7 @@ from routes.positional_journal import router as positional_journal_router  # Tra
 from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: account list, sync, live reads, disconnect
+from routes.positions import router as positions_router  # Open Positions workspace: broker + paper positions, read-only
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
 from routes.broker_native import short_router as broker_callback_short_router  # /api/b/<broker>: short broker callback address
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
@@ -101,6 +103,7 @@ from routes.research_drawings import router as research_drawings_router  # Resea
 from routes.research_chart_layouts import router as research_chart_layouts_router  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
 from routes.research_providers import router as research_providers_router  # Research → data providers: Kite + Trendlyne MCP (/api/research/providers/*, allowlist flag)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
+from routes.portfolio_hedge import router as portfolio_hedge_router  # Quick Hedge (/api/portfolio/quick-hedge), behind the portfolio_hedge flag
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
 from routes.portfolio_tax import router as portfolio_tax_router  # v4 Tax dashboard (GET /api/portfolio/tax-summary) per api-changes.md B.12
@@ -204,6 +207,7 @@ app.include_router(analytics_router)
 app.include_router(chat_router)
 app.include_router(screeners_router)
 app.include_router(watchlists_router)
+app.include_router(suggestions_router)
 app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
@@ -235,6 +239,7 @@ app.include_router(positional_journal_router)      # Trade Journal (staged-entry
 app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
 app.include_router(broker_connect_router)          # Secure Portfolio Connect — account list, sync, live reads, disconnect
+app.include_router(positions_router)               # /api/positions — Open Positions workspace
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(broker_callback_short_router)   # /api/b/<broker> — the same callback at a short address (ICICI Direct's form caps the URL length)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
@@ -253,6 +258,7 @@ app.include_router(research_drawings_router)      # Research → Charts drawings
 app.include_router(research_chart_layouts_router)  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
 app.include_router(research_providers_router)      # Research → data providers (/api/research/providers/*, allowlist flag)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
+app.include_router(portfolio_hedge_router)        # Quick Hedge: Nifty put / put-spread hedge for the user's holdings (flag-gated, reads only)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
 app.include_router(portfolio_tax_router)            # v4 Tax dashboard (/api/portfolio/tax-summary)
@@ -467,6 +473,13 @@ async def startup_seed():
         await kite_live_feed.start(db)
     except Exception as e:
         logger.warning("kite live feed did not start: %s", type(e).__name__)
+    # TrueData live feed in SHADOW with its data-quality checks: only when the market-data switch has TrueData on and
+    # its WebSocket login is configured (services/truedata_live). It serves nobody and never touches Kite's feed.
+    try:
+        from services import truedata_live
+        await truedata_live.start(db)
+    except Exception as e:
+        logger.warning("truedata shadow did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
@@ -474,6 +487,11 @@ async def shutdown_db_client():
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)
+    except Exception:
+        pass
+    try:
+        from services import truedata_live
+        await truedata_live.stop(db)
     except Exception:
         pass
     try:

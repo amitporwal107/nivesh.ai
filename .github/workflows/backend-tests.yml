@@ -70,6 +70,7 @@ jobs:
           tests/test_broker_connect_native_routes.py
           tests/test_broker_contract_chart.py
           tests/test_copilot_trade_idea.py
+          tests/test_copilot_events.py
           tests/test_broker_fenix_reader.py
           tests/test_broker_funds_read.py
           tests/test_broker_groww.py
@@ -92,6 +93,7 @@ jobs:
           tests/test_chartink_strategy.py
           tests/test_chat_instrument_search.py
           tests/test_chat_persona_routing.py
+          tests/test_chat_compliance_delivery.py
           tests/test_chat_session_patch.py
           tests/test_circulars_route.py
           tests/test_concentration_fund_names.py
@@ -106,6 +108,12 @@ jobs:
           tests/test_copilot_persona_prompt_selection.py
           tests/test_copilot_phase_ab.py
           tests/test_copilot_portfolio_summaries.py
+          tests/test_copilot_prompt_badges.py
+          tests/test_copilot_prompts_mode.py
+          tests/test_copilot_visual.py
+          tests/test_copilot_visual_chat.py
+          tests/test_open_book.py
+          tests/test_broker_trades.py
           tests/test_core_exceptions.py
           tests/test_cost_basis_from_snapshots.py
           tests/test_daas_key_resolution.py
@@ -131,6 +139,7 @@ jobs:
           tests/test_desk_strategy_trades.py
           tests/test_desk_trading.py
           tests/test_deterministic_insights.py
+          tests/test_insights_list_contract.py
           tests/test_docling_cas_parser.py
           tests/test_event_ai_ingest.py
           tests/test_event_ai_insight.py
@@ -183,12 +192,19 @@ jobs:
           tests/test_market_data_switch_live_feed.py
           nidp/tests/shared/test_market_data_source.py
           nidp/tests/shared/test_truedata_client.py
+          tests/test_quick_hedge_calc.py
+          tests/test_quick_hedge_chat.py
+          tests/test_quick_hedge_inputs.py
+          tests/test_quick_hedge_route.py
+          tests/test_quick_hedge_service.py
           tests/test_truedata_adapter.py
+          tests/test_truedata_live.py
           tests/test_masterdata_broker_rows.py
           tests/test_mf_cards.py
           tests/test_mf_category_enricher.py
           tests/test_mf_holdings_resolver.py
           tests/test_mf_lookthrough_view.py
+          tests/test_mf_scheduler_leader.py
           tests/test_moneycontrol_client.py
           tests/test_move_odds_diagnostics.py
           tests/test_move_odds_filing_analysis.py
@@ -240,6 +256,7 @@ jobs:
           tests/test_portfolio_risk_drawdown.py
           tests/test_portfolio_scope.py
           tests/test_portfolio_sync_to_nidp.py
+          tests/test_positions.py
           tests/test_positional_calibration.py
           tests/test_positional_desk_fields.py
           tests/test_positional_engine.py
@@ -315,6 +332,7 @@ jobs:
           tests/test_strategy_screen.py
           tests/test_strategy_store_v1_parity.py
           tests/test_strategy_store_v2_model.py
+          tests/test_suggestions.py
           tests/test_switch_cost_framework.py
           tests/test_switch_decision_engine.py
           tests/test_symbol_lookup.py

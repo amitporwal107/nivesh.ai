@@ -15,6 +15,7 @@ import type { Alternative, Candidate, PlanLeg, StrategyPlan } from "../../../str
 import type { LiveAnswer, LiveLegRequest } from "../../../strategy/top-live";
 import type { AnalysisChain, SideRow, StrikeRow } from "./chain-data";
 import type { NewLeg } from "./basket";
+import type { MarginBody } from "./presets";
 
 // ── option chain ─────────────────────────────────────────────────────────
 
@@ -198,10 +199,14 @@ export type Figure = { kind: "value"; value: number | null } | { kind: "unlimite
 
 export interface CardFigures {
   maxProfit: Figure;
-  /** "MAX LOSS" for options; "LOSS AT STOP" for cash and futures (the engine's comparison: the loss at the stop, net). */
+  /** "LOSS AT STOP" for cash, futures, and a structure whose comparison row says `max_loss_at: "stop"` (shares with no long
+   *  put under them, e.g. the covered call: at expiry they have no floor but zero, and the plan exits at its stop);
+   *  "MAX LOSS" for the rest (the expiry payoff's defined worst case). */
   lossLabel: "MAX LOSS" | "LOSS AT STOP";
   maxLoss: Figure;
   lossBasis: string | null;
+  /** The stop the LOSS AT STOP is priced at (the candidate's invalidation level); null for MAX LOSS. */
+  stop: number | null;
   /** Reward : risk, after costs when the engine has it, else before costs. */
   rr: { value: number; basis: "after costs" | "before costs" } | null;
   breakevens: number[];
@@ -225,9 +230,10 @@ export function cardFigures(plan: Pick<StrategyPlan, "alternatives">, c: Candida
   const ex = c.payoff?.expiry ?? null;
   const alt: Alternative | null = plan.alternatives.find((a) => a.id === c.id) ?? null;
   const linear = c.segment === "cash" || c.segment === "futures";
+  const atStop = linear || alt?.max_loss_at === "stop";
   const maxProfit: Figure = ex?.profit_unbounded ? { kind: "unlimited" } : { kind: "value", value: ex?.max_profit ?? null };
   let maxLoss: Figure;
-  if (linear) maxLoss = { kind: "value", value: alt?.max_loss ?? c.risk_reward?.risk_net ?? null };
+  if (atStop) maxLoss = { kind: "value", value: alt?.max_loss ?? c.risk_reward?.risk_net ?? null };
   else if (ex?.loss_unbounded) maxLoss = { kind: "unlimited" };
   else maxLoss = { kind: "value", value: alt?.max_loss ?? ex?.max_loss ?? null };
   const rr = c.risk_reward?.net != null ? { value: c.risk_reward.net, basis: "after costs" as const }
@@ -250,9 +256,34 @@ export function cardFigures(plan: Pick<StrategyPlan, "alternatives">, c: Candida
   else premium = { kind: "flat" };
 
   return {
-    maxProfit, maxLoss, lossLabel: linear ? "LOSS AT STOP" : "MAX LOSS", lossBasis: alt?.max_loss_basis ?? null,
+    maxProfit, maxLoss, lossLabel: atStop ? "LOSS AT STOP" : "MAX LOSS", lossBasis: alt?.max_loss_basis ?? null,
+    stop: atStop ? c.invalidation?.technical?.price ?? null : null,
     rr, breakevens, premium, size,
     shares: c.segment === "combination" && cash ? { quantity: cash.quantity, price: cash.entry_price } : null,
+  };
+}
+
+/** The shares a card buys (a cash idea or a combination's shares leg), else null. */
+export function cardShares(c: Pick<Candidate, "legs">): { quantity: number; price: number } | null {
+  const cash = c.legs.find((l) => l.kind === "cash" && l.side === "buy");
+  return cash ? { quantity: cash.quantity, price: cash.entry_price } : null;
+}
+
+/** POST /api/fno/margin's body for a card (Zerodha's calculator through the platform Kite session): its option and future
+ *  legs, lots as the candidate has them. Shares have no F&O margin (bought for delivery, paid in full), so a cash-only card
+ *  asks nothing (null). */
+export function cardMarginBody(symbol: string, legs: PlanLeg[]): MarginBody | null {
+  const fno = legs.filter((l) => (l.kind === "option" || l.kind === "future") && l.expiry);
+  if (!fno.length) return null;
+  return {
+    underlying: symbol,
+    legs: fno.map((l) => ({
+      side: l.side,
+      option_type: l.kind === "future" ? "future" : l.option_type === "put" ? "put" : "call",
+      expiry: l.expiry as string,
+      strike: l.kind === "future" ? null : l.strike ?? null,
+      lots: l.quantity,
+    })),
   };
 }
 

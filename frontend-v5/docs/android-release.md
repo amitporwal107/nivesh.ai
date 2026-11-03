@@ -10,14 +10,13 @@ identity and backend are switched by env, not by forking the tree:
 
 | Flavor | Script | appId | Backend (baked) | Signing | Published to |
 |---|---|---|---|---|---|
-| Staging | `scripts/build-android-apk.sh` | `ai.nivesh.staging` | `staging.niveshcopilot.com` | debug (unsigned) | `data.niveshcopilot.com/downloads/nivesh-v5-staging-debug.apk` |
-| **Prod** | `scripts/build-android-release.sh` | `ai.nivesh.app` | `niveshcopilot.com` | **release (signed)** | `data.niveshcopilot.com/downloads/nivesh-v5-prod-release.apk` |
+| Staging | `scripts/build-android-apk.sh` | `ai.nivesh.staging` | `staging.niveshcopilot.com` | debug | `staging.niveshcopilot.com/downloads/nivesh-v5-staging-debug.apk` |
+| **Prod** | `scripts/build-android-release.sh` | `ai.nivesh.app` | `niveshcopilot.com` | **release (signed)** | `niveshcopilot.com/downloads/nivesh-v5-prod-release.apk` |
 
-> **Why `data.niveshcopilot.com`?** That host (the NIDP VM, `nidp-stack-vm`)
-> already serves static downloads from `/var/www/nidp-downloads` at
-> `…/downloads/`. The APK is hosted there for direct download/sideloading. The
-> **AAB** is a CI artifact only (Play Store upload format) — it is never served
-> publicly.
+> **Where is the APK hosted?** On the CloudPe prod VM, in `/opt/nivesh/downloads`, served by the
+> app's edge nginx at `https://niveshcopilot.com/downloads/`. (Before 2026-11-01 it was
+> `data.niveshcopilot.com/downloads/` on the GCP `nidp-stack-vm`, which no longer exists.) The
+> **AAB** is a CI artifact only (Play Store upload format) — it is never served publicly.
 
 ## CI workflow (recommended path)
 
@@ -27,8 +26,8 @@ identity and backend are switched by env, not by forking the tree:
 1. sets up JDK 17 + Node 20 + Android SDK,
 2. `npm ci`, decodes the keystore, runs `build-android-release.sh`,
 3. uploads the APK + AAB as a workflow artifact, and
-4. (if *publish* is checked) SCPs the APK to the NIDP VM and `sudo install`s it
-   into `/var/www/nidp-downloads`, then HEAD-checks the public URL.
+4. (if *publish* is checked) streams the APK over ssh to the prod VM as `ci-deploy` into
+   `/opt/nivesh/downloads` (sha256-checked), then checks on the VM that nginx serves the same bytes.
 
 **Bump `version_code` on every release** (Android requires a strictly
 increasing integer); set `version_name` to the human version (e.g. `1.0.3`).
@@ -42,12 +41,15 @@ increasing integer); set `version_name` to the human version (e.g. `1.0.3`).
 | `ANDROID_KEY_ALIAS` | signing key alias |
 | `ANDROID_KEY_PASSWORD` | signing key password (optional; defaults to store pw) |
 | `PROD_GOOGLE_SERVER_CLIENT_ID` | the **prod web** OAuth client id — the one `niveshcopilot.com`'s backend uses as `GOOGLE_CLIENT_ID` (so native-login ID tokens have an `aud` the prod backend accepts) |
-| `NIDP_VM_HOST` | IP of `nidp-stack-vm` *(already configured for NIDP deploys)* |
-| `DEVOPS_SSH_USER` | CI/CD Linux user on the VM *(already configured)* |
-| `DEVOPS_SSH_KEY` | Ed25519 private key for that user *(already configured)* |
+| `PROD_VM_HOST` | IP of the CloudPe prod VM *(also used by the prod deploy workflows)* |
+| `PROD_SSH_USER` | `ci-deploy` — owns `/opt/nivesh/downloads` *(already configured)* |
+| `PROD_SSH_KEY` | Ed25519 private key for that user *(already configured)* |
 
-The last three already exist (used by the NIDP deploy workflows). Only the
-keystore + `PROD_GOOGLE_SERVER_CLIENT_ID` secrets are new.
+Only the keystore + `PROD_GOOGLE_SERVER_CLIENT_ID` secrets are specific to the Android release.
+**`PROD_GOOGLE_SERVER_CLIENT_ID` must equal what the prod backend serves at
+`/api/auth/google-client-id`** (its `GOOGLE_CLIENT_ID`): the backend rejects any ID token whose
+audience differs (`AUTH-003`), which shows up as native Google sign-in failing while the e-mail
+code login still works.
 
 ## One-time prerequisites (outside this repo)
 
@@ -69,9 +71,9 @@ once before the prod app will sign-in / install:
    ```
    The client *id* is never referenced in code — only its existence matters; the
    token's `aud` is `PROD_GOOGLE_SERVER_CLIENT_ID` (the web client).
-3. **Webroot + nginx**: `/var/www/nidp-downloads` must exist on `nidp-stack-vm`
-   and be served at `https://data.niveshcopilot.com/downloads/` (the staging APK
-   is already published the same way, so this is typically already in place).
+3. **Webroot**: `/opt/nivesh/downloads` on the prod VM (created by `deploy/cloudpe-prod/bootstrap.sh`, owned
+   by `ci-deploy`) is mounted read-only into the edge nginx and served at
+   `https://niveshcopilot.com/downloads/`. Nothing to do unless the VM is rebuilt.
 
 ## Local / build-box path (alternative to CI)
 
@@ -88,7 +90,7 @@ bash frontend-v5/scripts/build-android-release.sh
 ```
 
 The script fails fast if any required secret is missing, and only copies the APK
-into `/var/www/nidp-downloads` when that directory exists on the host.
+into `/opt/nivesh/downloads` when that directory exists on the host (i.e. only on the prod VM).
 
 ## Notes for prod
 

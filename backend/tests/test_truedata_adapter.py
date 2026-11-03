@@ -96,7 +96,7 @@ def test_ad2_empty_list_is_empty_response():
 
 @pytest.mark.parametrize("resolution,effective", [
     (mds.resolve({"source": "current"}, CREDS, integrated=True), "current"),                       # the way back
-    (mds.resolve({"source": "truedata", "truedata_licence_confirmed": True}, CREDS, integrated=False), "current"),
+    (mds.resolve({"source": "shadow"}, {}, integrated=True), "current"),                      # no credentials
     (mds.resolve({"source": "truedata", "truedata_licence_confirmed": True},
                  {**CREDS, "MARKET_DATA_SOURCE_FORCE_CURRENT": "1"}, integrated=True), "current"),  # emergency
 ])

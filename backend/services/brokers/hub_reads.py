@@ -656,6 +656,47 @@ async def read_account_funds(db, doc: dict) -> Dict[str, Optional[float]]:
     }
 
 
+# ── Trade book (read-only) ───────────────────────────────────────────────
+async def read_account_trades(db, doc: dict) -> list[dict]:
+    """The day's fills of one native account as dicts (`base.BrokerTrade`), read live from the broker on every call; nothing is
+    stored here (`services/positions/trade_book.py` keeps the daily snapshot). Brokers return only the CURRENT day.
+
+    Only a broker whose adapter has `fetch_trades` can serve it (Zerodha, ICICI Direct); every other broker raises
+    `BrokerNotSupported` with the reason, never an empty list that would read as "no trades". Strictly read-only: the adapters'
+    trade reads are GETs (`kite.trades`, Breeze `/trades`); nothing places, modifies or cancels an order. Session rules as
+    `read_account_funds`: a broker that refuses the session ends it here; an account with no live session raises `SessionEnded`
+    without a broker call.
+    """
+    slug = doc.get("broker") or ""
+    try:
+        token = _live_token(doc)
+        adapter = _adapter_for(slug, "trades")
+        fetch = getattr(adapter, "fetch_trades", None)
+        if not callable(fetch):
+            raise BrokerNotSupported(f"{adapter.DISPLAY} has no trade-book reader")
+        trades = await _adapter_call(adapter, "trades", fetch, token)
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker trades read failed account=%s broker=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), _error_label(exc),
+        )
+        raise
+    return [asdict(t) for t in trades]
+
+
+def supports_trades(slug: str) -> bool:
+    """True when the broker's adapter can read the trade book (no network)."""
+    try:
+        return callable(getattr(registry.get(slug), "fetch_trades", None))
+    except KeyError:
+        return False
+
+
 # ── Positions ────────────────────────────────────────────────────────────
 def _segment_for(exchange: str) -> str:
     ex = (exchange or "").upper()
@@ -833,6 +874,17 @@ async def read_contract_quote(db, doc: dict, contract: ContractRef) -> Optional[
 
 
 # ── Daily sync ───────────────────────────────────────────────────────────
+async def _capture_trades(db, doc: dict) -> None:
+    """Keep the day's trade book of a live account (change-only, one document per account and day) so a week can be reviewed
+    later. Never fails the holdings sync: a broker with no trade-book reader or a failed read is logged and skipped."""
+    try:
+        from services.positions import trade_book
+        await trade_book.capture(db, doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("broker daily sync: trade book not kept account=%s broker=%s (%s)",
+                    doc.get("account_id"), doc.get("broker"), _error_label(exc))
+
+
 async def daily_sync(db) -> dict:
     """Refresh holdings for every native account whose session is live.
 
@@ -855,6 +907,7 @@ async def daily_sync(db) -> dict:
         async with gate:
             try:
                 await sync_account(db, doc, trigger="daily")
+                await _capture_trades(db, doc)
                 return "synced"
             except (sessions.SessionEnded, BrokerSessionExpired):
                 return "expired"

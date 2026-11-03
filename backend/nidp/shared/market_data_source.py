@@ -20,7 +20,8 @@ Option strikes and paper-trade history need the raw prices, so the NSE files rem
 Safety: the switch never turns our feeds off unless TrueData can actually take over. `resolve()` turns the CONFIGURED
 mode into the EFFECTIVE one, and each step down is recorded as a reason:
     1. MARKET_DATA_SOURCE_FORCE_CURRENT=1 in the environment → current (an emergency way back that needs no PR).
-    2. shadow / truedata while TrueData is not integrated (TRUEDATA_INTEGRATED below) → current.
+    2. truedata while TrueData is not integrated (TRUEDATA_INTEGRATED below) → shadow. Shadow does not need this gate:
+       it never switches our feeds off, it only runs TrueData beside them for the data-quality comparison.
     3. shadow / truedata without TRUEDATA_USERNAME and TRUEDATA_PASSWORD configured → current.
     4. truedata without truedata_licence_confirmed in the file → shadow. TrueData's terms exclude simulation and
        display to third parties without SEBI/exchange approval; the owner sets the flag after their written answer.
@@ -48,9 +49,9 @@ REPLACED_FEEDS: frozenset[str] = frozenset({
     "kite_live_feed",      # app: Kite live quotes (services/kite_live_feed)
 })
 
-# The TrueData side (its ingesters and live adapter) is built and verified against TrueData's documentation and a
-# trial account before serving can move to it. Until that work is merged this stays False, so the switch cannot
-# switch our feeds off by mistake whatever the file says.
+# TrueData can SERVE (our replaced feeds switched off) only once its ingesters and live feed are verified. Until then
+# this stays False, so the switch cannot switch our feeds off by mistake whatever the file says. Shadow mode does not
+# depend on it (see resolve()).
 TRUEDATA_INTEGRATED = False
 
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -109,9 +110,9 @@ def resolve(config: Optional[dict] = None, env: Optional[Mapping[str, str]] = No
     if (env.get("MARKET_DATA_SOURCE_FORCE_CURRENT") or "").strip().lower() in _TRUTHY and effective != "current":
         reasons.append("FORCED_CURRENT_BY_ENV")
         effective = "current"
-    if effective in ("shadow", "truedata") and not integrated:
+    if effective == "truedata" and not integrated:
         reasons.append("TRUEDATA_NOT_INTEGRATED")
-        effective = "current"
+        effective = "shadow"
     if effective in ("shadow", "truedata") and not truedata_credentials_present(env):
         reasons.append("TRUEDATA_NOT_CONFIGURED")
         effective = "current"
