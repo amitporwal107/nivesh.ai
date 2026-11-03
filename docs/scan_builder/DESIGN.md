@@ -224,3 +224,34 @@ Design · Result, Run · Save · Cancel (Cancel closes). Group/Sort adds "Group 
 the aggregate, its "where" condition and, for a difference, the two columns.
 Left out of the design on purpose (say so in the report): social share chips, Access, Copy dashboard, the premium-subscription
 banner (Chartink's own), Show chart preview (no preview to show yet), Y-axis / Transpose (chart options; no charts yet).
+
+## 8. Realtime scan dashboard (owner 3 Nov ~09:15: "a simple dashboard … real time data from Kite or TrueData … with each widget criteria … updated with today's data")
+Supersedes the editable dashboard of §7.4–7.6 for now (parked): ONE fixed dashboard = the 17 widgets of Chartink dashboard 247498
+(definitions only; docs/scan_builder/chartink_247498/), computed on our data, refreshed every 10 s while the market is open.
+
+Place: Market Desk › Screener › **Scan dashboard** (`?tab=market&view=screener&sub=dashboard`; sub-views Screener · Scan dashboard ·
+Scan builder, the last two behind the `scan_builder` flag; old `view=scanbuilder` → `sub=builder`).
+
+`GET /api/scan-builder/market-dashboard` (signed in, flag) →
+```
+{ ok, run_at, elapsed_ms, cached,
+  basis:   { mode: live|kite_close|eod, day, eod_date, quote_as_of, text },
+  market:  { open, refresh_seconds: 10 },
+  counts:  { cash, fno, nifty50, no_today_bar },
+  sources: { prices, today, fundamentals, results, intraday, groups },
+  warnings:[str],
+  widgets: [ { id, chartink_id, title, universe, status: ok|partial|pending|not_computed, note,
+               criteria: [ { text, level, applied, note } ],          one line per condition, nested groups indented
+               columns:  [ { key, label, format: text|pct|price|volume|number } ],
+               rows:     [ [cell, …] ],                                aligned to columns; null = missing
+               row_kind: symbol|group|index,                           symbol rows link to the chart
+               count, as_of } ] }
+```
+Realtime: today's candle = Kite live (feed ~1 s; REST quotes for the rest, ≤30 s) over NSE EOD bars; intraday conditions (15-minute,
+1-hour) from Kite historical candles, cached across workers and rate-limited (≤1.5 calls/s for this feature), refreshed every
+1–5 min, each widget saying the candle time it used. Company results (quarterly/annual net profit, EPS, PBDT) from DaaS
+/v1/financials/{symbol}, loaded once a day in the background (status `pending` until loaded). One computation per ~8 s per
+worker is shared by every viewer. Not computable: "10x volume first 5 min" (needs buyer/seller-initiated trade counts, which no
+feed of ours carries). Titles/labels avoid "buy" (owner 3 Nov): TODAYS TOP BUY → Today's strong movers; BUY% → 15m pos %;
+DBUY → Day pos % ((Close − Low) ÷ (High − Low) × 100); OPEN INTEREST BUY7 → Open interest 7; Copy - supertrend rsi scan →
+Supertrend RSI scan.
