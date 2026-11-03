@@ -42,6 +42,10 @@ Stock screens (1 Nov 2026, plan W4):
                        services/screener_run.py), with the rules as understood printed first and every word that was not
                        used listed; the model never sees a result or runs anything
 
+Research Copilot W1 (2 Nov 2026; rules in research_intents.py, answers in research_builders.py):
+    financial_trend, valuation_view, ownership_trend, peer_compare, company_risks — a named stock (or several), or the thread's
+                       stock when the question names none. A research thesis / investment case / research report gets no visual.
+
 Not ours (None): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book, not the
 paper-trading desk's), averaging a position, "what should I avoid today" (Q14, not built).
 
@@ -54,9 +58,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
+from . import research_intents as _research
+
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
            "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size", "daily_review",
-           "sector_rotation", "results_calendar", "event_intelligence", "portfolio_hedge", "screen_stocks")
+           "sector_rotation", "results_calendar", "event_intelligence", "portfolio_hedge", "screen_stocks",
+           "financial_trend", "valuation_view", "ownership_trend", "peer_compare", "company_risks")
 # Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
 SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
@@ -77,6 +84,8 @@ NOT_A_STOCK = frozenset({
     "IST", "DII", "FII", "FPI", "MF", "SIP", "OK", "ENTRY", "EXIT", "TRADE", "PLAN", "SETUP", "BREAKOUT", "VOLUME", "STOP",
     "LOSS", "TARGET", "CALL", "PUT", "OPTION", "OPTIONS", "FUTURES", "INDEX", "MARKET", "TODAY", "NOW", "IS", "MY", "ME",
     "M&A", "MNA", "SAST", "ESOP", "SEBI", "QIP", "NCLT",            # corporate-event words (results / market-research events)
+    "EV", "FCF", "GNPA", "NNPA", "NPA", "NIM", "TTM", "CASA", "CRAR", "EBIT", "PBT", "CAGR",   # research metrics the resolver
+    "OPM", "NPM", "QOQ", "YOY", "CFO", "EPS", "PAT", "ROE", "ROCE", "ROA", "EBITDA", "CAPEX",  # passed through (none is an NSE symbol)
 })
 # The same words in any case (index and F&O words are never company names).
 _ANY_CASE = frozenset({"f&o", "fno", "pcr", "p&l", "pnl", "gift", "iv", "oi", "atm", "vix", "nifty", "nifty50", "banknifty",
@@ -140,8 +149,10 @@ _FNO_SETUPS = re.compile(
     r"\b(f&o|fno|options?|futures)\s+(setups?|strateg(y|ies)|trades?|ideas?|opportunit\w+)\b|"
     r"\bwhich\s+(f&o|fno|options?)\b.{0,30}\battractive\b|\boptions?\s+trading\s+ideas?\b|"
     r"\bdefined[- ]risk\s+(setups?|strateg(y|ies))\b", re.I)
+# "weaken" only about a trade (2 Nov 2026): "Is margin weakening for TCS?" is a financial-trend question, not trade validity.
 _TRADE_VALIDITY = re.compile(
-    r"\bstill\s+valid\b|\bthesis\b|\bweaken(ed|ing)?\b|\bhas\s+(my|the)\s+setup\s+changed\b|"
+    r"\bstill\s+valid\b|\bthesis\b|\b(trade|setup|thesis|position|view|idea)\b.{0,40}\bweaken(ed|ing|s)?\b|"
+    r"\bweaken(ed|ing|s)?\b.{0,20}\b(trade|setup|thesis|position)\b|\bhas\s+(my|the)\s+setup\s+changed\b|"
     r"\bis\s+(my|the)\s+trade\s+(still\s+)?(ok|okay|good|intact)\b", re.I)
 _EXIT_OPTIONS = re.compile(
     r"\bbook(ing)?\s+(the\s+)?(profits?|gains)\b|\bshould\s+i\s+(hold|exit|sell|book)\b|\b(or|and)\s+hold\b|"
@@ -162,10 +173,13 @@ _PORTFOLIO_HEDGE = re.compile(
     r"\b(type|kind)s?\s+of\s+hedge\b|\b(cheapest|best)\s+(protection|hedge)\b|\bhow\s+much\s+protection\b|\bprotection\s+(options?|ideas?)\b|"
     r"\b(don'?t|do\s+not)\s+want\s+to\s+lose\s+more\s+than\b|"
     r"\bwhat\s+(happens|would\s+happen|if)\b.{0,30}\b(nifty|market|sensex)\b.{0,20}\b(fall|falls|drop|drops|crash\w*|declin\w+|correct\w+)\b", re.I)
+# "If Nifty goes down 5%, what happens to my portfolio?": a market fall AND a word about the user's own money (a bare "will Nifty fall?" is not ours)
+_NIFTY_FALL = re.compile(r"\b(nifty|sensex|(the\s+)?market)\b.{0,25}\b(goes?\s+down|go(ing)?\s+down|falls?|falling|drops?|dropping|declin\w+|crash\w*|correct\w+|dips?|slips?|tanks?)\b", re.I)
+_OWN_MONEY = re.compile(r"\b(portfolio|holdings?|investments?|impact|affect\w*|hurt|lose|loss(es)?|my\s+money)\b", re.I)
 _HEDGE_NOT = re.compile(r"\bhedge\s+funds?\b|\bstop[- ]?loss\b|\bexit\b", re.I)
 _HEDGE_FALL = re.compile(
     r"(\d{1,2}(?:\.\d+)?)\s*%\s*(?:fall|drop|crash|correction|decline|dip|down)|"
-    r"(?:fall|falls|drop|drops|crash|correction|decline|dip)\w*\s*(?:of|by|to|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%|"
+    r"(?:fall|falls|drop|drops|crash|correction|decline|dip|down)\w*\s*(?:of|by|to|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%|"
     r"against\s+an?\s+(\d{1,2}(?:\.\d+)?)\s*%", re.I)
 _HEDGE_LOSE_PCT = re.compile(
     r"(?:lose|loss|losing|tolerate|accept|afford)\w*\s*(?:more\s+than|over|above|beyond|up\s+to|at\s+most|of|about|around)?\s*(\d{1,2}(?:\.\d+)?)\s*%", re.I)
@@ -454,7 +468,8 @@ def wants_thread_symbol(message: str, persona: Optional[str] = None, surface: Op
     if _NOT_OURS.search(msg) or _DAILY_REVIEW.search(msg):
         return False
     trader = _is_trader(persona, surface)
-    about_a_stock = _decision_words(msg, trader) or _TRADE_VALIDITY.search(msg) or _EXIT_OPTIONS.search(msg)
+    about_a_stock = (_decision_words(msg, trader) or _TRADE_VALIDITY.search(msg) or _EXIT_OPTIONS.search(msg)
+                     or _research.research_words(msg))
     if not about_a_stock:
         return False
     return stock_in(msg) is None
@@ -468,7 +483,8 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
                    last_symbol: Optional[str] = None) -> Optional[Intent]:
     """The Release-1 intent of a Copilot question, or None (the chat's usual path)."""
     msg = (message or "").strip()
-    if msg and len(msg) <= 400 and _PORTFOLIO_HEDGE.search(msg) and not _HEDGE_NOT.search(msg) and stock_in(msg) is None:
+    if (msg and len(msg) <= 400 and (_PORTFOLIO_HEDGE.search(msg) or (_NIFTY_FALL.search(msg) and _OWN_MONEY.search(msg)))
+            and not _HEDGE_NOT.search(msg) and stock_in(msg) is None):
         return Intent("portfolio_hedge", params=hedge_params(msg))
     if not msg or len(msg) > 400 or _NOT_OURS.search(msg):
         return None
@@ -479,6 +495,8 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
     if _is_screen(msg):
         # Before the stock read: "screen large cap stocks with ROE over 20" names a metric, not a company.
         return Intent("screen_stocks")
+    if _research.is_research_thesis(msg):
+        return None                                   # a research thesis / report is not built (W1): the usual path
     sym = stock_in(msg)
     if _EXPECTED_MOVE.search(msg) and sym is None:
         return Intent("expected_move", symbol=_index_of(msg))
@@ -493,7 +511,18 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
             return Intent("position_size", symbol=sym)
         if _decision_words(msg, trader):
             return Intent("stock_decision", symbol=sym)
+        r = _research.research_intent(msg, _research.symbols_in(msg, sym, stock_in))
+        if r is not None:
+            return Intent(r["name"], symbol=r["symbol"], params=r["params"])
         return _event_intent(msg, sym)
+    ls_ok = bool(last_symbol) and last_symbol.upper() not in NOT_A_STOCK and last_symbol.lower() not in _ANY_CASE
+    if ls_ok and not (_TRADE_VALIDITY.search(msg) or _EXIT_OPTIONS.search(msg) or _POSITION_SIZE.search(msg)
+                      or _decision_words(msg, trader) or _OPEN_TRADES.search(msg)):
+        # A company question that names no company ("What is the current ratio?"): the thread's stock, before the
+        # market-wide answers (research_intents refuses market-wide wording itself).
+        r = _research.research_intent(msg, [last_symbol.upper()], from_thread=True)
+        if r is not None:
+            return Intent(r["name"], symbol=r["symbol"], params=r["params"], symbol_from_thread=True)
     ev = _event_intent(msg, None)
     if ev is not None:
         return ev

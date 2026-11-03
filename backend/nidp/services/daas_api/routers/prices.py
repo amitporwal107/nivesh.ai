@@ -95,6 +95,42 @@ async def prices_adjusted(
     )
 
 
+_RESEARCH_LONG_NOTE = (
+    "RESEARCH ONLY (returns, correlation, sensitivity). basis_source 'truedata_history': TrueData's adjusted daily bar "
+    "(splits, bonuses and demergers) x stitch_factor, before the symbol's first prices_eod_adjusted day; "
+    "'NIDP_PRICE_ADJUSTER': ours (splits and bonuses). Levels meet at the seam; not quoted prices."
+)
+
+
+@router.get("/research-long/{symbol}", summary="RESEARCH ONLY: long adjusted daily series (TrueData history, then ours)")
+async def prices_research_long(
+    symbol: str = Path(..., description="NSE ticker under its CURRENT name (TrueData keys history that way)"),
+    start: Optional[str] = Query(None, description="Inclusive YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="Inclusive YYYY-MM-DD"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """nidp.v_prices_eod_long_research (migration 191), newest first."""
+    sym = normalise_symbol(symbol)
+    d_start = parse_date(start, field="start")
+    d_end = parse_date(end, field="end")
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT symbol, as_of_date, adj_open, adj_high, adj_low, adj_close, volume,
+                   stitch_factor, basis_source
+              FROM nidp.v_prices_eod_long_research
+             WHERE symbol = $1
+               AND ($2::date IS NULL OR as_of_date >= $2)
+               AND ($3::date IS NULL OR as_of_date <= $3)
+             ORDER BY as_of_date DESC
+             LIMIT $4 OFFSET $5
+            """,
+            sym, d_start, d_end, page["limit"], page["offset"],
+        )
+    return envelope([row_to_dict(r) for r in rows], **page, extra={"symbol": sym, "note": _RESEARCH_LONG_NOTE})
+
+
 @router.post("/adjusted/bulk", summary="Split/bonus-adjusted OHLC for many symbols over a date range")
 async def prices_adjusted_bulk(
     body: Dict[str, Any] = Body(

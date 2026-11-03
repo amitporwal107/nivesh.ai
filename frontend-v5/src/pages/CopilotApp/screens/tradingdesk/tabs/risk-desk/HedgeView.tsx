@@ -16,8 +16,8 @@ import { INPUT_STYLE } from "../../../trading/parts";
 import { Card } from "../../RiskControls";
 import { Kpi, ViewHead, quiet } from "./parts";
 import {
-  HEDGE_FALLS, HEDGE_MODES, HEDGE_MODE_BLURB, HEDGE_MODE_LABEL, HEDGE_TENORS, hedgeProblem, useQuickHedge,
-  type HedgeMode, type HedgeModeKey, type HedgeRequest, type HedgeResult, type HedgeTenor,
+  HEDGE_FALLS, HEDGE_MODES, HEDGE_MODE_BLURB, HEDGE_MODE_LABEL, HEDGE_TENORS, describeStructure, hedgeProblem, useQuickHedge,
+  type HedgeMode, type HedgeModeKey, type HedgeRequest, type HedgeResult, type HedgeTenor, type HoldingsSources,
 } from "./hedge-data";
 
 const DASH = "—";
@@ -25,16 +25,6 @@ const chip = (on: boolean): React.CSSProperties => ({
   flex: "none", padding: "7px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: "pointer", fontFamily: "var(--sans)", whiteSpace: "nowrap",
   border: `1px solid ${on ? "var(--mint)" : "var(--line-2)"}`, background: on ? "var(--mint)" : "transparent", color: on ? "var(--bg-0)" : "var(--cp-ink-2)",
 });
-
-function structureText(m: HedgeMode, lot: number | null): string {
-  const a = m.legs[0], b = m.legs[1];
-  const lots = a?.qty != null && lot ? Math.round(a.qty / lot) : null;
-  const units = lots == null ? "" : `${lots} ${lots === 1 ? "lot" : "lots"} of the `;
-  if (!a || a.strike == null) return DASH;
-  return m.structure === "put_spread" && b?.strike != null
-    ? `Buy ${units}${fmtNum(a.strike)} put, sell the ${fmtNum(b.strike)} put`
-    : `Buy ${units}${fmtNum(a.strike)} put`;
-}
 
 function money(v: number | null, signed = true) {
   return <span style={{ color: TONE_COLOR[signTone(v)] }}>{fmtINR(v, { signed })}</span>;
@@ -55,7 +45,7 @@ function Choice({ m, on, lot, onPick }: { m: HedgeMode; on: boolean; lot: number
       <span style={quiet}>{HEDGE_MODE_BLURB[m.mode]}</span>
       {m.available ? (
         <>
-          <span data-testid={`hedge-choice-${m.mode}-what`} style={{ fontSize: 13.5, lineHeight: 1.5 }}>{structureText(m, lot)}</span>
+          <span data-testid={`hedge-choice-${m.mode}-what`} style={{ fontSize: 13.5, lineHeight: 1.5 }}>{describeStructure(m, lot)}</span>
           <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
             Protection starts after a <b>{fmtINR(m.deductibleRs)}</b> loss{m.deductiblePct != null ? ` (Nifty down ${fmtPct(m.deductiblePct, { digits: 1 })})` : ""}.
           </span>
@@ -102,6 +92,44 @@ function Scenarios({ m, fall }: { m: HedgeMode; fall: number }) {
   );
 }
 
+/** Where the holdings come from, and the way to bring them up to date. Opens Broker connections, which also takes a CAS upload. */
+function HoldingsSourcesCard({ info, empty }: { info: HoldingsSources | null; empty: boolean }) {
+  const { go } = useCopilotShell();
+  if (!info && !empty) return null;
+  const ended = (info?.brokers ?? []).filter((b) => b.state === "ended");
+  const none = (info?.brokers ?? []).length === 0;
+  const old = info?.cas?.olderThanAMonth === true;
+  const attention = empty || !!info?.needsAttention;
+  return (
+    <Card id="hedge.sources" num="00" title="Where your holdings come from" testId="hedge-sources">
+      <div data-testid="hedge-sources-lines" data-attention={attention} className="flex min-w-0 flex-col" style={{ gap: 6 }}>
+        {empty && <span style={{ fontSize: 13.5, lineHeight: 1.55, color: TONE_COLOR.amber }}>No holdings found yet. Connect a broker or upload a CAS statement so the hedge can see them.</span>}
+        {(info?.holdings ?? []).map((h) => {
+          const cas = h.source === "cas" || h.source === "cas_upload";
+          const when = cas && info?.cas?.statementDate ? `statement dated ${info.cas.statementDate}` : h.lastUpdated ? `last updated ${h.lastUpdated}` : null;
+          return (
+            <span key={h.source} data-testid={`hedge-source-${h.source}`} style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+              <b>{h.label}</b> · {fmtNum(h.rows)} {h.rows === 1 ? "line" : "lines"}{when ? ` · ${when}` : ""}
+            </span>
+          );
+        })}
+        {(info?.brokers ?? []).map((b, i) => (
+          <span key={`${b.broker}-${i}`} data-testid={`hedge-broker-${b.broker}`} data-state={b.state} style={{ fontSize: 13.5, lineHeight: 1.55, color: b.state === "ended" ? TONE_COLOR.amber : "var(--cp-ink-2)" }}>
+            <b>{b.label}</b> · {b.state === "ended" ? "session ended, holdings may be out of date" : b.state === "active" ? "connected" : "connection needs a look"}
+          </span>
+        ))}
+        {old && <span data-testid="hedge-cas-old" style={{ fontSize: 13, lineHeight: 1.55, color: TONE_COLOR.amber }}>The statement is {info?.cas?.ageDays} days old, so recent trades may be missing.</span>}
+      </div>
+      <div className="flex flex-wrap" style={{ gap: 8 }}>
+        {ended.slice(0, 2).map((b) => <Btn key={b.broker} data-testid={`hedge-signin-${b.broker}`} onClick={() => go("page/brokers")}>Sign in to {b.label} again</Btn>)}
+        {(none || empty) && <Btn data-testid="hedge-connect-broker" variant="primary" onClick={() => go("page/brokers")}>Connect a broker</Btn>}
+        {(old || empty) && <Btn data-testid="hedge-update-cas" onClick={() => go("page/brokers")}>{empty ? "Upload a CAS statement" : "Upload a newer CAS"}</Btn>}
+        {!attention && !empty && <Btn data-testid="hedge-manage-sources" onClick={() => go("page/brokers")}>Manage broker connections</Btn>}
+      </div>
+    </Card>
+  );
+}
+
 function Answer({ res, fall, mode, onMode }: { res: HedgeResult; fall: number; mode: HedgeModeKey; onMode: (m: HedgeModeKey) => void }) {
   const { mobile } = useCopilotShell();
   const p = res.portfolio, ex = res.exposure;
@@ -113,6 +141,7 @@ function Answer({ res, fall, mode, onMode }: { res: HedgeResult; fall: number; m
       {res.reasons.map((r) => (
         <p key={r.code} role="note" data-testid={`hedge-reason-${r.code}`} className="m-0" style={{ fontSize: 13.5, lineHeight: 1.55, color: res.status === "incomplete" ? TONE_COLOR.amber : "var(--cp-ink-2)" }}>{r.message}</p>
       ))}
+      <HoldingsSourcesCard info={p.sources} empty={res.reasons.some((r) => r.code === "missing_portfolio")} />
       {p.hedgeableRs != null && p.hedgeableRs > 0 && (
         <div className="grid" style={{ gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,210px),1fr))" }}>
           <Kpi k="Equity-linked holdings" testId="hedge-kpi-hedgeable" value={fmtINR(p.hedgeableRs)} note={`of ${fmtINR(p.valueRs)} in total`} />
@@ -152,7 +181,7 @@ function Answer({ res, fall, mode, onMode }: { res: HedgeResult; fall: number; m
       )}
       <section aria-label="Data and limits" className="flex min-w-0 flex-col" style={{ gap: 6 }}>
         <p className="m-0" data-testid="hedge-dates" style={quiet}>
-          Holdings as of {p.asOf ?? "an unknown date"} · Nifty options as of {res.market.asOf ?? "an unknown date"}{res.market.putsTraded != null ? ` (${res.market.putsTraded} puts traded)` : ""}
+          Holdings last updated {p.asOf ?? "on an unknown date"} · Nifty options as of {res.market.asOf ?? "an unknown date"}{res.market.putsTraded != null ? ` (${res.market.putsTraded} puts traded)` : ""}
           {res.fit.windowEnd ? ` · fit to Nifty over ${res.fit.observations ?? "?"} sessions to ${res.fit.windowEnd}` : ""}.
         </p>
         <ul data-testid="hedge-disclosures" className="m-0" style={{ ...quiet, paddingLeft: 18 }}>{res.disclosures.map((d) => <li key={d}>{d}</li>)}</ul>
