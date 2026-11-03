@@ -83,6 +83,19 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": ["aporwal107@gmail.com"],
         "allowed_modes": ["off", "allowlist", "everyone"],
     },
+    "market_recovery": {
+        "display_name": "Market Recovery (Market Desk)",
+        "description": (
+            "Market Desk › Market Recovery: whether the market is recovering (Nifty 50 trend, Nifty 500 breadth, India VIX), "
+            "the leading sectors, and the Nifty 500 stocks that score best on relative strength, technical recovery, volume and "
+            "delivery, fundamentals and smart-money signals, with an entry zone, stop loss and two targets per stock (the "
+            "owner's chosen wording for this page). End-of-day data, rule-based, not back-tested; reads only. Allow-listed "
+            "for the owner while it is new."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist", "everyone"],
+    },
     "ai_copilot": {
         "display_name": "AI Copilot (Scenario Engine)",
         "description": "Simulate scenarios, rebalance plans, custom builder, saved/pending plans",
