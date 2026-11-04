@@ -9,7 +9,8 @@
  *                                         its sub-views (sub=):
  *                                           scanner     AI Scanner      ranked · library · scorecard
  *                                           chart       Chart Analysis  live · record
- *                                           paper       Paper Trading   live · journal
+ *                                           paper       Paper Trading   live · journal · pnl (P&L dashboard: the real-time paper
+ *                                                                         P&L, owner 4 Nov; docs/paper_pnl_dashboard/DESIGN.md)
  *                                           watchlists  Watchlists      (one page)
  *                                         Strategy Lab was removed (owner, 29 Oct: "remove strategy lab completely"); trades
  *                                         are built on the chart's paper basket now, so every lab URL opens Chart Analysis ›
@@ -94,7 +95,8 @@ export const FLAGGED_SUBS: Readonly<Record<string, string>> = {
 export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
   "trade/scanner": [{ key: "ranked", label: "Ranked candidates" }, { key: "library", label: "Signal library & sources" }, { key: "scorecard", label: "Scorecard" }],
   "trade/chart": [{ key: "live", label: "Live chart" }, { key: "record", label: "Signal record" }],
-  "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }],
+  // P&L dashboard: the real-time paper P&L (owner, 4 Nov 2026: a third Paper Trading sub-view; docs/paper_pnl_dashboard/DESIGN.md)
+  "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }, { key: "pnl", label: "P&L dashboard" }],
   // Market Desk › Screener: the screener as it was, then the Chartink-style scans on our own data (owner, 3 Nov)
   "market/screener": [{ key: "screens", label: "Screener" }, { key: "dashboard", label: "Scan dashboard" }, { key: "builder", label: "Scan builder" }],
 };
