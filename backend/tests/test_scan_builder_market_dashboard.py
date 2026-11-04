@@ -469,3 +469,63 @@ def test_the_dashboard_carries_todays_signals_and_says_when_it_is_not_recording(
     s = out["signals"][0]
     assert s["symbol"] == "AAA" and s["entry"] == 100.0 and s["price_now"] == 106.0 and s["move_since_pct"] == 6.0
     assert "Stop loss" in out["signals_meta"]["rules"] and out["signals_meta"]["caveat"]
+
+
+# ── trade side: TrueData first, Kite 1-minute candles when TrueData gives nothing (owner 4 Nov) ────────────────────────
+
+def test_trade_side_uses_truedata_when_it_answers_and_kite_when_it_does_not():
+    asked = {}
+
+    async def td_ok(symbols):
+        return _Flow(values={"AAA": {"buy_trades": 9.0, "sell_trades": 3.0}}, source="TrueData ticks")
+
+    async def td_refused(symbols):
+        return _Flow(values={}, warnings=["No TrueData login (the user name or password is incorrect or subscription expired)"])
+
+    async def kite(symbols):
+        asked["kite"] = list(symbols)
+        return MD._SideResult(values={"AAA": {"buy_trades": 40.0, "sell_trades": 25.0}}, as_of="2026-11-04T10:05:00+05:30",
+                              source=MD.KITE_SIDE_SOURCE, warnings=[], missing=[])
+
+    r = asyncio.run(MD._default_tick_flow(["AAA"], truedata=td_ok, kite=kite))
+    assert r.source == "TrueData ticks" and "kite" not in asked
+    r = asyncio.run(MD._default_tick_flow(["AAA"], truedata=td_refused, kite=kite))
+    assert asked["kite"] == ["AAA"] and r.source.startswith("Kite live ticks") and r.values["AAA"]["buy_trades"] == 40.0
+    assert any("No TrueData login" in w for w in r.warnings)
+
+
+def test_kite_sides_read_the_live_feeds_counts_and_ask_for_the_rest():
+    requested = []
+
+    async def read_quotes(symbols):
+        return {"AAA": {"ask_trades": 120, "bid_trades": 80, "ask_volume": 5000.0, "bid_volume": 3000.0,
+                        "received_at": "2026-11-04T10:05:01.250+05:30", "sides_since": "2026-11-04T09:15:00+05:30"},
+                "BBB": {"ltp": 50.0}}                                              # in the feed, no counts yet
+
+    async def request(symbols):
+        requested.extend(symbols)
+    r = asyncio.run(MD.kite_sides(["AAA", "BBB", "CCC"], read_quotes=read_quotes, request=request))
+    assert r.values == {"AAA": {"buy_trades": 120.0, "sell_trades": 80.0, "buy_volume": 5000.0, "sell_volume": 3000.0}}
+    assert r.missing == ["BBB", "CCC"] and requested == ["BBB", "CCC"] and r.as_of == "2026-11-04T10:05:01.250+05:30"
+    assert "not counted yet for 2 stock(s)" in r.warnings[0]
+
+
+def test_the_card_says_when_the_trade_side_came_from_kite(tmp_path, monkeypatch):
+    monkeypatch.setattr(MD, "WIDGETS", [_v10_any_volume()])
+
+    async def candles(symbols, interval, needs, *, lookback_days, **kw):
+        return _Intra(values={"AAA": {"first_vol": 100.0, "sma1000": 5.0}, "CCC": {"first_vol": 40.0, "sma1000": 5.0}},
+                      as_of="2026-11-04T09:20:00+05:30")
+
+    async def from_kite(symbols):
+        return MD._SideResult(values={"AAA": {"buy_trades": 30.0, "sell_trades": 10.0}}, as_of="2026-11-04T10:05:00+05:30",
+                              source=MD.KITE_SIDE_SOURCE, warnings=[], missing=[])
+
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=candles, index_result=_indices,
+                                 tick_flow=from_kite))
+    t = out["widgets"][0]
+    assert t["status"] == "ok" and [r[0] for r in t["rows"]] == ["AAA"]
+    flow_line = [ln for ln in t["criteria"] if ln["text"].startswith("Trades initiated at the ask")][0]
+    assert flow_line["applied"] is True and "Kite live ticks" in flow_line["note"]
+    assert "Kite ticks to 10:05:00 IST" in t["as_of"]
+    assert BANNED.search(flow_line["text"] + " " + flow_line["note"]) is None

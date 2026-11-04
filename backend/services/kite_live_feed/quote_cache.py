@@ -20,6 +20,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from .trade_side import FIELDS as SIDE_FIELDS
+
 logger = logging.getLogger(__name__)
 
 PREFIX = "nivesh:quote:"
@@ -54,7 +56,9 @@ def cache_row(q: dict, kind: str, session: Optional[str]) -> dict:
             "volume": q.get("volume"), "oi": q.get("oi"), "oi_high": q.get("oi_high"), "oi_low": q.get("oi_low"),
             "bid": q.get("bid"), "ask": q.get("ask"), "bid_qty": q.get("bid_qty"), "ask_qty": q.get("ask_qty"),
             "exchange_ts": q.get("exchange_ts"), "ts": q.get("ts"), "received_at": q.get("received_at"),
-            "source": q.get("source"), "session": session}
+            "source": q.get("source"), "session": session,
+            # the day's buyer/seller-initiated prints of a cash stock (trade_side.py); None when the feed did not count them
+            **{k: q.get(k) for k in SIDE_FIELDS}}
 
 
 def as_quote(row: dict) -> dict:
@@ -66,6 +70,9 @@ def as_quote(row: dict) -> dict:
          "volume": row.get("volume"), "oi": row.get("oi"), "ts": row.get("ts"),
          "bid": row.get("bid"), "ask": row.get("ask"), "bid_qty": row.get("bid_qty"), "ask_qty": row.get("ask_qty"),
          "exchange_ts": row.get("exchange_ts"), "received_at": row.get("received_at"), "source": row.get("source")}
+    sides = {k: row.get(k) for k in SIDE_FIELDS}
+    if any(v is not None for v in sides.values()):
+        q.update(sides)               # only when counted, so a quote has the same keys whichever store answered it
     kind = row.get("kind")
     if kind == "FUT":
         q.update({"instrument": "FUT", "underlying": row.get("underlying"), "expiry": row.get("expiry"),
