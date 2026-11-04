@@ -1,0 +1,22 @@
+# SPT slice A — final pytest run, 2026-11-05 02:49 IST, branch feat/spt-signals @ 841a0d8d
+# command: sudo -n docker run --rm --network none -v /home/deploy/nivesh-wt-spt-a:/work:ro -w /work/backend -e PYTHONDONTWRITEBYTECODE=1 -e MONGO_URL=mongodb://localhost:27017 -e DB_NAME=unit_test -e OPENAI_API_KEY=unit-test-placeholder nivesh/backend:staging sh -c "python -m pytest tests/test_spt_a_*.py tests/test_scan_builder*.py tests/test_exit_watch.py tests/test_kite_trade_side.py tests/test_market_recovery_indices.py tests/test_paper_pnl_live.py -q -p no:cacheprovider"
+
+........................................................................ [ 14%]
+........................................................................ [ 29%]
+........................................................................ [ 43%]
+........................................................................ [ 58%]
+........................................................................ [ 72%]
+........................................................................ [ 87%]
+..............................................................           [100%]
+=============================== warnings summary ===============================
+../../usr/local/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /usr/local/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+../../usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:263
+  /usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:263: FutureWarning: You are using a Python version (3.11.18) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2027-10-24). Please upgrade to the latest Python version, or at least Python 3.12, to continue receiving updates for google.api_core past that date.
+    warnings.warn(message, FutureWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+494 passed, 2 warnings in 13.28s
+# exit code: 0
