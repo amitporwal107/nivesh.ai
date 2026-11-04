@@ -452,12 +452,26 @@ def pnl_api(world, monkeypatch):
 
     monkeypatch.setattr(pnl_route.prices, "resolve", fake_resolve)
     monkeypatch.setattr(bk, "_CACHE", {})
+    # v2: the broker side (services/paper_pnl/live.py) is read through a fake: no account unless a test adds some.
+    brokers: Dict[str, Any] = {"entries": [], "rows": [], "reads": 0, "fail": None}
+
+    async def fake_read(request, db, uid):
+        brokers["reads"] += 1
+        if brokers["fail"] is not None:
+            raise brokers["fail"]
+        return [dict(e) for e in brokers["entries"]], [dict(r) for r in brokers["rows"]]
+
+    monkeypatch.setattr(pnl_route.live, "_read", fake_read)
+    monkeypatch.setattr(pnl_route.live, "_CACHE", {})
+    monkeypatch.setattr(timeseries, "_CACHE", {})
     trades = world.db.cols[bk.svc.TRADES]
     plain_find = trades.find
     monkeypatch.setattr(trades, "find", lambda query, projection=None: plain_find(query))   # the fake ignores projections
     app = FastAPI()
     app.include_router(pnl_route.router)
-    return TestClient(app), live
+    client = TestClient(app)
+    client.brokers = brokers                                     # type: ignore[attr-defined]
+    return client, live
 
 
 def test_tc025_route_reads_without_writing_and_matches_the_desk(world, api, pnl_api):
@@ -476,7 +490,9 @@ def test_tc025_route_reads_without_writing_and_matches_the_desk(world, api, pnl_
     assert row["avg_price"] == trade["sim_entry_price"] and row["ltp"] == trade["last_close"]
     assert row["unrealized_pnl"] == trade["unrealized_pnl_rs"] and row["price_status"] == EOD
     assert row["charges_estimated"] == trade["costs_rs"] and row["net_pnl"] == trade["net_pnl_rs"]
-    assert body["mode"] == "PAPER" and body["read_only"] is True and isinstance(body["sequence"], int)
+    # v2: `mode` is the selected mode (ALL by default); every paper row still says PAPER
+    assert body["mode"] == "ALL" and body["read_only"] is True and isinstance(body["sequence"], int)
+    assert all(p["mode"] == "PAPER" and p["account_id"] == "paper" for p in body["positions"])
     # a live price moves the dashboard and nothing else
     live["FIXA"] = 104.0
     body2 = client.get("/api/desk/pnl", params={"period": "ALL"}, headers=A).json()

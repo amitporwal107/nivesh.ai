@@ -55,6 +55,7 @@ class Leg:
     eod_date: Optional[str] = None
     eod_basis: Optional[str] = None
     prev_eod: Optional[float] = None   # the session before eod_date's close (cash only; for the day's move)
+    tradingsymbol: Optional[str] = None  # a broker row's own Kite F&O symbol (LIVE positions): priced by it directly
 
 
 @dataclass
