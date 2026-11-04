@@ -136,6 +136,7 @@ from routes.markets_evidence import router as markets_evidence_router  # Trading
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
 from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
+from routes.desk_pnl import router as desk_pnl_router  # Trade Desk › Paper Trading › P&L dashboard (/api/desk/pnl*), read-only
 from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
 from routes.desk_chart_events import router as desk_chart_events_router  # Live chart: market events + the stock's reaction (/api/desk/chart-events/*, read only)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
@@ -299,6 +300,7 @@ app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/
 app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit, /decisions, /policy
 app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
+app.include_router(desk_pnl_router)          # /api/desk/pnl, /api/desk/pnl/stream, /api/desk/pnl/timeseries (paper P&L, read-only)
 app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}
 app.include_router(desk_chart_events_router)  # /api/desk/chart-events/{symbol}
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
