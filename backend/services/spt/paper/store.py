@@ -89,6 +89,7 @@ async def ensure_indexes(db) -> None:
         await db[ORDERS].create_index([("state", 1), ("created_at", 1)])
         await db[ORDERS].create_index([("position_id", 1)])
         await db[ORDERS].create_index([("proposal_id", 1)])
+        await db[ORDERS].create_index([("updated_at", -1)])
         await db[FILLS].create_index([("order_id", 1), ("seq", 1)], unique=True)
         await db[FILLS].create_index([("user_id", 1), ("at", -1)])
         await db[FILLS].create_index([("position_id", 1)])
@@ -96,7 +97,7 @@ async def ensure_indexes(db) -> None:
         await db[POSITIONS].create_index([("user_id", 1), ("symbol", 1), ("direction", 1)], unique=True,
                                          partialFilterExpression={"is_open": True})
         await db[POSITIONS].create_index([("user_id", 1), ("state", 1)])
-        await db[POSITIONS].create_index([("state", 1)])
+        await db[POSITIONS].create_index([("state", 1), ("updated_at", -1)])
         _indexed = True
     except Exception as e:  # noqa: BLE001
         logger.warning("spt paper: indexes not created (%s)", type(e).__name__)

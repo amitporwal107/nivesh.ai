@@ -292,3 +292,24 @@ def test_c26_gating_leader_and_robustness(w, monkeypatch):
 def test_c26b_start_respects_the_flag(monkeypatch):
     monkeypatch.setenv("SPT_C_ENABLED", "0")
     assert monitor.start() is False
+
+
+def test_c25d_a_low_below_only_a_stop_raised_later_that_day_is_not_a_missed_stop(w):
+    o, pos = open_position(w, max_hold=2.0)                                # a float from B still counts
+    # 6 Nov: a dip to 97.0 in the morning (stop 96), then T1 at 108 moves the stop to breakeven (~100.4)
+    d6 = date(2026, 11, 6)
+    live(w, "FIXA", 97.1, t=ist(9, 30, day=d6), bid=97.0, ask=97.1, bid_qty=10_000)
+    live(w, "FIXA", 108.2, t=ist(11, 0, day=d6), bid=108.1, ask=108.2, bid_qty=10_000)
+    p = run(store.get_position(w.db, pos["_id"]))
+    assert p["t1_done"] and p["stop_loss"] > 100.0
+    before = [d for d in weekdays(date(2026, 10, 1), 30) if d <= date(2026, 11, 5)][-20:]
+    w.bars["FIXA"] = bars_for(before + [d6], [100.0] * len(before) + [107.0], lows=[None] * len(before) + [97.0])
+    assert monitor.lowest_stop_today(p, d6) == 96.0
+    run(monitor.evening_round(ist(19, 0, day=d6), w.deps()))
+    p = run(store.get_position(w.db, pos["_id"]))
+    assert p["state"] != C.POS_EXIT_PENDING and p["sessions_held"] == 1
+    d9 = date(2026, 11, 9)
+    w.bars["FIXA"] = w.bars["FIXA"] + bars_for([d9], [107.5])
+    run(monitor.evening_round(ist(19, 0, day=d9), w.deps()))
+    p = run(store.get_position(w.db, pos["_id"]))
+    assert p["state"] == C.POS_EXIT_PENDING and p["pending_exit"]["reason"] == "time"

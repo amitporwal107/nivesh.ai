@@ -139,6 +139,29 @@ def _validate_entry(order: Dict[str, Any], risk_decision: Dict[str, Any], now: d
     return None
 
 
+async def _entry_refusal(db, order: Dict[str, Any], risk_decision: Dict[str, Any], now: datetime) -> Optional[str]:
+    """The first reason this ENTRY is refused, or None: the pure checks, then the kill switch / halt / account block,
+    an open position in the symbol, and the reservation itself — it must be on the account under this order's id
+    (DESIGN §4: order_id = the reservation's trade_id). A reservation that is missing or belongs to another trade is
+    marked `not_ours` first, so the refusal never releases what this order does not hold."""
+    why = _validate_entry(order, risk_decision, now)
+    if why is not None:
+        return why
+    block = await controls.entry_block(db, order["user_id"])
+    if block is not None:
+        return block["code"]
+    if await db[store.POSITIONS].find_one({"user_id": order["user_id"], "symbol": order["symbol"], "direction": "long",
+                                           "is_open": True}) is not None:
+        return "position_already_open"
+    rid = risk_decision.get("reservation_id")
+    account = await db[acct.ACCOUNTS].find_one({"user_id": order["user_id"]}) or {}
+    held = [e for e in account.get("reservations") or [] if e.get("id") == rid]
+    if not held or held[0].get("trade_id") != order["_id"]:
+        await db[store.ORDERS].update_one({"_id": order["_id"]}, {"$set": {"reservation_state": "not_ours"}})
+        return "reservation_not_found" if not held else "reservation_trade_mismatch"
+    return None
+
+
 async def create_entry_order(db, *, user_id: str, proposal_id: Optional[str], opportunity_id: Optional[str],
                              risk_decision: Dict[str, Any], symbol: str, side: str, order_type: str, quantity: Any,
                              limit_price: Any, trigger_price: Any, time_in_force: str, expires_at: Any,
@@ -200,14 +223,7 @@ async def create_entry_order(db, *, user_id: str, proposal_id: Optional[str], op
             return {**first, "duplicate": True}
         raise
     await _emit(db, doc, "PAPER_ORDER_CREATED", f"order:{order_id}:created", _order_payload(doc), moment)
-    why = _validate_entry(doc, rd, moment)
-    if why is None:
-        block = await controls.entry_block(db, user_id)
-        if block is not None:
-            why = block["code"]
-    if why is None and await db[store.POSITIONS].find_one(
-            {"user_id": user_id, "symbol": doc["symbol"], "direction": "long", "is_open": True}) is not None:
-        why = "position_already_open"
+    why = await _entry_refusal(db, doc, rd, moment)
     if why is not None:
         return await reject(db, order_id, why, now=moment) or doc
     v = await store.transition(db, store.ORDERS, order_id, expect_states=[C.ORD_CREATED], expect_version=0,
@@ -225,11 +241,7 @@ async def advance_new(db, order: Dict[str, Any], now: datetime) -> Optional[Dict
     if order.get("state") not in (C.ORD_CREATED, C.ORD_VALIDATED):
         return order
     if order.get("purpose") == "ENTRY" and order["state"] == C.ORD_CREATED:
-        why = _validate_entry(order, {**(order.get("risk") or {}), "outcome": (order.get("risk") or {}).get("outcome")},
-                              now)
-        if why is None:
-            block = await controls.entry_block(db, order["user_id"])
-            why = block["code"] if block else None
+        why = await _entry_refusal(db, order, dict(order.get("risk") or {}), now)
         if why is not None:
             return await reject(db, order["_id"], why, now=now)
     cur = order

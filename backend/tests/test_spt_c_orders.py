@@ -233,3 +233,15 @@ def test_c17b_missing_reservation_is_recorded_not_fixed(w):
     assert closed["state"] == C.POS_CLOSED and closed["release"]["state"] == "missing_reservation"
     assert w.ledger("user_a", "release") == []
     assert run(w.account("user_a"))["cash_rs"] == acct.DEFAULT_CAPITAL
+
+
+def test_c03d_reservation_must_be_this_orders(w):
+    missing = run(w.entry(decision={"outcome": "allow", "reservation_id": "not-on-account", "approved_qty": 100}))
+    assert missing["state"] == C.ORD_REJECTED and missing["reject_reason"] == "reservation_not_found"
+    assert missing["reservation_state"] == "not_ours"
+    rd_other = run(w.reserve("user_a", "someone-elses-order", qty=10, entry=100.0, stop=96.0, symbol="FIXQ"))
+    o = run(w.entry(symbol="FIXR", qty=10, decision=rd_other))
+    assert o["state"] == C.ORD_REJECTED and o["reject_reason"] == "reservation_trade_mismatch"
+    acc = run(w.account("user_a"))
+    assert any(e["trade_id"] == "someone-elses-order" for e in acc["reservations"])     # untouched
+    assert w.ledger("user_a", "cancel_reservation") == []

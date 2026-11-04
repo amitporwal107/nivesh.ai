@@ -70,6 +70,7 @@ IDLE_S = 60.0
 EVENING_EVERY_S = 600.0
 EVENING_FROM, EVENING_TO = dtime(18, 30), dtime(23, 30)
 NEW_ORDER_GRACE_S = 30
+HOUSEKEEPING_WINDOW_DAYS = 3
 BARS_LOOKBACK_DAYS = 120
 SMA_PERIOD = 20
 MAX_ERRORS_KEPT = 20
@@ -133,9 +134,11 @@ class _Round:
 
 # ── housekeeping (every pass) ────────────────────────────────────────────────────────────────────────────────────────
 
-async def housekeeping(db, now: datetime, r: _Round) -> None:
-    """Finish what a stopped process left half done (module docstring). Each item its own try."""
+async def housekeeping(db, now: datetime, r: _Round, *, full: bool = False) -> None:
+    """Finish what a stopped process left half done (module docstring). Each item its own try. A routine pass looks at
+    documents changed in the last HOUSEKEEPING_WINDOW_DAYS (an indexed read); the startup pass (`full`) at all of them."""
     grace = store.iso(now - timedelta(seconds=NEW_ORDER_GRACE_S))
+    window: Dict[str, Any] = {} if full else {"updated_at": {"$gte": store.iso(now - timedelta(days=HOUSEKEEPING_WINDOW_DAYS))}}
     try:
         stuck = await db[store.ORDERS].find({"state": {"$in": [C.ORD_CREATED, C.ORD_VALIDATED]},
                                              "created_at": {"$lte": grace}}).to_list(1000)
@@ -149,7 +152,7 @@ async def housekeeping(db, now: datetime, r: _Round) -> None:
         except Exception as e:  # noqa: BLE001
             r.fail(f"advance_new {o['_id']}", e)
     try:
-        behind = await db[store.ORDERS].find({"$or": [
+        behind = await db[store.ORDERS].find({**window, "$or": [
             {"$expr": {"$lt": [{"$ifNull": ["$position_seq", 0]}, {"$ifNull": ["$fills_seq", 0]}]}},
             {"$expr": {"$lt": [{"$ifNull": ["$logged_seq", 0]}, {"$ifNull": ["$fills_seq", 0]}]}},
             {"state": {"$in": list(orders.TERMINAL)}, "terminal_done": False}]}).to_list(1000)
@@ -176,7 +179,7 @@ async def housekeeping(db, now: datetime, r: _Round) -> None:
         except Exception as e:  # noqa: BLE001
             r.fail(f"ensure_exit {p['_id']}", e)
     try:
-        owed = await db[store.POSITIONS].find({"state": C.POS_CLOSED, "$or": [
+        owed = await db[store.POSITIONS].find({**window, "state": C.POS_CLOSED, "$or": [
             {"release.state": {"$in": ["pending", "claimed"]}}, {"outcome": None}]}).to_list(1000)
     except Exception as e:  # noqa: BLE001
         r.fail("housekeeping.read_closed", e)
@@ -373,6 +376,24 @@ def _bar_day(b: Dict[str, Any]) -> Optional[date]:
         return None
 
 
+def lowest_stop_today(pos: Dict[str, Any], today: date) -> Optional[float]:
+    """The lowest stop in force at any time during `today`'s session: the stop at the open and every stop set during the
+    day. A low at or below it went through the stop whenever it happened; a low below only a stop raised later that day
+    (breakeven after T1) may have come before the raise and is not counted."""
+    open_at = datetime.combine(today, store.OPEN, tzinfo=store.IST)
+    stops: List[float] = []
+    at_open: Optional[float] = None
+    for h in pos.get("stop_history") or []:
+        t = store.parse_ts(h.get("at"))
+        s = execution._num(h.get("stop"))
+        if t is None or t <= open_at:
+            at_open = s
+        elif store.ist_day(t) == today:
+            stops.append(s)
+    cands = [x for x in [at_open, *stops] if x is not None]
+    return min(cands) if cands else None
+
+
 def trail_stop(pos: Dict[str, Any], warm: List[Dict[str, Any]], held: List[Dict[str, Any]]) -> Optional[float]:
     """The ATR trail's stop after the held bars (services/exit_rules trail-atr-v1: highest high since entry − k × ATR14,
     never loosening), or None when the trail is off or cannot be worked out."""
@@ -404,10 +425,11 @@ async def evening_position(db, pos: Dict[str, Any], bars: List[Dict[str, Any]], 
     last = bars[-1]
     low, close = execution._num(last.get("low")), execution._num(last.get("close"))
     stop = execution._num(pos.get("stop_loss"))
+    floor = lowest_stop_today(pos, today)
     pending: Optional[Dict[str, Any]] = None
-    if held and stop is not None and low is not None and low <= stop and pos.get("state") != C.POS_CLOSING:
+    if held and floor is not None and low is not None and low <= floor and pos.get("state") != C.POS_CLOSING:
         pending = {"reason": "trailing" if _trail_raised(pos) else "stop", "note": "stop_breached_without_live_exit",
-                   "low": low, "stop": stop, "day": today.isoformat()}
+                   "low": low, "stop": floor, "day": today.isoformat()}
     cand = trail_stop(pos, warm, held)
     if cand is not None and (stop is None or cand > stop + 1e-9):
         if await positions.move_stop(db, pos["_id"], cand, reason="trailing_atr", by=positions.SERVICE_ACTOR, now=now,
@@ -422,8 +444,8 @@ async def evening_position(db, pos: Dict[str, Any], bars: List[Dict[str, Any]], 
             if close < sma - 1e-9:
                 pending = {"reason": "trend", "rule": trend.get("rule") or "close_below_sma20", "close": close,
                            "sma20": round(sma, 2), "day": today.isoformat()}
-    mh = pos.get("max_hold_sessions")
-    if pending is None and isinstance(mh, int) and mh > 0 and sessions >= mh:
+    mh = orders._whole(pos.get("max_hold_sessions"))
+    if pending is None and mh is not None and sessions >= mh:
         pending = {"reason": "time", "sessions_held": sessions, "max_hold_sessions": mh, "day": today.isoformat()}
     for _ in range(positions.MAX_RETRIES):
         cur = await store.get_position(db, pos["_id"])
@@ -492,7 +514,7 @@ async def startup(db, now: datetime) -> Dict[str, Any]:
     """The first pass of a process: finish leftovers, then reconcile (marks, never moves money)."""
     r = _Round()
     await store.ensure_indexes(db)
-    await housekeeping(db, now, r)
+    await housekeeping(db, now, r, full=True)
     try:
         rep = await reconcile.startup_check(db, now=now)
     except Exception as e:  # noqa: BLE001
