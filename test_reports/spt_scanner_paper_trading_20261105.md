@@ -40,6 +40,14 @@ after the rename (tests/test_order_path_guard.py + tests/test_spt_*.py + tests/t
 - Full CI allowlist (342 files) before the rename: `4 failed, 9820 passed, 52 skipped`. Three of the failures are known
   and fail on a clean dev too: `test_cas_api_client` ×2 and `test_nidp_stamp_broadcast_at`. The fourth was the
   order-path guard, fixed by INT-4.
+- Full CI allowlist after the rename:
+  ```
+  FAILED tests/test_cas_api_client.py::test_sandbox_parse_and_map - AssertionEr...
+  FAILED tests/test_cas_api_client.py::test_convenience_helper_returns_list - a...
+  FAILED tests/test_nidp_stamp_broadcast_at.py::test_run_commits_in_batches - a...
+  3 failed, 9821 passed, 52 skipped, 16 warnings in 255.66s (0:04:15)
+  ```
+  Only the three known failures remain.
 
 ## Staging API run, outside the session (5 Nov 02:56 IST, real output)
 
