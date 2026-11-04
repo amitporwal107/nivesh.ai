@@ -10,6 +10,7 @@ MOCK — not real data, except where a test says it copied a record from the 4 N
 """
 from __future__ import annotations
 
+import copy
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -20,7 +21,7 @@ from services.spt.opportunities import store as opp_store
 from services.spt.signals import hook
 from services.spt.signals import store as sig_store
 from tests import mongo_ops
-from tests.test_desk_trading import FakeCollection, _Result
+from tests.test_desk_trading import FakeCollection, _Cursor, _Result
 
 IST = timezone(timedelta(hours=5, minutes=30))
 DAY = "2026-11-04"                                                    # a Wednesday
@@ -31,6 +32,20 @@ def ist(h: int, m: int, s: int = 0, day: date = D) -> datetime:
     return datetime(day.year, day.month, day.day, h, m, s, tzinfo=IST)
 
 
+class Cursor(_Cursor):
+    """tests/test_desk_trading._Cursor plus `async for` (Motor cursors support it; the analytics stream one)."""
+
+    def __aiter__(self):
+        self._it = iter(self._docs)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
 class Coll(FakeCollection):
     async def create_index(self, keys, **kw):
         if isinstance(keys, str):
@@ -38,7 +53,7 @@ class Coll(FakeCollection):
         return await super().create_index(keys, **kw)
 
     def find(self, query, projection=None):
-        return super().find(query)
+        return Cursor([copy.deepcopy(d) for d in self.docs if mongo_ops.match(d, query)])
 
     async def update_many(self, query, update):
         n = 0
@@ -74,6 +89,7 @@ def reset_module_state() -> None:
     opp_store._indexed = False
     hook._known.clear()
     cons._handled.clear()
+    cons._retry.clear()
 
 
 def events_of(db: DB, event_type: Optional[str] = None) -> List[Dict[str, Any]]:

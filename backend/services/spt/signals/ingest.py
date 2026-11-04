@@ -8,9 +8,11 @@ becomes ONE immutable event in `spt_signal_events` with the PRD §6.2 fields plu
     detected_at         the mark's `first_seen` / the strong record's `first_strong`, as UTC ISO (the raw IST string stays in
                         supporting_metrics); detected_price = its `entry` (the live price then)
     scanner_score       strong: `score_at`. List mark: the stock's strength score from the day's scores doc
-                        (signals.load_scores) ONLY when that doc's as_of is within SCORE_MATCH_S of the detection; the doc
-                        is rewritten all day, so a later read is not the score at detection → null with scanner_score_note.
-                        Never invented.
+                        (signals.load_scores) ONLY when that doc was saved at or after the detection and at most
+                        SCORE_MATCH_S later. The scan round that records a mark scores the stock and saves the doc with the
+                        same timestamp afterwards; a doc saved before the detection predates the mark (a stock new to the
+                        lists is not in it) and one saved much later is not the score at detection → null with
+                        scanner_score_note. Never invented.
     supporting_metrics  the raw record exactly as the scan stored it
     market_regime       null at ingest (the validation records the regime it read, with its date)
     expiry_at           the end of the signal's consolidation window (clock.window_until)
@@ -20,8 +22,10 @@ becomes ONE immutable event in `spt_signal_events` with the PRD §6.2 fields plu
                             missing_price      no positive detection price
                             invalid_timestamp  no parseable, timezone-aware time, or its IST day is not the record's day
                             outside_session    detected outside 09:15–15:30 IST on a weekday
-                            stale              received after its expiry_at (an expired signal delivered late; PRD §23.3
-                                               scenario 12): stored for the record and for outcomes, never consolidated
+                            stale              received more than STALE_GRACE_S after its expiry_at (an expired signal
+                                               delivered late; PRD §23.3 scenario 12): stored for the record and for
+                                               outcomes, never consolidated. The grace covers the hook's own delay for a
+                                               mark recorded in the session's last seconds.
                         A quarantined event is still stored (Workflow §4.5: the original event is preserved).
     outcome_eligible    symbol, price and time are valid (the signal can be measured even when it was received late)
 
@@ -45,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "spt-signal-ingest"
 SCORE_MATCH_S = 120
+STALE_GRACE_S = 120
 SYMBOL_RE = re.compile(r"^[A-Z0-9&-]{1,20}$")
 OUTCOME_BLOCKERS = {"invalid_symbol", "missing_price", "invalid_timestamp"}
 SCAN_SOURCE = "Scan dashboard signals (services/scan_builder/signals.py, Redis)"
@@ -56,7 +61,8 @@ EXPLAIN = {
     "missing_price": "The record has no price at detection.",
     "invalid_timestamp": "The detection time {ts!r} is missing, unparseable, without a timezone, or not on {day}.",
     "outside_session": "Detected at {ts}, outside the 09:15–15:30 IST weekday session.",
-    "stale": "Received at {now} after the signal's expiry ({exp}): an expired signal delivered late.",
+    "stale": "Received at {now}, more than " + str(STALE_GRACE_S) + " s after the signal's expiry ({exp}): an expired "
+             "signal delivered late.",
 }
 
 
@@ -85,9 +91,9 @@ def _score_from_doc(symbol: str, detected: Optional[datetime], scores_doc: Optio
     if as_of is None:
         return None, None, "no scores doc for the day"
     lag = (as_of - detected).total_seconds()
-    if abs(lag) > SCORE_MATCH_S:
+    if lag < 0 or lag > SCORE_MATCH_S:
         return None, clock.utc_iso(as_of), (f"the day's scores are as of {doc.get('as_of')}, {lag:+.0f} s from the "
-                                            f"detection (match window ±{SCORE_MATCH_S} s): not the score at detection")
+                                            f"detection (match window 0 to +{SCORE_MATCH_S} s): not the score at detection")
     rec = (doc.get("scores") or {}).get(symbol) or {}
     sc = rec.get("score")
     if not isinstance(sc, (int, float)) or isinstance(sc, bool):
@@ -109,7 +115,7 @@ def _checks(*, mapped: bool, symbol: Any, price: Optional[float], detected: Opti
         reasons.append("invalid_timestamp")
     elif not clock.in_session(detected):
         reasons.append("outside_session")
-    if expiry is not None and now > expiry:
+    if expiry is not None and (now - expiry).total_seconds() > STALE_GRACE_S:
         reasons.append("stale")
     return reasons
 

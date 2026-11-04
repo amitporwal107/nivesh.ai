@@ -6,7 +6,9 @@ whose failure is logged (with its type) by the task's done-callback. The day's s
 for the list marks' scanner_score (ingest._score_from_doc).
 
 `catch_up(db, day)` reads the day's whole list index and strong index from the signal store and ingests every mark not yet
-stored (idempotent: a stored mark is a no-op). The SPT loop runs it every round, so a hook that did not run (another
+stored (idempotent: a stored mark is a no-op). A list mark younger than delay_s() + CATCH_UP_MARGIN_S is left for the
+hook (and the next round): taking it earlier would read the scores doc before the mark's own round saved it, and the event
+is insert-only, so its score could never be filled in. The SPT loop runs it every round, so a hook that did not run (another
 worker, a restart, the flag off on that worker, Redis briefly unreadable) loses nothing while Redis keeps the day (3 days).
 
 A list mark's ingest waits SPT_INGEST_DELAY_S (default 20 s) first: the scan round that recorded the mark saves the day's
@@ -24,11 +26,12 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-from . import ingest, store as sig_store
+from . import clock, ingest, store as sig_store
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DELAY_S = 20.0
+CATCH_UP_MARGIN_S = 15.0
 _tasks: Set["asyncio.Task[Any]"] = set()
 _known: Dict[str, Set[str]] = {}            # this process: day -> signal ids known to be stored (catch-up skips them)
 
@@ -131,6 +134,16 @@ async def catch_up(db, day: str, *, scan_store: Any = None, now: Optional[dateti
     """Ingest every mark and strong signal of `day` not yet stored. Returns ingest counts plus {"read": n}."""
     now = now or datetime.now(timezone.utc)
     got = await read_day(day, scan_store=scan_store)
+    min_age = delay_s() + CATCH_UP_MARGIN_S
+    young = 0
+    marks = []
+    for m in got["marks"]:
+        seen = clock.parse_ts(m.get("first_seen"))
+        if seen is not None and (now - seen).total_seconds() < min_age:
+            young += 1                                   # the hook's (or the next round's) to take
+            continue
+        marks.append(m)
+    got["marks"] = marks
     ids = ([ingest.list_signal_id(day, str(m.get("widget_id")), str(m.get("symbol"))) for m in got["marks"]]
            + [ingest.strong_signal_id(day, str(r.get("symbol"))) for r in got["strong"]])
     known = _known.setdefault(day, set())
@@ -146,4 +159,5 @@ async def catch_up(db, day: str, *, scan_store: Any = None, now: Optional[dateti
     if counts["errors"]:
         _known[day] = known - set(ids)          # retry the whole day's unknowns next round rather than lose one
     counts["read"] = len(ids)
+    counts["left_for_hook"] = young
     return counts

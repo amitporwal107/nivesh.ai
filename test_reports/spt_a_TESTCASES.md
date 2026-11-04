@@ -14,22 +14,30 @@
 1. **Consolidation key window.** DESIGN/PRD: `SYMBOL|direction|horizon|window`. The window part is the IST day the window
    starts (the opportunity's first signal day), e.g. `RELIANCE|long|positional|2026-11-04`. A later signal attaches when it
    falls inside an existing opportunity's window (positional: `SPT_POSITIONAL_WINDOW_SESSIONS`, default 5 sessions from
-   `first_seen_at`, weekday calendar; intraday: the same IST day until 15:30). The key alone cannot be computed from one
+   `first_seen_at`, weekday calendar; intraday: the same IST day until 15:31 IST, the end of the 15:30 minute). The key alone cannot be computed from one
    signal without knowing when the window started, so lookup is by (symbol, direction, horizon, window covers the signal).
 2. **A REJECTED opportunity keeps absorbing signals of its own window** (they are attached, it stays REJECTED). Otherwise
    every later list mark of an illiquid stock would open a new opportunity that is rejected again (churn). EXPIRED does not
    absorb: a signal after an expiry starts a new opportunity.
-3. **Conflicting evidence downgrades QUALIFIED to CONDITIONAL** (reason `conflicting_signals`). DESIGN's QUALIFIED rule does
-   not mention conflicts; WF §5.4 says they must be surfaced, and qualifying a long while a short signal on the same stock
-   is open would hide them. This is stricter than DESIGN, never looser.
+3. **Conflicting evidence present at validation downgrades QUALIFIED to CONDITIONAL** (reason `conflicting_signals`).
+   DESIGN's QUALIFIED rule does not mention conflicts; WF §5.4 says they must be surfaced. This is stricter than DESIGN,
+   never looser. A conflict that arrives AFTER an opportunity is QUALIFIED does not change its state (DESIGN §5: QUALIFIED
+   is left only for EXPIRED); it is recorded in `conflicts` and sets `conflict_after_qualified: true` for slice B to read.
 4. **`timeframe` uses "1h" and "1W"** besides "1D"/"15m"/"5m" where a list's conditions use those bars (Long Build Up's
    1-hour DMI; Uptrend 52-week and High growth use weekly bars). PRD §6.2 allows "5m, 15m, 1D, 1W etc.".
-5. **`scanner_score` of a list mark** is the stock's strength score from the day's scores doc only when that doc's `as_of` is
-   within `SCORE_MATCH_S` (120 s) of the detection; otherwise null with `scanner_score_note`. The scores doc is rewritten all
-   day (4 Nov's final one is as of 22:45 IST), so a late read is not the score at detection.
+5. **`scanner_score` of a list mark** is the stock's strength score from the day's scores doc only when that doc was saved
+   at or after the detection and at most `SCORE_MATCH_S` (120 s) later; otherwise null with `scanner_score_note`. The scan
+   round that records a mark saves the scores (with the same timestamp) right after recording; an earlier doc predates the
+   mark and a later one (4 Nov's final doc is as of 22:45 IST) is not the score at detection. The hook waits
+   `SPT_INGEST_DELAY_S` (20 s) and the catch-up leaves marks younger than 35 s to the hook, so the round's doc is read.
 6. **QUALIFIED, REJECTED and EXPIRED are not revalidated.** `POST /opportunities/{id}/validate` answers 409
    `opportunity_not_revalidatable` for them (DESIGN §5 allows VALIDATING only from CREATED, CONDITIONAL, WATCHLIST,
    DATA_INSUFFICIENT).
+7. **The first strong signal extends the window to its own** (`window_until` / `expires_at` = max(current, the strong
+   signal's day + N sessions)). Without it, a plan that joins a window opened by list marks days earlier could be
+   QUALIFIED with hours left. The consolidation key keeps the window's start day.
+8. **`stale` has a grace of `STALE_GRACE_S` (120 s)** after `expiry_at`, so a mark recorded in the session's last seconds is
+   not called late because of the hook's own 20 s delay.
 
 ## Test cases
 
@@ -47,7 +55,7 @@ market-wide data only).
 | SPT-A-06 | ingest | Scanner score at detection | svc | list mark: score from the scores doc when its `as_of` is within 120 s of detection, else null + note (never invented); strong: `score_at` | P0-2 |
 | SPT-A-07 | ingest | The same mark delivered twice (hook + catch-up, two workers) | svc | one document, one RECEIVED and one NORMALIZED event; second call reports duplicate | WF 25.2, PRD 23.3 #11 |
 | SPT-A-08 | ingest | Quarantine reasons | svc | missing mapping, invalid symbol, missing price, invalid timestamp, outside session → stored with `status: quarantined` and the reason code(s); RECEIVED emitted, NORMALIZED not | P0-2, WF 4.4/4.5 |
-| SPT-A-09 | ingest | An expired signal received late | svc | received after its `expiry_at` → quarantined `stale`; never consolidated | PRD 23.3 #12 |
+| SPT-A-09 | ingest | An expired signal received late | svc | received more than 120 s after its `expiry_at` → quarantined `stale`; never consolidated | PRD 23.3 #12 |
 | SPT-A-10 | ingest | Original score and timestamp are never overwritten | svc | re-delivery with a different score / time leaves the stored event byte-identical | PRD §18 rule 7, WF 25.1 |
 | SPT-A-11 | ingest | Events | svc | idempotency keys `sig:<id>:received` / `sig:<id>:normalized`; envelope per events.py; replay inserts no event | DESIGN §7 |
 | SPT-A-12 | ingest | Real 4 Nov marks (copied from the dump) | data | 2 strong + list marks of 6 widgets normalize; the archive's `scan-plan-v2` marks keep their raw fields in supporting_metrics | P0-2 |
@@ -75,7 +83,7 @@ market-wide data only).
 | SPT-A-34 | api | GET /api/v1/opportunities(/{id}), POST …/validate | api | filters state, day, symbol, horizon, direction, limit; 404 `opportunity_not_found`; 409 `opportunity_not_revalidatable`; 200 returns the validation | P0-7 |
 | SPT-A-35 | backfill | `scripts/spt_backfill_signals.py` on an archive | svc | dry-run (default) prints counts and writes nothing; `--write` ingests and consolidates; a second `--write` adds nothing | P0-8, WF 20.3 |
 | SPT-A-36 | outcomes | Forward returns and excursions | unit | T+1/5/10/20 close returns from the detection price; MFE/MAE per horizon (worked by hand); short signals measured in their own direction | P1-9, PRD 13.1 |
-| SPT-A-37 | outcomes | Strong signal, hypothetical scan-plan-v3 | unit | first of stop / T1 / T2 / trend exit; stop and target in one bar → stop (conservative); a gap below the stop exits at the open | P1-9, WF 17.1 |
+| SPT-A-37 | outcomes | Strong signal, hypothetical scan-plan-v3 | unit | first of stop / T1 / T2 / trend exit / time exit; the stop is judged on daily closes (scan-plan-v3's own rule), so a session that reaches a target and closes below the stop counts as the stop (conservative), and a gap below the stop is flagged (`gap_open`) and exits at that session's close; targets exit at the target, or the open on a gap above | P1-9, WF 17.1 |
 | SPT-A-38 | outcomes | Series break after detection | unit | horizons after the break are null with reason `series_break` | P1-9 |
 | SPT-A-39 | outcomes | Fade | svc | strong score below 70 in the detection day's scores doc → `faded: true`; no doc → null + reason | P1-9 |
 | SPT-A-40 | outcomes | Kept apart from trades | svc | stored in `spt_signal_outcomes` keyed by signal id; no paper-trade collection is read or written; GET /api/v1/analytics/scanners gives counts, hit rates, average returns with sample sizes, small samples labelled | WF 25.20, PRD 13.7 |

@@ -8,7 +8,8 @@ One round, on the worker holding the leader lock (scan_builder.signals.get_store
     4 expire       window ended; a daily close below a strong plan's stop
     5 outcomes     (P1, services/spt/outcomes/tracker.py) the evening run, once NSE's end-of-day file for the day is in
 Every step is wrapped: a failing step is logged with its type, recorded in `errors`, and the round goes on; a round never
-raises. Each round writes `spt_state` {_id: "spt_a", at, leader, round_ms, counts, errors} for the morning check.
+raises. The leader lock is re-asserted (and its TTL extended) before each step; a worker that lost it stops the round
+("<step>: leader_lost"), so a long round never runs alongside another worker's. Each round writes `spt_state` {_id: "spt_a", at, leader, round_ms, counts, errors} for the morning check.
 
 Cadence: every LOOP_S (30 s) in the session (09:15–15:30 IST weekdays), every IDLE_S (5 min) outside it.
 Flag: on where APP_ENV=staging; SPT_A_ENABLED=0 turns it off, =1 turns it on elsewhere.
@@ -92,7 +93,15 @@ async def round_once(db, now: datetime, *, scan_store: Any = None, inputs: Optio
     today = clock.ist_day(now).isoformat()
     sessions = clock.window_sessions(env)
 
+    lost = {"v": False}
+
     async def step(name: str, fn: Callable[[], Awaitable[Any]]) -> None:
+        if lost["v"]:
+            return
+        if not await s.lead(LEADER_KEY, me, LEADER_TTL_S, time.time()):    # re-assert (and extend) the lock per step
+            lost["v"] = True
+            errors.append(f"{name}: leader_lost")
+            return
         try:
             counts[name] = await fn()
         except Exception as e:  # noqa: BLE001 — one step failing never stops the round or the loop

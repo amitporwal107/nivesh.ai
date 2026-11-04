@@ -142,6 +142,12 @@ def test_SPT_A_06_scanner_score_only_when_the_scores_doc_is_at_the_detection():
                            now=NOW)
     assert e3["scanner_score"] is None and "an ETF" in e3["scanner_score_note"]
     assert ingest.list_event(m, day=DAY, scores_doc=None, now=NOW)["scanner_score"] is None
+    # a doc saved BEFORE the detection predates the mark (the stock may not be in it, or be scored without this list)
+    before = {"as_of": (det - timedelta(seconds=10)).isoformat(), "scores": {"AAA": {"score": 59}}}
+    e4 = ingest.list_event(m, day=DAY, scores_doc=before, now=NOW)
+    assert e4["scanner_score"] is None and "-10 s from the detection" in e4["scanner_score_note"]
+    same_round = {"as_of": det.isoformat(), "scores": {"AAA": {"score": 66}}}
+    assert ingest.list_event(m, day=DAY, scores_doc=same_round, now=NOW)["scanner_score"] == 66
     s = ingest.strong_event(strong("AAA", ist(11, 0), score=77), day=DAY, now=NOW)
     assert (s["scanner_score"], s["scanner_id"], s["_id"]) == (77, "strength_70", "sig:2026-11-04:strong:AAA")
 
@@ -180,10 +186,13 @@ def test_SPT_A_08_quarantined_events_are_stored_with_their_reason(make, reason):
     assert doc["outcome_eligible"] is (reason not in ("invalid_symbol", "missing_price", "invalid_timestamp"))
 
 
-def test_SPT_A_08b_a_mark_in_the_last_session_minute_is_in_session():
+def test_SPT_A_08b_a_mark_in_the_last_session_minute_is_in_session_and_not_stale_after_the_hook_delay():
     db = DB()
     run(ingest.ingest(db, day=DAY, marks=[mark("dt_breakout_15m", "AAA", ist(15, 30, 40))], now=ist(15, 30, 41)))
-    assert db["spt_signal_events"].docs[0]["status"] == "normalized"
+    run(ingest.ingest(db, day=DAY, marks=[mark("dt_breakout_15m", "BBB", ist(15, 30, 45))], now=ist(15, 31, 5)))
+    assert [d["status"] for d in db["spt_signal_events"].docs] == ["normalized", "normalized"]
+    late = ingest.list_event(mark("dt_breakout_15m", "CCC", ist(15, 30, 45)), day=DAY, scores_doc=None, now=ist(15, 33, 1))
+    assert late["quarantine_reasons"] == ["stale"]                       # more than STALE_GRACE_S after 15:31
 
 
 def test_SPT_A_09_an_expired_signal_received_late_is_quarantined_stale():
@@ -332,14 +341,16 @@ def test_SPT_A_14_catch_up_ingests_what_the_hook_missed_and_is_idempotent():
         await SIG.record_strong([strong("AAA", ist(10, 0))], ist(10, 0), store=store)
         await SIG.save_scores(DAY, {"AAA": {"score": 72}, "BBB": {"score": 40}}, ist(10, 0, 10), store=store)
         await ingest.ingest(db, day=DAY, marks=[mark("cup_handle", "AAA", ist(10, 0))], now=NOW)      # the hook got one
-        first = await hook.catch_up(db, DAY, scan_store=store, now=NOW)
-        second = await hook.catch_up(db, DAY, scan_store=store, now=NOW + timedelta(seconds=30))
+        young = await hook.catch_up(db, DAY, scan_store=store, now=ist(10, 0, 30))     # 30 s old: the hook's to take
+        first = await hook.catch_up(db, DAY, scan_store=store, now=ist(10, 1))
+        second = await hook.catch_up(db, DAY, scan_store=store, now=ist(10, 1, 30))
         hook._known.clear()                                           # a restarted worker knows nothing
-        third = await hook.catch_up(db, DAY, scan_store=store, now=NOW + timedelta(seconds=60))
-        return first, second, third
+        third = await hook.catch_up(db, DAY, scan_store=store, now=ist(10, 2))
+        return young, first, second, third
 
-    first, second, third = run(go())
-    assert first["read"] == 4 and first["inserted"] == 3
+    young, first, second, third = run(go())
+    assert (young["left_for_hook"], young["read"], young["inserted"]) == (3, 1, 1)      # only the strong signal
+    assert first["read"] == 4 and first["inserted"] == 2 and first["left_for_hook"] == 0
     assert second["inserted"] == 0 and second["seen"] == 0              # known ids are not rebuilt
     assert third["inserted"] == 0 and third["seen"] == 0
     by = {d["_id"]: d for d in db["spt_signal_events"].docs}

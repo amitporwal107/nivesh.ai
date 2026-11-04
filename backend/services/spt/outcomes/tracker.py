@@ -45,6 +45,7 @@ from services.exit_watch import rules
 from .. import constants as C
 from ..opportunities import inputs as inputs_mod
 from ..opportunities import store as opp_store
+from ..opportunities.validate import cut_at_breaks
 from ..signals import clock
 from ..signals import store as sig_store
 
@@ -60,6 +61,7 @@ EVENING_FROM = dtime(19, 30)
 MAX_PER_ROUND = 3000
 REFERENCE_SYMBOL = "RELIANCE"
 STATE_ID = "spt_a_outcomes"
+LIGHT = {"supporting_metrics": 0, "explanations": 0, "source": 0}     # the evening's read of a day's events
 
 
 def _r(v: Optional[float], dp: int = 2) -> Optional[float]:
@@ -163,14 +165,15 @@ def plan_outcome(bars: List[Dict[str, Any]], *, det_day: date, plan: Dict[str, A
         return out
     risk = entry - stop
     clean, day0, before, after = _split(bars, det_day)
-    brk = _break_index(day0, before[-2] if day0 is not None and len(before) >= 2 else None, after)
+    prev = before[-2] if day0 is not None and len(before) >= 2 else (before[-1] if day0 is None and before else None)
+    brk = _break_index(day0, prev, after)
     hits = out["hits"]
 
     def first(event: str, day: date, px: float) -> None:
         if out["first_event"] is None:
             out.update(first_event=event, first_event_day=day.isoformat(), exit_price=_r(px), r_multiple=_r((px - entry) / risk))
 
-    closes_hist = [float(b["close"]) for b in before]
+    closes_hist = [float(b["close"]) for b in cut_at_breaks(before)[0]]       # the 20-session average never spans a bonus
     if brk == -1:
         out.update(first_event="series_break", first_event_day=det_day.isoformat(), complete=True)
         return out
@@ -286,8 +289,8 @@ async def compute(db, *, now: datetime, inputs: inputs_mod.MarketInputs, days: S
     todo: List[Dict[str, Any]] = []
     prev: Dict[str, Dict[str, Any]] = {}
     for day in sorted(days, reverse=True):
-        evs = [e for e in await sig_store.list_signals(db, day=day, limit=0, newest_first=False)
-               if e.get("outcome_eligible") and e.get("detected_price") and e.get("detected_at")]
+        evs = [e for e in await db[sig_store.COLL].find({"day": day, "outcome_eligible": True}, LIGHT).to_list(length=None)
+               if e.get("detected_price") and e.get("detected_at")]
         if not evs:
             continue
         have = {d["_id"]: d for d in await db[COLL].find({"day": day}, {"complete": 1, "bars_through": 1, "fade": 1})
@@ -304,6 +307,10 @@ async def compute(db, *, now: datetime, inputs: inputs_mod.MarketInputs, days: S
         prev.update({e["signal_id"]: have.get(e["signal_id"]) or {} for e in need})
     if not todo:
         return counts
+    for e in todo:
+        if e.get("kind") == "strong" and "supporting_metrics" not in e:           # the plan is in the raw record
+            full = await sig_store.get(db, e["signal_id"]) or {}
+            e["supporting_metrics"] = full.get("supporting_metrics") or {}
     opps = await _opps_of(db, [e["signal_id"] for e in todo])
     by_symbol: Dict[str, List[Dict[str, Any]]] = {}
     for e in todo:

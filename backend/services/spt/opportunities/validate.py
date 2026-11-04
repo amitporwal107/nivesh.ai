@@ -76,6 +76,9 @@ DATA_RETRY_S = 600
 VALIDATING_STALE_S = 300
 REVALIDATE_AT = dtime(9, 0)
 MAX_PER_ROUND = 60
+DUE_SCAN_MAX = 5000
+EVENING_FROM = dtime(19, 30)                 # NSE's end-of-day file is expected in the bars from here
+REFERENCE_SYMBOL = "RELIANCE"
 REVALIDATABLE = (C.OPP_CREATED, C.OPP_CONDITIONAL, C.OPP_WATCHLIST, C.OPP_DATA_INSUFFICIENT)
 SCORE_LABEL = ("Opportunity score 0–100: a rule-based, versioned measure of how complete the setup's evidence is. It is not "
                "a probability of profit, and a higher score is not a forecast.")
@@ -490,7 +493,8 @@ async def validate_due(db, *, now: Optional[datetime] = None, inputs: Optional[i
     positional first, at most `limit` per call. Returns counts per resulting state plus skipped/errors."""
     now = now or datetime.now(timezone.utc)
     inputs = inputs or inputs_mod.get_inputs()
-    due = await db[store.COLL].find(_due_query(now)).to_list(length=None)
+    due = await db[store.COLL].find(_due_query(now), {"strong.signal_id": 1, "horizon": 1, "first_seen_at": 1,
+                                                      "state": 1}).limit(DUE_SCAN_MAX).to_list(length=None)
     due.sort(key=_priority)
     counts: Dict[str, int] = {"due": len(due), "validated": 0, "skipped": 0, "errors": 0}
     batch = due[:max(0, int(limit))]
@@ -513,21 +517,41 @@ async def validate_due(db, *, now: Optional[datetime] = None, inputs: Optional[i
     return counts
 
 
-async def expire(db, *, now: Optional[datetime] = None, inputs: Optional[inputs_mod.MarketInputs] = None) -> Dict[str, int]:
+def expected_bar_day(now: datetime) -> str:
+    """The newest NSE session whose end-of-day bar should be in: today from EVENING_FROM on a weekday, else the weekday
+    before today (data_freshness.previous_session)."""
+    ist = now.astimezone(clock.IST)
+    if ist.weekday() < 5 and ist.time() >= EVENING_FROM:
+        return ist.date().isoformat()
+    return fresh.previous_session(ist.date()).isoformat()
+
+
+async def expire(db, *, now: Optional[datetime] = None, inputs: Optional[inputs_mod.MarketInputs] = None) -> Dict[str, Any]:
     """EXPIRED for every open opportunity past its window, and every open one whose strong plan's stop was closed below
-    (or whose price series broke) since the signal. Returns counts."""
+    (or whose price series broke) since the signal. The stop check reads bars only for opportunities not yet checked
+    through the newest session that should be in (`stop_checked_through` < expected_bar_day): once per opportunity per
+    NSE session, not every round. Returns counts."""
     now = now or datetime.now(timezone.utc)
     inputs = inputs or inputs_mod.get_inputs()
     at = clock.utc_iso(now)
-    counts = {"window_ended": 0, "closed_below_stop": 0, "series_break_after_signal": 0, "checked": 0, "errors": 0}
+    expected = expected_bar_day(now)
+    counts: Dict[str, Any] = {"window_ended": 0, "closed_below_stop": 0, "series_break_after_signal": 0, "checked": 0,
+                              "errors": 0, "expected_bar_day": expected}
     ended = await db[store.COLL].find({"state": {"$in": list(C.OPP_OPEN_STATES)}, "window_until": {"$lt": at}}).to_list(length=None)
     for o in ended:
         if await store.transition(db, o["_id"], expect_states=[o["state"]], to_state=C.OPP_EXPIRED, reason="window_ended",
                                   extra={"expiry": {"reason": "window_ended", "window_until": o.get("window_until")}},
                                   now=at):
             counts["window_ended"] += 1
-    withplan = await db[store.COLL].find({"state": {"$in": list(C.OPP_OPEN_STATES)},
-                                          "strong.plan.plan_ok": True}).to_list(length=None)
+    withplan = await db[store.COLL].find({"state": {"$in": list(C.OPP_OPEN_STATES)}, "strong.plan.plan_ok": True,
+                                          "$or": [{"stop_checked_through": None},
+                                                  {"stop_checked_through": {"$lt": expected}}]}).to_list(length=None)
+    if withplan and expected == clock.ist_day(now).isoformat():
+        ref = await inputs.bars(REFERENCE_SYMBOL, now)        # this evening's file not in yet: check after it lands
+        last = (ref.get("bars") or [{}])[-1].get("date") if ref.get("bars") else None
+        if last is None or str(last)[:10] < expected:
+            counts["stop_check"] = "waiting_for_nse_file"
+            return counts
     for o in withplan:
         try:
             got = await inputs.bars(o["symbol"], now)
@@ -541,7 +565,12 @@ async def expire(db, *, now: Optional[datetime] = None, inputs: Optional[inputs_
         chk = _plan_check(o, got.get("bars") or [])
         reason = ("series_break_after_signal" if chk.get("break_day") else "closed_below_stop" if chk.get("below_stop")
                   else None)
-        if reason and await store.transition(db, o["_id"], expect_states=[o["state"]], to_state=C.OPP_EXPIRED,
-                                             reason=reason, extra={"expiry": {"reason": reason, **chk}}, now=at):
-            counts[reason] += 1
+        if reason:
+            if await store.transition(db, o["_id"], expect_states=[o["state"]], to_state=C.OPP_EXPIRED,
+                                      reason=reason, extra={"expiry": {"reason": reason, **chk}}, now=at):
+                counts[reason] += 1
+            continue
+        last_bar = rules.clean_bars(got.get("bars") or [])
+        if last_bar:
+            await db[store.COLL].update_one({"_id": o["_id"]}, {"$set": {"stop_checked_through": _day(last_bar[-1])}})
     return counts

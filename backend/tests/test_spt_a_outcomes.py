@@ -260,3 +260,16 @@ def test_bars_are_read_once_per_symbol_and_the_cache_is_bounded(monkeypatch):
     assert inp2.bar_calls == ["AAA", "BBB", "AAA"] and list(inp2._bars) == ["AAA"]      # AAA was dropped for BBB
     run(inp2.bars("AAA", NOW))
     assert inp2.bar_calls == ["AAA", "BBB", "AAA"]                                     # a cache hit
+
+
+
+def test_SPT_A_38_the_plans_trend_average_never_spans_a_bonus_and_a_split_without_a_signal_day_bar():
+    # a 1:1 bonus 9 sessions before the signal: closes 200 → 100; afterwards a steady rise
+    hist = [200.0] * 30 + [100.0 + 0.1 * i for i in range(9)]
+    p = tracker.plan_outcome(series(hist, ohlc(101.0), [ohlc(102.0), ohlc(102.5), ohlc(103.0)]), det_day=D, plan=PLAN)
+    assert p["first_event"] == "open" and p["hits"]["trend_exit"] is None          # not a fake trend exit at 102
+    # no bar on the signal day (suspended) and a 1:2 split the next session
+    bars = [b for b in series([100.0] * 30, ohlc(100.0), [ohlc(50.0), ohlc(50.5)]) if b["date"] != D]
+    p2 = tracker.plan_outcome(bars, det_day=D, plan=PLAN)
+    assert (p2["first_event"], p2["first_event_day"]) == ("series_break", "2026-11-05")
+    assert tracker.forward(bars, det_day=D, price=100.0, direction="long")["t1"]["status"] == "series_break"

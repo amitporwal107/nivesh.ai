@@ -134,10 +134,22 @@ def test_SPT_A_18_strong_signal_attaches_its_frozen_plan_once():
                                    "sma20": 97.0, "trend_exit": "A daily close below the 20-day average", "plan_ok": True,
                                    "plan_note": None}
     assert o["strong"]["score_at"] == 75 and o["strong"]["parts_at"]["quality"] == 25
+    assert o["window_until"] == "2026-11-11T10:01:00+00:00"              # its own day: the window is unchanged
     d2 = D + timedelta(days=1)
     run(load(db, [], [strong("AAA", ist(10, 0, day=d2), entry=110.0, score=90)], now=ist(10, 1, day=d2), day="2026-11-05"))
     o = only(db)
     assert o["signal_count"] == 3 and o["strong"]["plan"]["entry"] == 100.0 and o["strong"]["score_at"] == 75
+    assert o["window_until"] == "2026-11-11T10:01:00+00:00"              # only the FIRST strong signal extends it
+
+
+def test_SPT_A_18_a_strong_signal_joining_an_old_window_gets_its_own_sessions():
+    db = DB()
+    run(load(db, [mark("dt_52w_high", "AAA", ist(9, 30))]))                          # Wed 4 Nov: until Wed 11 Nov
+    mon = date(2026, 11, 9)
+    run(load(db, [], [strong("AAA", ist(10, 0, day=mon))], now=ist(10, 1, day=mon), day="2026-11-09"))
+    o = only(db)
+    assert o["strong"] is not None and o["consolidation_key"] == "AAA|long|positional|2026-11-04"
+    assert o["window_until"] == o["expires_at"] == "2026-11-16T10:01:00+00:00"     # Mon 9 Nov + 5 sessions, 15:31 IST
 
 
 def test_SPT_A_19_reruns_and_a_lost_race_never_duplicate(monkeypatch):
@@ -162,6 +174,44 @@ def test_SPT_A_19_reruns_and_a_lost_race_never_duplicate(monkeypatch):
     ev = next(d for d in db["spt_signal_events"].docs if d["scanner_id"] == "dt_52w_high")
     r = run(cons.place(db, ev, now=NOW))
     assert r["action"] == "attached" and len(opps(db)) == 1 and only(db)["signal_count"] == 2
+
+
+def test_SPT_A_17_a_conflict_on_a_qualified_opportunity_is_flagged_not_hidden():
+    db = DB()
+    o = qualified_setup(db)
+    run(val.validate(db, o["_id"], inputs=Inputs(market()), now=NOW))
+    run(load(db, [mark("oi_7", "AAA", ist(10, 5), direction="short")], now=ist(10, 6)))
+    q = next(x for x in opps(db) if x["direction"] == "long")
+    assert q["state"] == C.OPP_QUALIFIED and q["conflict_after_qualified"] is True
+    assert [c["signal_id"] for c in q["conflicts"]] == ["sig:2026-11-04:oi_7:AAA"]
+
+
+def test_SPT_A_19_a_placing_that_fails_after_the_attach_is_retried_with_its_conflicts(monkeypatch):
+    db = DB()
+    run(load(db, [mark("open_interest", "MCX", ist(9, 20), direction="short")]))
+    run(ingest.ingest(db, day=DAY, marks=[mark("cup_handle", "MCX", ist(9, 40))], now=NOW))
+    real = cons._conflicts
+    calls = {"n": 0}
+
+    async def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("mongo blip")
+        return await real(*a, **k)
+
+    monkeypatch.setattr(cons, "_conflicts", flaky)
+    first = run(cons.consolidate(db, days=[DAY], now=NOW, received_since="2026-11-04T04:00:00+00:00"))
+    assert first["failed"] == 1
+    long_ = next(o for o in opps(db) if o["direction"] == "long")
+    assert long_["conflicts"] == [] and long_["signal_count"] == 1      # attached, conflict not written yet
+    # the next pass reads nothing new (received_since moved on) but places the failed event again first
+    second = run(cons.consolidate(db, days=[DAY], now=NOW, received_since="2026-11-04T23:00:00+00:00"))
+    assert (second["retried"], second["already"], second["failed"]) == (1, 1, 0)
+    long_ = next(o for o in opps(db) if o["direction"] == "long")
+    short = next(o for o in opps(db) if o["direction"] == "short")
+    assert [c["signal_id"] for c in long_["conflicts"]] == ["sig:2026-11-04:open_interest:MCX"]
+    assert [c["signal_id"] for c in short["conflicts"]] == ["sig:2026-11-04:cup_handle:MCX"]
+    assert long_["signal_count"] == 1 and not cons._retry
 
 
 def test_SPT_A_20_quarantined_events_are_never_consolidated():
@@ -360,10 +410,20 @@ def test_SPT_A_29_expiry_window_ended_and_close_below_stop():
     o = qualified_setup(db)
     run(val.validate(db, o["_id"], inputs=Inputs(market()), now=NOW))
     assert only(db)["state"] == C.OPP_QUALIFIED
-    # 4 Nov's close (95.0) is below the stop (103 − 4 = 99.0)
+    # in the session the stop is checked once against the bars to 3 Nov (nothing after the signal yet)
+    inp = Inputs(market())
+    c = run(val.expire(db, now=ist(11, 0), inputs=inp))
+    assert (c["checked"], c["expected_bar_day"]) == (1, "2026-11-03") and only(db)["stop_checked_through"] == "2026-11-03"
+    calls = len(inp.bar_calls)
+    assert run(val.expire(db, now=ist(11, 0, 30), inputs=inp))["checked"] == 0 and len(inp.bar_calls) == calls
+    # 19:45: today's file is not in yet (the reference symbol's last bar is 3 Nov): wait, read nothing more
+    w = run(val.expire(db, now=ist(19, 45), inputs=Inputs(market(RELIANCE=bars_from([100.0] * 30, end=PREV)))))
+    assert w["stop_check"] == "waiting_for_nse_file" and only(db)["state"] == C.OPP_QUALIFIED
+    # 20:00: the file is in; 4 Nov's close (95.0) is below the stop (103 − 4 = 99.0)
     evening = ist(20, 0)
     closes = [round(50.0 + i * 0.2, 2) for i in range(260)] + [95.0]
-    c = run(val.expire(db, now=evening, inputs=Inputs(market(AAA=bars_from(closes, end=D)))))
+    today = bars_from(closes, end=D)
+    c = run(val.expire(db, now=evening, inputs=Inputs(market(AAA=today, RELIANCE=today))))
     assert c["closed_below_stop"] == 1
     doc = only(db)
     assert (doc["state"], doc["state_reason"], doc["is_open"]) == (C.OPP_EXPIRED, "closed_below_stop", False)
@@ -502,3 +562,19 @@ def test_evidence_that_arrives_during_a_validation_is_not_lost():
     assert doc["strong"] is not None and doc["evidence_version"] > doc["validated_evidence_version"]
     c = run(val.validate_due(db, now=NOW + timedelta(seconds=30), inputs=Inputs(market())))
     assert c["validated"] == 1 and only(db)["state"] == C.OPP_QUALIFIED
+
+
+def test_SPT_A_31_a_worker_that_loses_the_lock_mid_round_stops():
+    db = DB()
+
+    class Fickle(SIG.LocalSignalStore):
+        def __init__(self):
+            super().__init__()
+            self.n = 0
+
+        async def lead(self, key, me, ttl, now):
+            self.n += 1
+            return self.n <= 3                    # the round's check, catch_up's, consolidate's; lost before validate
+
+    r = run(runner.round_once(db, NOW, scan_store=Fickle(), inputs=Inputs({}), me="w1"))
+    assert set(r["counts"]) == {"catch_up", "consolidate"} and r["errors"] == ["validate: leader_lost"]

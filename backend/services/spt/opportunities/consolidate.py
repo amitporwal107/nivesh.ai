@@ -15,14 +15,21 @@ Rules:
                  preserved; different families stay identifiable). Scores are NEVER added together (Workflow §5.3).
     strong       a strong signal attaches its frozen scan-plan-v3 plan as `strong` (the first one in the window; a later
                  strong signal is attached as a signal and does not replace the plan the opportunity was judged on).
+                 The first strong signal also extends window_until / expires_at to its OWN window (its day + N
+                 sessions) when that ends later: the tradable setup starts with the plan, so a plan that joins a window
+                 opened by list marks days earlier still gets its N sessions.
     conflicts    an event whose symbol has an open opportunity in the OTHER direction (any horizon) is evidence against it:
                  each side's opportunity gets the other side's signals in `conflicts` [{signal_id, scanner_id, direction,
                  detected_at, opportunity_id}], and SIGNAL_CONFLICT_DETECTED is emitted once per event (Workflow §5.4:
-                 opposing signals are retained, never discarded).
+                 opposing signals are retained, never discarded). A conflict that reaches an opportunity already
+                 QUALIFIED does not change its state (DESIGN.md §5: QUALIFIED is left only for EXPIRED); it sets
+                 `conflict_after_qualified: true` so a reader (slice B) can see it.
     idempotent   an event already in an opportunity is skipped; attaching uses `signals.signal_id $ne` in the filter, so a
                  replay or a second pass never doubles a signal; creating relies on the open-key unique index, and a lost
                  race attaches to the winner.
     late         an event whose expiry_at has passed is not consolidated (it would only open an expired opportunity).
+    retries      an event whose placing raised is kept in this process (_retry) and placed again first on the next pass,
+                 with its conflicts recorded again (idempotent) in case the failure came after the attach.
 
 Events: OPPORTUNITY_CREATED (`opp:<id>:created`), OPPORTUNITY_UPDATED per attached signal (`opp:<id>:signal:<signal_id>`),
 SIGNAL_CONFLICT_DETECTED (`conflict:<signal_id>`).
@@ -51,6 +58,7 @@ PLAN_FIELDS = ("rules", "entry", "stop_loss", "target_1", "target_2", "risk_per_
 MAX_RETRIES = 4
 
 _handled: Dict[str, Set[str]] = {}       # this process: day -> signal ids placed (or late) already: not read again
+_retry: Dict[str, Dict[str, Any]] = {}   # this process: signal id -> event whose placing raised (placed again first)
 
 
 def consolidation_key(symbol: str, direction: str, horizon: str, window_day: str) -> str:
@@ -122,6 +130,9 @@ async def _attach(db, opp: Dict[str, Any], ev: Dict[str, Any], at: str) -> bool:
         upd["$addToSet"] = add
     if ev.get("kind") == "strong" and not opp.get("strong"):
         upd["$set"]["strong"] = strong_block(ev)
+        own = clock.utc_iso(clock.window_until(datetime.fromisoformat(ev["day"]).date(), opp.get("horizon") or ev["horizon"],
+                                               int(opp.get("window_sessions") or clock.window_sessions())))
+        upd["$max"].update(window_until=own, expires_at=own)
     res = await db[store.COLL].update_one(
         {"_id": opp["_id"], "version": opp.get("version"), "signals.signal_id": {"$ne": ev["signal_id"]}}, upd)
     if getattr(res, "matched_count", 0) != 1:
@@ -144,18 +155,24 @@ async def _conflicts(db, opp_id: str, ev: Dict[str, Any], at: str) -> List[str]:
             "detected_at": ev.get("detected_at"), "opportunity_id": opp_id}
     theirs: List[Dict[str, Any]] = []
     for o in opps:
+        sets: Dict[str, Any] = {"updated_at": at}
+        if o.get("state") == C.OPP_QUALIFIED:
+            sets["conflict_after_qualified"] = True
         await db[store.COLL].update_one(
             {"_id": o["_id"], "conflicts.signal_id": {"$ne": ev["signal_id"]}},
-            {"$push": {"conflicts": mine}, "$inc": {"evidence_version": 1}, "$set": {"updated_at": at}})
+            {"$push": {"conflicts": mine}, "$inc": {"evidence_version": 1}, "$set": sets})
         theirs.extend({"signal_id": s.get("signal_id"), "scanner_id": s.get("scanner_id"), "direction": other,
                        "detected_at": s.get("detected_at"), "opportunity_id": o["_id"]} for s in o.get("signals") or [])
     target = await store.get(db, opp_id)
     have = {c.get("signal_id") for c in (target or {}).get("conflicts") or []}
     new = [c for c in theirs if c["signal_id"] not in have]
     if new:
+        sets = {"updated_at": at}
+        if (target or {}).get("state") == C.OPP_QUALIFIED:
+            sets["conflict_after_qualified"] = True
         await db[store.COLL].update_one({"_id": opp_id},
                                         {"$push": {"conflicts": {"$each": new}}, "$inc": {"evidence_version": 1},
-                                         "$set": {"updated_at": at}})
+                                         "$set": sets})
     ids = [o["_id"] for o in opps]
     await events.emit(db, "SIGNAL_CONFLICT_DETECTED", idempotency_key=f"conflict:{ev['signal_id']}", source_service=SOURCE,
                       occurred_at=at, correlation_id=opp_id, instrument_id=ev["symbol"],
@@ -165,10 +182,11 @@ async def _conflicts(db, opp_id: str, ev: Dict[str, Any], at: str) -> List[str]:
     return ids
 
 
-async def place(db, ev: Dict[str, Any], *, now: Optional[datetime] = None,
-                sessions: Optional[int] = None) -> Dict[str, Any]:
+async def place(db, ev: Dict[str, Any], *, now: Optional[datetime] = None, sessions: Optional[int] = None,
+                recheck_conflicts: bool = False) -> Dict[str, Any]:
     """Attach one normalized event to its opportunity, or create one. Returns {action, opportunity_id, conflicts}:
-    action ∈ attached | created | already | late | skipped | failed."""
+    action ∈ attached | created | already | late | skipped | failed. `recheck_conflicts`: on "already", record its
+    conflicts again (a retry after a failure that came after the attach)."""
     now = now or datetime.now(timezone.utc)
     sessions = sessions or clock.window_sessions()
     at = clock.utc_iso(now)
@@ -182,7 +200,8 @@ async def place(db, ev: Dict[str, Any], *, now: Optional[datetime] = None,
                                                    states=ATTACH_STATES) if _covers(o, ev, sessions)]
         for o in cands:
             if any(s.get("signal_id") == ev["signal_id"] for s in o.get("signals") or []):
-                return {"action": "already", "opportunity_id": o["_id"], "conflicts": []}
+                conf = await _conflicts(db, o["_id"], ev, at) if recheck_conflicts else []
+                return {"action": "already", "opportunity_id": o["_id"], "conflicts": conf}
         if cands:
             target = max(cands, key=lambda o: o.get("first_seen_at") or "")
             if await _attach(db, target, ev, at):
@@ -224,15 +243,25 @@ async def consolidate(db, *, days: Sequence[str], now: Optional[datetime] = None
                 _handled.setdefault(e["day"], set()).add(e["signal_id"])
         todo = [e for e in todo if e["signal_id"] not in known]
     counts["already"] = len(evs) - len(todo)
-    for ev in todo:
+    retry = [e for sid, e in list(_retry.items()) if e.get("day") in days]
+    for sid in [sid for sid, e in _retry.items() if e.get("day") not in days]:
+        del _retry[sid]                                          # out of every window now
+    queued = {e["signal_id"] for e in retry}
+    work = [(e, True) for e in retry] + [(e, False) for e in todo if e["signal_id"] not in queued]
+    counts["retried"] = len(retry)
+    for ev, again in work:
         try:
-            r = await place(db, ev, now=now, sessions=sessions)
-        except Exception as e:  # noqa: BLE001 — one event failing never stops the rest; the next round retries it
+            r = await place(db, ev, now=now, sessions=sessions, recheck_conflicts=again)
+        except Exception as e:  # noqa: BLE001 — one event failing never stops the rest; placed again first next pass
             logger.warning("spt consolidate: %s failed (%s)", ev.get("signal_id"), type(e).__name__)
             counts["failed"] += 1
+            _retry[ev["signal_id"]] = ev
             continue
+        _retry.pop(ev["signal_id"], None)
         counts[r["action"]] += 1
         counts["conflicts"] += 1 if r["conflicts"] else 0
         if r["action"] in ("attached", "created", "already", "late"):
             _handled.setdefault(ev["day"], set()).add(ev["signal_id"])
+        elif r["action"] == "failed":
+            _retry[ev["signal_id"]] = ev                          # MAX_RETRIES used up: try again next pass
     return counts

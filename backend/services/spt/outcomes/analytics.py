@@ -52,57 +52,97 @@ def _avg(xs: List[float]) -> Optional[float]:
     return round(sum(xs) / len(xs), 2) if xs else None
 
 
+PROJECTION = {"forward": 1, "plan.first_event": 1, "plan.r_multiple": 1, "fade.faded": 1, "scanner_id": 1, "category": 1,
+              "scanner_score": 1, "kind": 1}
+
+
+class Acc:
+    """One group's running figures (the documents are streamed, never held)."""
+
+    def __init__(self) -> None:
+        self.signals = 0
+        self.rets: Dict[str, List[float]] = {f"t{k}": [] for k in tracker.HORIZONS}
+        self.mfe: Dict[str, List[float]] = {f"t{k}": [] for k in tracker.HORIZONS}
+        self.mae: Dict[str, List[float]] = {f"t{k}": [] for k in tracker.HORIZONS}
+        self.has_plan = False
+        self.plans: List[Tuple[str, Optional[float]]] = []
+        self.fades: List[bool] = []
+
+    def add(self, d: Dict[str, Any]) -> None:
+        self.signals += 1
+        fw = d.get("forward") or {}
+        for key in self.rets:
+            x = fw.get(key) or {}
+            if x.get("status") != "done":
+                continue
+            if x.get("return_pct") is not None:
+                self.rets[key].append(x["return_pct"])
+            if x.get("mfe_pct") is not None:
+                self.mfe[key].append(x["mfe_pct"])
+            if x.get("mae_pct") is not None:
+                self.mae[key].append(x["mae_pct"])
+        plan = d.get("plan")
+        if isinstance(plan, dict):
+            self.has_plan = True
+            if plan.get("first_event") in PLAN_EVENTS:
+                self.plans.append((plan["first_event"], plan.get("r_multiple")))
+        fd = d.get("fade")
+        if isinstance(fd, dict) and fd.get("faded") is not None:
+            self.fades.append(bool(fd["faded"]))
+
+    def result(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {"signals": self.signals, "horizons": {}}
+        measured_max = 0
+        for key, rets in self.rets.items():
+            n = len(rets)
+            wins = sum(1 for r in rets if r > 0)
+            measured_max = max(measured_max, n)
+            out["horizons"][key] = {
+                "n": n, "hit_rate_pct": round(wins / n * 100, 1) if n else None, "hit_rate_ci95_pct": wilson(wins, n),
+                "avg_return_pct": _avg(rets), "median_return_pct": round(statistics.median(rets), 2) if rets else None,
+                "avg_mfe_pct": _avg(self.mfe[key]), "avg_mae_pct": _avg(self.mae[key]), "small_sample": n < MIN_SAMPLE}
+        if self.has_plan:
+            n = len(self.plans)
+            rs = [r for _, r in self.plans if r is not None]
+            out["plan"] = {"rules": "scan-plan-v3", "decided": n,
+                           **{f"{e}_rate_pct": (round(sum(1 for f, _ in self.plans if f == e) / n * 100, 1) if n else None)
+                              for e in PLAN_EVENTS},
+                           "avg_r_multiple": _avg(rs), "small_sample": n < MIN_SAMPLE}
+        if self.fades:
+            out["fade"] = {"n": len(self.fades), "faded_rate_pct": round(sum(self.fades) / len(self.fades) * 100, 1),
+                           "small_sample": len(self.fades) < MIN_SAMPLE}
+        out["small_sample"] = measured_max < MIN_SAMPLE
+        if out["small_sample"]:
+            out["note"] = SMALL_SAMPLE_NOTE
+        return out
+
+
 def summarize(docs: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-    docs = list(docs)
-    out: Dict[str, Any] = {"signals": len(docs), "horizons": {}}
-    measured_max = 0
-    for k in tracker.HORIZONS:
-        key = f"t{k}"
-        done = [d["forward"][key] for d in docs if ((d.get("forward") or {}).get(key) or {}).get("status") == "done"]
-        rets = [x["return_pct"] for x in done if x.get("return_pct") is not None]
-        wins = sum(1 for r in rets if r > 0)
-        n = len(rets)
-        measured_max = max(measured_max, n)
-        out["horizons"][key] = {
-            "n": n, "hit_rate_pct": round(wins / n * 100, 1) if n else None, "hit_rate_ci95_pct": wilson(wins, n),
-            "avg_return_pct": _avg(rets), "median_return_pct": round(statistics.median(rets), 2) if rets else None,
-            "avg_mfe_pct": _avg([x["mfe_pct"] for x in done if x.get("mfe_pct") is not None]),
-            "avg_mae_pct": _avg([x["mae_pct"] for x in done if x.get("mae_pct") is not None]),
-            "small_sample": n < MIN_SAMPLE}
-    plans = [d["plan"] for d in docs if isinstance(d.get("plan"), dict) and d["plan"].get("first_event") in PLAN_EVENTS]
-    if any(isinstance(d.get("plan"), dict) for d in docs):
-        n = len(plans)
-        rs = [p["r_multiple"] for p in plans if p.get("r_multiple") is not None]
-        out["plan"] = {"rules": "scan-plan-v3", "decided": n,
-                       **{f"{e}_rate_pct": (round(sum(1 for p in plans if p["first_event"] == e) / n * 100, 1) if n else None)
-                          for e in PLAN_EVENTS},
-                       "avg_r_multiple": _avg(rs), "small_sample": n < MIN_SAMPLE}
-    fades = [d["fade"]["faded"] for d in docs if isinstance(d.get("fade"), dict) and d["fade"].get("faded") is not None]
-    if fades:
-        out["fade"] = {"n": len(fades), "faded_rate_pct": round(sum(1 for f in fades if f) / len(fades) * 100, 1),
-                       "small_sample": len(fades) < MIN_SAMPLE}
-    out["small_sample"] = measured_max < MIN_SAMPLE
-    if out["small_sample"]:
-        out["note"] = SMALL_SAMPLE_NOTE
-    return out
-
-
-def _group(docs: List[Dict[str, Any]], key) -> List[Dict[str, Any]]:
-    by: Dict[str, List[Dict[str, Any]]] = {}
+    acc = Acc()
     for d in docs:
-        by.setdefault(str(key(d)), []).append(d)
-    rows = [{"key": k, **summarize(v)} for k, v in by.items()]
+        acc.add(d)
+    return acc.result()
+
+
+def _rows(groups: Dict[str, Acc]) -> List[Dict[str, Any]]:
+    rows = [{"key": k, **a.result()} for k, a in groups.items()]
     rows.sort(key=lambda r: (-r["signals"], r["key"]))
     return rows
 
 
 async def scanners(db, *, day_from: str, day_to: str, kind: Optional[str] = None) -> Dict[str, Any]:
+    """The report for IST days day_from..day_to (inclusive), streamed from Mongo with only the fields it uses."""
     q: Dict[str, Any] = {"day": {"$gte": day_from, "$lte": day_to}}
     if kind:
         q["kind"] = kind
-    docs = await db[tracker.COLL].find(q).to_list(length=None)
+    total = Acc()
+    groups: Dict[str, Dict[str, Acc]] = {"scanner": {}, "category": {}, "band": {}}
+    async for d in db[tracker.COLL].find(q, PROJECTION):
+        total.add(d)
+        for name, key in (("scanner", d.get("scanner_id")), ("category", d.get("category")),
+                          ("band", band(d.get("scanner_score")))):
+            groups[name].setdefault(str(key), Acc()).add(d)
     return {"ok": True, "from": day_from, "to": day_to, "kind": kind, "version": tracker.VERSION,
-            "min_sample": MIN_SAMPLE, "note": NOTE, "totals": summarize(docs),
-            "by_scanner": _group(docs, lambda d: d.get("scanner_id")),
-            "by_category": _group(docs, lambda d: d.get("category")),
-            "by_score_band": _group(docs, lambda d: band(d.get("scanner_score")))}
+            "min_sample": MIN_SAMPLE, "note": NOTE, "totals": total.result(),
+            "by_scanner": _rows(groups["scanner"]), "by_category": _rows(groups["category"]),
+            "by_score_band": _rows(groups["band"])}
