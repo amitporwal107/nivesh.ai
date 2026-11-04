@@ -99,23 +99,71 @@ def curve(series: Dict[str, List[list]], books: List[Dict[str, Any]], *, realize
             "partial": bool(missing)}
 
 
-async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval: str, *, charges_estimated: float,
-                now: Optional[datetime] = None) -> Dict[str, Any]:
-    if interval not in ALLOWED:
-        raise ValueError("invalid_interval")
-    now = now or datetime.now(timezone.utc)
-    session_open = dq.in_session(now)
-    hit = _CACHE.get((uid, interval))
-    if hit and time.monotonic() - hit[0] < (CACHE_OPEN_S if session_open else CACHE_CLOSED_S):
-        return hit[1]
-    iv = ALLOWED[interval]
-    kname = INTERVALS[iv][0]
-    today = now.astimezone(cfg.IST).date().isoformat()
+TRADE_MAX_SESSIONS = 10
 
-    books: List[Dict[str, Any]] = []
-    stock_keys: Dict[str, List[str]] = {}
-    contract_legs = []
-    for item in book.open:
+
+def trade_curve(series: Dict[str, List[list]], lines: List[Dict[str, Any]], *, charges: float, start: str) -> Dict[str, Any]:
+    """One trade's P&L from `start` (an IST ISO time) through the last candle, over any days. `lines` are its open positions
+    [{key, net_quantity, avg_price, multiplier, prev_close}]; a time before every line has a price is skipped; a candle a line
+    did not trade in carries its last close forward. Net = gross − `charges` (the estimate for closing now, held constant)."""
+    used, missing, closes = [], [], []
+    for p in lines:
+        rows = [b for b in series.get(p["key"], []) if str(b[0]) >= start]
+        if not rows:
+            missing.append({"position_id": p["key"], "reason": "no intraday candles for this instrument since the entry"})
+            continue
+        used.append(p["key"])
+        closes.append((p, {b[0]: float(b[4]) for b in rows}))
+    times = sorted({t for _, c in closes for t in c})
+    last: Dict[str, Optional[float]] = {p["key"]: None for p, _ in closes}
+    points = []
+    for t in times:
+        total, known = 0.0, True
+        for p, c in closes:
+            if t in c:
+                last[p["key"]] = c[t]
+            px = last[p["key"]]
+            if px is None:
+                known = False
+                break
+            total += (px - p["avg_price"]) * p["net_quantity"] * p["multiplier"]
+        if not known or missing:
+            continue
+        gross = round(total, 2) + 0.0
+        points.append({"t": t, "gross_pnl": gross, "net_pnl": round(gross - charges, 2)})
+    return {"points": points, "positions_used": used, "missing": missing, "partial": bool(missing)}
+
+
+def _ist_iso(stamp: Any) -> Optional[str]:
+    if not stamp:
+        return None
+    try:
+        d = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.astimezone(cfg.IST).isoformat()
+
+
+def _sessions_since(day: str, today: str) -> int:
+    """Weekdays from `day` through `today` (a holiday counts: Kite then just has no candles for it)."""
+    try:
+        a, b = datetime.fromisoformat(day).date(), datetime.fromisoformat(today).date()
+    except ValueError:
+        return 1
+    n, d = 0, a
+    while d <= b:
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return max(1, n)
+
+
+def paper_lines(book: Book, quotes: Dict[str, prices.Quote], items: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+    """The open positions of the paper book (or of `items`) as curve lines."""
+    out = []
+    for item in (book.open if items is None else items):
         if not item.entered:
             continue
         pos_map = ledger.build(item.executions)
@@ -124,13 +172,23 @@ async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval:
             if pos is None or not pos.is_open or pos.average_price is None:
                 continue
             q = quotes.get(leg.position_key)
-            books.append({"key": leg.position_key, "net_quantity": pos.net_quantity, "avg_price": pos.average_price,
-                          "multiplier": pos.multiplier, "prev_close": q.prev_close if q else None, "instrument": leg.instrument})
-            if leg.kind == "cash":
-                stock_keys.setdefault(leg.symbol, []).append(leg.position_key)
-            else:
-                contract_legs.append(leg)
+            out.append({"key": leg.position_key, "net_quantity": pos.net_quantity, "avg_price": pos.average_price,
+                        "multiplier": pos.multiplier, "prev_close": q.prev_close if q else None, "instrument": leg.instrument,
+                        "leg": leg})
+    return out
 
+
+async def _series(lines: List[Dict[str, Any]], iv: str, kname: str, *, sessions: int, session_open: bool,
+                  now: datetime) -> Tuple[Dict[str, List[list]], List[str]]:
+    """Candles for each line's instrument: stocks from the intraday service, contracts by their Kite token."""
+    stock_keys: Dict[str, List[str]] = {}
+    contract_legs = []
+    for ln in lines:
+        leg = ln["leg"]
+        if leg.kind == "cash":
+            stock_keys.setdefault(leg.symbol, []).append(ln["key"])
+        elif leg.kind in ("future", "option"):
+            contract_legs.append(leg)
     series: Dict[str, List[list]] = {}
     notes: List[str] = []
     if stock_keys or contract_legs:
@@ -139,7 +197,7 @@ async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval:
     svc = _service()
     for sym, keys in stock_keys.items():
         try:
-            got = await svc.bars(sym, iv, sessions=1, session_open=session_open)
+            got = await svc.bars(sym, iv, sessions=sessions, session_open=session_open)
         except Exception as e:  # noqa: BLE001 — one instrument's failure leaves it out of the curve, said so
             notes.append(f"{sym}: intraday candles could not be read ({type(e).__name__}).")
             continue
@@ -152,6 +210,7 @@ async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval:
         if kite is None:
             notes.append("No Kite session for the platform: futures and options are left out of the curve.")
         else:
+            today = now.astimezone(cfg.IST).date().isoformat()
             try:
                 tokens = await prices.contract_tokens(kite, contract_legs, today)
             except Exception as e:  # noqa: BLE001
@@ -161,6 +220,7 @@ async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval:
             for leg in contract_legs:
                 tok = tokens.get(leg.position_key)
                 if not tok:
+                    notes.append(f"{leg.instrument}: no listed contract found for its candles.")
                     continue
                 try:
                     rows = await _paced(kite.historical_data, tok[1], t_to - timedelta(days=5), t_to, kname)
@@ -168,18 +228,111 @@ async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval:
                     notes.append(f"{leg.instrument}: candles could not be read ({type(e).__name__}).")
                     continue
                 series[leg.position_key] = sorted((b for b in (_bar(c) for c in rows or []) if b), key=lambda b: b[0])
+    return series, notes
+
+
+BASIS = ("Kite intraday candles (raw prices), each candle's close; a candle an instrument did not trade in carries its last close "
+         "forward. The book is today's open positions; charges are today's estimate for closing them, held constant. Display only.")
+
+
+async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval: str, *, charges_estimated: float,
+                now: Optional[datetime] = None, mode: str = "PAPER", live_lines: Optional[List[Dict[str, Any]]] = None
+                ) -> Dict[str, Any]:
+    """The book's curve through the latest session. `mode` PAPER (the paper book), LIVE (`live_lines`, the broker positions)
+    or ALL (both)."""
+    if interval not in ALLOWED:
+        raise ValueError("invalid_interval")
+    now = now or datetime.now(timezone.utc)
+    session_open = dq.in_session(now)
+    hit = _CACHE.get((uid, interval, mode))
+    if hit and time.monotonic() - hit[0] < (CACHE_OPEN_S if session_open else CACHE_CLOSED_S):
+        return hit[1]
+    iv = ALLOWED[interval]
+    kname = INTERVALS[iv][0]
+    today = now.astimezone(cfg.IST).date().isoformat()
+
+    lines: List[Dict[str, Any]] = []
+    if mode in ("ALL", "PAPER"):
+        lines += paper_lines(book, quotes)
+    if mode in ("ALL", "LIVE"):
+        lines += list(live_lines or [])
+    series, notes = await _series(lines, iv, kname, sessions=1, session_open=session_open, now=now)
+    books = [{k: v for k, v in ln.items() if k != "leg"} for ln in lines]
 
     days = sorted({str(b[0])[:10] for rows in series.values() for b in rows})
     day = days[-1] if days else today
     realized = 0.0
-    for item in book.closed:
-        if (item.public.get("exit_session") or "") == day and item.public.get("realized_pnl_rs") is not None:
-            realized += float(item.public["realized_pnl_rs"])
+    if mode in ("ALL", "PAPER"):
+        for item in book.closed:
+            if (item.public.get("exit_session") or "") == day and item.public.get("realized_pnl_rs") is not None:
+                realized += float(item.public["realized_pnl_rs"])
     out = curve(series, books, realized=round(realized, 2), charges=charges_estimated, day=day)
     out.update({"date": day, "interval": interval, "is_today": day == today, "session_open": session_open,
-                "as_of": now.isoformat(), "notes": notes, "mode": "PAPER",
-                "basis": "Kite intraday candles (raw prices), each candle's close; a candle an instrument did not trade in "
-                         "carries its last close forward. The book is today's open positions; charges are today's estimate "
-                         "for closing them, held constant. Display only."})
-    _CACHE[(uid, interval)] = (time.monotonic(), out)
+                "as_of": now.isoformat(), "notes": notes, "mode": mode, "basis": BASIS})
+    if mode in ("ALL", "LIVE"):
+        out["basis"] += (" Live positions: the broker's quantity and average from its last read; realised P&L of the broker "
+                         "positions is not in the curve (brokers do not split it).")
+    _CACHE[(uid, interval, mode)] = (time.monotonic(), out)
+    return out
+
+
+async def build_trade(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval: str, trade: str, *,
+                      charges_by_key: Dict[str, Optional[float]], live_lines: Optional[List[Dict[str, Any]]] = None,
+                      now: Optional[datetime] = None) -> Dict[str, Any]:
+    """ONE trade's curve. A paper SHARE trade from its entry (at most TRADE_MAX_SESSIONS sessions back); a paper structure or
+    a live position over the latest session only. LookupError("trade_not_found") for an id that is not an open position."""
+    if interval not in ALLOWED:
+        raise ValueError("invalid_interval")
+    now = now or datetime.now(timezone.utc)
+    session_open = dq.in_session(now)
+    hit = _CACHE.get((uid, interval, "trade:" + trade))
+    if hit and time.monotonic() - hit[0] < (CACHE_OPEN_S if session_open else CACHE_CLOSED_S):
+        return hit[1]
+    iv = ALLOWED[interval]
+    kname = INTERVALS[iv][0]
+    today = now.astimezone(cfg.IST).date().isoformat()
+
+    item = next((i for i in book.open if i.entered and (i.trade_id == trade or any(l.position_key == trade for l in i.legs))), None)
+    if item is not None:
+        lines = paper_lines(book, quotes, [item])
+        mode = "PAPER"
+    else:
+        lines = [ln for ln in (live_lines or []) if ln["key"] == trade]
+        mode = "LIVE"
+    if not lines:
+        raise LookupError("trade_not_found")
+    charges = round(sum(charges_by_key.get(ln["key"]) or 0.0 for ln in lines), 2)
+    charges_known = all(charges_by_key.get(ln["key"]) is not None for ln in lines)
+
+    since_entry, sessions, why = False, 1, None
+    entry_day = None
+    if item is not None and item.kind == "cash":
+        entry_day = item.entry_session or (_ist_iso(item.public.get("opened_at")) or "")[:10] or None
+    if entry_day:
+        n = _sessions_since(entry_day, today)
+        sessions = min(TRADE_MAX_SESSIONS, n)
+        since_entry = n <= TRADE_MAX_SESSIONS
+        if not since_entry:
+            why = f"Entered {entry_day}: more than {TRADE_MAX_SESSIONS} sessions ago, so the curve starts {TRADE_MAX_SESSIONS} sessions back."
+    elif item is not None:
+        why = "A structure is drawn over the latest session only (its legs' candles are read for one session)."
+    else:
+        why = "A broker position is drawn over the latest session only: brokers do not send when it was opened."
+    series, notes = await _series(lines, iv, kname, sessions=sessions, session_open=session_open, now=now)
+    days = sorted({str(b[0])[:10] for rows in series.values() for b in rows})
+    if since_entry and entry_day:
+        opened = _ist_iso(item.public.get("opened_at")) if item is not None else None
+        # An at-once fill is at its recording time; a fill decided on an end-of-day bar is the whole entry session.
+        start = opened if opened and opened[:10] == entry_day else f"{entry_day}T00:00:00+05:30"
+    else:
+        start = f"{days[-sessions] if len(days) >= sessions else (days[0] if days else today)}T00:00:00+05:30"
+        if item is None or item.kind != "cash":
+            start = f"{days[-1] if days else today}T00:00:00+05:30"
+    out = trade_curve(series, lines, charges=charges, start=start)
+    out.update({"trade": trade, "mode": mode, "from": out["points"][0]["t"] if out["points"] else None,
+                "since_entry": since_entry, "interval": interval, "as_of": now.isoformat(), "notes": notes,
+                "date": days[-1] if days else today, "charges_estimated": charges if charges_known else None,
+                "basis": ("Kite intraday candles (raw prices), each candle's close, against the position's average price; net = "
+                          "gross − the estimate for closing it now, held constant. " + (why or "Drawn from the entry.")).strip()})
+    _CACHE[(uid, interval, "trade:" + trade)] = (time.monotonic(), out)
     return out

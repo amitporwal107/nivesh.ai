@@ -139,6 +139,7 @@ jobs:
           tests/test_desk_paper_sim.py
           tests/test_desk_redesign_routes.py
           tests/test_desk_strategy_trades.py
+          tests/test_desk_levels_edit.py
           tests/test_desk_trading.py
           tests/test_deterministic_insights.py
           tests/test_insights_list_contract.py
@@ -256,6 +257,8 @@ jobs:
           tests/test_paper_account.py
           tests/test_paper_exit_rules.py
           tests/test_paper_fills_pnl.py
+          tests/test_paper_pnl.py
+          tests/test_paper_pnl_live.py
           tests/test_paper_reconcile.py
           tests/test_paper_trades_routes.py
           tests/test_payoff_cost_card.py

@@ -108,7 +108,8 @@ class State:
     """One position's exit state as of the close of the last session stepped (`stop` is in force for the NEXT one)."""
     entry_price: float
     stop: Optional[float]
-    initial_stop: Optional[float]
+    initial_stop: Optional[float]                   # the stop the trail's raises are measured from: the entry's stop,
+                                                    # or the latest one the user set (manual_stop)
     sessions_held: int = 0
     extreme: Optional[float] = None                 # high-water (long) / low-water (short) since entry
     atr: Optional[float] = None                     # ATR as of the last close stepped
@@ -143,6 +144,21 @@ def validate_levels(entry: Any, stop: Any, target: Any = None, side: str = "long
             raise ValueError("target_not_above_entry")
         if side == "short" and t >= e:
             raise ValueError("target_not_below_entry")
+
+
+def manual_stop(state: State, stop: Any, *, session: Any = None, side: str = "long") -> State:
+    """A stop the USER set on an open position (a paper trade's level change, services/desk_trading `level_changes`):
+    in force from the next session stepped, recorded as a new version with reason `manual`. It may tighten or loosen the
+    stop. The opt-in trail then measures its raises from it (`initial_stop`), so a hit of this stop is an exit at the
+    `stop`, not a `trailing_stop`, until the trail raises it again; the trail still never loosens what it raised."""
+    s = _num(stop)
+    if s is None:
+        raise ValueError("invalid_stop_price")
+    if state.closed:
+        raise ValueError("the position is already closed")
+    version = state.stop_version + 1
+    entry = {"session": _session_text(session), "stop": s, "reason": "manual", "version": version, "side": side}
+    return replace(state, stop=s, initial_stop=s, stop_version=version, stop_history=state.stop_history + (entry,))
 
 
 def _round(value: float, rules: Rules) -> float:

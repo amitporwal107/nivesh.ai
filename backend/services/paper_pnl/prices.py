@@ -203,11 +203,22 @@ async def contract_tokens(kite, legs: Iterable[Leg], today: str) -> Dict[str, Tu
     out: Dict[str, Tuple[str, int]] = {}
     for l in legs:
         ident = fq.leg_key(l.symbol, l.expiry, l.strike, l.kind, l.option_type)
-        ts = index.get(ident) if ident else None
+        ts = l.tradingsymbol or (index.get(ident) if ident else None)
         tok = _NFO[2].get(ts) if ts else None
         if ts and tok:
             out[l.position_key] = (ts, tok)
     return out
+
+
+def expiry_of(tradingsymbol: Optional[str]) -> Optional[str]:
+    """The expiry day of a Kite NFO tradingsymbol from this worker's instrument list (loaded by `resolve` once a day), or None
+    when the list is not loaded or does not hold it. Used for a broker's monthly symbol, which names a month, not a day."""
+    if not tradingsymbol or not _NFO[1]:
+        return None
+    for (_name, day, _strike, _itype), ts in _NFO[1].items():
+        if ts == tradingsymbol:
+            return day
+    return None
 
 
 def kite_client():
@@ -318,7 +329,7 @@ async def resolve(legs: Iterable[Leg], *, now: Optional[datetime] = None, feed: 
                 index = await _nfo_index(kite, today)
                 for l in contracts:
                     ident = fq.leg_key(l.symbol, l.expiry, l.strike, l.kind, l.option_type)
-                    ts = index.get(ident) if ident else None
+                    ts = l.tradingsymbol or (index.get(ident) if ident else None)
                     if ts:
                         by_key[l.position_key] = ts
                     else:

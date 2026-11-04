@@ -1,14 +1,22 @@
 /**
- * Trade Desk › Paper Trading › P&L dashboard — the reads (docs/paper_pnl_dashboard/DESIGN.md; owner decisions of 4 Nov 2026:
- * a third Paper Trading sub-view, standard trading words on this screen, PAPER ONLY in this release).
+ * Trade Desk › Paper Trading › P&L dashboard — the reads (docs/paper_pnl_dashboard/DESIGN.md, v1 and "v2": the owner's
+ * Real-Time PnL design of 4 Nov 2026 afternoon — Paper and Live (read-only broker positions), standard trading words on this
+ * screen, Modify risk for paper share trades).
  *
- *   GET /api/desk/pnl?segment=&period=&from=&to=      one snapshot: summary, positions (legs flat), strategies, pending
- *                                                     entries, closed trades for the period, risk + alerts, analytics
- *                                                     (backend/routes/desk_pnl.py; READ-ONLY — unlike GET /api/desk/paper-trades
- *                                                     it applies no exit, so it may be read every few seconds)
+ *   GET /api/desk/pnl?segment=&period=&from=&to=&mode=&account=
+ *                                                     one snapshot: accounts, both modes, summary for the selection, positions
+ *                                                     (legs flat; PAPER and LIVE rows), strategies, pending entries, closed
+ *                                                     trades for the period, risk + alerts, analytics (backend/routes/desk_pnl.py;
+ *                                                     READ-ONLY — it applies no exit and places no order, so it may be read
+ *                                                     every few seconds)
  *   GET /api/desk/pnl/stream?<same filters>           server-sent events: `snapshot` with the same body every few seconds in
  *                                                     session; a `: heartbeat` comment; the server closes it after 30 min
- *   GET /api/desk/pnl/timeseries?interval=5m|15m      the open book's P&L through today's session, from Kite candles
+ *   GET /api/desk/pnl/timeseries?interval=&mode=      the selected book's P&L through today's session, from Kite candles
+ *   GET /api/desk/pnl/timeseries?interval=15m&trade=  ONE trade's net P&L (a paper share trade since its entry; a structure or
+ *                                                     a live position over today's session)
+ *   GET /api/desk/pnl/journal/{trade_id}              the Scan dashboard's signal for the stock on the trade's entry day
+ *   PATCH /api/desk/paper-trades/{trade_id}/levels    Modify risk — the ONE write here (paper share trades; new stop loss /
+ *                                                     target in force from the next session)
  *
  * Transport (usePaperPnl): the stream first; polling GET /api/desk/pnl (3 s in session, 30 s otherwise) when EventSource is
  * missing, the session rides a bearer token or an advisor's X-Active-Profile (EventSource cannot send headers), or the stream
@@ -17,16 +25,17 @@
  * back. Each snapshot is the whole picture, so a gap needs no repair.
  *
  * Reads trust nothing: a missing or non-numeric figure is null (the screen shows "—"), never 0; a body without `summary` or
- * `positions` is a contract error. Nothing here writes anything or reaches a broker.
+ * `positions` is a contract error. Nothing here reaches a broker; the only write is the paper levels PATCH.
  */
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { apiConfig } from "@/services/api/config";
 import { ApiError } from "@/services/api/errors";
 import { getAuthToken } from "@/services/api/auth-token";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { num } from "../../desk-data";
+import { PAPER_KEY } from "../../desk-trading";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -40,6 +49,8 @@ export type PnlSegment = "ALL" | "EQUITY" | "FUTURES" | "OPTIONS";
 export type PnlPeriod = "TODAY" | "1W" | "1M" | "ALL" | "CUSTOM";
 export const SEGMENTS: readonly PnlSegment[] = ["ALL", "EQUITY", "FUTURES", "OPTIONS"];
 export const PERIODS: readonly PnlPeriod[] = ["TODAY", "1W", "1M", "ALL", "CUSTOM"];
+export type PnlMode = "ALL" | "PAPER" | "LIVE";
+export const MODES: readonly PnlMode[] = ["ALL", "PAPER", "LIVE"];
 
 export interface PnlFilters {
   segment: PnlSegment;
@@ -47,11 +58,15 @@ export interface PnlFilters {
   /** YYYY-MM-DD, only with period CUSTOM. */
   from?: string | null;
   to?: string | null;
+  /** v2: ALL | PAPER | LIVE (default ALL). */
+  mode?: PnlMode;
+  /** v2: "ALL" | "paper" | a broker account id (default ALL). */
+  account?: string;
 }
 
-/** The query the routes take (DESIGN.md "API"). A CUSTOM period without both days is sent as ALL. */
+/** The query the routes take (DESIGN.md "API", v2 adds mode and account). A CUSTOM period without both days is sent as ALL. */
 export function pnlQuery(f: PnlFilters): Record<string, string> {
-  const q: Record<string, string> = { segment: f.segment, period: f.period };
+  const q: Record<string, string> = { segment: f.segment, period: f.period, mode: f.mode ?? "ALL", account: f.account ?? "ALL" };
   if (f.period === "CUSTOM") {
     if (f.from && f.to) {
       q.from = f.from;
@@ -101,7 +116,46 @@ export interface PnlSummary {
   stalePositions: number | null;
   /** False when an open position has no price, so the totals leave it out. */
   complete: boolean | null;
+  /** v2: |net quantity × multiplier × LTP| summed over the selection's open rows. */
+  exposureRs: number | null;
+  /** v2: what the capital figure is (paper: the paper account's starting capital; live: …). */
+  capitalBasis: string | null;
 }
+
+/** v2: one account (paper or a broker account), always listed whatever the filters. */
+export type AccountState = "OK" | "STALE" | "SIGN_IN" | "ERROR" | "OFF";
+const ACCOUNT_STATES: readonly string[] = ["OK", "STALE", "SIGN_IN", "ERROR", "OFF"];
+export interface PnlAccount {
+  accountId: string;
+  name: string;
+  mode: "PAPER" | "LIVE";
+  broker: string | null;
+  state: AccountState;
+  stateNote: string | null;
+  readAt: string | null;
+  capital: number | null;
+  capitalBasis: string | null;
+  openPositions: number | null;
+  net: number | null;
+}
+
+/** v2: one mode's totals (segment applies; mode and account do not). */
+export interface PnlModeSummary {
+  realized: number | null;
+  unrealized: number | null;
+  gross: number | null;
+  charges: number | null;
+  net: number | null;
+  capital: number | null;
+  returnPct: number | null;
+  openPositions: number | null;
+  complete: boolean | null;
+  /** False when no account of this mode could be read (e.g. every broker session expired). */
+  available: boolean | null;
+  note: string | null;
+}
+
+export interface PnlPendingLevels { stopLoss: number | null; target: number | null; fromSession: string | null; version: number | null }
 
 export interface PnlSegmentRow {
   segment: string;
@@ -164,6 +218,22 @@ export interface PnlPosition {
   openedAt: string | null;
   expiry: string | null;
   executions: PnlExecution[];
+  /** v2: "paper" or the broker account id. */
+  accountId: string | null;
+  /** v2, LIVE: the broker's own P&L on its last read (it includes the broker's realised part). */
+  brokerPnl: number | null;
+  brokerReadAt: string | null;
+  /** v2, LIVE: intraday | delivery | carryforward | margin. */
+  product: string | null;
+  exposureRs: number | null;
+  /** v2: an open PAPER share trade whose stop loss / target may be changed (Modify risk). */
+  editableLevels: boolean;
+  /** v2: a change saved but not in force yet (from the next session). */
+  pendingLevels: PnlPendingLevels | null;
+  /** v2: why the fills list is short or empty (live: only today's fills come from the broker). */
+  executionsNote: string | null;
+  /** v2, LIVE: why the broker's contract could not be mapped to an NSE contract (null when mapped). */
+  contractProblem: string | null;
 }
 
 export interface PnlStrategy {
@@ -230,6 +300,9 @@ export interface PnlRisk {
   dailyLossLimitRs: number | null;
   dailyLossUsedPct: number | null;
   alerts: PnlAlert[];
+  /** v2: margin used (paper: capital blocked by open trades, not exchange margin; live: not read from brokers). */
+  margin: { usedPct: number | null; basis: string | null };
+  exposureRs: number | null;
 }
 
 export interface PnlAnalytics {
@@ -246,11 +319,16 @@ export interface PnlAnalytics {
 }
 
 export interface PnlSnapshot {
+  /** v2: the SELECTED mode (ALL | PAPER | LIVE); v1 always sent PAPER. */
   mode: string;
   currency: string;
   asOf: string | null;
   sequence: number | null;
-  filters: { segment: string | null; period: string | null; from: string | null; to: string | null };
+  filters: { segment: string | null; period: string | null; from: string | null; to: string | null; mode: string | null; account: string | null };
+  /** v2: every account (paper + each broker account), whatever the filters. */
+  accounts: PnlAccount[];
+  /** v2: both modes' totals, unfiltered by mode / account. */
+  modes: { PAPER: PnlModeSummary | null; LIVE: PnlModeSummary | null };
   market: PnlMarket;
   summary: PnlSummary;
   bySegment: PnlSegmentRow[];
@@ -294,6 +372,41 @@ function readPosition(v: unknown, i: number): PnlPosition | null {
     stopLoss: num(p.stop_loss), target: num(p.target), distanceToStopPct: num(p.distance_to_stop_pct), riskUsedPct: num(p.risk_used_pct),
     status: str(p.status), openedAt: str(p.opened_at), expiry: str(p.expiry),
     executions: arr(p.executions).map(readExecution),
+    accountId: str(p.account_id), brokerPnl: num(p.broker_pnl), brokerReadAt: str(p.broker_read_at), product: str(p.product),
+    exposureRs: num(p.exposure_rs), editableLevels: p.editable_levels === true, pendingLevels: readPendingLevels(p.pending_levels),
+    executionsNote: str(p.executions_note), contractProblem: str(p.contract_problem),
+  };
+}
+
+function readPendingLevels(v: unknown): PnlPendingLevels | null {
+  if (!v || typeof v !== "object") return null;
+  const l = rec(v);
+  const out = { stopLoss: num(l.stop_loss), target: num(l.target), fromSession: str(l.from_session), version: num(l.version) };
+  return out.stopLoss == null && out.target == null ? null : out;
+}
+
+function readAccount(v: unknown): PnlAccount | null {
+  const a = rec(v);
+  const id = str(a.account_id);
+  const mode = str(a.mode);
+  if (!id || (mode !== "PAPER" && mode !== "LIVE")) return null;
+  const state = str(a.state);
+  return {
+    accountId: id, name: str(a.name) ?? (mode === "PAPER" ? "Paper account" : str(a.broker) ?? id), mode, broker: str(a.broker),
+    // An unknown state is shown as an error: no claim that the account is fine.
+    state: state && ACCOUNT_STATES.includes(state) ? (state as AccountState) : "ERROR",
+    stateNote: str(a.state_note), readAt: str(a.read_at), capital: num(a.capital), capitalBasis: str(a.capital_basis),
+    openPositions: num(a.open_positions), net: num(a.net_pnl),
+  };
+}
+
+function readModeSummary(v: unknown): PnlModeSummary | null {
+  if (!v || typeof v !== "object") return null;
+  const m = rec(v);
+  return {
+    realized: num(m.realized_pnl), unrealized: num(m.unrealized_pnl), gross: num(m.gross_pnl), charges: num(m.charges), net: num(m.net_pnl),
+    capital: num(m.capital), returnPct: num(m.return_pct), openPositions: num(m.open_positions), complete: bool(m.complete),
+    available: bool(m.available), note: str(m.note),
   };
 }
 
@@ -339,24 +452,28 @@ export function readPnl(body: unknown): PnlSnapshot {
   const cap = rec(r.capital);
   const an = b.analytics && typeof b.analytics === "object" ? rec(b.analytics) : null;
   const recon = rec(b.reconciliation);
+  const modes = rec(b.modes);
+  const margin = rec(r.margin);
   const notes: Record<string, string> = {};
   for (const [k, v] of Object.entries(rec(b.notes))) {
     const t = str(v);
     if (t) notes[k] = t;
   }
   return {
-    mode: str(b.mode) ?? "PAPER",
+    mode: str(b.mode) ?? "ALL",
     currency: str(b.currency) ?? "INR",
     asOf: str(b.as_of),
     sequence: num(b.sequence),
-    filters: { segment: str(f.segment), period: str(f.period), from: str(f.from), to: str(f.to) },
+    filters: { segment: str(f.segment), period: str(f.period), from: str(f.from), to: str(f.to), mode: str(f.mode), account: str(f.account) },
+    accounts: arr(b.accounts).map(readAccount).filter((x): x is PnlAccount => !!x),
+    modes: { PAPER: readModeSummary(modes.PAPER), LIVE: readModeSummary(modes.LIVE) },
     market: { session: str(m.session), feed: str(m.feed), feedAgeSeconds: num(m.feed_age_seconds), staleAfterSeconds: num(m.stale_after_seconds), priceRule: str(m.price_rule), day: str(m.day), notes: strings(m.notes) },
     summary: {
       realized: num(s.realized_pnl), unrealized: num(s.unrealized_pnl), gross: num(s.gross_pnl), chargesBooked: num(s.charges_booked),
       chargesEstimated: num(s.charges_estimated), net: num(s.net_pnl), dayPnl: num(s.day_pnl), allocatedCapital: num(s.allocated_capital),
       returnPct: num(s.return_pct), openPositions: num(s.open_positions), openLegs: num(s.open_legs), winningPositions: num(s.winning_positions), losingPositions: num(s.losing_positions),
       closedTrades: num(s.closed_trades), pendingEntries: num(s.pending_entries), unpricedPositions: num(s.unpriced_positions),
-      stalePositions: num(s.stale_positions), complete: bool(s.complete),
+      stalePositions: num(s.stale_positions), complete: bool(s.complete), exposureRs: num(s.exposure_rs), capitalBasis: str(s.capital_basis),
     },
     bySegment: arr(b.by_segment).flatMap((x) => {
       const g = rec(x);
@@ -384,6 +501,8 @@ export function readPnl(body: unknown): PnlSnapshot {
       openRiskRs: num(r.open_risk_rs), openRiskLimitRs: num(r.open_risk_limit_rs),
       strategiesCapitalAtRiskRs: num(r.strategies_capital_at_risk_rs), nearStopPct: num(r.near_stop_pct), dailyLossLimitRs: num(r.daily_loss_limit_rs), dailyLossUsedPct: num(r.daily_loss_used_pct),
       alerts: arr(r.alerts).map(readAlert).filter((x): x is PnlAlert => !!x).sort((a, z) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[z.severity]),
+      margin: { usedPct: num(margin.used_pct), basis: str(margin.basis) },
+      exposureRs: num(r.exposure_rs),
     },
     analytics: an ? {
       trades: num(an.trades), wins: num(an.wins), losses: num(an.losses), winRatePct: num(an.win_rate_pct), profitFactor: num(an.profit_factor),
@@ -539,8 +658,9 @@ class PnlFeed {
   }
 }
 
-/** The dashboard's snapshot, kept current by the stream or by polling (see the header). */
-export function usePaperPnl(filters: PnlFilters): PnlFeedState & { retry: () => void } {
+/** The dashboard's snapshot, kept current by the stream or by polling (see the header). `paused` (the screen's Pause button)
+ *  closes the stream / stops the polls and keeps the last snapshot on screen; Resume opens a fresh connection. */
+export function usePaperPnl(filters: PnlFilters, paused = false): PnlFeedState & { retry: () => void } {
   const profile = useImpersonationStore((st) => st.profileId);
   const query = pnlQuery(filters);
   const key = `${new URLSearchParams(query).toString()}|${profile ?? ""}`;
@@ -550,6 +670,10 @@ export function usePaperPnl(filters: PnlFilters): PnlFeedState & { retry: () => 
   last.current = state.data;
 
   useEffect(() => {
+    if (paused) {
+      setState((st) => ({ ...st, connection: "paused" }));
+      return;
+    }
     // EventSource sends cookies only: a bearer-token session or an advisor viewing a client (X-Active-Profile) must poll.
     const canStream = () => !getAuthToken() && !profile;
     const f = new PnlFeed(JSON.parse(JSON.stringify(query)) as Record<string, string>, canStream, last.current, setState);
@@ -564,7 +688,7 @@ export function usePaperPnl(filters: PnlFilters): PnlFeedState & { retry: () => 
     };
     // `key` is the whole of the query and the profile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, paused]);
 
   return { ...state, retry: () => feed.current?.start() };
 }
@@ -618,16 +742,227 @@ export function readTimeseries(body: unknown): PnlTimeseries {
 const isForbidden = (e: unknown) => e instanceof ApiError && (e.kind === "forbidden" || e.status === 403);
 const retry = (count: number, e: unknown) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1;
 
-export function usePnlTimeseries(interval: PnlInterval, sessionOpen: boolean) {
+export function usePnlTimeseries(interval: PnlInterval, sessionOpen: boolean, mode: PnlMode = "ALL") {
   const profile = useImpersonationStore((st) => st.profileId);
   return useQuery<PnlTimeseries>({
-    queryKey: ["copilot", "desk", "pnl-timeseries", interval, profile ?? "self"],
+    queryKey: ["copilot", "desk", "pnl-timeseries", interval, mode, profile ?? "self"],
     staleTime: 30_000,
     retry,
     refetchInterval: sessionOpen ? 60_000 : false,
     refetchIntervalInBackground: false,
-    queryFn: async ({ signal }) => readTimeseries((await http({ path: "/api/desk/pnl/timeseries", query: { interval }, signal, noRetry: true, timeoutMs: 30_000 })).data),
+    queryFn: async ({ signal }) => readTimeseries((await http({ path: "/api/desk/pnl/timeseries", query: { interval, mode }, signal, noRetry: true, timeoutMs: 30_000 })).data),
   });
+}
+
+// ── one trade's curve (v2) ───────────────────────────────────────────────
+
+export interface TradeCurve {
+  trade: string | null;
+  mode: string | null;
+  /** ISO of the first point. */
+  from: string | null;
+  /** True: from the trade's entry; false: today's session only (a structure, a live position). Null: not said. */
+  sinceEntry: boolean | null;
+  points: Array<{ t: string; gross: number | null; net: number | null }>;
+  basis: string | null;
+  missing: Array<{ positionId: string | null; reason: string }>;
+  /** The trade's estimated charges taken off every point (constant), and the route's own sentences. */
+  chargesEstimated: number | null;
+  notes: string[];
+}
+
+export function readTradeCurve(body: unknown): TradeCurve {
+  const b = rec(body);
+  if (!Array.isArray(b.points)) throw ApiError.contractDrift("desk.pnl.timeseries(trade): no points list");
+  return {
+    trade: str(b.trade), mode: str(b.mode), from: str(b.from), sinceEntry: bool(b.since_entry),
+    points: (b.points as unknown[]).flatMap((x) => {
+      const p = rec(x);
+      const t = str(p.t);
+      return t ? [{ t, gross: num(p.gross_pnl), net: num(p.net_pnl) }] : [];
+    }),
+    basis: str(b.basis),
+    missing: arr(b.missing).flatMap((x) => { const m = rec(x); const reason = str(m.reason); return reason ? [{ positionId: str(m.position_id), reason }] : []; }),
+    chargesEstimated: num(b.charges_estimated), notes: strings(b.notes),
+  };
+}
+
+/** GET /api/desk/pnl/timeseries?interval=15m&trade=<id> — only while the row is open. */
+export function useTradeCurve(tradeId: string | null, sessionOpen: boolean) {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<TradeCurve>({
+    queryKey: ["copilot", "desk", "pnl-trade-curve", tradeId ?? "", profile ?? "self"],
+    enabled: !!tradeId,
+    staleTime: 30_000,
+    retry,
+    refetchInterval: sessionOpen ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    queryFn: async ({ signal }) => readTradeCurve((await http({ path: "/api/desk/pnl/timeseries", query: { interval: "15m", trade: tradeId as string }, signal, noRetry: true, timeoutMs: 30_000 })).data),
+  });
+}
+
+// ── signals at entry (v2) ────────────────────────────────────────────────
+
+export interface JournalParts { quality: number | null; trend: number | null; reason: number | null; size: number | null; participation: number | null; penalty: number | null }
+
+export interface JournalSignal {
+  /** "strong" (score ≥ 70, its plan frozen then) | "scored" (only the day's stored score). */
+  kind: string | null;
+  firstStrong: string | null;
+  score: number | null;
+  parts: JournalParts | null;
+  reasons: string[];
+  /** The score's penalties in words (e.g. a pump-and-dump pattern), when any. */
+  penalties: string[];
+  lists: Array<{ id: string; title: string }>;
+  entry: number | null;
+  stopLoss: number | null;
+  target1: number | null;
+  target2: number | null;
+  rr1: number | null;
+  rr2: number | null;
+  trendExit: string | null;
+  planOk: boolean | null;
+  planNote: string | null;
+  rules: string | null;
+}
+
+export interface PnlJournal {
+  tradeId: string | null;
+  symbol: string | null;
+  /** The day of the signal looked up (the trade's entry session's day). */
+  entryDay: string | null;
+  found: boolean;
+  why: string | null;
+  signal: JournalSignal | null;
+  trade: { source: { kind: string | null; bucket: string | null; signalDate: string | null } | null; rationale: string | null; note: string | null; openedAt: string | null; entryRule: string | null; entrySession: string | null };
+}
+
+export type JournalResult = { kind: "ok"; data: PnlJournal } | { kind: "none"; why: string };
+
+function readJournalSignal(v: unknown): JournalSignal | null {
+  if (!v || typeof v !== "object") return null;
+  const g = rec(v);
+  const pa = g.parts && typeof g.parts === "object" ? rec(g.parts) : null;
+  return {
+    kind: str(g.kind), firstStrong: str(g.first_strong), score: num(g.score),
+    parts: pa ? { quality: num(pa.quality), trend: num(pa.trend), reason: num(pa.reason), size: num(pa.size), participation: num(pa.participation), penalty: num(pa.penalty) } : null,
+    reasons: strings(g.reasons),
+    penalties: arr(g.penalties).flatMap((x) => {
+      if (typeof x === "string" && x.trim()) return [x.trim()];
+      const o = rec(x);
+      const t = str(o.text) ?? str(o.reason) ?? str(o.label) ?? str(o.code);
+      const pts = num(o.points);
+      return t ? [pts != null ? `${t} (${pts})` : t] : [];
+    }),
+    lists: arr(g.lists).flatMap((x) => {
+      if (typeof x === "string" && x.trim()) return [{ id: x.trim(), title: x.trim() }];
+      const l = rec(x);
+      const id = str(l.id);
+      const title = str(l.title) ?? id;
+      return id || title ? [{ id: id ?? (title as string), title: title as string }] : [];
+    }),
+    entry: num(g.entry), stopLoss: num(g.stop_loss), target1: num(g.target_1), target2: num(g.target_2), rr1: num(g.rr_1), rr2: num(g.rr_2),
+    trendExit: str(g.trend_exit), planOk: bool(g.plan_ok), planNote: str(g.plan_note), rules: str(g.rules),
+  };
+}
+
+export function readJournal(body: unknown): PnlJournal {
+  const b = rec(body);
+  if (typeof b.found !== "boolean") throw ApiError.contractDrift("desk.pnl.journal: no found flag");
+  const t = rec(b.trade);
+  const src = t.source && typeof t.source === "object" ? rec(t.source) : null;
+  const signal = readJournalSignal(b.signal);
+  return {
+    tradeId: str(b.trade_id), symbol: str(b.symbol), entryDay: str(b.entry_day),
+    // "found" with no signal body is not a signal: the screen says so instead of an empty card.
+    found: b.found === true && !!signal, why: str(b.why), signal,
+    trade: { source: src ? { kind: str(src.kind), bucket: str(src.bucket), signalDate: str(src.signal_date) } : null,
+      rationale: str(t.rationale), note: str(t.note), openedAt: str(t.opened_at), entryRule: str(t.entry_rule), entrySession: str(t.entry_session) },
+  };
+}
+
+/** GET /api/desk/pnl/journal/{trade_id}; 404 journal_not_available / trade_not_found → {kind: "none"}. */
+export function useTradeJournal(tradeId: string | null) {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<JournalResult>({
+    queryKey: ["copilot", "desk", "pnl-journal", tradeId ?? "", profile ?? "self"],
+    enabled: !!tradeId,
+    staleTime: 60_000,
+    retry,
+    queryFn: async ({ signal }) => {
+      try {
+        const res = await http({ path: `/api/desk/pnl/journal/${encodeURIComponent(tradeId as string)}`, signal, noRetry: true, timeoutMs: 20_000 });
+        return { kind: "ok", data: readJournal(res.data) };
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return { kind: "none", why: e.detail === "trade_not_found" ? "This trade is not in your paper book any more." : "No entry signal recorded for this position." };
+        throw e;
+      }
+    },
+  });
+}
+
+// ── Modify risk (v2): PATCH /api/desk/paper-trades/{id}/levels ───────────
+
+/** Only the levels the user changed (an omitted level stays; this screen never sends `target_price: null`, which removes it). */
+export interface LevelsBody { stop_price?: number; target_price?: number; note?: string }
+
+/** 200 {trade, replayed, source, price_basis}: the waiting change and the rule sentence from the public trade. */
+export interface LevelsSaved { pendingLevels: PnlPendingLevels | null; levelRule: string | null; replayed: boolean }
+
+export function useEditPaperLevels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tradeId, body, key }: { tradeId: string; body: LevelsBody; key: string }): Promise<LevelsSaved> => {
+      const res = await http({ method: "PATCH", path: `/api/desk/paper-trades/${encodeURIComponent(tradeId)}/levels`, body, headers: { "Idempotency-Key": key }, noRetry: true, timeoutMs: 20_000 });
+      const b = rec(res.data);
+      const t = rec(b.trade);
+      return { pendingLevels: readPendingLevels(t.pending_levels ?? b.pending_levels), levelRule: str(t.level_rule), replayed: b.replayed === true };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
+  });
+}
+
+const LEVEL_CODES: Record<string, string> = {
+  trade_not_found: "This trade is not in your paper book any more.",
+  trade_already_closed: "This trade is already closed.",
+  levels_not_editable: "Option and futures structures keep their levels in this release.",
+  invalid_stop_price: "The stop loss must be a positive price.",
+  invalid_target_price: "The target must be a positive price.",
+  stop_not_below_price: "The stop loss must be below the last end-of-day close.",
+  target_not_above_price: "The target must be above the last end-of-day close.",
+  stop_not_below_entry: "This trade is still waiting for its entry: the stop loss must be below its reference entry price.",
+  target_not_above_entry: "This trade is still waiting for its entry: the target must be above its reference entry price.",
+  no_close_available: "There is no end-of-day close for this stock yet, so the levels cannot be checked.",
+  levels_changed: "The levels were changed elsewhere just now. Reopen the form and try again.",
+  too_many_level_changes: "This trade has had the most level changes allowed.",
+  prices_unavailable: "End-of-day prices could not be read just now, so the levels cannot be checked. Try again shortly.",
+  idempotency_conflict: "This save was already sent with other values. Reopen the form and try again.",
+  invalid_idempotency_key: "The request's key was not accepted. Reopen the form and try again.",
+  stop_not_below_target: "The stop loss must be below the target.",
+  no_change: "Those are the levels already in force.",
+  unknown_field: "The request carried a field the server does not take.",
+  invalid_body: "The request could not be read by the server.",
+};
+
+/** A Modify risk refusal in words: the code (a plain detail or {code, message}) mapped, else the server's own sentence. */
+export function levelsProblem(e: unknown): string {
+  if (e instanceof ApiError) {
+    const d = rec(e.body).detail;
+    const code = typeof d === "string" ? d : str(rec(d).code);
+    if (code && LEVEL_CODES[code]) return LEVEL_CODES[code];
+    const message = str(rec(d).message);
+    if (message) return message;
+    if (e.kind === "network") return "The network request failed.";
+    if (e.kind === "timeout") return "The request took too long.";
+    return e.detail ?? e.message ?? `HTTP ${e.status ?? "error"}`;
+  }
+  return e instanceof Error && e.message ? e.message : "The request failed.";
+}
+
+export function newIdempotencyKey(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  return c?.randomUUID ? c.randomUUID() : `lv-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // ── CSV export ───────────────────────────────────────────────────────────
@@ -639,6 +974,7 @@ const CSV_COLUMNS: Array<[string, (p: PnlPosition) => unknown]> = [
   ["unrealized_pnl", (p) => p.unrealized], ["realized_pnl", (p) => p.realized], ["charges_estimated", (p) => p.chargesEstimated],
   ["net_pnl", (p) => p.net], ["day_pnl", (p) => p.dayPnl], ["stop_loss", (p) => p.stopLoss], ["target", (p) => p.target],
   ["distance_to_stop_pct", (p) => p.distanceToStopPct], ["status", (p) => p.status], ["opened_at", (p) => p.openedAt], ["position_id", (p) => p.positionId],
+  ["risk_used_pct", (p) => p.riskUsedPct], ["exposure_rs", (p) => p.exposureRs], ["broker_pnl", (p) => p.brokerPnl], ["account_id", (p) => p.accountId],
 ];
 
 const csvCell = (v: unknown): string => {

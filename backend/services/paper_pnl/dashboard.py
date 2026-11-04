@@ -6,6 +6,7 @@ Wording: the owner approved the standard trading words for THIS screen (4 Nov 20
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,13 +16,17 @@ from services import desk_trading as svc
 from services.kite_live_feed import config as cfg
 
 from . import ledger
+from . import live as live_mod
 from .book import Book, Leg, TradeItem
 from .prices import CLOSE, DELAYED, EOD, LIVE, MISSING, Quote
 
 MODE = "PAPER"
 ACCOUNT_NAME = "Paper account"
+PAPER_ACCOUNT_ID = "paper"
 SEGMENTS = ("ALL", "EQUITY", "FUTURES", "OPTIONS")
 PERIODS = ("TODAY", "1W", "1M", "ALL", "CUSTOM")
+MODES = ("ALL", "PAPER", "LIVE")
+_ACCOUNT_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 RECON_TOLERANCE_RS = 0.01
 CLOSED_LISTED = 200
 EXPIRY_SOON_DAYS = 2
@@ -47,34 +52,62 @@ class Filters:
     period: str = "TODAY"
     start: Optional[date] = None
     end: Optional[date] = None
+    mode: str = "ALL"                  # ALL | PAPER | LIVE (v2)
+    account: str = "ALL"               # ALL | paper | a broker account id of the user (checked by the route)
 
     def public(self) -> Dict[str, Any]:
         return {"segment": self.segment, "period": self.period,
-                "from": self.start.isoformat() if self.start else None, "to": self.end.isoformat() if self.end else None}
+                "from": self.start.isoformat() if self.start else None, "to": self.end.isoformat() if self.end else None,
+                "mode": self.mode, "account": self.account}
+
+    @property
+    def paper_on(self) -> bool:
+        return self.mode in ("ALL", "PAPER") and self.account in ("ALL", PAPER_ACCOUNT_ID)
+
+    @property
+    def live_on(self) -> bool:
+        return self.mode in ("ALL", "LIVE") and self.account != PAPER_ACCOUNT_ID
 
 
-def make_filters(segment: str, period: str, start: Optional[str], end: Optional[str], today: date) -> Filters:
+def clean_account(account: Optional[str]) -> str:
+    """ALL / paper / a broker account id (its shape only; the route checks it is one of the user's). ValueError otherwise."""
+    raw = (account or "ALL").strip()
+    if raw.upper() == "ALL":
+        return "ALL"
+    if raw.lower() == PAPER_ACCOUNT_ID:
+        return PAPER_ACCOUNT_ID
+    if not _ACCOUNT_RE.match(raw):
+        raise ValueError("invalid_account")
+    return raw
+
+
+def make_filters(segment: str, period: str, start: Optional[str], end: Optional[str], today: date,
+                 mode: Optional[str] = "ALL", account: Optional[str] = "ALL") -> Filters:
     """Validated filters; ValueError with a short code on a bad value (the route answers 422)."""
     seg, per = (segment or "ALL").upper(), (period or "TODAY").upper()
+    md = (mode or "ALL").upper()
     if seg not in SEGMENTS:
         raise ValueError("invalid_segment")
     if per not in PERIODS:
         raise ValueError("invalid_period")
+    if md not in MODES:
+        raise ValueError("invalid_mode")
+    acc = clean_account(account)
     if per == "TODAY":
-        return Filters(seg, per, today, today)
+        return Filters(seg, per, today, today, md, acc)
     if per == "1W":
-        return Filters(seg, per, today - timedelta(days=6), today)
+        return Filters(seg, per, today - timedelta(days=6), today, md, acc)
     if per == "1M":
-        return Filters(seg, per, today - timedelta(days=29), today)
+        return Filters(seg, per, today - timedelta(days=29), today, md, acc)
     if per == "ALL":
-        return Filters(seg, per, None, None)
+        return Filters(seg, per, None, None, md, acc)
     try:
         a, b = date.fromisoformat(str(start)), date.fromisoformat(str(end))
     except (TypeError, ValueError):
         raise ValueError("invalid_dates")
     if a > b or (b - a).days > 3660:
         raise ValueError("invalid_dates")
-    return Filters(seg, per, a, b)
+    return Filters(seg, per, a, b, md, acc)
 
 
 def _r(v: Optional[float]) -> Optional[float]:
@@ -196,8 +229,10 @@ def _position_row(item: TradeItem, leg: Leg, pos: ledger.Position, q: Quote, tod
             day_pnl = round((ltp - avg) * qty * pos.multiplier, 2)
     stop = target = None
     if item.kind == "cash":
+        # The levels in force: a Modify-risk change is a dated version, in force from the session after it (v2); the
+        # ledger's public trade sends current_stop / current_target for that, the stored levels otherwise.
         stop = pub.get("current_stop") if pub.get("current_stop") is not None else pub.get("stop_price")
-        target = pub.get("target_price")
+        target = pub.get("current_target") if pub.get("current_target") is not None else pub.get("target_price")
     side = pos.side
     dist = None
     if stop is not None and ltp:
@@ -225,7 +260,21 @@ def _position_row(item: TradeItem, leg: Leg, pos: ledger.Position, q: Quote, tod
         "status": status, "opened_at": pub.get("opened_at"), "expiry": leg.expiry,
         "executions": [{"execution_id": e.execution_id, "side": "BUY" if e.side > 0 else "SELL", "quantity": e.quantity,
                         "price": e.price, "at": e.at, "kind": e.kind} for e in pos.executions],
+        "account_id": PAPER_ACCOUNT_ID, "broker_pnl": None, "broker_read_at": None, "product": None,
+        "exposure_rs": round(abs(qty * ltp * pos.multiplier), 2) if ltp is not None else None,
+        "editable_levels": item.kind == "cash" and item.status == "open" and pos.is_open,
+        "pending_levels": _pending_levels(pub) if item.kind == "cash" else None, "executions_note": None,
     }
+
+
+def _pending_levels(pub: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The waiting Modify-risk change from the public trade ({stop_loss, target, from_session, version}), or None. Read
+    defensively: an older ledger sends nothing, and a field the ledger names differently is passed through when it is a dict."""
+    p = pub.get("pending_levels")
+    if not isinstance(p, dict):
+        return None
+    return {"stop_loss": p.get("stop_loss", p.get("stop_price")), "target": p.get("target", p.get("target_price")),
+            "from_session": p.get("from_session"), "version": p.get("version")}
 
 
 def _alert(severity: str, kind: str, message: str, *, position_id: Optional[str] = None, symbol: Optional[str] = None,
@@ -240,7 +289,10 @@ def _money(v: Optional[float]) -> str:
 
 def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account: Dict[str, Any],
           limits: Optional[Dict[str, Any]], filters: Filters, *, now: datetime,
-          underlying_ltp: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+          underlying_ltp: Optional[Dict[str, float]] = None, live: Optional[Any] = None) -> Dict[str, Any]:
+    """The dashboard body. `live` is the broker side (services/paper_pnl/live.LiveView: priced rows, accounts) or None (no
+    broker read: v1 behaviour, Live unavailable). `filters.mode` / `filters.account` select what the positions, summary,
+    by-segment, alerts and lists hold; `modes` and `accounts` always cover both modes (the segment filter applies)."""
     today = now.astimezone(cfg.IST).date().isoformat()
     underlying_ltp = underlying_ltp or {}
     capital = float(account.get("starting_capital_rs") or 0.0)
@@ -358,20 +410,6 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
                                  f"{ex.get('exit_session')}; the ledger records the close at its next check.",
                                  position_id=item.trade_id, symbol=rows[0]["symbol"]))
 
-    # Prices that are not live while the market is open, and positions with no price at all.
-    session_open = market.get("session") == "open"
-    unpriced = [p for p in positions if p["price_status"] == MISSING]
-    stale = [p for p in positions if session_open and p["price_status"] in (DELAYED, EOD, CLOSE)]
-    if session_open and market.get("feed") not in ("live",):
-        alerts.append(_alert("CRITICAL", "FEED", f"Live prices are {str(market.get('feed')).replace('_', ' ')}: open P&L is at the "
-                                                 "last available price, not live. Each row shows its price time."))
-    if stale:
-        alerts.append(_alert("WARNING", "STALE_PRICE", f"{len(stale)} position(s) are not priced live: "
-                                                      + ", ".join(sorted({p['instrument'] for p in stale})[:6])))
-    if unpriced:
-        alerts.append(_alert("CRITICAL", "MISSING_PRICE", f"{len(unpriced)} position(s) have no price at all, so the totals leave "
-                                                          "them out: " + ", ".join(sorted({p['instrument'] for p in unpriced})[:6])))
-
     # Closed trades: the period's list, the booked figures, and the reconciliation against the stored ledger.
     closed_rows: List[Dict[str, Any]] = []
     mismatches: List[Dict[str, Any]] = []
@@ -407,40 +445,107 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
         alerts.append(_alert("WARNING", "RECONCILIATION_MISMATCH",
                              f"{m['instrument']}: the ledger booked {_money(m['ledger_realized_pnl'])} realized, the P&L engine "
                              f"computes {_money(m['engine_realized_pnl'])} from its fills.", position_id=m["trade_id"]))
+
+    # ── v2: the selection. Paper and the broker positions are built in full (for `modes` and `accounts`); the mode and account
+    # filters then choose what the positions, summary, by-segment, alerts and lists hold. Closed trades and waiting entries are
+    # paper only.
+    paper_positions = positions
+    paper_day_total, _ = _sum([p["day_pnl"] for p in paper_positions])
+    live_all = [r for r in (live.positions if live is not None else [])
+                if filters.segment == "ALL" or r.get("segment") == filters.segment]
+    paper_on, live_on = filters.paper_on, filters.live_on
+    sel_live = [r for r in live_all if live_on and (filters.account == "ALL" or r.get("account_id") == filters.account)]
+    modes = {"PAPER": _mode_block(paper_positions, closed_rows, capital or None, True, None, realized_known=True),
+             "LIVE": _mode_block(live_all, [], None, live is not None and live.note is None,
+                                 (live.note if live is not None else "Broker positions were not read for this answer."),
+                                 realized_known=False)}
+    closed_sel = closed_rows if paper_on else []
+    if not paper_on:
+        positions, strategies, pending, trade_nets, open_risk, strat_risk, alerts = [], [], [], [], [], [], []
+        by_seg = {}
+    positions = positions + sel_live
+    for r in sel_live:
+        s = seg_row(r["segment"])
+        s["open_positions"] += 1
+        s["unrealized_pnl"] = round(s["unrealized_pnl"] + (r["unrealized_pnl"] or 0.0), 2)
+        s["charges"] = round(s["charges"] + (r["charges_estimated"] or 0.0), 2)
+        s["complete"] = s["complete"] and r["unrealized_pnl"] is not None and r["charges_estimated"] is not None
+        trade_nets.append(r["net_pnl"])
+        if r["expiry"]:
+            days = (date.fromisoformat(r["expiry"]) - date.fromisoformat(today)).days
+            if 0 <= days <= EXPIRY_SOON_DAYS:
+                alerts.append(_alert("WARNING" if days == 0 else "INFO", "EXPIRY",
+                                     f"{r['instrument']} ({r['account']}) expires {'today' if days == 0 else f'in {days} day' + ('s' if days > 1 else '')}.",
+                                     position_id=r["position_id"], symbol=r["symbol"]))
+    if live is not None and live_on:
+        for a in live.accounts:
+            if filters.account not in ("ALL", a["account_id"]) or a["state"] == "OK":
+                continue
+            sev = "INFO" if a["state"] in ("STALE", "OFF") else "WARNING"
+            alerts.append(_alert(sev, "BROKER", f"{a['name']}: {a['state_note'] or a['state'].replace('_', ' ').lower()}"))
     for s in by_seg.values():
         s["net_pnl"] = round(s["realized_pnl"] + s["unrealized_pnl"] - s["charges"], 2)
 
-    realized_total, _ = _sum([c["realized_pnl"] for c in closed_rows])
-    booked, _ = _sum([c["charges"] for c in closed_rows])
+    # Prices that are not live while the market is open, and positions with no price at all.
+    session_open = market.get("session") == "open"
+    unpriced = [p for p in positions if p["price_status"] == MISSING]
+    stale = [p for p in positions if session_open and p["price_status"] in (DELAYED, EOD, CLOSE)]
+    if session_open and market.get("feed") not in ("live",):
+        alerts.append(_alert("CRITICAL", "FEED", f"Live prices are {str(market.get('feed')).replace('_', ' ')}: open P&L is at the "
+                                                 "last available price, not live. Each row shows its price time."))
+    if stale:
+        alerts.append(_alert("WARNING", "STALE_PRICE", f"{len(stale)} position(s) are not priced live: "
+                                                      + ", ".join(sorted({p['instrument'] for p in stale})[:6])))
+    if unpriced:
+        alerts.append(_alert("CRITICAL", "MISSING_PRICE", f"{len(unpriced)} position(s) have no price at all, so the totals leave "
+                                                          "them out: " + ", ".join(sorted({p['instrument'] for p in unpriced})[:6])))
+
+    realized_total, _ = _sum([c["realized_pnl"] for c in closed_sel])
+    booked, _ = _sum([c["charges"] for c in closed_sel])
     unreal_total, unreal_unknown = _sum([p["unrealized_pnl"] for p in positions])
     est_total, est_unknown = _sum([p["charges_estimated"] for p in positions])
     day_total, _ = _sum([p["day_pnl"] for p in positions])
+    exposure_total, _ = _sum([p.get("exposure_rs") for p in positions])
     gross = round(realized_total + unreal_total, 2)
     net = round(gross - booked - est_total, 2)
     complete = unreal_unknown == 0 and est_unknown == 0
+    sel_capital = capital if (paper_on and capital) else None
+    if sel_live:
+        ret = None
+        capital_basis = ("Paper: the paper account's starting capital. " if paper_on else "") + live_mod.CAPITAL_BASIS
+    else:
+        ret = round(net / sel_capital * 100, 4) if sel_capital else None
+        capital_basis = "The paper account's starting capital." if paper_on else live_mod.CAPITAL_BASIS
 
     # Risk: capital (what the paper account blocks is capital at risk, not exchange margin) and the profile's limits.
     cash = float(account.get("cash_rs") or 0.0)
     blocked = float(account.get("blocked_rs") or 0.0)
     util = round(blocked / cash * 100, 2) if cash > 0 else None
-    if util is not None and util >= capital_warn_pct():
+    if paper_on and util is not None and util >= capital_warn_pct():
         alerts.append(_alert("WARNING", "CAPITAL", f"{util}% of the paper account's cash is blocked by open positions.",
                              observed=util, threshold=capital_warn_pct()))
     lim = limits or {}
     open_risk_limit = round(capital * float(lim["max_open_risk_pct"]) / 100, 2) if lim.get("max_open_risk_pct") is not None and capital else None
     daily_limit = round(capital * float(lim["daily_loss_pct"]) / 100, 2) if lim.get("daily_loss_pct") is not None and capital else None
     realized_today = sum(c["net_pnl"] or 0.0 for c in closed_rows if c["exit_session"] == today)
-    day_loss = max(0.0, -(day_total + realized_today))
-    daily_used = round(day_loss / daily_limit * 100, 1) + 0.0 if daily_limit else None
+    day_loss = max(0.0, -(paper_day_total + realized_today))
+    daily_used = round(day_loss / daily_limit * 100, 1) + 0.0 if daily_limit and paper_on else None
     if daily_used is not None and daily_used >= 100:
         alerts.append(_alert("CRITICAL", "DAILY_LOSS_LIMIT", f"Today's loss {_money(-day_loss)} has reached the daily loss limit "
                                                              f"{_money(daily_limit)}.", observed=-day_loss, threshold=daily_limit))
     elif daily_used is not None and daily_used >= 75:
         alerts.append(_alert("WARNING", "DAILY_LOSS_LIMIT", f"Today's loss is {daily_used}% of the daily loss limit "
                                                             f"{_money(daily_limit)}.", observed=-day_loss, threshold=daily_limit))
+    if paper_on and sel_live:
+        margin = {"used_pct": util, "basis": "Paper account only: capital blocked by open trades, not exchange margin. "
+                                             "Broker margin is not read."}
+    elif paper_on:
+        margin = {"used_pct": util, "basis": "Paper: capital blocked by open trades, not exchange margin."}
+    else:
+        margin = {"used_pct": None, "basis": "Not read from brokers."}
 
     # Analytics over the period's closed trades (net of charges), in closing order.
-    nets = [c for c in sorted(closed_rows, key=lambda c: str(c["closed_at"] or c["exit_session"] or "")) if c["net_pnl"] is not None]
+    nets = [c for c in sorted(closed_sel, key=lambda c: str(c["closed_at"] or c["exit_session"] or "")) if c["net_pnl"] is not None]
     wins = [c["net_pnl"] for c in nets if c["net_pnl"] > 0]
     losses = [c["net_pnl"] for c in nets if c["net_pnl"] < 0]
     equity, peak, dd = 0.0, 0.0, 0.0
@@ -452,32 +557,56 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
     for c in nets:
         daily[c["exit_session"]] = round(daily.get(c["exit_session"], 0.0) + c["net_pnl"], 2)
 
+    # Accounts: the paper account and every broker account (whatever the filters; the segment filter applies to the counts).
+    accts: List[Dict[str, Any]] = [{
+        "account_id": PAPER_ACCOUNT_ID, "name": ACCOUNT_NAME, "mode": MODE, "broker": None, "state": "OK", "state_note": None,
+        "read_at": now.astimezone(cfg.IST).isoformat(), "capital": capital or None,
+        "capital_basis": "The paper account's starting capital.", "open_positions": modes["PAPER"]["open_positions"],
+        "net_pnl": modes["PAPER"]["net_pnl"]}]
+    for a in (live.accounts if live is not None else []):
+        mine = [r for r in live_all if r.get("account_id") == a["account_id"]]
+        known = [r["net_pnl"] for r in mine if r["net_pnl"] is not None]
+        accts.append({**a, "open_positions": len(mine),
+                      "net_pnl": round(sum(known), 2) if mine and len(known) == len(mine) else (0.0 if not mine and a["state"] in ("OK", "STALE") else None)})
+
     severity = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
     alerts.sort(key=lambda a: severity.get(a["severity"], 3))
-    closed_rows.sort(key=lambda c: str(c["closed_at"] or ""), reverse=True)
+    closed_sel.sort(key=lambda c: str(c["closed_at"] or ""), reverse=True)
+    notes = {
+        "display_only": "Live prices here are for display. Paper fills and exits use end-of-day prices at the evening check; "
+                        "nothing on this screen places, changes or closes a trade.",
+        "charges": "Booked = the desk cost card at the fills of closed trades. Estimated = the same card with the closing side at "
+                   "the current price. Both are modelled; paper trades have no contract note.",
+        "unrealized": "Open P&L = (price now − average price) × quantity, per position; a structure is the sum of its legs.",
+        "capital": "Return % = net P&L ÷ the paper account's starting capital.",
+    }
+    if live is not None:
+        notes["live"] = live_mod.REALIZED_NOTE + " Broker positions are read-only here: Nivesh places no live order."
     return {
-        "mode": MODE, "currency": "INR", "account": ACCOUNT_NAME,
+        "mode": filters.mode, "currency": "INR", "account": ACCOUNT_NAME,
         "filters": filters.public(), "market": market,
+        "accounts": accts, "modes": modes,
         "summary": {
             "realized_pnl": realized_total, "unrealized_pnl": unreal_total, "gross_pnl": gross,
             "charges_booked": booked, "charges_estimated": est_total, "net_pnl": net, "day_pnl": day_total,
-            "allocated_capital": capital or None, "return_pct": round(net / capital * 100, 4) if capital else None,
+            "allocated_capital": sel_capital or None, "return_pct": ret, "capital_basis": capital_basis,
+            "exposure_rs": exposure_total,
             "open_positions": len({p["trade_id"] for p in positions}), "open_legs": len(positions),
             "winning_positions": sum(1 for n in trade_nets if n is not None and n > 0),
             "losing_positions": sum(1 for n in trade_nets if n is not None and n < 0),
-            "closed_trades": len(closed_rows), "pending_entries": len(pending),
+            "closed_trades": len(closed_sel), "pending_entries": len(pending),
             "unpriced_positions": len(unpriced), "stale_positions": len(stale), "complete": complete,
         },
         "by_segment": sorted(by_seg.values(), key=lambda s: SEGMENTS.index(s["segment"])),
         "positions": positions, "strategies": strategies, "pending_entries": pending,
-        "closed": closed_rows[:CLOSED_LISTED], "closed_total": len(closed_rows), "closed_partial": book.partial,
+        "closed": closed_sel[:CLOSED_LISTED], "closed_total": len(closed_sel), "closed_partial": book.partial,
         "risk": {
             "capital": {"starting": capital or None, "cash": cash, "blocked": round(blocked, 2), "available": round(cash - blocked, 2),
                         "utilisation_pct": util, "basis": "Capital at risk blocked by open positions, not exchange margin."},
-            "open_risk_rs": round(sum(open_risk), 2), "open_risk_limit_rs": open_risk_limit,
-            "strategies_capital_at_risk_rs": _sum(strat_risk)[0] if strat_risk else 0.0,
+            "open_risk_rs": round(sum(open_risk), 2) if paper_on else None, "open_risk_limit_rs": open_risk_limit,
+            "strategies_capital_at_risk_rs": (_sum(strat_risk)[0] if strat_risk else 0.0) if paper_on else None,
             "daily_loss_limit_rs": daily_limit, "daily_loss_used_pct": daily_used,
-            "near_stop_pct": near_stop_pct(), "alerts": alerts,
+            "near_stop_pct": near_stop_pct(), "alerts": alerts, "margin": margin, "exposure_rs": exposure_total,
         },
         "analytics": {
             "trades": len(nets), "wins": len(wins), "losses": len(losses),
@@ -491,12 +620,22 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
         "reconciliation": {"checked": checked, "mismatches": mismatches,
                            "basis": "Each closed trade's realized P&L recomputed from its fills, compared with the ledger's booked figure."},
         "marks_error": book.marks_error,
-        "notes": {
-            "display_only": "Live prices here are for display. Paper fills and exits use end-of-day prices at the evening check; "
-                            "nothing on this screen places, changes or closes a trade.",
-            "charges": "Booked = the desk cost card at the fills of closed trades. Estimated = the same card with the closing side at "
-                       "the current price. Both are modelled; paper trades have no contract note.",
-            "unrealized": "Open P&L = (price now − average price) × quantity, per position; a structure is the sum of its legs.",
-            "capital": "Return % = net P&L ÷ the paper account's starting capital.",
-        },
+        "notes": notes,
     }
+
+
+def _mode_block(rows: List[Dict[str, Any]], closed: List[Dict[str, Any]], capital: Optional[float], available: bool,
+                note: Optional[str], *, realized_known: bool) -> Dict[str, Any]:
+    """One mode card: realized (closed in the period; null for Live: brokers do not split it), unrealized, charges (booked +
+    estimated), net, return on the mode's capital, open positions (a structure counts once)."""
+    realized = _sum([c["realized_pnl"] for c in closed])[0] if realized_known else None
+    booked = _sum([c["charges"] for c in closed])[0]
+    unreal, u_unknown = _sum([r["unrealized_pnl"] for r in rows])
+    est, e_unknown = _sum([r["charges_estimated"] for r in rows])
+    gross = round((realized or 0.0) + unreal, 2)
+    charges = round(booked + est, 2)
+    net = round(gross - charges, 2)
+    return {"realized_pnl": realized, "unrealized_pnl": unreal, "gross_pnl": gross, "charges": charges, "net_pnl": net,
+            "capital": capital, "return_pct": round(net / capital * 100, 4) if capital else None,
+            "open_positions": len({r["trade_id"] for r in rows}), "complete": u_unknown == 0 and e_unknown == 0,
+            "available": available, "note": note}
