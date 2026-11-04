@@ -492,3 +492,82 @@ async def kill_switch_state(db, user_id: str, *, now: Optional[datetime] = None,
             "reset_pending_note": "RESET_PENDING is not produced: services/risk_controls keeps no reset request; clearing "
                                   "the switch is one admin action (PUT /api/admin/risk/{user_id}/kill-switch).",
             "mapping_version": KILL_SWITCH_MAPPING_VERSION}
+
+
+# ── stress test (P1, PRD §9.2 stressed risk, §10.5 scenarios) ────────────────
+STRESS_VERSION = "spt-stress-v1"
+SECTOR_SHOCK_PCT = 5.0
+MARKET_SHOCKS_PCT = (3.0, 5.0)
+
+
+async def open_spt_book(db, user_id: str, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The caller's open SPT exposure: every reservation on spt_orders (pending entries and filled positions), with its
+    quantity, entry and stop from slice C's open position when one exists, else from the proposal's approved order."""
+    book = state.get("book") or {}
+    entries = [e for e in (book.get("reservations") or []) if e.get("store") == C.ORDERS]
+    if not entries:
+        return []
+    ids = [e.get("trade_id") for e in entries]
+    props = {p.get("order_id"): p for p in await db[C.PROPOSALS].find({"user_id": user_id, "order_id": {"$in": ids}})
+             .to_list(len(ids))}
+    positions: Dict[str, Dict[str, Any]] = {}
+    for pos in await db[C.POSITIONS].find({"user_id": user_id, "state": {"$in": list(C.POS_OPEN_STATES)}}).to_list(500):
+        oid = pos.get("entry_order_id") or pos.get("order_id")
+        if oid:
+            positions[oid] = pos
+    out = []
+    for e in entries:
+        p = props.get(e.get("trade_id")) or {}
+        pos = positions.get(e.get("trade_id"))
+        if pos is not None:
+            f = _pos_fields(pos)
+            qty, entry, stop, src = f["qty"], f["avg"], f["stop"], "open position (spt_positions)"
+        else:
+            r = p.get("risk") or {}
+            qty, entry, stop, src = r.get("approved_qty"), (p.get("entry") or {}).get("price"), p.get("stop_loss"), \
+                "pending entry order (the proposal's approved order)"
+        out.append({"order_id": e.get("trade_id"), "symbol": e.get("symbol"), "sector": e.get("sector"),
+                    "quantity": qty, "entry": _f(entry), "stop": _f(stop), "exposure_rs": e.get("exposure_rs"),
+                    "reserved_risk_rs": e.get("risk_rs"), "source": src})
+    return out
+
+
+def stress(rows: List[Dict[str, Any]], *, gap_pct: float, model: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Deterministic scenarios on the open SPT book (no optimiser; numpy sums). A row without quantity, entry or stop is
+    listed under `unpriced` and left out of every total, never valued at a guess."""
+    import numpy as np
+    priced = [r for r in rows if r.get("quantity") and r.get("entry") and r.get("stop") is not None]
+    unpriced = [r["order_id"] for r in rows if r not in priced]
+    q = np.array([float(r["quantity"]) for r in priced])
+    e = np.array([float(r["entry"]) for r in priced])
+    s = np.array([float(r["stop"]) for r in priced])
+    costs = np.array([desk.round_trip_cost(int(r["quantity"]), float(r["entry"]), float(r["stop"]), model or desk.COST_MODEL)
+                      for r in priced])
+    planned = q * np.maximum(e - s, 0.0) + costs
+    stressed = planned + q * s * gap_pct / 100.0
+    value = q * e
+    per = [{**r, "planned_rs": round(float(pl), 2), "stressed_rs": round(float(st), 2), "value_rs": round(float(v), 2)}
+           for r, pl, st, v in zip(priced, planned, stressed, value)]
+    sectors: Dict[str, float] = {}
+    for r, v in zip(priced, value):
+        key = r.get("sector") or "unclassified"
+        sectors[key] = sectors.get(key, 0.0) + float(v)
+    sector_shock = {k: round(v * SECTOR_SHOCK_PCT / 100.0, 2) for k, v in sectors.items()}
+    worst_sector = max(sector_shock.items(), key=lambda kv: kv[1]) if sector_shock else (None, 0.0)
+    market = [{"shock_pct": -x, "beta": 1.0, "beta_assumed": True, "loss_rs": round(float(value.sum()) * x / 100.0, 2)}
+              for x in MARKET_SHOCKS_PCT]
+    return {"version": STRESS_VERSION, "positions": per, "unpriced": unpriced,
+            "totals": {"planned_rs": round(float(planned.sum()), 2), "stressed_rs": round(float(stressed.sum()), 2),
+                       "value_rs": round(float(value.sum()), 2)},
+            "scenarios": [
+                {"name": "gap_through_stop", "gap_pct": gap_pct, "planned_rs": round(float(planned.sum()), 2),
+                 "stressed_rs": round(float(stressed.sum()), 2),
+                 "text": f"Every position gaps {gap_pct:g}% through its stop and exits there (costs included)."},
+                {"name": "sector_shock", "shock_pct": -SECTOR_SHOCK_PCT, "by_sector_rs": sector_shock,
+                 "worst_sector": worst_sector[0], "worst_loss_rs": worst_sector[1],
+                 "text": f"One sector falls {SECTOR_SHOCK_PCT:g}% (marked to market, stops not triggered)."},
+                {"name": "market_shock", "results": market,
+                 "text": "The market falls 3% / 5%; each position moves with beta 1 (assumed: no beta source is wired "
+                         "into SPT yet), marked to market."}],
+            "basis": "deterministic scenarios on the open SPT entries and positions; correlation and VaR are not "
+                     "modelled in this release (DESIGN §9)"}
