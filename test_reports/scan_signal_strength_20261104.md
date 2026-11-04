@@ -108,8 +108,18 @@ intraday; check SAREGAMA today. Decisions ~14:05: ATR stop + trend exit; below 7
   written): 939 companies, 77 at 70+; the page shows the real counts, 30 companies, finds SAREGAMA by "SAREG" and by "saregama
   india", and its timeline equals the real marks in time order; no barred words; no page error.
 
+- **Merge + deploy of #479** (owner merged 14:42:50 IST at 7d93f32a — before 6f8cff7a / 60c0c337 were pushed; those two are
+  PR #480): staging backend file 14:43:16, container restarted 14:45:36 IST, healthy; the frontend-v5 bundle carries
+  "Strong signals (score ≥ …)" (`ScanDashboard-BWN3BZfM.js`).
+- **TC-L1 (part, #479 code) LIVE** (14:58 IST, staging container, read-only): the signal loop recorded **26 strong signals** from
+  14:45:59 to 14:55:13 (Redis `nivesh:sb:signals:2026-11-04:strong`), each once, rules `scan-plan-v3`, every plan on the rule
+  (stop = entry − 2 × ATR, T1 = entry + 2 × risk — 0 off). E.g. LALPATHLAB 76: entry 2005.20, stop 2005.20 − 2 × 61.85 = 1881.50,
+  T1 2252.60, T2 2500.00; SAREGAMA recorded at 81 (quality 26, trend 23, reason 20, size 5, participation 7, no penalty).
+  No strength or signal errors in the backend log since the deploy. The deployed #479 scores only the feed's newest 300 marks
+  (26 strong); #480 scores every marked stock.
+
 ## Not verified yet
-- TC-L1: after the merge and deploy, in a market session — strong signals recorded once with frozen plans by the signal loop,
-  the payload over the route, browser alerts on the owner's device (needs his session token for a browser check).
+- After #480 merges: GET /signals/day over HTTP on staging (needs a session token) or in the container, and the stored day
+  scores (`<day>:scores`); browser alerts on the owner's device; the page in a browser (needs his staging session token).
 
 ## Verdict: IN PROGRESS — verified up to deployment (backend 312, frontend 75 incl. two real-data replays); live check after merge
