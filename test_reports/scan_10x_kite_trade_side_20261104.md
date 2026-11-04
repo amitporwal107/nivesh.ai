@@ -47,6 +47,10 @@ TrueData's main REST login was refused 3–4 Nov ("incorrect or subscription exp
     unavailable …"; 9 stocks: AWFIS, SANDUMA, HEGAM, ITC, PASHUPATI, SBIN, SHAREINDIA, ZEEL, KEC. TrueData still answers
     AUTH_EXPIRED (logged), so the Kite path was used.
   - No trade-side or feed warnings in the backend log since 09:00.
+- **Signals** (09:22 IST, `signals.today`, read-only): 300 signals recorded today from 09:15:58 (leader 1 worker); the 10x list,
+  which could not record before (its trade side was never applied), now records: vol_10x_5min 12 (first PASHUPATI 09:16:59,
+  then WELSPUNLIV, SBIN, ITC, HEGAM, KEC, SHAREINDIA, IOC, AWFIS, SANDUMA, ZEEL, EBGNG), Day trade copy dt_vol_10x_5min 10,
+  all with plans (plan_ok). This also covers the earlier report's TC-P7 (live recording from the open).
 
 ## Not verified
 - Accuracy of the Kite sides against exchange trade data: no independent trade-side source while TrueData's login is refused.
