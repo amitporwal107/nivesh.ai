@@ -302,3 +302,19 @@ def test_wording_lint_strategies():
                 yield from strings(v, key)
     bad = [(s, hits(plan_words.sub(" ", s))) for s in strings(payload)]
     assert [b for b in bad if b[1]] == []
+
+
+def test_inr_grouping_and_cap_wording():
+    assert S.inr(2188807) == "21,88,807" and S.inr(1125000) == "11,25,000" and S.inr(999) == "999" and S.inr(-1234567) == "-12,34,567"
+    h = S.build_index_hedge(dict(PLAN, stop_loss=80.0), 1.0, nifty_chain(), "2026-11-24", 21, "X")
+    assert "20.0% distance to its Stop loss ÷ beta 1.00 = 20.0%, capped at 5%" in h["sizing"] and "₹18,00,000" in h["sizing"]          # 75 × 24,000 ÷ beta 1.0
+
+
+def test_cap_warning_when_target_1_is_beyond_the_listed_calls():
+    calls = {k: v for k, v in CALLS.items() if k <= 110}            # highest listed call 110, Target 1 112
+    ch = chain(calls=calls)
+    out = S.build_options(PLAN, ch)
+    w = S.cap_warnings(out, PLAN, ch)
+    assert w == ["Target 1 (112.00) is above the highest listed call (110): the Bull Call Spread and the Collar write the 110 call, "
+                 "so their gains stop there."]
+    assert S.cap_warnings(S.build_options(PLAN, chain()), PLAN, chain()) == []   # 120 is listed: no cap

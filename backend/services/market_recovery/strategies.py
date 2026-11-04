@@ -265,6 +265,38 @@ def checks_for(key: str, legs: List[Dict[str, Any]], fig: Dict[str, Any], as_of:
     return out
 
 
+def inr(x: float) -> str:
+    """₹ amount in Indian digit grouping: 2188807 -> '21,88,807'."""
+    n = int(round(abs(x)))
+    t = str(n)
+    if len(t) > 3:
+        head, tail = t[:-3], t[-3:]
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            parts.insert(0, head)
+        t = ",".join(parts + [tail])
+    return ("-" if x < 0 else "") + t
+
+
+def cap_warnings(strategies: List[Dict[str, Any]], plan: Dict[str, Any], chain: Dict[str, Any]) -> List[str]:
+    """A written call capped at the highest listed strike, below Target 1: the gain stops there (3 Nov: LAURUSLABS lists
+    calls only up to 2,680 against a Target 1 of 2,775.72)."""
+    t1 = plan.get("target_1")
+    calls = [float(r["strike"]) for r in chain.get("strikes") or [] if r.get("call")]
+    if t1 is None or not calls:
+        return []
+    top = max(calls)
+    hit = [s["label"] for s in strategies
+           if any(l["action"] == "Sell" and l["instrument"] == "Call" and l["strike"] == top for l in s.get("legs") or [])]
+    if not hit or top >= t1:
+        return []
+    return [f"Target 1 ({t1:,.2f}) is above the highest listed call ({top:,.0f}): the {' and the '.join(hit)} write the "
+            f"{top:,.0f} call, so their gains stop there."]
+
+
 def _day_text(iso: str) -> str:
     try:
         return date.fromisoformat(str(iso)[:10]).strftime("%-d %b")
@@ -331,6 +363,8 @@ def build_index_hedge(plan: Dict[str, Any], beta: Optional[float], chain: Dict[s
     c, stop = plan["close"], plan.get("stop_loss")
     stock_fall = (c - stop) / c if stop is not None and stop < c else 0.05
     fall = min(stock_fall / beta, NIFTY_MAX_FALL)
+    why_fall = (f"the stock's {100 * stock_fall:.1f}% distance to its Stop loss ÷ beta {beta:.2f}"
+                + (f" = {100 * stock_fall / beta:.1f}%, capped at {100 * NIFTY_MAX_FALL:.0f}%" if stock_fall / beta > NIFTY_MAX_FALL else ""))
     puts = {k: fnum(((r.get("put") or {}).get("close")) or ((r.get("put") or {}).get("settle"))) for k, r in rows.items() if r.get("put")}
     priced = sorted(k for k, p in puts.items() if p and p > 0)
     k = pick_put_strike(priced, spot, fall)
@@ -357,8 +391,8 @@ def build_index_hedge(plan: Dict[str, Any], beta: Optional[float], chain: Dict[s
             "put_strike": k, "premium": _r(prem), "price_basis": basis, "oi": oi, "volume": vol,
             "cost_per_lot": _r(cost), "hedged_value": _r(hedged, 0), "cost_pct": _r(100.0 * cost / hedged),
             "fall_used_pct": _r(100.0 * fall, 1), "scenarios": scen, "checks": checks,
-            "sizing": (f"One Nifty lot ({lot} × {spot:,.0f}) hedges about ₹{hedged:,.0f} of {symbol} at a beta of {beta:.2f}; "
-                       f"the put strike is the lowest within {100 * fall:.1f}% of Nifty (the stock's distance to its Stop loss ÷ beta).")}
+            "sizing": (f"One Nifty lot ({lot} × {spot:,.0f}) hedges about ₹{inr(hedged)} of {symbol} at a beta of {beta:.2f}; "
+                       f"the put strike is the lowest within {100 * fall:.1f}% of Nifty ({why_fall}).")}
 
 
 # ── I/O: chains through routes/fno.py, one cached answer per stock ───────────────────────────────────────────────────
@@ -442,7 +476,7 @@ class StrategyService:
         if not has_options:
             out["sources"].append({"what": "Beta", "source": "NIDP feature store beta_1y (1-year daily returns vs Nifty)",
                                    "as_of": eod})
-        out["warnings"] = []
+        out["warnings"] = cap_warnings(out["strategies"], plan, body) if has_options else []
         if out["as_of"] and out["as_of"] != eod:
             out["warnings"].append(f"Option prices are from {out['as_of']}; the plan levels are from the close of {eod}.")
         self._cache[key] = (self._clock(), out)

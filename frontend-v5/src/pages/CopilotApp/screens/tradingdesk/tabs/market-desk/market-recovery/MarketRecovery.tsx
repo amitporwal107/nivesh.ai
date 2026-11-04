@@ -7,15 +7,17 @@
  *   2. Sector leaders      the NSE industries ranked by relative strength against Nifty 500, its 5-session change and breadth;
  *                          the top five are the leading sectors
  *   3. Candidates          up to 10 Nifty 500 stocks from the leading sectors, then up to 10 from outside them: score out of
- *                          100 in five parts, recovery acceleration, setup and the plan; a row opens its detail
+ *                          100 in five parts, recovery acceleration, setup and the plan; a row opens its detail, which also
+ *                          loads the stock's strategies with downside protection (RecoveryStrategies.tsx, DESIGN.md §8)
  *   4. Left out            high scorers held back as possible false signals (dead-cat bounce, short covering, extended)
  *
  * Reads GET /api/market-recovery (market-recovery-data.ts), behind the `market_recovery` flag. Every figure and sentence is the
  * server's; this screen formats and arranges them.
  *
- * Wording: the plan's labels are the standard "Entry zone · Stop loss · Target 1 · Target 2" — the owner's explicit choice for
- * THIS page (3 Nov), an exception to the desk's wording rule (e2e/tests/copilot-app-market-recovery.spec.ts lints the page with
- * only those four labels allowed). Everything else uses the desk vocabulary: candidates, ideas, ordered for review.
+ * Wording: the plan's labels are the standard "Entry zone · Stop loss · Target 1 · Target 2" and the strategy legs read
+ * "Buy / Sell" — the owner's explicit choices for THIS page (3 and 4 Nov), exceptions to the desk's wording rule
+ * (e2e/tests/copilot-app-market-recovery.spec.ts lints the page with only those labels, and the verbs only in a leg, allowed).
+ * Everything else uses the desk vocabulary: candidates, ideas, ordered for review.
  */
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import { useMe } from "@/hooks/use-auth";
@@ -25,6 +27,7 @@ import {
   recoveryProblem, useMarketRecovery,
   type AccelRow, type BreadthPoint, type Candidate, type Component, type Excluded, type MarketRecovery as Data, type Regime, type SectorRow,
 } from "./market-recovery-data";
+import { RecoveryStrategies } from "./RecoveryStrategies";
 
 // ── formatting ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -517,6 +520,9 @@ function Detail({ c }: { c: Candidate }) {
           </span>
         </div>
       </div>
+
+      {/* Full width under the three columns; mounted only while this detail is open, so its request goes out only then. */}
+      <RecoveryStrategies symbol={c.symbol} />
     </div>
   );
 }
