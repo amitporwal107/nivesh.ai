@@ -11,6 +11,7 @@ Endpoints (signed-in user, behind the `scan_builder` feature flag; every saved s
     POST   /api/scan-builder/scans/{id}/copy  -> {scan}
     DELETE /api/scan-builder/scans/{id}       -> {ok: true}
     GET    /api/scan-builder/market-dashboard[?dashboard=atlas|daytrade]
+    GET    /api/scan-builder/signals/day[?day=YYYY-MM-DD]          a day's signals by company (DESIGN.md §11.1); 400 bad_day
                                            -> a realtime scan dashboard (DESIGN.md §8, §9): atlas (default) = the 17 widgets
                                               of Chartink dashboard 247498, daytrade = the 20 widgets of 503347, on our
                                               data, each with its criteria; one computation per dashboard per
@@ -24,8 +25,10 @@ is ever placed. Writes pass the app's CSRF middleware like every other write.
 from __future__ import annotations
 
 import logging
+import re
 import time
-from typing import Any, Dict
+from datetime import date, datetime, timezone
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -120,6 +123,23 @@ async def market_dashboard_view(request: Request, dashboard: str = market_dashbo
     except DataUnavailable as e:
         return _answer(503, "data_unavailable", e.message)
     return await market_dashboard.attach_ideas(dash, uid)
+
+
+@router.get("/signals/day")
+async def signals_day(day: Optional[str] = None):
+    """Every list mark of a day grouped by company, with the day's scores and strong signals (DESIGN.md §11.1). Default:
+    today (IST). Signals are kept 3 days."""
+    from services.scan_builder import signals as SIG
+    if day is None:
+        day = datetime.now(timezone.utc).astimezone(SIG.IST).date().isoformat()
+    else:
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                raise ValueError(day)
+            date.fromisoformat(day)
+        except ValueError:
+            return _answer(400, "bad_day", "day must be a date written YYYY-MM-DD")
+    return await SIG.day_view(day)
 
 
 @router.get("/scans")

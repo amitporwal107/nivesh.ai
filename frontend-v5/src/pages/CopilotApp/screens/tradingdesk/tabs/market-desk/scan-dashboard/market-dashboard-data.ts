@@ -42,7 +42,7 @@ const drift = (cause: unknown) => new ApiError("contract_drift", "The scan dashb
 
 // ── schema (lenient: unknown fields pass, missing optional fields get defaults) ───────────────────────────────────────
 
-const Str = z.string().nullable().optional();
+export const Str = z.string().nullable().optional();
 const CellC = z.union([z.number(), z.string(), z.null()]);
 
 const CriterionC = z.object({
@@ -77,7 +77,7 @@ const WidgetC = z.object({
 // symbol from the strategy builder, attached by the route. In `ideas`, a key that is absent means the idea is still being
 // built; null means no structure with a favorable reward : risk. Both fields are optional: an older backend has neither, and a
 // malformed entry is read as null rather than failing the whole dashboard.
-const NumN = z.number().nullable().optional().catch(null);
+export const NumN = z.number().nullable().optional().catch(null);
 
 const IdeaC = z.object({
   structure: z.string().catch("Strategy idea"),
@@ -148,11 +148,11 @@ const SignalsMetaC = z.object({
 // stocks that reached 70 are the STRONG signals, each with the positional plan frozen when it got there. All three fields are
 // optional (an older backend has none); a malformed entry is dropped rather than failing the whole dashboard.
 const PartN = z.number().catch(0).default(0);
-const PartsC = z.object({
+export const PartsC = z.object({
   quality: PartN, trend: PartN, reason: PartN, size: PartN, participation: PartN, penalty: PartN,
 }).passthrough();
 
-const PenaltyC = z.object({ text: z.string(), points: z.number().catch(0).default(0) }).passthrough();
+export const PenaltyC = z.object({ text: z.string(), points: z.number().catch(0).default(0) }).passthrough();
 
 /** A list a stock is in today: {id, title}, or a bare id from a terser answer. */
 const ListRefC = z.union([
@@ -160,7 +160,7 @@ const ListRefC = z.union([
   z.string().transform((id) => ({ id, title: "" })),
 ]);
 
-const keepGood = <T extends z.ZodTypeAny>(c: T) => z.array(z.unknown()).catch([]).default([]).transform((items) => {
+export const keepGood = <T extends z.ZodTypeAny>(c: T) => z.array(z.unknown()).catch([]).default([]).transform((items) => {
   const out: z.infer<T>[] = [];
   for (const it of items) {
     const r = c.safeParse(it);

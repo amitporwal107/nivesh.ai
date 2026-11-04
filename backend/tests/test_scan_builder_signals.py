@@ -179,3 +179,75 @@ def test_an_unreadable_strong_list_gives_an_empty_list_and_a_reason():
             raise RuntimeError("redis down")
     t = asyncio.run(SIG.strong_today(at(11, 0), {}, {}, store=Broken()))
     assert t["strong"] == [] and "could not be read" in t["error"]
+
+
+# ── a whole day by company (DESIGN.md §11.1) ────────────────────────────────────────────────────────────────────────
+
+def mark(sym, wid, hh, mm, ss=0, price=100.0, day=3):
+    return {"id": f"{wid}:{sym}", "widget_id": wid, "widget_title": wid.replace("_", " ").title(), "symbol": sym,
+            "first_seen": at(hh, mm, day).replace(second=ss).isoformat(timespec="seconds"), "entry": price,
+            "direction": "long"}
+
+
+async def _fill(store, marks):
+    index, kp = SIG._day_keys("2026-11-03")
+    for m in marks:
+        await store.add(kp + m["id"], index, json.dumps(m), SIG.TTL_S)
+
+
+def test_day_marks_reads_the_whole_day_oldest_first_beyond_the_feed_cap(monkeypatch):
+    monkeypatch.setattr(SIG, "MAX_LISTED", 2)
+    store = SIG.LocalSignalStore()
+    asyncio.run(_fill(store, [mark(f"S{i}", "n50_gainers", 10, i) for i in range(5)][::-1]))
+    assert len(asyncio.run(SIG.today(at(11, 0), {}, store=store))["signals"]) == 2              # the feed's cap
+    got = asyncio.run(SIG.day_marks("2026-11-03", store=store))
+    assert [m["symbol"] for m in got] == ["S0", "S1", "S2", "S3", "S4"]
+
+
+def test_scores_round_trip_keeps_three_reasons():
+    store = SIG.LocalSignalStore()
+    scores = {"AAA": {"name": "Aaa Ltd", "score": 74, "parts": {"quality": 26}, "reasons": ["a", "b", "c", "d"],
+                      "penalties": [{"text": "x", "points": 5}], "note": None, "atr": 2.0}}
+    assert asyncio.run(SIG.save_scores("2026-11-03", scores, at(14, 5), store=store))
+    doc = asyncio.run(SIG.load_scores("2026-11-03", store=store))
+    assert doc["as_of"] == "2026-11-03T14:05:00+05:30"
+    assert doc["scores"]["AAA"] == {"name": "Aaa Ltd", "score": 74, "parts": {"quality": 26}, "reasons": ["a", "b", "c"],
+                                    "penalties": [{"text": "x", "points": 5}], "note": None}
+    assert asyncio.run(SIG.load_scores("2026-11-02", store=store)) == {"as_of": None, "scores": {}}
+
+
+def test_group_day_companies_newest_activity_first_marks_oldest_first_with_the_strong_record():
+    marks = [mark("SAREGAMA", "dt_52w_high", 10, 49, 22, 575.25), mark("ITC", "vol_10x_5min", 9, 17, 0, 282.0),
+             mark("SAREGAMA", "dt_vol_price_breakout", 13, 5, 3, 617.6), mark("SAREGAMA", "early_movers", 12, 47, 32, 614.8)]
+    strong = [{"symbol": "SAREGAMA", "name": "Saregama India Limited", "first_strong": "2026-11-03T12:47:32+05:30",
+               "score_at": 74, "entry": 614.8, "stop_loss": 576.82, "target_1": 690.76, "target_2": 766.72, "plan_ok": True,
+               "trend_exit": "A daily close below the 20-day average", "rules": "scan-plan-v3", "reasons_at": ["kept out"]}]
+    scores = {"SAREGAMA": {"name": "Saregama India Limited", "score": 74, "parts": {"quality": 26}, "reasons": ["r1"],
+                           "penalties": [], "note": None},
+              "ITC": {"name": "ITC Ltd", "score": 52, "parts": {}, "reasons": [], "penalties": [], "note": None}}
+    companies, lists = SIG.group_day(marks, strong, scores)
+    assert [c["symbol"] for c in companies] == ["SAREGAMA", "ITC"]
+    s = companies[0]
+    assert (s["n"], s["first_seen"][11:19], s["last_seen"][11:19], s["score"]) == (3, "10:49:22", "13:05:03", 74)
+    assert [m["time"] for m in s["marks"]] == ["10:49:22", "12:47:32", "13:05:03"]
+    assert s["marks"][0] == {"time": "10:49:22", "list": "dt_52w_high", "price": 575.25, "direction": "long"}
+    assert s["strong"]["score_at"] == 74 and s["strong"]["stop_loss"] == 576.82 and "reasons_at" not in s["strong"]
+    assert companies[1]["strong"] is None and lists["dt_52w_high"] == "Dt 52W High"
+
+
+def test_day_view_counts_and_says_what_is_missing():
+    store = SIG.LocalSignalStore()
+    asyncio.run(_fill(store, [mark("AAA", "n50_gainers", 10, 0), mark("AAA", "strong_movers", 10, 5), mark("BBB", "x", 11, 0)]))
+    v = asyncio.run(SIG.day_view("2026-11-03", store=store))
+    assert (v["count"], v["companies_count"], v["threshold"]) == (3, 2, 70)
+    assert v["companies"][0]["symbol"] == "BBB" and v["companies"][1]["n"] == 2
+    assert any("not stored yet" in w for w in v["warnings"])
+    asyncio.run(SIG.save_scores("2026-11-03", {"AAA": {"score": 80}}, at(11, 1), store=store))
+    v = asyncio.run(SIG.day_view("2026-11-03", store=store))
+    assert v["warnings"] == [] and v["companies"][1]["score"] == 80 and v["scores_as_of"] == "2026-11-03T11:01:00+05:30"
+
+    class Broken(SIG.LocalSignalStore):
+        async def read(self, index, last):
+            raise RuntimeError("redis down")
+    v = asyncio.run(SIG.day_view("2026-11-03", store=Broken()))
+    assert v["companies"] == [] and v["count"] == 0 and "could not be read" in v["warnings"][0]

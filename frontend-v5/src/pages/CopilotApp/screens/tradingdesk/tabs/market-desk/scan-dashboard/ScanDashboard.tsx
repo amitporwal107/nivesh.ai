@@ -26,9 +26,10 @@
  * carries a "New hh:mm" badge.
  *
  * Signal strength (owner 4 Nov, DESIGN.md §11): when the answer carries `scores_meta`, the "Strong signals (score ≥ 70)" panel
- * (StrongSignals.tsx: one card per stock that reached the line, its score and parts, reasons, penalties and positional plan; a
- * collapsed "Below 70 (n)" list; browser alerts only for strong signals) replaces the §10 feed, and a stock row whose stock
- * has a score carries it as a small chip. An answer without scores (an older backend) keeps the §10 feed.
+ * (StrongSignals.tsx: one card per stock that reached the line, its score and parts, reasons, penalties and positional plan;
+ * browser alerts only for strong signals) replaces the §10 feed, with "Signals by company" under it (SignalsByCompany.tsx,
+ * §11.1: every company with a signal that day, searchable by symbol and name, each with its timeline), and a stock row whose
+ * stock has a score carries it as a small chip. An answer without scores (an older backend) keeps the §10 feed.
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { useHref, useLocation, useSearchParams } from "react-router-dom";
@@ -46,6 +47,7 @@ import {
 } from "./market-dashboard-data";
 import { SignalsPanel, istHm } from "./SignalsPanel";
 import { StrongSignals } from "./StrongSignals";
+import { SignalsByCompany } from "./SignalsByCompany";
 
 const DASH = "–";
 const fmt2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -275,8 +277,11 @@ function DashboardBody({ q, asked }: { q: ReturnType<typeof useMarketDashboard>;
     <div data-testid="scan-dashboard" data-mode={d.basis.mode} data-dashboard={served} className="flex min-w-0 flex-col" style={{ gap: 14 }}>
       <DashHeader d={d} visible={visible} refreshing={q.isFetching} problem={refreshProblem} onRetry={() => { void q.refetch(); }} />
       {d.scores_meta ? (
-        <StrongSignals strong={d.strong ?? []} scores={d.scores ?? {}} meta={d.scores_meta} signalsMeta={d.signals_meta ?? null} ideaFor={ideaFor}
-          chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+        <>
+          <StrongSignals strong={d.strong ?? []} scores={d.scores ?? {}} meta={d.scores_meta} signalsMeta={d.signals_meta ?? null} ideaFor={ideaFor}
+            chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+          <SignalsByCompany enabled marketOpen={d.market.open} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+        </>
       ) : d.signals ? (
         <SignalsPanel signals={d.signals} meta={d.signals_meta ?? null} ideaFor={ideaFor} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
       ) : null}

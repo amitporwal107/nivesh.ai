@@ -718,6 +718,10 @@ async def kite_sides(symbols: Sequence[str], *, read_quotes=None, request=None) 
     return _SideResult(values=values, as_of=as_of, source=KITE_SIDE_SOURCE, warnings=warnings, missing=missing)
 
 
+SCORE_REUSE_S = 15.0                    # one scoring serves the three tabs of a signal-loop round
+_score_memo: Dict[str, Any] = {}
+
+
 async def _default_side_reader(symbols: List[str]) -> Any:
     """Kite trade sides counted by the live feed (quote cache rows: ask_trades, bid_trades)."""
     from services.kite_live_feed.quote_cache import read_quotes
@@ -996,10 +1000,24 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
     scores_meta: Optional[Dict[str, Any]] = None
     strong: Dict[str, Any] = {"strong": [], "error": None}
     eod_day = base.eod_date.isoformat()
+    day = at.astimezone(SIG.IST).date().isoformat()
     try:
-        scores, scores_meta = await SS.build_scores(data._get, panel, ref, sig_today["signals"], at,
-                                                    live=overlay.mode == "live", eod_day=eod_day,
-                                                    side_reader=side_reader or _default_side_reader)
+        # Every stock with a mark today is scored, not only the feed's newest MAX_LISTED (4 Nov: 2,111 marks by 14:35).
+        try:
+            marks = await SIG.day_marks(day)
+        except Exception:  # noqa: BLE001 — logged by the store; score what the feed holds
+            marks = sig_today["signals"]
+        memo_key = (day, overlay.mode, eod_day, len(marks))
+        fresh = not (_score_memo.get("key") == memo_key and time.monotonic() - _score_memo.get("at", float("-inf")) < SCORE_REUSE_S)
+        if fresh:
+            scores, scores_meta = await SS.build_scores(data._get, panel, ref, marks, at,
+                                                        live=overlay.mode == "live", eod_day=eod_day,
+                                                        side_reader=side_reader or _default_side_reader)
+            _score_memo.update(key=memo_key, at=time.monotonic(), value=(scores, scores_meta))
+            if marks and overlay.mode in ("live", "kite_close"):
+                await SIG.save_scores(day, scores, at)          # for GET /signals/day (DESIGN.md §11.1)
+        else:
+            scores, scores_meta = _score_memo["value"]
         if recording:
             cands = [SS.strong_candidate(sym, r, prices.get(sym), eod_day) for sym, r in scores.items()
                      if r.get("score") is not None and r["score"] >= SS.THRESHOLD]
@@ -1013,8 +1031,13 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
         warnings.append("Signal strength could not be computed just now; it retries on the next refresh.")
     for sg in sig_today["signals"]:
         sg["score"] = (scores.get(sg.get("symbol")) or {}).get("score")
+    shown = ({sg.get("symbol") for sg in sig_today["signals"]} | {r.get("symbol") for r in strong["strong"]}
+             | {row[0] for wd in out_widgets if wd.get("row_kind") == "symbol" for row in wd.get("rows") or []
+                if row and isinstance(row[0], str)})
     public_scores = {}
     for sym, r in scores.items():                       # plan inputs stay server-side; a stock below the bar sends 3 reasons
+        if sym not in shown:                            # the whole day is served by GET /signals/day
+            continue
         pub = {k: v for k, v in r.items() if k not in ("atr", "sma20", "setup")}
         if (r.get("score") is None or r["score"] < SS.THRESHOLD) and pub.get("reasons"):
             pub["reasons"] = pub["reasons"][:3]

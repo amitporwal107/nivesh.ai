@@ -7,9 +7,9 @@
  * the five parts against their maxima (Quality /30 · Trend /25 · Reason /20 · Size /15 · Participation /10) and the penalties,
  * the reasons as chips, the positional plan frozen when it reached the threshold — in the owner's words for this screen,
  * "Entry · Stop loss · Target 1 · Target 2" and "Trend exit" (his exception to the 3 Nov wording rule, so those blocks are
- * marked data-plan-words; the rest of the page keeps the rule) — the lists it is in, and the price now. Below them a collapsed
- * "Below 70 (n)" list: one row per other signalled stock with its score (or why it is not scored), lists, top reasons and
- * penalties — no plan. Browser alerts announce only new strong signals (useStrongAlerts).
+ * marked data-plan-words; the rest of the page keeps the rule) — the lists it is in, and the price now. The other signalled
+ * stocks (below 70, or not scored) are in "Signals by company" under this panel (SignalsByCompany.tsx, §11.1), which replaced
+ * the "Below 70" fold that sat here. Browser alerts announce only new strong signals (useStrongAlerts).
  */
 import { useMemo, useState, type MouseEvent } from "react";
 import type { ListRef, ScoreParts, ScoresMeta, SignalsMeta, StockScore, StockScores, StrongSignal } from "./market-dashboard-data";
@@ -31,7 +31,8 @@ const PART_KEYS = [
 export function partsText(p: ScoreParts | null | undefined, weights: Record<string, number> = {}): string | null {
   if (!p) return null;
   const parts = PART_KEYS.map(([k, label, max]) => `${label} ${Math.round(p[k])}/${weights[k] ?? max}`);
-  if (p.penalty > 0) parts.push(`Penalties −${Math.round(p.penalty)}`);
+  const pen = Math.abs(p.penalty);                     // the server sends it as a negative part (−5); older fixtures as 5
+  if (pen > 0) parts.push(`Penalties −${Math.round(pen)}`);
   return parts.join(" · ");
 }
 
@@ -62,19 +63,16 @@ export function StrongSignals({ strong, scores, meta, signalsMeta, ideaFor, char
   onOpenSymbol: (s: string) => void;
 }) {
   const [all, setAll] = useState(false);
-  const [belowOpen, setBelowOpen] = useState(false);
   const day = signalsMeta?.day || strong[0]?.first_strong.slice(0, 10) || "";
   const alerts = useStrongAlerts(strong, day);
   const threshold = meta.threshold;
   const ordered = useMemo(() => [...strong].sort((a, b) => b.first_strong.localeCompare(a.first_strong)), [strong]);
   const strongSyms = useMemo(() => new Set(strong.map((s) => s.symbol)), [strong]);
-  // Every other signalled stock, highest score first, the not-scored last: at or above the line without a recorded strong signal
-  // (it got there while signals were not being recorded, e.g. after the close: no plan) and below the line.
-  const others = useMemo(() => Object.entries(scores)
-    .filter(([sym]) => !strongSyms.has(sym))
-    .sort(([a, x], [b, y]) => (y.score ?? -1) - (x.score ?? -1) || a.localeCompare(b)), [scores, strongSyms]);
-  const unrecorded = others.filter(([, sc]) => typeof sc.score === "number" && sc.score >= threshold);
-  const below = others.filter(([, sc]) => !(typeof sc.score === "number" && sc.score >= threshold));
+  // At or above the line without a recorded strong signal (it got there while signals were not being recorded, e.g. after the
+  // close: no plan), highest score first. Everything below the line is in "Signals by company".
+  const unrecorded = useMemo(() => Object.entries(scores)
+    .filter(([sym, sc]) => !strongSyms.has(sym) && typeof sc.score === "number" && sc.score >= threshold)
+    .sort(([a, x], [b, y]) => (y.score ?? -1) - (x.score ?? -1) || a.localeCompare(b)), [scores, strongSyms, threshold]);
   const shown = all ? ordered : ordered.slice(0, SHOWN);
   const asOf = Object.entries(meta.as_of).filter(([, v]) => !!v);
 
@@ -118,22 +116,6 @@ export function StrongSignals({ strong, scores, meta, signalsMeta, ideaFor, char
           {all ? "Show fewer" : `Show all ${ordered.length.toLocaleString("en-IN")}`}
         </button>
       )}
-      <div data-testid="sd-below" style={{ borderTop: "1px solid var(--cp-line)" }}>
-        <button type="button" data-testid="sd-below-toggle" aria-expanded={belowOpen} aria-controls="sd-below-list" onClick={() => setBelowOpen((v) => !v)}
-          style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", border: 0, background: "none", padding: "10px 14px", cursor: "pointer", font: "inherit", fontSize: 13, color: "var(--cp-ink-2)", textAlign: "left" }}>
-          <span aria-hidden style={{ display: "inline-block", width: 10 }}>{belowOpen ? "▾" : "▸"}</span>
-          Below {threshold} ({below.length.toLocaleString("en-IN")})
-          <span className="cp-mono-note" style={{ marginLeft: 6, color: "var(--cp-ink-3)" }}>no alert, no plan</span>
-        </button>
-        {belowOpen && (
-          <ul id="sd-below-list" data-testid="sd-below-list" className="m-0 cp-scroll" style={{ listStyle: "none", padding: 0, maxHeight: 520, overflow: "auto", borderTop: "1px solid var(--cp-line)" }}>
-            {below.length === 0 && (
-              <li data-testid="sd-below-empty" style={{ padding: "8px 14px", fontSize: 12.5, color: "var(--cp-ink-3)" }}>Every signalled stock today is above the line.</li>
-            )}
-            {below.map(([sym, sc]) => <BelowRow key={sym} sym={sym} sc={sc} chartHref={chartHref} onOpenSymbol={onOpenSymbol} />)}
-          </ul>
-        )}
-      </div>
       {(meta.rules || meta.plan_rules || meta.caveat || asOf.length > 0 || meta.warnings.length > 0) && (
         <div data-testid="sd-strong-foot" style={{ padding: "8px 14px 12px", borderTop: "1px solid var(--cp-line)", fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
           {meta.warnings.map((w, i) => <p key={i} data-testid="sd-strong-warning" className="m-0" style={{ color: "var(--amber)" }}>{w}</p>)}
@@ -228,33 +210,6 @@ function StrongCard({ s, now, weights, idea, chartHref, onOpenSymbol }: {
       )}
       {idea && (
         <div data-testid="sd-strong-idea" title={idea.title} style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>Strategy idea: {idea.text}</div>
-      )}
-    </li>
-  );
-}
-
-function BelowRow({ sym, sc, chartHref, onOpenSymbol }: { sym: string; sc: StockScore; chartHref: (s: string) => string; onOpenSymbol: (s: string) => void }) {
-  const scored = typeof sc.score === "number";
-  return (
-    <li data-testid="sd-below-item" data-symbol={sym} data-scored={scored ? "true" : "false"}
-      className="flex min-w-0 flex-col" style={{ gap: 2, padding: "7px 14px", borderBottom: "1px solid var(--cp-line)", fontSize: 12.5 }}>
-      <div className="flex min-w-0 flex-wrap items-center" style={{ gap: "4px 8px" }}>
-        <SymLink sym={sym} chartHref={chartHref} onOpenSymbol={onOpenSymbol} testId="sd-below-sym" />
-        <span data-testid="sd-below-score" className="cp-pill" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--cp-ink-2)" }}>
-          {scored ? scoreText(sc.score) : "not scored"}
-        </span>
-        {!scored && sc.note && <span data-testid="sd-below-note" style={{ color: "var(--cp-ink-3)" }}>{sc.note}</span>}
-        {sc.lists.length > 0 && <span data-testid="sd-below-lists" style={{ color: "var(--cp-ink-3)" }}>{listText(sc.lists)}</span>}
-      </div>
-      {sc.reasons.length > 0 && (
-        <div data-testid="sd-below-reasons" style={{ color: "var(--cp-ink-2)" }}>{sc.reasons.slice(0, 2).join(" · ")}</div>
-      )}
-      {sc.penalties.length > 0 && (
-        <div className="flex min-w-0 flex-wrap" style={{ gap: "2px 10px" }}>
-          {sc.penalties.map((p, i) => (
-            <span key={i} data-testid="sd-below-penalty" style={{ fontSize: 11.5, color: "var(--amber)" }}>{p.text} −{Math.round(p.points)}</span>
-          ))}
-        </div>
       )}
     </li>
   );

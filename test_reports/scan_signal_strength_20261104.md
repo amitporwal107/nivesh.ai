@@ -7,6 +7,9 @@
 - **Contract:** docs/scan_builder/DESIGN.md §11
 
 ## Summary
+Owner 4 Nov ~14:30 IST (added to this PR): "group signals by company symbol and timeline … search by company symbol and name,
+auto suggestion … by default it list all signals for that day" — DESIGN.md §11.1; test cases TC-B*, TC-C* written before the
+code.
 Owner 4 Nov ~13:45 IST: only signals with strength > 70; fundamentally and technically good companies with a solid reason
 (52-week-low reversal, momentum continuation, market events); penalise pump-and-dump; more weight to blue chips; positional, not
 intraday; check SAREGAMA today. Decisions ~14:05: ATR stop + trend exit; below 70 folded away; long only.
@@ -33,6 +36,11 @@ intraday; check SAREGAMA today. Decisions ~14:05: ATR stop + trend exit; below 7
 | TC-E2 | e2e | "Below 70 (n)" collapsed by default, opens to stock/score/reasons; no plan inside | e2e | rendered | |
 | TC-E3 | e2e | browser alerts only for new strong signals (not for list entries below 70) | e2e | as rule | |
 | TC-E4 | e2e | barred words outside the plan blocks (buy, sell, recommend, pick, …) absent | e2e | none | |
+| TC-B1 | backend | every stock with a mark that day is scored, not only the feed's newest 300 (4 Nov: 2,111 marks) | unit | scored | |
+| TC-B2 | backend | the day's scores are stored (at most every 20 s) and read back for the day view | unit | round trip | |
+| TC-B3 | backend | GET /signals/day: companies grouped, marks oldest first, newest activity first, strong record attached, counts; default today; malformed day → 400 bad_day; store down → empty + warning | unit | contract | |
+| TC-B4 | data | the day view on today's real marks in the staging container: companies, marks, scores, size and time | data | all 2,111 marks | |
+| TC-C1…C5 | e2e | Signals by company: default all, search + suggestions (symbol, name), keyboard pick, filters/sorts, hidden on 403/404, wording | e2e | rendered | |
 | TC-L1 | staging | after merge + deploy, in a session: strong signals recorded with frozen plans; payload over the route | live | as contract | |
 
 ## Results
@@ -78,8 +86,40 @@ intraday; check SAREGAMA today. Decisions ~14:05: ATR stop + trend exit; below 7
   staging container; the page renders the strong cards (SAREGAMA 74/100 with its plan and trend exit), Below 70 (197) folded
   then open with no plan inside, no page error, no barred word outside the plan blocks.
 
-## Not verified yet
-- TC-L1: after the merge and deploy, in a market session — strong signals recorded once with frozen plans by the signal loop,
-  the payload over the route, browser alerts on the owner's device (needs his session token for a browser check).
+- **TC-B1…B3** (14:37 IST, staging image): `tests/test_scan_builder_*.py` → `312 passed` (day_marks beyond the feed's cap, scores
+  round trip with 3 reasons, group_day order + strong record, day_view counts / missing scores / store down, route default
+  today + 400 bad_day + flag, every stock with a mark scored not only the feed's). pyflakes clean.
+- **TC-B4 REAL** (14:38 IST, staging container, read-only, the branch's signals.py + signal_strength.py, nothing stored): today
+  **2,120 list marks** (read in 0.22 s) → **931 companies**, all marks grouped; 778 scored in 2.2 s — **73 at 70+** (the feed's
+  newest 300 alone found ~20: scoring only the feed missed most of the day), 705 below, 153 not scored; 29 lists. Answer
+  582 KB raw / **63 KB gzip**. Busiest: MARICO 13 marks (77), EMCURE 12 (82), ITC 10 (82). SAREGAMA: 8 marks 10:03:48
+  (Cup & Handle, ₹571.50) → 13:05:03 (₹617.60), score 77 at 14:38 — its first mark was 10:03, not 10:49 as read from the
+  300-mark feed earlier.
 
-## Verdict: IN PROGRESS — verified up to deployment (backend 306, frontend 68 incl. a real-data replay); live check after merge
+- **TC-C1…C6 + TC-RE3** (14:54 IST, Playwright image, mocked transport): `tsc exit: 0`, `build exit: 0`, scan dashboard + scan
+  builder + screener **`75 passed (37.6s)`**. MOCK cases: default list newest activity first with counts, timeline truncation,
+  suggestions by symbol prefix and name word, keyboard pick → one company with its full timeline (strong event + plan in a plan
+  block), clear, filters / sorts with counts following the search, 403/404 hide the panel (dashboard stands), 500 → error +
+  retry, 30 at a time, barred words absent with every timeline open. TC-E2/E4/E5/RE2 moved to the new panel (the Below-70 fold
+  is replaced by its filter). Frontend fix found on real data: the "Penalties −x" part never showed because the backend sends
+  the penalty part negative.
+  **TC-RE3 REAL day answer**: `e2e/fixtures/scan-dashboard-real/day_20261104.json` — the branch's `day_view` over today's real
+  2,148 list marks and the scores the leader stores (built in the staging container at 14:51 IST, in-memory store, nothing
+  written): 939 companies, 77 at 70+; the page shows the real counts, 30 companies, finds SAREGAMA by "SAREG" and by "saregama
+  india", and its timeline equals the real marks in time order; no barred words; no page error.
+
+- **Merge + deploy of #479** (owner merged 14:42:50 IST at 7d93f32a — before 6f8cff7a / 60c0c337 were pushed; those two are
+  PR #480): staging backend file 14:43:16, container restarted 14:45:36 IST, healthy; the frontend-v5 bundle carries
+  "Strong signals (score ≥ …)" (`ScanDashboard-BWN3BZfM.js`).
+- **TC-L1 (part, #479 code) LIVE** (14:58 IST, staging container, read-only): the signal loop recorded **26 strong signals** from
+  14:45:59 to 14:55:13 (Redis `nivesh:sb:signals:2026-11-04:strong`), each once, rules `scan-plan-v3`, every plan on the rule
+  (stop = entry − 2 × ATR, T1 = entry + 2 × risk — 0 off). E.g. LALPATHLAB 76: entry 2005.20, stop 2005.20 − 2 × 61.85 = 1881.50,
+  T1 2252.60, T2 2500.00; SAREGAMA recorded at 81 (quality 26, trend 23, reason 20, size 5, participation 7, no penalty).
+  No strength or signal errors in the backend log since the deploy. The deployed #479 scores only the feed's newest 300 marks
+  (26 strong); #480 scores every marked stock.
+
+## Not verified yet
+- After #480 merges: GET /signals/day over HTTP on staging (needs a session token) or in the container, and the stored day
+  scores (`<day>:scores`); browser alerts on the owner's device; the page in a browser (needs his staging session token).
+
+## Verdict: IN PROGRESS — verified up to deployment (backend 312, frontend 75 incl. two real-data replays); live check after merge
