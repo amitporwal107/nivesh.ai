@@ -479,7 +479,9 @@ def test_the_dashboard_carries_todays_signals_and_says_when_it_is_not_recording(
     # are named in scores_meta.warnings; nothing is recorded as strong before the session
     assert out["scores_meta"]["threshold"] == 70 and "AAA" in out["scores"] and out["strong"] == []
     assert s["score"] == out["scores"]["AAA"]["score"]
-    assert "atr" not in out["scores"]["AAA"] and out["scores_meta"]["warnings"]
+    assert "atr" not in out["scores"]["AAA"] and "setup" not in out["scores"]["AAA"] and out["scores_meta"]["warnings"]
+    if (out["scores"]["AAA"]["score"] or 0) < 70:
+        assert len(out["scores"]["AAA"]["reasons"]) <= 3
 
 
 # ── trade side: TrueData first, Kite 1-minute candles when TrueData gives nothing (owner 4 Nov) ────────────────────────

@@ -1013,7 +1013,12 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
         warnings.append("Signal strength could not be computed just now; it retries on the next refresh.")
     for sg in sig_today["signals"]:
         sg["score"] = (scores.get(sg.get("symbol")) or {}).get("score")
-    public_scores = {sym: {k: v for k, v in r.items() if k not in ("atr", "sma20")} for sym, r in scores.items()}
+    public_scores = {}
+    for sym, r in scores.items():                       # plan inputs stay server-side; a stock below the bar sends 3 reasons
+        pub = {k: v for k, v in r.items() if k not in ("atr", "sma20", "setup")}
+        if (r.get("score") is None or r["score"] < SS.THRESHOLD) and pub.get("reasons"):
+            pub["reasons"] = pub["reasons"][:3]
+        public_scores[sym] = pub
     no_today = int(len(panel.symbols) - int(eligible.sum()))
     if overlay.mode == "eod" and no_today:
         warnings.append(f"{no_today} stock(s) have no candle on {overlay.day.isoformat()} (suspended, or not traded) and are left out.")

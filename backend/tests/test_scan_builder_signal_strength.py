@@ -340,3 +340,10 @@ def test_a_negative_filing_is_also_a_penalty_and_unknown_categories_read_as_exch
     assert any(p["points"] == 10 and "negative filing" in p["text"] for p in pen)
     pts, text = SS.event(stock(filings=[F("other", "positive", "high", "Press Release")]))
     assert pts == 8 and text.startswith("Exchange filing 04 Nov 12:31 IST (positive): Press Release")
+
+
+def test_filing_texts_never_carry_a_barred_word():
+    for subj in ("Buyback", "Entry into an agreement", "Exit from a joint venture", "Target price revision", "Sale and Buy"):
+        pts, text = SS.event(stock(filings=[F("buyback", "positive", "high", subj)]))
+        assert pts == 12 and not SS.BARRED.search(text) and text.startswith("Share repurchase filing")
+    assert SS.event(stock(filings=[F("orders", "positive", "high", "Award of Order")]))[1].endswith(": Award of Order")

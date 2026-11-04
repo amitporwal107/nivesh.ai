@@ -39,6 +39,7 @@ def test_a_list_entry_keeps_the_price_and_the_day_but_no_plan():
 def test_no_barred_words_in_the_list_texts():
     import re
     text = json.dumps([SIG.list_entry(d, 100, 98, 101, 3) for d in ("long", "short")]) + SIG.RULES_TEXT
+    assert not re.search(r"\b(buy\w*|sell\w*|recommend\w*|pick\w*|target\w*|entry|exit\w*)\b", SIG.RULES_TEXT, re.I)
     assert not re.search(r"\b(buy\w*|sell\w*|recommend\w*|pick\w*)\b", text, re.I)
 
 

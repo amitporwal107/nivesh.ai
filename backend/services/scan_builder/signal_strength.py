@@ -42,6 +42,9 @@ POSITIONAL_LISTS = {"dt_52w_high", "dt_52w_breakout", "dt_uptrend_52w", "dt_mult
                     "supertrend_rsi", "dt_delivery_volume", "dt_vol_price_breakout"}
 FINANCIAL_WORDS = ("bank", "financ", "nbfc", "insur", "housing finance", "capital market", "lending", "credit")
 SMA_SET = (5, 10, 20, 30, 50, 100, 150, 200)
+# Words this screen keeps out of everything but the plan block (owner, 3 Nov compliance rule): a filing subject carrying one
+# is not quoted, only its category and time.
+BARRED = re.compile(r"\b(buy\w*|sell\w*|recommend\w*|pick\w*|target\w*|stop\s*loss|entry|entries|exit\w*)\b", re.I)
 QUERY_WORDS = re.compile(r"spurt in volume|price movement", re.I)   # the exchange's surveillance queries
 EM_IST = timezone(timedelta(hours=5, minutes=30))
 W52 = 250
@@ -241,7 +244,7 @@ def trend(inp: StockInputs, t: Tech, setup: Optional[str]) -> Tuple[int, List[st
 
 
 EVENT_LABEL = {"earnings": "Results", "orders": "Order", "mna": "Merger / acquisition", "capex": "Capacity / capex",
-               "buyback": "Buyback", "dividend": "Dividend", "rating": "Credit rating", "qip": "Fund raise",
+               "buyback": "Share repurchase", "dividend": "Dividend", "rating": "Credit rating", "qip": "Fund raise",
                "management": "Management", "litigation": "Litigation", "regulatory": "Regulatory", "other": "Exchange"}
 
 
@@ -285,7 +288,8 @@ def event(inp: StockInputs) -> Tuple[int, Optional[str]]:
         label = EVENT_LABEL.get(str(r.get("event_category")), "Exchange")
         tone = r.get("sentiment") or "unclassified"
         stamp = when.strftime("%d %b %H:%M") if when else "recently"
-        best, text = pts, f"{label} filing {stamp} IST ({tone}): {str(r.get('subject') or '').strip()[:80]}"
+        subj = str(r.get("subject") or "").strip()[:80]
+        best, text = pts, f"{label} filing {stamp} IST ({tone})" + ("" if not subj or BARRED.search(subj) else f": {subj}")
     return best, text
 
 

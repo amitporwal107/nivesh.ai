@@ -24,6 +24,11 @@
  * the cards (SignalsPanel.tsx: when a stock entered which scan, its trading plan in the owner's chosen words for this screen —
  * Entry · Stop loss · Target 1 · Target 2 — the strategy idea beside it, browser alerts), and a stock row with a signal today
  * carries a "New hh:mm" badge.
+ *
+ * Signal strength (owner 4 Nov, DESIGN.md §11): when the answer carries `scores_meta`, the "Strong signals (score ≥ 70)" panel
+ * (StrongSignals.tsx: one card per stock that reached the line, its score and parts, reasons, penalties and positional plan; a
+ * collapsed "Below 70 (n)" list; browser alerts only for strong signals) replaces the §10 feed, and a stock row whose stock
+ * has a score carries it as a small chip. An answer without scores (an older backend) keeps the §10 feed.
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { useHref, useLocation, useSearchParams } from "react-router-dom";
@@ -37,9 +42,10 @@ import { scanProblem, type ScanProblem } from "../scan-builder/scan-builder-data
 import {
   DEFAULT_DASHBOARD, STATIC_DASHBOARDS, dashboardTabs, servedKey, useMarketDashboard, type DashboardCell, type DashboardColumn,
   type DashboardCriterion, type DashboardIdea, type DashboardIdeas, type DashboardRef, type DashboardSignal, type DashboardWidget, type IdeasMeta,
-  type MarketDashboard,
+  type MarketDashboard, type StockScores,
 } from "./market-dashboard-data";
 import { SignalsPanel, istHm } from "./SignalsPanel";
+import { StrongSignals } from "./StrongSignals";
 
 const DASH = "–";
 const fmt2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -268,12 +274,16 @@ function DashboardBody({ q, asked }: { q: ReturnType<typeof useMarketDashboard>;
   return (
     <div data-testid="scan-dashboard" data-mode={d.basis.mode} data-dashboard={served} className="flex min-w-0 flex-col" style={{ gap: 14 }}>
       <DashHeader d={d} visible={visible} refreshing={q.isFetching} problem={refreshProblem} onRetry={() => { void q.refetch(); }} />
-      {d.signals && (
+      {d.scores_meta ? (
+        <StrongSignals strong={d.strong ?? []} scores={d.scores ?? {}} meta={d.scores_meta} signalsMeta={d.signals_meta ?? null} ideaFor={ideaFor}
+          chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+      ) : d.signals ? (
         <SignalsPanel signals={d.signals} meta={d.signals_meta ?? null} ideaFor={ideaFor} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
-      )}
+      ) : null}
       <div data-testid="sd-grid" style={{ display: "grid", gridTemplateColumns: mobile ? "minmax(0, 1fr)" : "repeat(auto-fill, minmax(360px, 1fr))", gap: 14, alignItems: "start" }}>
         {d.widgets.map((w) => (
-          <WidgetCard key={w.id} w={w} ideas={d.ideas ?? null} newAt={times.get(w.id) ?? null} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
+          <WidgetCard key={w.id} w={w} ideas={d.ideas ?? null} newAt={times.get(w.id) ?? null} scores={d.scores_meta ? d.scores ?? null : null}
+            threshold={d.scores_meta?.threshold ?? 70} chartHref={chartHref} onOpenSymbol={(s) => desk.openChart(s)} />
         ))}
       </div>
       {d.widgets.length === 0 && (
@@ -407,8 +417,9 @@ function compareCells(a: DashboardCell | undefined, b: DashboardCell | undefined
 /** The appended "Strategy idea" column's sort key (the table's own columns are 0 … n−1). */
 const IDEA_COL = -1;
 
-function WidgetCard({ w, ideas, newAt, chartHref, onOpenSymbol }: {
-  w: DashboardWidget; ideas: DashboardIdeas | null; newAt: Map<string, string> | null; chartHref: (s: string) => string; onOpenSymbol: (s: string) => void;
+function WidgetCard({ w, ideas, newAt, scores, threshold, chartHref, onOpenSymbol }: {
+  w: DashboardWidget; ideas: DashboardIdeas | null; newAt: Map<string, string> | null; scores: StockScores | null; threshold: number;
+  chartHref: (s: string) => string; onOpenSymbol: (s: string) => void;
 }) {
   const [sort, setSort] = useState<Sort>(null);
   const symbols = w.row_kind === "symbol";
@@ -524,6 +535,16 @@ function WidgetCard({ w, ideas, newAt, chartHref, onOpenSymbol }: {
                                 New {istHm(newAt.get(sym)) ?? ""}
                               </span>
                             )}
+                            {sym && typeof scores?.[sym]?.score === "number" && (() => {
+                              const v = Math.round(scores[sym].score as number);
+                              const on = v >= threshold;
+                              return (
+                                <span data-testid="sd-score" data-strong={on ? "true" : "false"} title={`Signal strength ${v}/100`} className="cp-pill"
+                                  style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", fontFamily: "var(--mono)", color: on ? "var(--mint)" : "var(--cp-ink-3)", borderColor: on ? "var(--mint)" : "var(--line-2)" }}>
+                                  {v}
+                                </span>
+                              );
+                            })()}
                           </td>
                         );
                       }

@@ -6,7 +6,9 @@
  *                                the server's default), `daytrade` = 503347 "Day trade" (20 widgets). Each widget with its
  *                                criteria, its table and its status; optionally `ideas` (a strategy idea per stock, from the
  *                                strategy builder) and `ideas_meta`; `dashboard` (the one served) and `dashboards` (the tabs); optionally `signals` (today's early signals with their trading plans, §10) and
- *                                `signals_meta`
+ *                                `signals_meta`; optionally (§11, 4 Nov) `scores` (each signalled stock's strength 0–100 with its parts,
+ *                                reasons and penalties), `strong` (the stocks whose score reached 70 today, each with its positional plan)
+ *                                and `scores_meta`
  *
  * Real time: while the answer says the market is open it is asked again every `market.refresh_seconds` (10 s); a hidden tab
  * does not ask (React Query's refetchIntervalInBackground: false); after the close it is asked once. One query per dashboard,
@@ -121,6 +123,7 @@ export const SignalC = z.object({
   plan_note: Str.catch(null),
   price_now: NumN,
   move_since_pct: NumN,
+  score: NumN,                                   // §11: the stock's strength now (null = not scored); absent from an older backend
 }).passthrough();
 
 const SignalsC = z.array(z.unknown()).transform((items) => {
@@ -138,6 +141,89 @@ const SignalsMetaC = z.object({
   recording: z.boolean().catch(false).default(false),
   rules: z.string().catch("").default(""),
   caveat: z.string().catch("").default(""),
+}).passthrough();
+
+// Signal strength (DESIGN.md §11, owner 4 Nov: "process only those signals where signal strength is above 70%"). Every
+// signalled stock's score 0–100 = quality (30) + trend (25) + reason (20) + size (15) + participation (10) − penalties; the
+// stocks that reached 70 are the STRONG signals, each with the positional plan frozen when it got there. All three fields are
+// optional (an older backend has none); a malformed entry is dropped rather than failing the whole dashboard.
+const PartN = z.number().catch(0).default(0);
+const PartsC = z.object({
+  quality: PartN, trend: PartN, reason: PartN, size: PartN, participation: PartN, penalty: PartN,
+}).passthrough();
+
+const PenaltyC = z.object({ text: z.string(), points: z.number().catch(0).default(0) }).passthrough();
+
+/** A list a stock is in today: {id, title}, or a bare id from a terser answer. */
+const ListRefC = z.union([
+  z.object({ id: z.string(), title: z.string().catch("").default("") }).passthrough(),
+  z.string().transform((id) => ({ id, title: "" })),
+]);
+
+const keepGood = <T extends z.ZodTypeAny>(c: T) => z.array(z.unknown()).catch([]).default([]).transform((items) => {
+  const out: z.infer<T>[] = [];
+  for (const it of items) {
+    const r = c.safeParse(it);
+    if (r.success) out.push(r.data);
+  }
+  return out;
+});
+
+export const ScoreC = z.object({
+  score: z.number().nullable().catch(null).default(null),
+  parts: PartsC.nullable().optional().catch(null),
+  reasons: z.array(z.string()).catch([]).default([]),
+  penalties: keepGood(PenaltyC),
+  lists: keepGood(ListRefC),
+  note: Str.catch(null),
+}).passthrough();
+
+const ScoresC = z.record(z.unknown()).transform((m) => {
+  const out: Record<string, z.infer<typeof ScoreC>> = {};
+  for (const [sym, v] of Object.entries(m)) {
+    const r = ScoreC.safeParse(v);
+    if (r.success) out[sym] = r.data;
+  }
+  return out;
+});
+
+export const StrongC = z.object({
+  symbol: z.string(),
+  name: Str.catch(null),
+  first_strong: z.string(),
+  score_at: z.number().nullable().catch(null).default(null),
+  parts_at: PartsC.nullable().optional().catch(null),
+  reasons_at: z.array(z.string()).catch([]).default([]),
+  score_now: NumN,
+  rules: Str.catch(null),
+  entry: NumN,
+  stop_loss: NumN,
+  target_1: NumN,
+  target_2: NumN,
+  risk_per_share: NumN,
+  rr_1: NumN,
+  rr_2: NumN,
+  atr: NumN,
+  sma20: NumN,
+  trend_exit: Str.catch(null),
+  plan_ok: z.boolean().catch(false).default(false),
+  plan_note: Str.catch(null),
+  lists_at: keepGood(ListRefC),
+  price_now: NumN,
+  move_since_pct: NumN,
+}).passthrough();
+
+const StrongsC = keepGood(StrongC);
+
+const ScoresMetaC = z.object({
+  threshold: z.number().catch(70).default(70),
+  weights: z.record(z.number()).catch({}).default({}),
+  as_of: z.record(z.union([z.string(), z.null()])).catch({}).default({}),
+  rules: z.string().catch("").default(""),
+  plan_rules: z.string().catch("").default(""),
+  caveat: z.string().catch("").default(""),
+  counts: z.record(z.number()).catch({}).default({}),
+  warnings: z.array(z.string()).catch([]).default([]),
 }).passthrough();
 
 const DashboardRefC = z.object({
@@ -170,6 +256,9 @@ export const MarketDashboardC = z.object({
   ideas_meta: IdeasMetaC.nullable().optional().catch(null),
   signals: SignalsC.nullable().optional().catch(null),
   signals_meta: SignalsMetaC.nullable().optional().catch(null),
+  scores: ScoresC.nullable().optional().catch(null),
+  strong: StrongsC.nullable().optional().catch(null),
+  scores_meta: ScoresMetaC.nullable().optional().catch(null),
   // The second dashboard (3 Nov): the one served and the list for the tabs. Both absent from an older backend; a malformed
   // value is read as absent rather than failing the whole dashboard.
   dashboard: DashboardRefC.nullable().optional().catch(null),
@@ -179,6 +268,12 @@ export const MarketDashboardC = z.object({
 export type MarketDashboard = z.infer<typeof MarketDashboardC>;
 export type DashboardSignal = z.infer<typeof SignalC>;
 export type SignalsMeta = z.infer<typeof SignalsMetaC>;
+export type StockScore = z.infer<typeof ScoreC>;
+export type StockScores = Record<string, StockScore>;
+export type StrongSignal = z.infer<typeof StrongC>;
+export type ScoresMeta = z.infer<typeof ScoresMetaC>;
+export type ScoreParts = z.infer<typeof PartsC>;
+export type ListRef = { id: string; title: string };
 export type DashboardIdea = z.infer<typeof IdeaC>;
 export type DashboardIdeas = Record<string, DashboardIdea | null>;
 export type IdeasMeta = z.infer<typeof IdeasMetaC>;

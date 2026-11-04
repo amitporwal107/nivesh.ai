@@ -44,8 +44,8 @@ from . import spec as S
 
 logger = logging.getLogger(__name__)
 
-LIST_RULES = "scan-list-entry"
-RULES_TEXT = ("A list entry = a stock entering one of the lists in the session, with the live price then. Plans go only to "
+LIST_RULES = "scan-list-mark"
+RULES_TEXT = ("A list mark = a stock joining one of the lists in the session, with the live price then. Plans go only to "
               "strong signals (score ≥ 70); see the score rules.")
 NO_PLAN_NOTE = "Plans go to strong signals only (score ≥ 70)."
 ATR_N = 14
