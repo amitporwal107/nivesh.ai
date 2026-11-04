@@ -36,7 +36,9 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import HTTPException
 
 from services import desk_trading as desk
 from services.risk_gate import inputs
@@ -60,15 +62,17 @@ _ME = f"{os.getpid()}:{uuid.uuid4().hex[:8]}"
 _task: Optional[asyncio.Task] = None
 
 
-class PipelineError(RuntimeError):
-    """A refused request (approve / reject): the route answers `status` with {code, message, ...detail}."""
+class PipelineError(HTTPException):
+    """A refused request (approve / reject / place_entry_order). An HTTPException, so a route that does not catch it
+    (slice C's POST /api/v1/paper/orders calls place_entry_order) still answers `status` with
+    detail = {code, message, ...}."""
 
-    def __init__(self, code: str, message: str, *, status: int = 409, **detail: Any) -> None:
-        super().__init__(message)
-        self.code, self.status, self.extra = code, status, detail
+    def __init__(self, code: str, message: str, *, status: int = 409, **extra: Any) -> None:
+        super().__init__(status_code=status, detail={"code": code, "message": message, **extra})
+        self.code, self.status, self.message, self.extra = code, status, message, extra
 
-    def detail(self) -> Dict[str, Any]:
-        return {"code": self.code, "message": str(self), **self.extra}
+    def __str__(self) -> str:
+        return self.message
 
 
 # ── the other slices' interfaces (DESIGN §4), imported when used so tests replace them ──
@@ -244,9 +248,15 @@ def _order_args(prop: Dict[str, Any], rec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def create_order(db, prop: Dict[str, Any], now: datetime, report: Optional[Dict[str, Any]] = None
-                       ) -> Dict[str, Any]:
-    """READY_FOR_ORDER → slice C's create_entry_order → ORDER_CREATED. On a failure the reservation is released unless
-    the order exists after all; the error stays on the proposal (state READY_FOR_ORDER, `order_error`), not retried."""
+                       ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """READY_FOR_ORDER → slice C's create_entry_order → ORDER_CREATED. Returns (the proposal, the order or None).
+
+    Slice C never raises for a business refusal: it returns the order in state REJECTED with `reject_reason`, having
+    given the reservation back itself — the proposal still moves to ORDER_CREATED (one order per (user, opportunity),
+    PRD §18 rule 6) with `order.state` REJECTED and `order_rejected` set, and the reservation is NOT released again.
+    An exception is an infrastructure failure: the reservation is released unless the order exists after all; the
+    error stays on the proposal (state READY_FOR_ORDER, `order_error`) and is not retried automatically
+    (place_entry_order re-validates and retries on request)."""
     rec = prop["risk"]
     order_id = rec["order_id"]
     args = _order_args(prop, rec)
@@ -270,13 +280,20 @@ async def create_order(db, prop: Dict[str, Any], now: datetime, report: Optional
                 "retried": False}
         if report is not None:
             report["errors"].append({"proposal_id": prop["_id"], "stage": "create_entry_order", **info})
-        return await proposals.annotate(db, prop, {"order_error": info}, now=now) or prop
+        return (await proposals.annotate(db, prop, {"order_error": info}, now=now) or prop), None
     oid = order.get("_id", order.get("order_id"))
+    rejected = order.get("state") == C.ORD_REJECTED
     summary = {"order_id": oid, "state": order.get("state"), "order_type": order.get("order_type"),
-               "quantity": order.get("quantity"), "created_at": order.get("created_at")}
-    moved = await proposals.transition(db, prop, C.PROP_ORDER_CREATED, reason=f"paper order {oid} created", now=now,
-                                       extra={"order": summary, "order_id": oid, "order_created_at": _iso(now)})
-    return moved or prop
+               "quantity": order.get("quantity"), "created_at": order.get("created_at"),
+               "reject_reason": order.get("reject_reason"), "duplicate": bool(order.get("duplicate"))}
+    reason = (f"paper order {oid} created and REJECTED by the paper engine ({order.get('reject_reason')}); its "
+              f"reservation was given back by slice C") if rejected else f"paper order {oid} created"
+    moved = await proposals.transition(db, prop, C.PROP_ORDER_CREATED, reason=reason, now=now,
+                                       extra={"order": summary, "order_id": oid, "order_created_at": _iso(now),
+                                              "order_rejected": rejected, "order_error": None})
+    if moved is None:                                      # another writer recorded it first (place vs the loop)
+        moved = await db[C.PROPOSALS].find_one({"_id": prop["_id"]}) or prop
+    return moved, order
 
 
 # ── the round ────────────────────────────────────────────────────────────────
@@ -347,8 +364,10 @@ async def process_one(db, *, user_id: str, config: Dict[str, Any], state: Dict[s
         await service.release_unused(db, user_id, {"reservation_id": rec.get("reservation_id")},
                                      reason="spt: the proposal moved before its order was created")
         return prop
-    out = await create_order(db, ready, now, report)
-    if out.get("state") == C.PROP_ORDER_CREATED:
+    out, order = await create_order(db, ready, now, report)
+    if order is not None and order.get("state") == C.ORD_REJECTED:
+        report["orders_rejected"] += 1
+    elif out.get("state") == C.PROP_ORDER_CREATED:
         report["orders"] += 1
     return out
 
@@ -378,7 +397,7 @@ async def process_user(db, config: Dict[str, Any], qualified: List[Dict[str, Any
 
 
 def new_report(now: datetime) -> Dict[str, Any]:
-    return {"at": _iso(now), "users": 0, "qualified": 0, "proposals": 0, "refused": 0, "orders": 0,
+    return {"at": _iso(now), "users": 0, "qualified": 0, "proposals": 0, "refused": 0, "orders": 0, "orders_rejected": 0,
             "awaiting_approval": 0, "expired_approvals": 0, "skipped": {}, "errors": []}
 
 
@@ -490,50 +509,36 @@ async def expire_approvals(db, now: datetime, *, user_id: Optional[str] = None) 
     return n
 
 
-async def approve(db, *, user_id: str, opportunity_id: str, now: datetime) -> Dict[str, Any]:
-    """The user approves their AWAITING proposal for `opportunity_id`. Re-validates (not expired, the opportunity still
-    QUALIFIED, a fresh price inside the entry range) and ALWAYS re-runs sizing, allocation and the risk service with a
-    reservation (WF §11.2; TESTCASES DB-1), then creates the paper order. A failed re-validation expires the proposal
-    (APPROVAL_EXPIRED) and raises PipelineError 409; no approval can override a hard limit (WF §10.4)."""
-    prop = await proposals.for_opportunity(db, user_id, opportunity_id)
-    if prop is None:
-        raise PipelineError("proposal_not_found", "You have no proposal for this opportunity.", status=404)
-    if prop["state"] in (C.PROP_ORDER_CREATED, C.PROP_READY_FOR_ORDER) and (prop.get("approval") or {}).get("decision") == "approved":
-        return {"proposal": prop, "idempotent": True}
-    if prop["state"] != C.PROP_AWAITING_USER:
-        raise PipelineError("invalid_state", f"The proposal is {prop['state']}, not awaiting your approval.",
-                            state=prop["state"])
-    config = await policy.read(db, user_id)
-    if config["mode"] not in (C.MODE_APPROVAL, C.MODE_AUTO):
-        raise PipelineError("spt_mode_not_trading", f"The account's SPT mode is {config['mode']}; set approval or auto "
-                                                     f"to place paper orders.", mode=config["mode"])
+class _Refused(Exception):
+    """A failed re-validation inside `_revalidate`: the caller decides what it does to the proposal."""
 
-    async def lapse(codes: List[str], text: str, risk_rec: Optional[Dict[str, Any]] = None, *, code: str) -> None:
-        await _expire(db, prop, now, codes, text, actor=user_id, risk_rec=risk_rec)
-        raise PipelineError(code, text, reason_codes=codes, decision=(risk_rec or {}).get("decision"))
+    def __init__(self, code: str, codes: List[str], text: str, risk_rec: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__(text)
+        self.code, self.codes, self.text, self.risk_rec = code, codes, text, risk_rec
 
-    exp = proposals._dt((prop.get("approval") or {}).get("expires_at"))
-    if exp is None or now >= exp:
-        await lapse(["approval_window_passed"], "The approval window has passed; the proposal expired.",
-                    code="approval_expired")
-    opp = await opportunity_store().get(db, opportunity_id)
+
+async def _revalidate(db, prop: Dict[str, Any], *, user_id: str, actor_id: str, config: Dict[str, Any],
+                      now: datetime) -> Dict[str, Any]:
+    """The checks an approval (and a placement on request) repeats before an order (WF §11.2): the opportunity still
+    QUALIFIED, a fresh live price, the plan still valid at it, an immediate entry still inside its range; then sizing,
+    allocation and the universal risk service ALWAYS re-run, with a reservation under a new order id. Returns
+    {updated (the proposal's new entry / rr / price), ev (sizing, allocation, risk, order_id), state}; raises _Refused."""
+    opp = await opportunity_store().get(db, prop["opportunity_id"])
     if opp is None or opp.get("state") != C.OPP_QUALIFIED:
-        await lapse(["opportunity_not_qualified"], f"The opportunity is {(opp or {}).get('state') or 'gone'}, no longer "
-                                                   f"QUALIFIED.", code="approval_expired")
+        raise _Refused("approval_expired", ["opportunity_not_qualified"],
+                       f"The opportunity is {(opp or {}).get('state') or 'gone'}, no longer QUALIFIED.")
     sym = prop["symbol"]
     price = (await proposals.read_prices([sym], now)).get(sym) or proposals.price_from_quote(None, now)
     if not price.get("ok"):
-        await lapse([price.get("reason") or "price_unavailable"], "Market data is not fresh, so the entry cannot be "
-                                                                  "re-validated; the proposal expired.",
-                    code="approval_expired")
+        raise _Refused("approval_expired", [price.get("reason") or "price_unavailable"],
+                       "Market data is not fresh, so the entry cannot be re-validated.")
     fresh_body = proposals.build(opp, price, config, now)
     if fresh_body["outcome"] != "ok":
-        await lapse(fresh_body["reason_codes"], "; ".join(fresh_body["explanations"]), code="approval_expired")
+        raise _Refused("approval_expired", fresh_body["reason_codes"], "; ".join(fresh_body["explanations"]))
     if prop["entry"]["type"] == "MARKET" and fresh_body["entry"]["type"] != "MARKET":
-        await lapse(["price_outside_entry_range"],
-                    f"The live price ₹{float(price['price']):,.2f} is above the entry range (≤ ₹"
-                    f"{prop['entry']['chase_bound']:,.2f}); the approved immediate entry no longer holds.",
-                    code="approval_expired")
+        raise _Refused("approval_expired", ["price_outside_entry_range"],
+                       f"The live price ₹{float(price['price']):,.2f} is above the entry range (≤ ₹"
+                       f"{prop['entry']['chase_bound']:,.2f}); the immediate entry no longer holds.")
     updated = dict(prop)
     if prop["entry"]["type"] == "MARKET":
         updated.update(entry=fresh_body["entry"], rr=fresh_body["rr"], price=price,
@@ -542,29 +547,124 @@ async def approve(db, *, user_id: str, opportunity_id: str, now: datetime) -> Di
         updated.update(price=price)
     state = await allocation.account_state(db, user_id, now=now, config=config)
     ev = await evaluate_proposal(db, updated, state=state, config=config, price=price, opp=opp, how="reserve",
-                                 actor_id=user_id, now=now)
+                                 actor_id=actor_id, now=now)
     rec = ev["risk"]
     if rec["decision"] not in risk.APPROVED:
-        await lapse(rec["reason_codes"] or ["risk_refused"],
-                    "The risk engine refused the entry at approval: " + ("; ".join(rec["explanations"][:3]) or rec["decision"]),
-                    rec, code="risk_refused")
+        raise _Refused("risk_refused", rec["reason_codes"] or ["risk_refused"],
+                       "The risk engine refused the entry: " + ("; ".join(rec["explanations"][:3]) or rec["decision"]),
+                       rec)
+    return {"updated": updated, "ev": ev, "state": state, "price": price}
+
+
+def _fresh_fields(rv: Dict[str, Any]) -> Dict[str, Any]:
+    ev = rv["ev"]
+    return {"entry": rv["updated"]["entry"], "rr": rv["updated"].get("rr"), "price": rv["price"], "sizing": ev["sizing"],
+            "allocation": ev["allocation"], "risk": ev["risk"], "order_id": ev["order_id"], "order_day": rv["state"]["day"]}
+
+
+async def _existing_order(db, prop: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    oid = prop.get("order_id") or (prop.get("order") or {}).get("order_id")
+    return await db[C.ORDERS].find_one({"_id": oid}) if oid else None
+
+
+async def approve(db, *, user_id: str, opportunity_id: str, now: datetime) -> Dict[str, Any]:
+    """The user approves their AWAITING proposal for `opportunity_id` → {proposal, order, idempotent}. Re-validates and
+    ALWAYS re-runs sizing, allocation and the risk service with a reservation (`_revalidate`; WF §11.2; TESTCASES
+    DB-1), then creates the paper order through `place`. A failed re-validation expires the proposal (APPROVAL_EXPIRED)
+    and raises PipelineError 409; no approval can override a hard limit (WF §10.4)."""
+    prop = await proposals.for_opportunity(db, user_id, opportunity_id)
+    if prop is None:
+        raise PipelineError("proposal_not_found", "You have no proposal for this opportunity.", status=404)
+    if prop["state"] in (C.PROP_ORDER_CREATED, C.PROP_READY_FOR_ORDER) and (prop.get("approval") or {}).get("decision") == "approved":
+        return {"proposal": prop, "order": await _existing_order(db, prop), "idempotent": True}
+    if prop["state"] != C.PROP_AWAITING_USER:
+        raise PipelineError("invalid_state", f"The proposal is {prop['state']}, not awaiting your approval.",
+                            state=prop["state"])
+    config = await policy.read(db, user_id)
+    if config["mode"] not in (C.MODE_APPROVAL, C.MODE_AUTO):
+        raise PipelineError("spt_mode_not_trading", f"The account's SPT mode is {config['mode']}; set approval or auto "
+                                                     f"to place paper orders.", mode=config["mode"])
+    exp = proposals._dt((prop.get("approval") or {}).get("expires_at"))
+    try:
+        if exp is None or now >= exp:
+            raise _Refused("approval_expired", ["approval_window_passed"], "The approval window has passed.")
+        rv = await _revalidate(db, prop, user_id=user_id, actor_id=user_id, config=config, now=now)
+    except _Refused as r:
+        await _expire(db, prop, now, r.codes, r.text, actor=user_id, risk_rec=r.risk_rec)
+        raise PipelineError(r.code, r.text + " The proposal expired.", reason_codes=r.codes,
+                            decision=(r.risk_rec or {}).get("decision"))
+    rec = rv["ev"]["risk"]
     approval = {**(prop.get("approval") or {}), "decided_at": _iso(now), "decided_by": user_id, "decision": "approved"}
-    ready = await proposals.transition(
-        db, prop, C.PROP_READY_FOR_ORDER, reason="approved by the user; fresh risk " + rec["decision"], now=now,
-        actor=user_id, extra={"approval": approval, "entry": updated["entry"], "rr": updated.get("rr"),
-                              "price": price, "sizing": ev["sizing"], "allocation": ev["allocation"], "risk": rec,
-                              "order_id": ev["order_id"], "order_day": state["day"]})
+    ready = await proposals.transition(db, prop, C.PROP_READY_FOR_ORDER, reason="approved by the user; fresh risk "
+                                       + rec["decision"], now=now, actor=user_id,
+                                       extra={"approval": approval, **_fresh_fields(rv)})
     if ready is None:
         await service.release_unused(db, user_id, {"reservation_id": rec.get("reservation_id")},
                                      reason="spt: the proposal moved while it was being approved")
         raise PipelineError("concurrent_change", "The proposal changed while it was being approved; reload it.")
     await db[C.PROPOSALS].update_one({"_id": prop["_id"]}, {"$push": {"risk_history": rec}})
-    out = await create_order(db, ready, now)
-    if out.get("state") != C.PROP_ORDER_CREATED:
+    out, order = await create_order(db, ready, now)
+    if order is None:
         raise PipelineError("order_not_created", "The risk engine approved, but the paper order could not be created; "
                                                  "the reservation was released.", status=503,
                             order_error=out.get("order_error"))
-    return {"proposal": out, "idempotent": False}
+    return {"proposal": out, "order": order, "idempotent": False}
+
+
+async def place_entry_order(db, *, user_id: str, proposal_id: str, actor_id: str,
+                            now: Optional[datetime] = None) -> Dict[str, Any]:
+    """The paper ENTRY order of the caller's proposal → the order dict (slice C's POST /api/v1/paper/orders calls this
+    for a READY_FOR_ORDER proposal; DESIGN §4).
+
+        ORDER_CREATED           the order already created (`duplicate: true`), nothing re-run
+        AWAITING_USER_APPROVAL  the same as `approve` (re-validated, fresh risk, then the order)
+        READY_FOR_ORDER         left there by a failed create (`order_error`) or in flight: re-validated like an
+                                approval (`_revalidate`: the opportunity, a fresh price inside the entry range, sizing,
+                                allocation and the risk service with a NEW reservation and order id), then slice C's
+                                create_entry_order with the same idempotency key, so an order already written for this
+                                (user, opportunity) is returned instead of a second one (and the new reservation given
+                                back). A refusal leaves the proposal READY_FOR_ORDER with `last_place_refusal` and raises
+                                PipelineError 409 (READY_FOR_ORDER has no other exit in the state machine).
+    Raises PipelineError (an HTTPException): 404 proposal_not_found, 409 invalid_state / entry_no_longer_valid /
+    risk_refused / spt_mode_not_trading (approval_expired via approve), 503 order_not_created."""
+    moment = now or desk.utcnow()
+    prop = await proposals.get(db, proposal_id, user_id=user_id)
+    if prop is None:
+        raise PipelineError("proposal_not_found", "You have no such proposal.", status=404)
+    if prop["state"] == C.PROP_ORDER_CREATED:
+        order = await _existing_order(db, prop)
+        if order is not None:
+            return {**order, "duplicate": True}
+        raise PipelineError("order_not_found", "The proposal records an order that cannot be read.", status=503)
+    if prop["state"] == C.PROP_AWAITING_USER:
+        return (await approve(db, user_id=user_id, opportunity_id=prop["opportunity_id"], now=moment))["order"] or {}
+    if prop["state"] != C.PROP_READY_FOR_ORDER:
+        raise PipelineError("invalid_state", f"The proposal is {prop['state']}; only an approved proposal gets an order.",
+                            state=prop["state"])
+    config = await policy.read(db, user_id)
+    if config["mode"] not in (C.MODE_APPROVAL, C.MODE_AUTO):
+        raise PipelineError("spt_mode_not_trading", f"The account's SPT mode is {config['mode']}.", mode=config["mode"])
+    try:
+        rv = await _revalidate(db, prop, user_id=user_id, actor_id=actor_id, config=config, now=moment)
+    except _Refused as r:
+        info = {"at": _iso(moment), "code": r.code, "reason_codes": r.codes, "text": r.text, "by": actor_id}
+        await proposals.annotate(db, prop, {"last_place_refusal": info}, now=moment,
+                                 push={"risk_history": r.risk_rec} if r.risk_rec else None)
+        raise PipelineError("risk_refused" if r.code == "risk_refused" else "entry_no_longer_valid", r.text,
+                            reason_codes=r.codes, decision=(r.risk_rec or {}).get("decision"))
+    rec = rv["ev"]["risk"]
+    ready = await proposals.annotate(db, prop, {**_fresh_fields(rv), "order_error": None, "last_place_refusal": None},
+                                     now=moment, push={"risk_history": rec})
+    if ready is None:
+        await service.release_unused(db, user_id, {"reservation_id": rec.get("reservation_id")},
+                                     reason="spt: the proposal moved while its order was being placed")
+        raise PipelineError("concurrent_change", "The proposal changed meanwhile; reload it.")
+    out, order = await create_order(db, ready, moment)
+    if order is None:
+        raise PipelineError("order_not_created", "The risk engine approved, but the paper order could not be created; "
+                                                 "the reservation was released.", status=503,
+                            order_error=out.get("order_error"))
+    return order
 
 
 async def reject(db, *, user_id: str, opportunity_id: str, reason: Any, now: datetime) -> Dict[str, Any]:

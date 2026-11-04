@@ -23,6 +23,22 @@ ALLOCATION_REJECTED with the binding constraint's code; cut → ALLOCATION_REDUC
 carries what earlier candidates in the same batch took, so a batch can never exceed the room (no reservation is taken
 here: the risk service reserves atomically later).
 
+SPT POSITIONS' P&L (`spt_pnl`): risk_book reads desk trades and the journal only, so B adds slice C's `spt_positions`
+(services/spt/paper/positions.py) itself, reading only:
+    equity      + the P&L of SPT positions not yet in paper cash: open positions (realized_net_rs + the live mark's
+                unrealized_net_rs) and closed ones whose release to cash is not `done`. An open position without a mark,
+                or with one older than MARK_BUDGET_SESSIONS sessions, makes equity unknown (fail closed: the ladder is
+                `unknown` and new entries are blocked), never zero — except one filled under MARK_GRACE_S (300 s) ago,
+                valued at its fill (minus the entry costs paid), so slice C does not cancel the rest of a partly
+                filled entry before its monitor's first mark.
+    day / week  + SPT P&L in the period: a position opened in the period counts its whole P&L (exact: it started at 0);
+                one opened BEFORE the period counts its loss since entry when it is a loss, and nothing when it is a gain
+                (CONSERVATIVE: no start-of-period mark is stored for SPT positions, so a gain is never used to offset a
+                loss; listed in `conservative`).
+    drawdown    (peak − adjusted equity) / peak with risk_book's stored peak (B never writes the peak).
+The universal risk service still measures its own limits on risk_book's equity (desk + journal); B's checks on the
+adjusted figures can only add refusals.
+
 RANKING (`rank`, PRD §8.7): opportunity_score (slice A's validation score), then R:R at the entry, then liquidity
 (ADV) — never the scanner score, which is not a success probability (PRD §27 decision 1).
 """
@@ -44,6 +60,10 @@ from . import policy
 logger = logging.getLogger(__name__)
 
 PENDING_ORDER_STATES = (C.ORD_CREATED, C.ORD_VALIDATED, C.ORD_PENDING)
+SPT_PNL_VERSION = "spt-pnl-v1"
+MARK_BUDGET_SESSIONS = 2
+MARK_GRACE_S = 300
+MAX_SPT_POSITIONS_READ = 2000
 CATEGORIES = ("equity_positional", "equity_intraday", "fno")
 
 
@@ -69,6 +89,88 @@ def _unfilled_fraction(order: Dict[str, Any]) -> float:
     return max(0.0, min(1.0, (qty - filled) / qty))
 
 
+def proposals_dt(stamp: Any) -> Optional[datetime]:
+    from .proposals import _dt
+    return _dt(stamp)
+
+
+def _ist_day(stamp: Any):
+    if not stamp:
+        return None
+    try:
+        d = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=fresh.IST)                    # a naive stamp is IST, as slice C reads them
+    return d.astimezone(fresh.IST).date()
+
+
+async def spt_pnl(db, user_id: str, *, now: datetime) -> Dict[str, Any]:
+    """The P&L of the user's SPT positions that risk_book does not see (module docstring). Reads only."""
+    today = fresh.ist_today(now)
+    starts = {"day": today, "week": risk_book.week_start(today)}
+    docs = await db[C.POSITIONS].find({"user_id": user_id}).to_list(MAX_SPT_POSITIONS_READ)
+    unknown: List[str] = []
+    conservative: List[str] = []
+    not_in_cash = 0.0
+    period = {"day": 0.0, "week": 0.0}
+    n_open = 0
+    for d in docs:
+        sym = d.get("symbol") or d.get("_id")
+        is_open = d.get("state") in C.POS_OPEN_STATES
+        realized = float(d.get("realized_net_rs") or 0.0)
+        closed_day = None if is_open else _ist_day(d.get("closed_at"))
+        if not is_open and closed_day is not None and closed_day < starts["week"] \
+                and (d.get("release") or {}).get("state") == "done":
+            continue                                       # closed and paid out before this week: nothing to add
+        if is_open:
+            n_open += 1
+            m = d.get("mark") or {}
+            un = _f(m.get("unrealized_net_rs"))
+            if int(d.get("quantity") or 0) > 0 and un is None:
+                opened_at = proposals_dt(d.get("opened_at"))
+                if opened_at is not None and 0 <= (now - opened_at).total_seconds() <= MARK_GRACE_S:
+                    # Filled moments ago, not yet marked by slice C's monitor: at its fill the P&L is minus the entry
+                    # costs paid. Treating it as unknown would block entries and make slice C cancel the rest of a
+                    # partly filled entry order before its first mark.
+                    value = realized - float(d.get("entry_costs_rs") or 0.0)
+                    conservative.append(f"{sym} (valued at its fill: no mark yet)")
+                    not_in_cash += value
+                    opened = _ist_day(d.get("opened_at")) or today
+                    for key, start in starts.items():
+                        if opened >= start or value < 0:
+                            period[key] += value
+                    continue
+                unknown.append(f"{sym}: SPT position has no live mark")
+                continue
+            if un is not None and not fresh.assess("SPT position mark (slice C)", _ist_day(m.get("at")),
+                                                   budget_sessions=MARK_BUDGET_SESSIONS, now=now)["ok"]:
+                unknown.append(f"{sym}: SPT position mark as of {m.get('at')} is stale")
+                continue
+            value = realized + (un or 0.0)
+        else:
+            value = realized
+        if is_open or (d.get("release") or {}).get("state") != "done":
+            not_in_cash += value
+        opened = _ist_day(d.get("opened_at")) or today
+        for key, start in starts.items():
+            if not is_open and (closed_day is None or closed_day < start):
+                continue
+            if opened >= start:
+                period[key] += value
+            elif value < 0:
+                period[key] += value
+                conservative.append(f"{sym} ({key})")
+    ok = not unknown
+    return {"version": SPT_PNL_VERSION, "source": "spt_positions (slice C): realized_net_rs, mark.unrealized_net_rs",
+            "open_positions": n_open, "equity_adjustment_rs": round(not_in_cash, 2) if ok else None,
+            "day_pnl_rs": round(period["day"], 2) if ok else None, "week_pnl_rs": round(period["week"], 2) if ok else None,
+            "unknown_reasons": unknown, "conservative": conservative,
+            "conservative_text": "positions opened before the period count their loss since entry (no start-of-period "
+                                 "mark is stored), and a gain is never counted" if conservative else None}
+
+
 async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The account as allocation, sizing and the SPT risk checks see it (module docstring). Never raises for a store it
     cannot read: `error` says which, and every decision that needs it blocks."""
@@ -87,7 +189,27 @@ async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dic
     out["controls"] = await risk_book.controls(db, user_id)
     profile = book["profile"]
     limits = profile["limits"]
-    equity = _f(book["equity"]["equity_rs"])
+    try:
+        spt = await spt_pnl(db, user_id, now=now)
+    except Exception as e:  # noqa: BLE001 — fail closed: equity and the period P&L are unknown
+        logger.error("spt allocation: the SPT positions of %s could not be read (%s)", user_id, type(e).__name__)
+        spt = {"version": SPT_PNL_VERSION, "equity_adjustment_rs": None, "day_pnl_rs": None, "week_pnl_rs": None,
+               "unknown_reasons": [f"the SPT positions could not be read ({type(e).__name__})"], "conservative": []}
+    book_equity = _f(book["equity"]["equity_rs"])
+    equity = None if book_equity is None or spt["equity_adjustment_rs"] is None \
+        else round(book_equity + float(spt["equity_adjustment_rs"]), 2)
+
+    def _period(key: str):
+        pnl = _f(book[key]["pnl_rs"])
+        if pnl is None or spt[f"{key}_pnl_rs"] is None or equity is None:
+            return None, None
+        total = round(pnl + float(spt[f"{key}_pnl_rs"]), 2)
+        return total, round(equity - total, 2)
+
+    day_pnl, day_start = _period("day")
+    week_pnl, week_start = _period("week")
+    peak = float(book["peak"]["peak_rs"])
+    drawdown = None if equity is None or peak <= 0 else round(max(0.0, (peak - equity) / peak * 100.0), 4)
     account = book["account"]
     account_doc = await db[acct.ACCOUNTS].find_one({"user_id": user_id}) or {}
     entries = list(account_doc.get("reservations") or [])
@@ -127,7 +249,8 @@ async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dic
     positions = int(account_doc.get("open_positions") or 0) + int(book["open"].get("legacy_positions") or 0)
     out.update({
         "profile": {"limits": limits, "limits_version": profile.get("limits_version"), "profile": profile.get("profile")},
-        "equity_rs": equity, "equity_unknown_reasons": book["equity"].get("unknown_reasons") or [],
+        "equity_rs": equity, "book_equity_rs": book_equity, "spt_pnl": spt,
+        "equity_unknown_reasons": (book["equity"].get("unknown_reasons") or []) + list(spt.get("unknown_reasons") or []),
         "cash_rs": account["cash_rs"], "blocked_rs": blocked, "available_rs": account["available_rs"],
         "reserved_rs": round(reserved, 2), "deployed_rs": round(max(0.0, blocked - reserved), 2),
         "pending_entries": pending,
@@ -142,10 +265,10 @@ async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dic
                           for k in CATEGORIES},
         "positions_open": positions, "max_positions": int(cfg["extras"]["max_positions"]),
         "new_today": int(new_today), "max_new_per_day": int(cfg["extras"]["max_new_per_day"]),
-        "drawdown_pct": book.get("drawdown_pct"), "peak_rs": book["peak"]["peak_rs"],
-        "day_pnl_rs": book["day"]["pnl_rs"], "day_start_equity_rs": book["day"]["start_equity_rs"],
-        "week_pnl_rs": book["week"]["pnl_rs"], "week_start_equity_rs": book["week"]["start_equity_rs"],
-        "ladder": policy.ladder(book.get("drawdown_pct"), cfg),
+        "drawdown_pct": drawdown, "book_drawdown_pct": book.get("drawdown_pct"), "peak_rs": peak,
+        "day_pnl_rs": day_pnl, "day_start_equity_rs": day_start,
+        "week_pnl_rs": week_pnl, "week_start_equity_rs": week_start,
+        "ladder": policy.ladder(drawdown, cfg),
     })
     return out
 

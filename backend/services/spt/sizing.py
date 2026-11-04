@@ -4,9 +4,9 @@
     risk per share   = |entry − stop| + estimated cost per share           (WF §8.3)
     quantity         = floor(allowed risk / risk per share)                (PRD §8.4)
 
-EQUITY: `risk_book.read(...)["equity"]["equity_rs"]` — paper cash plus the net unrealised P&L of the open desk
-positions at their end-of-day marks (services/risk_profile.CAPITAL_BASIS_TEXT), the same equity the universal risk
-service measures every limit against. Unknown equity sizes nothing (blocked `equity_unknown`), never a guess.
+EQUITY: allocation.account_state's `equity_rs` = risk_book equity (paper cash plus the net unrealised P&L of the open
+desk positions at their end-of-day marks, services/risk_profile.CAPITAL_BASIS_TEXT) plus the P&L of SPT positions not
+yet in paper cash (allocation.spt_pnl). Unknown equity sizes nothing (blocked `equity_unknown`), never a guess.
 
 COST PER SHARE: when the caller gives one (the PRD's worked example: ₹0.50) the formula uses it as given. Otherwise the
 desk cost card desk-cost-v2 prices the round trip entry → stop exactly (`desk_trading.max_units_within_budget`, the same
@@ -43,8 +43,9 @@ from services.risk_gate import estimate as est
 
 from . import constants as C
 
-EQUITY_BASIS = ("risk_book equity: paper cash + net unrealised P&L of the open desk positions at end-of-day marks "
-                "(services/risk_profile.CAPITAL_BASIS_TEXT), the equity the universal risk service measures limits on")
+EQUITY_BASIS = ("risk_book equity (paper cash + net unrealised P&L of the open desk positions at end-of-day marks, "
+                "services/risk_profile.CAPITAL_BASIS_TEXT) + the P&L of SPT positions not yet in paper cash (open "
+                "positions at their live marks; services/spt/allocation.spt_pnl)")
 
 
 def _f(x: Any) -> Optional[float]:

@@ -454,13 +454,32 @@ async def check_modification(db, *, user_id: str, position: Dict[str, Any], chan
 
 
 # ── kill switch state (WF §19.3) ─────────────────────────────────────────────
+KILL_SWITCH_CACHE_S = 15.0
+_ks_cache: Dict[str, Any] = {}
+
+
 async def kill_switch_state(db, user_id: str, *, now: Optional[datetime] = None,
                             state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """{state, reasons[], text, controls, ladder, mode, mapping} (module docstring). Reads only."""
+    """{state, entries_blocked, blocking, kill_switch, halted, code, reason, reasons[], text, controls, ladder, mode,
+    mapping_version} (module docstring). Reads only. Slice C (services/spt/paper/controls.entry_block) calls it as
+    `kill_switch_state(db, user_id=...)` and blocks new entries when `entries_blocked` is true.
+
+    Called that way (no `now`, no `state`), the account part (book, SPT P&L, ladder) is reused for KILL_SWITCH_CACHE_S
+    seconds per user, because slice C asks on every monitor round; the kill switch and halt (risk_controls) are re-read
+    on every call, so pressing the switch takes effect at once."""
+    import time
     moment = now or desk.utcnow()
     if state is None:
         from . import allocation as alloc
-        state = await alloc.account_state(db, user_id, now=moment)
+        hit = _ks_cache.get(user_id) if now is None else None
+        if hit is not None and time.monotonic() - hit[0] < KILL_SWITCH_CACHE_S:
+            state = dict(hit[1])
+            from services import risk_book
+            state["controls"] = await risk_book.controls(db, user_id)
+        else:
+            state = await alloc.account_state(db, user_id, now=moment)
+            if now is None:
+                _ks_cache[user_id] = (time.monotonic(), state)
     cfg = state.get("config") or {}
     ctl = state.get("controls")
     reasons: List[Dict[str, str]] = []
@@ -511,7 +530,12 @@ async def kill_switch_state(db, user_id: str, *, now: Optional[datetime] = None,
              "RESTRICTED": "New entries and risk-increasing changes are refused by a limit; exits continue.",
              "ACTIVE": "Armed: nothing is breached; new entries go through the risk engine.",
              "DISABLED": "The SPT mode is off for this account: nothing is proposed or ordered."}
-    return {"state": st, "reasons": reasons, "text": texts[st], "controls": ctl, "ladder": lad, "mode": cfg.get("mode"),
+    blocked = st in ("TRIGGERED", "RESTRICTED")
+    return {"state": st, "entries_blocked": blocked, "blocking": blocked,
+            "kill_switch": bool((ctl or {}).get("kill_switch")), "halted": bool((ctl or {}).get("halted")),
+            "code": reasons[0]["code"] if blocked and reasons else None,
+            "reason": "; ".join(r["text"] for r in reasons) if blocked else None,
+            "reasons": reasons, "text": texts[st], "controls": ctl, "ladder": lad, "mode": cfg.get("mode"),
             "states": ["ACTIVE", "TRIGGERED", "RESTRICTED", "RESET_PENDING", "DISABLED"],
             "reset_pending_note": "RESET_PENDING is not produced: services/risk_controls keeps no reset request; clearing "
                                   "the switch is one admin action (PUT /api/admin/risk/{user_id}/kill-switch).",

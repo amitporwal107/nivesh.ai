@@ -125,6 +125,7 @@ class FakeOrders:
         self.calls: List[Dict[str, Any]] = []
         self.fail: Optional[Exception] = None
         self.write_before_fail = False
+        self.reject_reason: Optional[str] = None      # slice C's business refusal: a REJECTED order, reservation given back
 
     async def create_entry_order(self, db, *, now=None, **kw):
         self.calls.append(copy.deepcopy(kw))
@@ -132,10 +133,17 @@ class FakeOrders:
                "order_type": kw["order_type"], "quantity": kw["quantity"], "filled_qty": 0,
                "idempotency_key": kw["idempotency_key"], "reservation_id": (kw["risk_decision"] or {}).get("reservation_id"),
                "created_at": NOW.isoformat()}
+        existing = await db[C.ORDERS].find_one({"idempotency_key": kw["idempotency_key"]})
+        if existing is not None:                       # slice C's idempotency: the first order for this key
+            return {**existing, "duplicate": True}
         if self.fail is not None:
             if self.write_before_fail:
                 await db[C.ORDERS].insert_one(doc)
             raise self.fail
+        if self.reject_reason:
+            from services import paper_account as acct
+            doc.update(state=C.ORD_REJECTED, reject_reason=self.reject_reason)
+            await acct.cancel_reservation(db, kw["user_id"], doc["reservation_id"], reason="MOCK slice C refusal")
         await db[C.ORDERS].insert_one(doc)
         return doc
 
@@ -171,6 +179,8 @@ class World:
         monkeypatch.setattr(pipeline, "paper_orders", lambda: self.orders)
         monkeypatch.setattr(inputs, "instrument", mock_instrument())
         monkeypatch.setattr(events, "_indexed", False)
+        from services.spt import risk as spt_risk
+        monkeypatch.setattr(spt_risk, "_ks_cache", {})
         monkeypatch.setattr(proposals, "_indexed", False)
 
         async def read_quotes(symbols):

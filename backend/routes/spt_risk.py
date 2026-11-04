@@ -17,7 +17,9 @@ exposures and a stress test, ranked allocation, the caller's proposals, and the 
     GET  /api/v1/proposals?state=&limit=             the caller's proposals, newest first
     GET  /api/v1/proposals/{proposal_id}             one of the caller's proposals (404 otherwise)
     POST /api/v1/opportunities/{opportunity_id}/approve   the caller's AWAITING proposal: re-validated and re-risked,
-                                                     then the paper order is created (409 with the reasons otherwise)
+                                                     then the paper order is created (409 with the reasons otherwise);
+                                                     the same path as services/spt/pipeline.place_entry_order, which
+                                                     slice C's POST /api/v1/paper/orders (ENTRY) calls
     POST /api/v1/opportunities/{opportunity_id}/reject    {reason} (required): USER_REJECTED
 
 account_id must be the caller's user_id (403 not_your_account); no session → 401. `detail` is always {code, message,
@@ -57,7 +59,7 @@ async def _body(request: Request) -> Any:
 
 
 def _refused(e: pipeline.PipelineError) -> HTTPException:
-    return HTTPException(status_code=e.status, detail=e.detail())
+    return HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.post("/risk/calculate-position-size")
@@ -243,7 +245,10 @@ async def approve(opportunity_id: str, request: Request) -> Dict[str, Any]:
         out = await pipeline.approve(db, user_id=_uid(user), opportunity_id=opportunity_id, now=desk.utcnow())
     except pipeline.PipelineError as e:
         raise _refused(e)
-    return {"proposal": proposals.public(out["proposal"]), "idempotent": out["idempotent"]}
+    order = out.get("order")
+    return {"proposal": proposals.public(out["proposal"]), "idempotent": out["idempotent"],
+            "order": {k: order.get(k) for k in ("_id", "state", "order_type", "quantity", "limit_price", "time_in_force",
+                                                "expires_at", "reject_reason")} if order else None}
 
 
 @router.post("/opportunities/{opportunity_id}/reject")
