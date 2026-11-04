@@ -494,6 +494,14 @@ async def startup_seed():
         scan_signals.start()
     except Exception as e:
         logger.warning("scan signals did not start: %s", type(e).__name__)
+    # Exit watch (services/exit_watch/runner.py): stop-loss and exit alerts for live broker positions, in the app only.
+    # One worker (Redis lock) checks live prices every 30 s in the session and moves the stops after NSE's end-of-day
+    # file. Reads stored broker snapshots, never a broker. On where APP_ENV=staging; EXIT_WATCH_ENABLED=0 turns it off.
+    try:
+        from services.exit_watch import runner as exit_watch_runner
+        exit_watch_runner.start()
+    except Exception as e:
+        logger.warning("exit watch did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
@@ -503,6 +511,11 @@ async def shutdown_db_client():
         scan_signals.stop()
     except Exception as e:
         logger.warning("scan signals did not stop cleanly: %s", type(e).__name__)
+    try:
+        from services.exit_watch import runner as exit_watch_runner
+        exit_watch_runner.stop()
+    except Exception as e:
+        logger.warning("exit watch did not stop cleanly: %s", type(e).__name__)
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)

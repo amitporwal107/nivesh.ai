@@ -8,16 +8,21 @@
  *   GET /api/desk/pnl/timeseries?mode=                           the intraday curve (pnl-top.tsx IntradayPanel)
  *   GET /api/desk/pnl/timeseries?trade= · /journal/{id}          an opened row (pnl-detail.tsx)
  *   PATCH /api/desk/paper-trades/{id}/levels · POST …/close     Modify risk · Simulate exit (paper only)
+ *   GET /api/desk/pnl/exits · POST …/exits/seen · PUT/DELETE /api/positions/{U}/levels
+ *                                                                Exit watch (pnl-exits.tsx; EXIT_WATCH.md): live positions only
  *
  * Page order, as drawn (desktop and phone alike): header → filter bar → hero + KPIs → Paper / Live cards → intraday chart →
  * open positions (rows open to their detail; cards on a phone) → risk monitor + supervisor → footer → a folded section with
  * what the design does not draw (period, by segment, waiting entries, closed trades and analytics; owner decision, 4 Nov).
+ * Exit watch (owner, 4 Nov evening) adds, in modes All and Live only: a banner under the header while an exit alert is unseen,
+ * and the Exit watch section between the open positions and the risk monitor.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { LoadingBlock } from "../../../../components/ui";
 import { Choices, QueryProblem } from "../../../trading/parts";
 import { linkBtn, quiet } from "./parts";
-import { PERIODS, usePaperPnl, type PnlFilters, type PnlMode, type PnlPeriod } from "./pnl-data";
+import { PERIODS, useExitWatch, usePaperPnl, type PnlFilters, type PnlMode, type PnlPeriod } from "./pnl-data";
+import { ExitBanner, ExitWatchSection } from "./pnl-exits";
 import { AnalyticsBlock, ClosedList, PendingList, SegmentStrip, timeIST } from "./pnl-parts";
 import { PnlFooter, RiskMonitor, Supervisor } from "./pnl-risk";
 import { PositionsBlock } from "./pnl-table";
@@ -48,6 +53,10 @@ export default function PnlDashboard() {
   const [paused, setPaused] = useState(false);
   const feed = usePaperPnl(filters, paused);
   const [narrow, ref] = useRoomBelow(640);
+  // Exit watch covers live broker positions: not in Paper mode, nor with the paper account picked.
+  const paperAccount = filters.account !== "ALL" && feed.data?.accounts.find((a) => a.accountId === filters.account)?.mode === "PAPER";
+  const exitsOn = filters.mode !== "PAPER" && !paperAccount;
+  const exits = useExitWatch(filters.account, exitsOn);
   const d = feed.data;
   const sessionOpen = d?.market.session === "open";
   const patch = (p: Partial<PnlFilters>) => setFilters((f) => ({ ...f, ...p }) as Filters);
@@ -177,12 +186,14 @@ export default function PnlDashboard() {
   return (
     <div ref={ref} data-testid="pnl-dashboard" data-narrow={narrow ? "true" : "false"} data-mode={d.mode} className="flex min-w-0 flex-col" style={{ gap: 20 }}>
       {header}
+      {exitsOn && <ExitBanner q={exits} />}
       {filterBar}
       {warnings.length > 0 && <div data-testid="pnl-warnings" className="flex min-w-0 flex-col" style={{ gap: 4 }}>{warnings}</div>}
       <Hero s={s} label={heroLabel} notes={heroNotes} live={filters.mode === "LIVE"} narrow={narrow} />
       <ModeCards d={d} selected={filters.mode} />
       <IntradayPanel mode={filters.mode} sessionOpen={sessionOpen && !paused} names={new Map(d.positions.map((p) => [p.positionId, p.instrument]))} />
       <PositionsBlock d={d} q={q} narrow={narrow} sessionOpen={sessionOpen && !paused} />
+      {exitsOn && <ExitWatchSection q={exits} narrow={narrow} />}
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,360px),1fr))", gap: 20 }}>
         <RiskMonitor d={d} />
         <Supervisor d={d} />

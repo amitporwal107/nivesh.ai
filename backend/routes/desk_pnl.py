@@ -1,6 +1,6 @@
 """Trade Desk › Paper Trading › P&L dashboard: real-time P&L of the user's PAPER trades (docs/paper_pnl_dashboard/DESIGN.md).
 
-Endpoints (all GET, under /api/desk, scoped to the signed-in user; 401 without a session; NOTHING here writes):
+Endpoints (under /api/desk, scoped to the signed-in user; 401 without a session; only POST /pnl/exits/seen writes):
     GET /pnl              ?segment=ALL|EQUITY|FUTURES|OPTIONS &period=TODAY|1W|1M|ALL|CUSTOM &from=&to=
                           the whole dashboard: summary, by segment, positions (one per share trade / structure leg),
                           strategies, pending entries, closed trades of the period, risk (capital, limits, alerts),
@@ -11,6 +11,11 @@ Endpoints (all GET, under /api/desk, scoped to the signed-in user; 401 without a
     GET /pnl/timeseries   ?interval=1m|5m|15m|1h &mode=ALL|PAPER|LIVE &trade=<id>  the book's P&L through the latest session
                           from Kite candles; with `trade`, that one trade's curve (a paper share trade since its entry)
     GET /pnl/journal/{trade_id}   the Scan dashboard's signal for a paper share trade's stock on its signal day (v2)
+    GET /pnl/exits        ?account=ALL|<broker account id>  Exit watch: the live broker positions' stop losses (2 × ATR
+                          trail, your own stop, or a hedge's strike), their status and the user's exit alerts
+                          (docs/paper_pnl_dashboard/EXIT_WATCH.md; services/exit_watch)
+    POST /pnl/exits/seen  {} or {"ids": [...]}: marks the user's own exit alerts seen. The ONE write on this router; it
+                          touches nothing but the caller's exit_alerts documents.
 
 v2 (owner, 4 Nov 2026 afternoon): `mode=ALL|PAPER|LIVE` and `account=ALL|paper|<broker account id>` on /pnl and /pnl/stream.
 Live = the user's broker NET positions, read-only (services/paper_pnl/live.py: the Open positions workspace's read, cached 60 s;
@@ -35,6 +40,7 @@ from deps import db, get_current_user
 from services import paper_account as acct
 from services import risk_profile
 from services.paper_pnl import book as book_mod
+from services.exit_watch import service as exit_watch
 from services.paper_pnl import dashboard, journal, live, prices, timeseries
 
 logger = logging.getLogger(__name__)
@@ -221,3 +227,28 @@ async def pnl_journal(request: Request, trade_id: str) -> Dict[str, Any]:
     if body is None:
         raise HTTPException(status_code=404, detail="journal_not_available")
     return body
+
+
+@router.get("/pnl/exits")
+async def pnl_exits(request: Request, account: str = Query("ALL", max_length=80)) -> Dict[str, Any]:
+    """Exit watch for the user's live broker positions. Read-only: nothing here writes or reaches an order."""
+    user = await get_current_user(request)
+    try:
+        acc = dashboard.clean_account(account)
+        return await exit_watch.build(request, db, user["user_id"], acc)
+    except ValueError as e:
+        if str(e) == "invalid_account":
+            raise HTTPException(status_code=422, detail="invalid_account")
+        raise
+
+
+@router.post("/pnl/exits/seen")
+async def pnl_exits_seen(request: Request) -> Dict[str, Any]:
+    """Mark the user's exit alerts seen: {} marks every unseen one, {"ids": [...]} only those."""
+    user = await get_current_user(request)
+    try:
+        body = json.loads(await request.body() or b"{}")
+        ids = exit_watch.clean_seen_body(body)
+    except ValueError:                                   # bad JSON (json.JSONDecodeError is a ValueError) or a bad shape
+        raise HTTPException(status_code=422, detail="invalid_body")
+    return {"marked": await exit_watch.mark_seen(db, user["user_id"], ids)}
