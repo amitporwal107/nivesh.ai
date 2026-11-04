@@ -1,6 +1,6 @@
 /**
- * Market Desk › Market Recovery (owner, 3 Nov 2026; docs/market_recovery/DESIGN.md). Five parts, the proposal's three stages
- * plus the index read the owner added on 4 Nov:
+ * Market Desk › Market Recovery (owner, 3 Nov 2026; docs/market_recovery/DESIGN.md). Six parts, the proposal's three stages
+ * plus the index read and the live paper trades the owner added on 4 Nov:
  *
  *   1. Recovery check      is the broad market recovering: five checks (Nifty 50 vs its 20-day average and that average's
  *                          slope, advancers, Nifty 500 breadth expanding, India VIX), the status they add up to, cap-group
@@ -14,6 +14,9 @@
  *                          100 in five parts, recovery acceleration, setup and the plan; a row opens its detail, which also
  *                          loads the stock's strategies with downside protection (RecoveryStrategies.tsx, DESIGN.md §8)
  *   5. Left out            high scorers held back as possible false signals (dead-cat bounce, short covering, extended)
+ *   6. Paper trades (live) the top 10 candidates' best structure by reward : risk after costs, sized by the risk gate, opened in
+ *                          the PAPER account through the desk's engine, then marked and closed at live Kite prices
+ *                          (RecoveryPaper.tsx, DESIGN.md §10; its own reads, so the rest of the page never waits for them)
  *
  * Reads GET /api/market-recovery (market-recovery-data.ts), behind the `market_recovery` flag. Every figure and sentence is the
  * server's; this screen formats and arranges them.
@@ -32,6 +35,7 @@ import {
   type AccelRow, type BreadthPoint, type Candidate, type Component, type Excluded, type MarketRecovery as Data, type Regime, type SectorRow,
 } from "./market-recovery-data";
 import { RecoveryIndices } from "./RecoveryIndices";
+import { RecoveryPaper } from "./RecoveryPaper";
 import { RecoveryStrategies } from "./RecoveryStrategies";
 
 // ── formatting ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -755,6 +759,7 @@ function Ready({ data }: { data: Data }) {
       <Sectors sectors={data.sectors} leaders={data.leaders} />
       <Candidates data={data} />
       <ExcludedCard rows={data.excluded} />
+      <RecoveryPaper />
       <Footer data={data} />
     </div>
   );

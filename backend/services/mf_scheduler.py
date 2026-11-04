@@ -329,6 +329,19 @@ async def _broker_daily_sync_job():
         logger.warning("broker_daily_sync error: %s", e)
 
 
+async def _market_recovery_live_exits_job():
+    """Market Recovery paper trades (docs/market_recovery/DESIGN.md §10 D, owner 4 Nov 2026): every minute in market hours,
+    close the open trades tagged market_recovery whose LIVE Kite price crossed their Stop loss / Target 1 (structures: the
+    underlying's levels, every leg at its live price). No live quote, no close. Outside 09:15-15:30 IST it returns at once."""
+    try:
+        from services.market_recovery import paper_live
+        res = await paper_live.run_live_exits(db)
+        if res.get("closed"):
+            logger.info("market_recovery_live_exits %s", res)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("market_recovery_live_exits error: %s", e)
+
+
 def start():
     """Idempotent start. No-op if already running, or if another process holds the
     scheduler lock (it runs the jobs; see _acquire_leader_lock)."""
@@ -433,6 +446,13 @@ def start():
         _broker_daily_sync_job,
         CronTrigger(hour=17, minute=30, timezone="Asia/Kolkata"),
         id="broker_holdings_sync_daily", replace_existing=True, max_instances=1,
+    )
+    # Market Recovery live exits: every minute 09:00-15:59 IST on weekdays; the job itself acts only 09:15-15:30 and only on
+    # live Kite quotes (services/market_recovery/paper_live.run_live_exits).
+    _scheduler.add_job(
+        _market_recovery_live_exits_job,
+        CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*", timezone="Asia/Kolkata"),
+        id="market_recovery_live_exits", replace_existing=True, max_instances=1, coalesce=True,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

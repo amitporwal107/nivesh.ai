@@ -351,3 +351,67 @@ TC-I5 setups: strikes by rule, figures vs hand-worked values, checks (R:R, credi
 levels above / below sorted and capped; together lines; TC-I7 route 200 / 503 / flag; wording lint (Buy / Sell legs only);
 TC-I8 real staging run vs nidp SQL (closes, PCR, max pain, walls for 9 Nov / 23 Nov equal the 4 Nov chat analysis);
 TC-I9 UI: the section renders both indices, per-expiry table, setups with Buy / Sell legs, levels, futures, flows; 390 px.
+
+## 10. Paper trading the recovery candidates, live (owner, 4 Nov ~08:55 IST)
+
+Owner: "let's do a paper trading for the stocks … assume you have sufficient margin … keep track of the real time quotes and
+create a real time p&l for each valid trade setup and the risk configuration already done we need to pick the best paper trade
+strategy for each of the trade". Decisions (AskUserQuestion): paper capital raised to Rs 1 crore, % limits unchanged (done 4 Nov
+08:58 IST: audited `paper_account.adjust`, key owner-capital-topup-20261104); the TOP 10 leading-sector candidates; best =
+highest reward : risk after costs among the shares plan and the passing option strategies the risk gate approves (ties: lower
+max loss); LIVE entry at Kite prices AND live exits (auto-close intraday on live stop / target touches) for these trades.
+Reuses the desk's paper engine: POST /api/desk/paper-trades (risk gate, idempotency, duplicates, funds), its close functions,
+the journal; Mongo `desk_paper_trades`.
+
+**A. `GET /api/market-recovery/paper-plan`** (flag market_recovery; signed-in user; reads only):
+```jsonc
+{"as_of": "2026-11-03", "list_date": "2026-11-04",
+ "market": {"live": true, "source": "kite_live", "why": null},       // live = Kite live quotes available now
+ "capital": {"starting_capital_rs": 10000000, "equity_rs": 9990000, "available_rs": 9876112},
+ "rule": "…", "notes": ["…"],
+ "items": [{"rank": 1, "symbol": "LAURUSLABS", "name": "…", "sector": "…", "score": 82.8,
+   "chosen": Candidate,                       // null when nothing qualifies
+   "alternatives": [Candidate],               // the others, ranked, each with why it lost or was refused
+   "skipped_reason": null,                    // text when chosen is null
+   "open_trade": {"id": "…", "status": "open"} // a market_recovery trade already open for this stock (null otherwise)
+ }]}
+```
+Candidate: `{"key": "shares" | "protective_put" | "bull_call_spread" | "collar" | "bull_put_spread" | "put_ratio_backspread",
+"label", "reward_risk_net", "max_gain_rs", "max_loss_rs", "approved": {"outcome": "allow" | "reduce" | "block", "quantity" | "lots",
+"reasons": [...]}, "prices": {"source": "kite_live" | "kite_close", "as_of"}, "body": {…exact POST /api/desk/paper-trades body…},
+"idempotency_key": "mr-20261104-LAURUSLABS"}`. Shares: entry = live LTP, stop = the plan's Stop loss, target = Target 1 (the
+desk stores one target; Target 2 is shown), quantity = the gate's approved quantity. Structures: legs re-priced at live option
+quotes; lots = the gate's approved lots (≥ 1). Reward : risk after costs (desk cost card); a structure without live leg quotes
+is not eligible ("no live option quote").
+
+**B. Live entry on the desk (fill-model change for tagged trades):** POST /api/desk/paper-trades accepts on a shares body
+`"price_source": {"kind": "kite_live", "at": ISO}`: the at-once entry is then checked against TODAY's live day range (the live
+quote's low / high, ±0.5%) instead of the last completed session's bars; refused when no live quote of today exists.
+Structure legs keep `price_source` per leg ("Kite live HH:MM").
+
+Tags: shares `source: {"kind": "market_recovery", "bucket": <key>, "signal_date": <as_of>}`; structures
+`signal: {"rule_version": "recovery-plan-v1", "source_refs": [{"kind": "market_recovery", "ref": "<SYM>:<key>", "as_of"}], …}`.
+
+**C. `GET /api/market-recovery/paper-trades/live`**: the user's market_recovery paper trades (open + closed today), marked at
+live Kite prices (shares / underlyings via day_quote.day_quotes; option legs via the live F&O quote reader): per trade id,
+symbol, kind, label, legs (entry, live), entry, live price, stop, target, quantity / lots, `pnl_rs`, `pnl_pct` (of capital at
+risk), status, exit {reason, price, at}; totals {open_pnl_rs, realised_today_rs, open_count, closed_today_count}; market
+{live, source, why, as_of}. Applies the live exits (D) on read.
+
+**D. Live exits** — the same function, also run by an mf_scheduler job (leader-locked) every 60 s, 09:15–15:30 IST Mon–Fri:
+shares: live LTP ≤ stop → close at LTP, reason `stop_live`; LTP ≥ target → `target_live`. Structures: the underlying's live
+price ≤ stop_underlying → `stop_live`, ≥ target_underlying → `target_live`, every leg closed at its live price (not closed
+when a leg has no live quote: flagged). Exit prices recorded with source kite_live. Without live quotes (no Kite login) nothing
+is closed live; the desk's end-of-day exits still apply.
+
+**E. UI** — part "5 · Paper trades (live)" of this page: the plan (stock, chosen structure, why, the gate's size, reward : risk,
+max loss, alternatives on expand), a button "Open paper trades for the top 10" that POSTs each chosen body to
+/api/desk/paper-trades with its Idempotency-Key and shows each result or refusal, and the live table (polled every 30 s in
+market hours) with totals; "Kite login needed" when the market is open but quotes are not live.
+
+Test cases (§10): TC-P1 picker ranks by net R:R, ties by max loss, refusals and missing live quotes excluded, shares fallback;
+TC-P2 bodies match the desk's schemas (cash and strategy) with tags and idempotency keys; TC-P3 live-entry check (today's range,
+refused without a live quote, unchanged without price_source); TC-P4 live marks and P&L for shares and a 2-leg structure;
+TC-P5 live exits at stop / target (shares, structure), none without live quotes; TC-P6 scheduler job only in market hours;
+TC-P7 routes 200 / flag / errors; TC-P8 real staging: plan for the top 10, open via the desk endpoint with the owner's session,
+live P&L read; TC-P9 UI.

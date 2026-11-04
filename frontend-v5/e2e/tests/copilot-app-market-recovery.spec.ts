@@ -292,15 +292,81 @@ const INDICES_ANSWER = {
   warnings: [],
 };
 
+// MOCK — not real data: GET /api/market-recovery/paper-plan and /paper-trades/live (§10). Invented prices, sizes and ids.
+// FIXA: shares chosen; FIXB: a bull call spread chosen (option legs); FIXC: nothing qualifies (skipped); FIXD: already open.
+const shareBody = (sym: string, qty: number, entry: number, stop: number, target: number) => ({
+  symbol: sym, quantity: qty, entry_price: entry, stop_price: stop, target_price: target, entry_rule: "at_once",
+  source: { kind: "market_recovery", bucket: "shares", signal_date: AS_OF }, price_source: { kind: "kite_live", at: "2026-11-04T04:05:00+00:00" },
+  rationale: `Market Recovery plan of ${AS_OF}: placeholder.`,
+});
+const PAPER_PLAN = (live = true, why: string | null = null) => ({
+  as_of: AS_OF, list_date: "2026-11-04",
+  market: { live, source: live ? "kite_live" : null, why, as_of: "2026-11-04T04:05:00+00:00" },
+  capital: { starting_capital_rs: 10000000, cash_rs: 9900000, blocked_rs: 100000, available_rs: 9800000 },
+  rule: "Highest reward : risk after costs among the shares plan and the option strategies that passed their checks, at live prices, sized by your risk gate.",
+  notes: ["Each trade is opened through the desk's paper engine with your risk gate; refusals are shown, never worked around."],
+  items: [
+    { rank: 1, symbol: "FIXA", name: "Fix A Ltd", sector: "Capital Goods", score: 86.4, open_trade: null, skipped_reason: null,
+      chosen: { key: "shares", label: "Shares", reward_risk_net: 2.1, max_gain_rs: 11400, max_loss_rs: -5430, eligible: true,
+        approved: { outcome: "allow", quantity: 120, lots: null, reasons: [], estimated_risk_rs: 5430 },
+        prices: { source: "kite_live", as_of: "2026-11-04T04:05:00+00:00" },
+        body: shareBody("FIXA", 120, 1010, 951.25, 1105), idempotency_key: "mr-2026-11-04-FIXA" },
+      alternatives: [
+        { key: "bull_call_spread", label: "Bull Call Spread", reward_risk_net: 1.6, max_gain_rs: 9000, max_loss_rs: -5600, eligible: true,
+          approved: { outcome: "allow", quantity: null, lots: 1, reasons: [] }, body: null, idempotency_key: "mr-2026-11-04-FIXA" },
+        { key: "collar", label: "Collar", eligible: false, why: "Failed its checks: Reward : risk at least 1.5: 1.20 : 1" },
+      ] },
+    { rank: 2, symbol: "FIXB", name: "Fix B Ltd", sector: "Capital Goods", score: 83.0, open_trade: null, skipped_reason: null,
+      chosen: { key: "bull_call_spread", label: "Bull Call Spread", reward_risk_net: 2.4, max_gain_rs: 18000, max_loss_rs: -7500, eligible: true,
+        approved: { outcome: "reduce", quantity: null, lots: 1, reasons: [{ code: "per_trade_budget", message: "Sized to the per-trade budget" }] },
+        prices: { source: "kite_live", as_of: "2026-11-04T04:05:00+00:00" },
+        body: { kind: "strategy", underlying: "FIXB", direction: "bullish", family: "bull_call_spread", reference_price: 1010, stop_underlying: 951.25,
+          target_underlying: 1105, legs: [
+            { kind: "option", side: "buy", lots: 1, lot_size: 500, entry_price: 30, expiry: "2026-11-24", strike: 1010, option_type: "call", price_source: "Kite live 09:35 IST" },
+            { kind: "option", side: "sell", lots: 1, lot_size: 500, entry_price: 8, expiry: "2026-11-24", strike: 1100, option_type: "call", price_source: "Kite live 09:35 IST" }],
+          signal: { signal_at: "2026-11-04T04:05:00+00:00", rule_version: "recovery-plan-v1", evidence_summary: "placeholder",
+            source_refs: [{ kind: "market_recovery", ref: "FIXB:bull_call_spread", as_of: AS_OF }] } },
+        idempotency_key: "mr-2026-11-04-FIXB" },
+      alternatives: [{ key: "shares", label: "Shares", reward_risk_net: 1.9, max_loss_rs: -5000, eligible: true, body: null }] },
+    { rank: 3, symbol: "FIXC", name: "Fix C Ltd", sector: "Realty", score: 79.0, open_trade: null, chosen: null,
+      skipped_reason: "Nothing qualifies: Shares: The live price 951.00 is at or below the Stop loss 951.25.",
+      alternatives: [{ key: "shares", label: "Shares", eligible: false, why: "The live price 951.00 is at or below the Stop loss 951.25." }] },
+    { rank: 4, symbol: "FIXD", name: "Fix D Ltd", sector: "Realty", score: 77.0, open_trade: { id: "pt-77", status: "open" }, skipped_reason: null,
+      chosen: { key: "shares", label: "Shares", reward_risk_net: 1.8, max_gain_rs: 5400, max_loss_rs: -3000, eligible: true,
+        approved: { outcome: "allow", quantity: 60, lots: null, reasons: [] }, body: shareBody("FIXD", 60, 500, 450, 590),
+        idempotency_key: "mr-2026-11-04-FIXD" },
+      alternatives: [] },
+  ],
+});
+const PAPER_LIVE = {
+  as_of: "2026-11-04T04:30:00+00:00", market: { live: true, source: "kite_live", why: null, as_of: "2026-11-04T04:30:00+00:00" },
+  trades: [
+    { id: "pt-77", symbol: "FIXD", kind: "shares", label: "Shares", status: "open", opened_at: "2026-11-04T03:50:00+00:00", quantity: 60, lots: null,
+      entry: 500, live: 520.5, stop: 450, target: 590, legs: [], pnl_rs: 1230, risk_rs: 3000, pnl_pct: 41, exit: null, flags: [] },
+    { id: "pt-78", symbol: "FIXE", kind: "strategy", label: "Bull call spread", status: "open", opened_at: "2026-11-04T03:55:00+00:00", quantity: null, lots: 1,
+      entry: 1200, live: 1190, stop: 1150, target: 1300, pnl_rs: -450, risk_rs: 4000, pnl_pct: -11.25, exit: null, flags: [],
+      legs: [{ action: "Buy", instrument: "Call", strike: 1200, expiry: "2026-11-24", lots: 1, lot_size: 300, entry: 25, live: 22, pnl_rs: -900 },
+             { action: "Sell", instrument: "Call", strike: 1300, expiry: "2026-11-24", lots: 1, lot_size: 300, entry: 6, live: 4.5, pnl_rs: 450 }] },
+    { id: "pt-79", symbol: "FIXG", kind: "shares", label: "Shares", status: "closed", opened_at: "2026-11-04T03:46:00+00:00", quantity: 40, lots: null,
+      entry: 700, live: null, stop: 680, target: 740, legs: [], pnl_rs: 1580.4, risk_rs: null, pnl_pct: null, flags: [],
+      exit: { reason: "target_live", price: 740.2, at: "2026-11-04T04:20:00+00:00", note: "The live Kite price 740.20 reached Target 1 (740.00); closed at the live price." } },
+  ],
+  totals: { open_pnl_rs: 780, open_pnl_complete: true, realised_today_rs: 1580.4, open_count: 2, closed_today_count: 1 },
+  closed_now: [],
+  notes: ["Live marks: Kite live quotes in the session; a trade without a live quote shows no P&L rather than an older price."],
+};
+
 // ── the desk with the flag and the route under test ─────────────────────────────────────────────────────────────────
 
-interface Backend { calls: number; strategies: string[]; indices: number }
+interface Backend { calls: number; strategies: string[]; indices: number; plan: number; live: number; posts: Array<{ key: string | null; body: Record<string, unknown> }> }
 
 async function desk(page: Page, o: {
   flag?: boolean; answer?: () => { status: number; body: unknown }; strategies?: (symbol: string) => { status: number; body: unknown };
   indices?: () => { status: number; body: unknown };
+  plan?: () => { status: number; body: unknown }; live?: () => { status: number; body: unknown };
+  post?: (symbol: string) => { status: number; body: unknown };
 } = {}): Promise<Backend> {
-  const be: Backend = { calls: 0, strategies: [], indices: 0 };
+  const be: Backend = { calls: 0, strategies: [], indices: 0, plan: 0, live: 0, posts: [] };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => reply(r, []));
@@ -323,6 +389,25 @@ async function desk(page: Page, o: {
   await page.route("**/api/market-recovery/indices", (r) => {
     be.indices += 1;
     const a = o.indices ? o.indices() : { status: 200, body: INDICES_ANSWER };
+    return reply(r, a.body, a.status);
+  });
+  // Part 6 (§10): the paper plan, the live book, and the DESK's paper-trade POST (other methods fall through to the desk mocks).
+  await page.route("**/api/market-recovery/paper-plan", (r) => {
+    be.plan += 1;
+    const a = o.plan ? o.plan() : { status: 200, body: PAPER_PLAN() };
+    return reply(r, a.body, a.status);
+  });
+  await page.route("**/api/market-recovery/paper-trades/live", (r) => {
+    be.live += 1;
+    const a = o.live ? o.live() : { status: 200, body: PAPER_LIVE };
+    return reply(r, a.body, a.status);
+  });
+  await page.route("**/api/desk/paper-trades", (r) => {
+    if (r.request().method() !== "POST") return r.fallback();
+    const body = (r.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    be.posts.push({ key: r.request().headers()["idempotency-key"] ?? null, body });
+    const sym = String(body.symbol ?? body.underlying ?? "");
+    const a = o.post ? o.post(sym) : { status: 201, body: { trade: { id: `pt-new-${sym}` }, risk: { outcome: "allow" } } };
     return reply(r, a.body, a.status);
   });
   return be;
@@ -505,6 +590,8 @@ test.describe("MOCK — not real data: Market Desk › Market Recovery", () => {
     await desk(page);
     await openRecovery(page);
     await expect(page.getByTestId("mr-indices-ready")).toBeVisible(SLOW);       // part 2 (§9) is on the page too, with its setups' legs
+    await expect(page.getByTestId("mr-paper-row")).toHaveCount(4, SLOW);         // and part 6 (§10): the plan and the live book
+    await expect(page.getByTestId("mr-live-row")).toHaveCount(3, SLOW);
     await page.getByTestId("mr-candidates").locator('[data-testid="mr-cand-row"][data-symbol="FIXA"]').getByTestId("mr-cand-toggle").click();
     await expect(page.locator('[data-testid="mr-cand-detail"][data-symbol="FIXA"]')).toBeVisible();
     // the strategies (Buy / Sell legs) and, in the other table, the Nifty hedge are on the page too
@@ -803,5 +890,132 @@ test.describe("MOCK — not real data: Market Desk › Market Recovery · 2 · N
     expect(cards.length).toBe(2);
     for (const c of cards) expect(c.right).toBeLessThanOrEqual(391);
     expect(new Set(cards.map((c) => c.x)).size).toBe(1);                        // stacked: one column
+  });
+});
+
+test.describe("MOCK — not real data: Market Desk › Market Recovery · 6 · Paper trades (live) (§10)", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("TC-P9 the plan: the chosen structure, the gate's size, reward : risk after costs, skipped and already-open rows; the live book", async ({ page }) => {
+    const be = await desk(page);
+    await openRecovery(page);
+    const part = page.getByTestId("mr-paper");
+    await expect(part.getByRole("heading")).toHaveText("6 · Paper trades (live)");
+    await expect(part.getByTestId("mr-paper-row")).toHaveCount(4, SLOW);
+    expect(be.plan).toBe(1);
+    await expect(part.getByTestId("mr-paper-market")).toHaveAttribute("data-live", "true");
+    await expect(part.getByTestId("mr-paper-market")).toHaveText("Kite live");
+    await expect(part.getByTestId("mr-paper-capital")).toContainText("Paper capital ₹1,00,00,000");
+    await expect(part.getByTestId("mr-paper-capital")).toContainText("available ₹98,00,000");
+    const a = part.locator('[data-testid="mr-paper-row"][data-symbol="FIXA"]');
+    await expect(a).toHaveAttribute("data-state", "ready");
+    await expect(a.getByTestId("mr-paper-chosen")).toHaveText("Shares");
+    await expect(a.getByTestId("mr-paper-legs")).toHaveText("120 shares @ 1,010.00 · Stop loss 951.25 · Target 1 1,105");
+    await expect(a.getByTestId("mr-paper-size")).toHaveText("120 shares");
+    await expect(a.getByTestId("mr-paper-rr")).toHaveText("2.10 : 1");
+    const b = part.locator('[data-testid="mr-paper-row"][data-symbol="FIXB"]');
+    await expect(b.getByTestId("mr-paper-chosen")).toHaveText("Bull Call Spread");
+    await expect(b.getByTestId("mr-paper-leg")).toHaveText(["Buy 1 lot · 1,010 Call @ 30.00", "Sell 1 lot · 1,100 Call @ 8.00"]);
+    await expect(b.getByTestId("mr-paper-size")).toContainText("1 lot");
+    await expect(b.getByTestId("mr-paper-size")).toContainText("reduced by the gate");
+    const c = part.locator('[data-testid="mr-paper-row"][data-symbol="FIXC"]');
+    await expect(c).toHaveAttribute("data-state", "skipped");
+    await expect(c.getByTestId("mr-paper-skipped")).toContainText("Nothing qualifies");
+    const d = part.locator('[data-testid="mr-paper-row"][data-symbol="FIXD"]');
+    await expect(d).toHaveAttribute("data-state", "open");
+    await expect(d).toContainText("Already open");
+    // why, on expand: the alternatives with why each lost or was refused
+    await a.getByTestId("mr-paper-toggle").click();
+    const det = part.locator('[data-testid="mr-paper-detail"][data-symbol="FIXA"]');
+    await expect(det.getByTestId("mr-paper-alt")).toHaveCount(2);
+    await expect(det.locator('[data-testid="mr-paper-alt"][data-key="collar"]')).toContainText("Failed its checks");
+    await expect(det.locator('[data-testid="mr-paper-alt"][data-key="bull_call_spread"]')).toContainText("lower reward : risk after costs");
+    // the live book
+    const live = part.getByTestId("mr-paper-live");
+    await expect(live.getByTestId("mr-live-row")).toHaveCount(3);
+    await expect(live.getByTestId("mr-paper-open-pnl")).toHaveText("+₹780.00");
+    await expect(live.getByTestId("mr-paper-realised")).toHaveText("+₹1,580.40");
+    const open = live.locator('[data-testid="mr-live-row"][data-id="pt-77"]');
+    await expect(open.getByTestId("mr-live-price")).toHaveText("520.50");
+    await expect(open.getByTestId("mr-live-pnl")).toHaveText("+₹1,230.00");
+    await expect(live.locator('[data-testid="mr-live-row"][data-id="pt-78"]').getByTestId("mr-live-leg")).toHaveText([
+      "Buy 1 lot · 1,200 Call @ 25.00 → 22.00", "Sell 1 lot · 1,300 Call @ 6.00 → 4.50"]);
+    const closed = live.locator('[data-testid="mr-live-row"][data-id="pt-79"]');
+    await expect(closed).toHaveAttribute("data-exit", "target_live");
+    await expect(closed.getByTestId("mr-live-exit")).toContainText("Target 1 reached (live)");
+    await expect(closed.getByTestId("mr-live-price")).toHaveText("740.20");
+    // the part's own words: only the leg verbs and the level words are allowed
+    const text = (await part.innerText()).split("\n").map((l) => l.trim()).filter(Boolean);
+    const found = text.flatMap((line) => { const w = hits(line); return w.length ? [{ line, words: w }] : []; });
+    expect(found).toEqual([]);
+    expect(be.posts).toEqual([]);                                              // nothing is opened by reading
+  });
+
+  test("TC-P9 the button is off unless quotes are live: 'Market not open' and 'Kite login needed'", async ({ page }) => {
+    await desk(page, { plan: () => ({ status: 200, body: PAPER_PLAN(false, "no_saved_close") }),
+                       live: () => ({ status: 200, body: { ...PAPER_LIVE, market: { live: false, source: null, why: "no_saved_close", as_of: null } } }) });
+    await openRecovery(page);
+    const part = page.getByTestId("mr-paper");
+    await expect(part.getByTestId("mr-paper-row")).toHaveCount(4, SLOW);
+    await expect(part.getByTestId("mr-paper-market")).toHaveText("Market not open");
+    await expect(part.getByTestId("mr-paper-open")).toBeDisabled();
+    await expect(part.getByTestId("mr-paper-open-note")).toContainText("Available while live Kite quotes are on");
+  });
+
+  test("TC-P9 Kite login needed when the market is open but the live feed is not", async ({ page }) => {
+    await desk(page, { plan: () => ({ status: 200, body: PAPER_PLAN(false, "feed_not_live") }),
+                       live: () => ({ status: 200, body: { ...PAPER_LIVE, market: { live: false, source: null, why: "feed_not_live", as_of: null } } }) });
+    await openRecovery(page);
+    const part = page.getByTestId("mr-paper");
+    await expect(part.getByTestId("mr-paper-market")).toHaveText("Kite login needed", SLOW);
+    await expect(part.getByTestId("mr-paper-open")).toBeDisabled();
+  });
+
+  test("TC-P9 opening: confirm, then each chosen body is POSTed to the desk with its Idempotency-Key; a 201 and a 409 refusal are shown", async ({ page }) => {
+    const be = await desk(page, { post: (sym) => sym === "FIXB"
+      ? { status: 409, body: { detail: { code: "risk_blocked", message: "The daily loss limit is reached", reasons: [] } } }
+      : { status: 201, body: { trade: { id: `pt-new-${sym}` }, risk: { outcome: "allow" } } } });
+    await openRecovery(page);
+    const part = page.getByTestId("mr-paper");
+    await expect(part.getByTestId("mr-paper-row")).toHaveCount(4, SLOW);
+    await expect(part.getByTestId("mr-paper-open-note")).toHaveText("2 ready to open.");
+    await part.getByTestId("mr-paper-open").click();
+    const dlg = part.getByTestId("mr-paper-confirm");
+    await expect(dlg).toContainText("Paper only — no broker order is placed.");
+    await expect(dlg).toContainText("FIXA, FIXB");
+    expect(be.posts).toEqual([]);                                              // nothing before the confirmation
+    const planReads = be.plan, liveReads = be.live;
+    await dlg.getByTestId("mr-paper-confirm-yes").click();
+    await expect(part.getByTestId("mr-paper-result-line")).toHaveCount(2, SLOW);
+    // sequential, in plan order, the skipped and the already-open stocks never sent
+    expect(be.posts.map((p) => p.key)).toEqual(["mr-2026-11-04-FIXA", "mr-2026-11-04-FIXB"]);
+    expect(be.posts[0].body).toEqual(PAPER_PLAN().items[0].chosen!.body);
+    expect(be.posts[1].body).toEqual(PAPER_PLAN().items[1].chosen!.body);
+    await expect(part.locator('[data-testid="mr-paper-result-line"][data-symbol="FIXA"]')).toContainText("Opened as a paper trade (pt-new-FIXA).");
+    const refused = part.locator('[data-testid="mr-paper-result-line"][data-symbol="FIXB"]');
+    await expect(refused).toHaveAttribute("data-ok", "false");
+    await expect(refused).toContainText("not opened: Blocked by your risk controls");
+    await expect(refused).toContainText("(risk_blocked)");
+    await expect(part.locator('[data-testid="mr-paper-row"][data-symbol="FIXB"]').getByTestId("mr-paper-result")).toHaveAttribute("data-status", "409");
+    // then the plan and the live book are read again
+    await expect.poll(() => be.plan, SLOW).toBeGreaterThan(planReads);
+    await expect.poll(() => be.live, SLOW).toBeGreaterThan(liveReads);
+  });
+});
+
+test.describe("MOCK — not real data: Market Desk › Market Recovery · 6 · Paper trades (live) · phone 390px", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("TC-P9 at 390 px part 6 stays inside the screen; its tables scroll in their own box", async ({ page }) => {
+    await desk(page);
+    await openRecovery(page);
+    await expect(page.getByTestId("mr-paper-row")).toHaveCount(4, SLOW);
+    await expect(page.getByTestId("mr-live-row")).toHaveCount(3, SLOW);
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(over).toBeLessThanOrEqual(1);
+    const b = await page.getByTestId("mr-paper").boundingBox();
+    expect(b!.x + b!.width).toBeLessThanOrEqual(391);
+    const scrolls = await page.getByTestId("mr-paper-plan-scroll").evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(scrolls).toBe(true);
   });
 });

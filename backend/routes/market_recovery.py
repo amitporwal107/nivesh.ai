@@ -76,3 +76,30 @@ async def market_recovery_indices(request: Request):
     except DataUnavailable as e:
         logger.warning("market recovery indices: data unavailable: %s", e.message)
         return _answer(503, "data_unavailable", e.message)
+
+
+@router.get("/paper-trades/live")
+async def market_recovery_paper_live(request: Request):
+    """The signed-in user's market_recovery paper trades (open, and closed today) at live Kite marks with live P&L, after the
+    live exits (DESIGN.md §10 C, D). Reads quotes; closes only trades whose live price crossed their own levels."""
+    from deps import db, get_current_user
+    from services.market_recovery import paper_live
+    user = await get_current_user(request)
+    return await paper_live.live_book(db, str(user["user_id"]))
+
+
+@router.get("/paper-plan")
+async def market_recovery_paper_plan(request: Request):
+    """The paper-trade plan for the top 10 candidates (DESIGN.md §10 A): per stock the best structure by reward : risk after
+    costs at live prices, sized by the user's risk gate as a dry run, with the exact POST /api/desk/paper-trades body and its
+    Idempotency-Key. Reads only; opening goes through the desk's paper engine."""
+    from deps import get_current_user
+    from services.market_recovery import paper_plan
+    user = await get_current_user(request)
+    try:
+        return await paper_plan.build_plan(request, user)
+    except StaleData as e:
+        return _answer(503, "stale_data", e.message)
+    except DataUnavailable as e:
+        logger.warning("market recovery paper plan: data unavailable: %s", e.message)
+        return _answer(503, "data_unavailable", e.message)
