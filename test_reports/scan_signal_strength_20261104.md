@@ -118,8 +118,30 @@ intraday; check SAREGAMA today. Decisions ~14:05: ATR stop + trend exit; below 7
   No strength or signal errors in the backend log since the deploy. The deployed #479 scores only the feed's newest 300 marks
   (26 strong); #480 scores every marked stock.
 
-## Not verified yet
-- After #480 merges: GET /signals/day over HTTP on staging (needs a session token) or in the container, and the stored day
-  scores (`<day>:scores`); browser alerts on the owner's device; the page in a browser (needs his staging session token).
+- **Merge + deploy of #480** (owner merged 14:59:24 IST at 90e9432d, merge e27f8f4e): "Deploy backend → CloudPe app VM
+  [staging]" success, container restarted 15:02:03 IST, healthy; "Deploy frontend" success, the frontend-v5 bundle carries
+  "Signals by company" (`ScanDashboard-BhGParK5.js`).
+- **TC-L1b LIVE** (15:05 IST, staging container, read-only, the deployed code): `day_view` for today → **2,183 list marks, 954
+  companies**, scores stored by the leader 6 s earlier (`scores_as_of 15:04:54`), 791 scored, 78 at 70+, no warnings; answer
+  629 KB raw / 71 KB gzip. SAREGAMA: 8 marks 10:03:48 (Cup & Handle ₹571.50) → 13:05:03 (₹617.60), strong at 14:45:59 (81),
+  score now 79. **Strong signals today: 84 — 57 of them recorded after the #480 deploy**, once every marked stock was scored
+  (the 300-mark feed alone had produced 26).
+- **Over HTTP on staging** (access log, a signed-in viewer): `GET /api/scan-builder/signals/day 200 (342ms)` at 15:02:22 and
+  `200 (123ms)` at 15:02:57 IST; `GET /api/scan-builder/market-dashboard 200 (14262ms)` at 15:03:11 (first computation after the
+  restart). Two dashboard requests at 15:02:58 / 15:03:01 ended `RuntimeError: No response returned` (Starlette's middleware when
+  the caller goes away) during that cold first computation; none since.
+- **Timing** (15:06 IST, the deployed compute run in the container with recording and score saving switched off): cold 16.5 s,
+  then 5.0 s and 8.9 s warm (the 8.9 s run reused the scores, so the spread is elsewhere in the dashboard); 413 scores sent in the
+  dashboard answer (the stocks it shows).
 
-## Verdict: IN PROGRESS — verified up to deployment (backend 312, frontend 75 incl. two real-data replays); live check after merge
+## Not verified
+- The page in a browser by me (needs the owner's staging session token); browser alerts on the owner's device.
+- Accuracy of the score: the weights are set by hand and not back-tested; the "solid reason" uses the platform's filing
+  classifier (category / sentiment / impact), not the filed numbers.
+- NSE ASM/GSM lists are not ingested anywhere; price bands and the exchange's queries stand in. Pledge data covers 134 stocks.
+
+Backend and frontend changes are merged (#479, #480), deployed and verified on staging in the 4 Nov session: strong signals recorded
+live with plans on the rule, the day endpoint over HTTP and in the container, the deployed bundle carries both panels; Playwright
+75 passed including two real-data replays.
+
+## Verdict: PASS
