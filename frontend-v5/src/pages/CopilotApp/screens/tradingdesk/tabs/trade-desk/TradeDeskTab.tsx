@@ -8,6 +8,9 @@
  *   ?tab=trade&view=paper&sub=journal   Paper Trading › Trade journal (&trade=<id>): one trade's timeline, fills, the
  *                                       desk-cost-v2 P/L bridge "net, before income tax", stop history, the stop-first
  *                                       flag; below it every closed trade with the summary
+ *   ?tab=trade&view=paper&sub=pnl       Paper Trading › P&L dashboard (owner, 4 Nov 2026): the real-time paper P&L
+ *                                       (PnlDashboard.tsx, its own READ-ONLY GET /api/desk/pnl + stream; it does not wait
+ *                                       for the paper-trades list below and has its own header instead of the strip)
  *   Strategy Lab (Build a trade, Backtest & validation) was removed on 29 Oct (owner); a trade is built on Chart Analysis'
  *   paper basket and its URLs open the chart (desk-nav.ts).
  *
@@ -26,6 +29,7 @@ import { ClosedView, OpenPendingView } from "./BookViews";
 import { HeaderStrip } from "./HeaderStrip";
 import { JournalPanel, type JournalTrade } from "./Journal";
 import { quiet } from "./parts";
+import PnlDashboard from "./PnlDashboard";
 
 /** The journal's trade: ?trade=<id>, else the newest closed trade, else the newest open one. */
 function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
@@ -42,6 +46,21 @@ function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
 }
 
 export default function TradeDeskTab({ sub, onSub }: {
+  sub: string | null; onSub: (sub: string, extra?: Record<string, string>) => void;
+}) {
+  // The P&L dashboard reads its own read-only route; the book below (GET /api/desk/paper-trades applies exits) is not needed.
+  if (sub === "pnl") {
+    return (
+      <div data-testid="td-tab" data-section="paper" data-sub="pnl" className="flex min-w-0 flex-col" style={{ gap: 18 }}>
+        <PnlDashboard />
+      </div>
+    );
+  }
+  return <PaperBookTab sub={sub} onSub={onSub} />;
+}
+
+/** Live desk and Trade journal: both read the one paper-trades answer. */
+function PaperBookTab({ sub, onSub }: {
   sub: string | null; onSub: (sub: string, extra?: Record<string, string>) => void;
 }) {
   const desk = useDesk();
