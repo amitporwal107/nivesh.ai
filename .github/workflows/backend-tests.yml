@@ -179,6 +179,7 @@ jobs:
           tests/test_intent_routing.py
           tests/test_kite_intraday.py
           tests/test_kite_live_feed.py
+          tests/test_kite_trade_side.py
           tests/test_kite_login_needed.py
           tests/test_kite_platform_login.py
           tests/test_liquid_universe.py

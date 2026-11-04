@@ -204,7 +204,8 @@ def build_widgets() -> List[Widget]:
                                "candle before the latest"], _first5_test),
         flow=FlowRule(["Trades initiated at the ask ÷ trades initiated at the bid > 1 (today's TrueData tick prints, about "
                        "one a second rather than every exchange trade: at or above the ask = initiated at the ask, at or below "
-                       "the bid = initiated at the bid, inside the spread by the mid, at the mid by the tick test)"],
+                       "the bid = initiated at the bid, inside the spread by the mid, at the mid by the tick test; while "
+                       "TrueData is unavailable, Kite's live ticks sided the same way against the bid/ask before each trade)"],
                       _ask_side_test)))
     W.append(Widget("low_pe_roce", "2798275", "Low PE and High ROCE", "scan", "cash", spec=_spec("lowpe", "cash", [
         _f("a", x(F("pe_ttm")), "lt", x(n(15))),
@@ -542,7 +543,7 @@ def criteria_lines(w: Widget, intraday_applied: Optional[bool] = None, intraday_
         applied = bool(flow_applied)
         for line in w.flow.lines:
             out.append({"text": line, "level": 0, "applied": applied,
-                        "note": None if applied else (flow_note or "not applied — trade-side ticks unavailable")})
+                        "note": flow_note if applied else (flow_note or "not applied — trade-side ticks unavailable")})
     for text, level, applied, note in w.lines:
         out.append({"text": text, "level": level, "applied": applied, "note": note})
     if w.spec is not None and len(out) == 1 and w.intraday is None:
@@ -664,9 +665,72 @@ async def _default_indices(names):
     return await index_result(names)
 
 
-async def _default_tick_flow(symbols):
-    from .tick_flow import initiated_counts
-    return await initiated_counts(symbols)
+KITE_SIDE_SOURCE = ("Kite live ticks in full mode, each trade sided against the best bid/ask before it (TrueData "
+                    "unavailable); counted from when the live feed began carrying the stock today")
+
+
+@dataclass
+class _SideResult:
+    values: Dict[str, Dict[str, Optional[float]]]
+    as_of: Optional[str]
+    source: str
+    warnings: List[str]
+    missing: List[str]
+
+
+async def _request_feed(symbols: Sequence[str]) -> None:
+    """Ask the live feed's leader to carry these stocks (kite_live_feed: kept 30 min, throttled per stock), so their trades
+    are counted from now on."""
+    from services.kite_live_feed.feed import get_feed
+    await get_feed().request_symbols(list(symbols))
+
+
+async def kite_sides(symbols: Sequence[str], *, read_quotes=None, request=None) -> _SideResult:
+    """Today's trade sides from the live feed's quote cache (kite_live_feed/trade_side.py writes ask_trades, bid_trades,
+    ask_volume, bid_volume, sides_since on each cash-stock quote). A stock the feed does not carry yet is asked for."""
+    if read_quotes is None:
+        from services.kite_live_feed.quote_cache import read_quotes
+    request = request or _request_feed
+    rows = await read_quotes(list(symbols)) or {}
+    values: Dict[str, Dict[str, Optional[float]]] = {}
+    missing: List[str] = []
+    as_of: Optional[str] = None
+    for sym in symbols:
+        r = rows.get(sym) or {}
+        a, b = r.get("ask_trades"), r.get("bid_trades")
+        if a is None or b is None:
+            missing.append(sym)
+            continue
+        values[sym] = {"buy_trades": float(a), "sell_trades": float(b), "buy_volume": r.get("ask_volume"),
+                       "sell_volume": r.get("bid_volume")}
+        if r.get("received_at") and (as_of is None or str(r["received_at"]) > as_of):
+            as_of = str(r["received_at"])
+    warnings: List[str] = []
+    if missing:
+        try:
+            await request(missing)
+        except Exception as e:  # noqa: BLE001 — the counted stocks still stand; the rest are tried next refresh
+            logger.warning("market dashboard: asking the live feed to carry %d stocks failed (%s)", len(missing),
+                           type(e).__name__)
+        warnings.append(f"Kite live trade sides are not counted yet for {len(missing)} stock(s); the live feed was asked to "
+                        "carry them and counts from then on")
+    return _SideResult(values=values, as_of=as_of, source=KITE_SIDE_SOURCE, warnings=warnings, missing=missing)
+
+
+async def _default_tick_flow(symbols, *, truedata=None, kite=None):
+    """Trade sides for `symbols`: TrueData's tick prints with best bid/ask when TrueData answers; when it gives nothing for any
+    of them (login refused, no ticks), Kite's live ticks counted by the live feed (owner 4 Nov: "please fetch from kite if
+    true data not working"). The source travels on the result, so the card says which was used."""
+    if truedata is None:
+        from .tick_flow import initiated_counts as truedata
+    kite = kite or kite_sides
+    res = await truedata(symbols)
+    if any(v for v in (res.values or {}).values()):
+        return res
+    k = await kite(list(symbols))
+    why = (res.warnings or ["TrueData gave no ticks"])[0]
+    k.warnings = list(k.warnings) + [f"TrueData: {why}"]
+    return k
 
 
 def _clock_text(stamp: Optional[str]) -> Optional[str]:
@@ -701,13 +765,18 @@ async def _apply_flow(w: Widget, order: List[int], symbols: Sequence[str], intra
         item["note"] = (f"The trade-side condition is not applied yet ({why}); the list below passes the other conditions only.")
         return False, f"not applied — {why}", order
     kept = [i for i in order if symbols[i] in have and w.flow.test(have[symbols[i]])]
+    from_kite = (fres.source or "").startswith("Kite")
     missing = len(survivors) - len(have)
     if missing:
         item["status"] = "partial"
         item["note"] = ((item.get("note") or "") + " " if item.get("note") else "") + (
             f"{missing} of {len(survivors)} stocks have no trade-side ticks yet and are left out until they arrive.")
     if fres.as_of:
-        item["as_of"] = f"{item['as_of']} · ticks to {_clock_text(fres.as_of)}"
+        what = "Kite ticks" if from_kite else "ticks"
+        item["as_of"] = f"{item['as_of']} · {what} to {_clock_text(fres.as_of)}"
+    if from_kite:
+        return True, ("from Kite live ticks (each trade against the bid/ask before it), while TrueData is unavailable; "
+                      "counted from when the live feed began carrying the stock"), kept
     return True, None, kept
 
 
@@ -715,7 +784,8 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
                   intraday_values: Optional[Callable[..., Awaitable[Any]]] = None,
                   index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
                   tick_flow: Optional[Callable[..., Awaitable[Any]]] = None,
-                  now: Optional[Callable[[], datetime]] = None) -> Dict[str, Any]:
+                  now: Optional[Callable[[], datetime]] = None,
+                  feed_request: Optional[Callable[[Sequence[str]], Awaitable[Any]]] = _request_feed) -> Dict[str, Any]:
     """One dashboard (DASHBOARDS key) once. Raises DataUnavailable when prices cannot be read at all."""
     t0 = time.monotonic()
     at = (now or (lambda: datetime.now(timezone.utc)))()
@@ -767,6 +837,12 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
             continue
         order = list(res["order"])
         live = ({panel.symbols[i]: float(c0[i]) for i in order} if overlay.mode == "live" else None)
+        if w.flow is not None and overlay.mode == "live" and feed_request is not None:
+            # The trade side needs ticks counted all session: ask the live feed to carry the daily-part candidates now.
+            try:
+                await feed_request([panel.symbols[i] for i in order])
+            except Exception as e:  # noqa: BLE001 — counting starts later for them; logged
+                logger.warning("market dashboard: asking the live feed for %s candidates failed (%s)", w.id, type(e).__name__)
         intra_tasks[w.id] = asyncio.ensure_future(intraday_values(
             [panel.symbols[i] for i in order], w.intraday.interval, w.intraday.needs,
             lookback_days=w.intraday.lookback_days, live_prices=live))
