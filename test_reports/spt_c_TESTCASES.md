@@ -27,6 +27,49 @@
 | X14 | ENTRY via the API | `POST /api/v1/paper/orders` with purpose ENTRY needs a proposal of the caller in READY_FOR_ORDER and hands it to slice B's `services.spt.pipeline.place_entry_order(db, *, user_id, proposal_id, actor_id)` (lazy import). Without that function: 503 `entry_pipeline_unavailable`. A proposal already in ORDER_CREATED returns its order. | Slice C must not call the risk service itself (B owns path `spt_entry`); this keeps "never bypass risk". The function name is a NEW contract for the integrator to confirm with B. |
 | X15 | kill switch read | Entries are blocked when `risk_controls` (kill switch / halt; unreadable = blocked) says so, **or** when slice B's `services.spt.risk.kill_switch_state(db, user_id=...)` exists and reports any of `entries_blocked`, `blocking`, `kill_switch`, `halted` true or `state` in TRIGGERED/RESTRICTED/RESET_PENDING. Without B, the daily-loss block is not read by C. | B's function shape is not known tonight; the union is the strictest reading. |
 | X16 | DAY orders out of session | A DAY order created after 15:30 (or on a weekend) is for the next weekday session and expires at its 15:30 IST. NSE holidays are not looked up: a holiday has no live quotes, so the order expires unfilled (DESIGN: "a day of stale quotes ends with the order EXPIRED"). | Keeps the clock deterministic and testable. |
+| X17 | entry: reservation ownership (addition) | Before anything else, `create_entry_order` checks that the decision's `reservation_id` is on the account **with `trade_id == order_id`** (DESIGN §4). Missing → REJECTED `reservation_not_found`; another trade's → `reservation_trade_mismatch`. Both mark `reservation_state: not_ours`, so the refusal never cancels a reservation this order does not hold. | Enforces the contract and protects other trades' budgets from a wrong call. |
+| X18 | one live exit per position | A position holds at most one live exit order. A full exit (stop, T2, trailing, trend, time, manual close) replaces a live partial one (T1 / manual reduce), which is cancelled first, and cancels the live remainder of the position's ENTRY. | Two exit orders could together sell more than is held. |
+| X19 | where SPT P&L shows (open question, not a deviation) | `services/risk_book.read` (equity, day / week P&L, drawdown for the risk service) reads only `desk_paper_trades` and the journal. SPT positions are in the account's reservation counters (risk, exposure, positions, sector, held symbol) but their **unrealised** P&L is not in the risk book's equity or daily-loss figure; their realised P&L reaches paper cash at close. | Changing risk_book is outside slice C; flagged for slice B / the integrator. |
+
+## Status (2026-11-05, unit tests in the backend image; staging NOT exercised — see OVERRIDE_spt_c_paper_exec.md)
+
+| ID | Test(s) | Result |
+|----|---------|--------|
+| SPT-C-01 | test_c01_create_entry_order_happy_path, test_c01b_day_order_after_the_close_is_for_the_next_session | PASS |
+| SPT-C-02 | test_c02_duplicate_create_returns_the_first_order | PASS |
+| SPT-C-03 | test_c03_refusals_reject_and_release_once, test_c03b_kill_switch_at_create_rejects_and_releases, test_c03c_open_position_in_the_symbol_rejects_a_second_entry, test_c03d_reservation_must_be_this_orders | PASS |
+| SPT-C-04 | test_c04_cancel_unfilled_entry_releases_exactly_once | PASS |
+| SPT-C-05 | test_c05_day_and_gtd_expiry, test_c05b_gtd_in_the_past_is_rejected | PASS |
+| SPT-C-06 | test_c06_partial_then_expiry_keeps_the_reservation_for_the_position | PASS |
+| SPT-C-07 | test_c07_buy_at_ask_plus_slippage_capped_at_displayed_qty, test_c07b_sell_at_bid_minus_slippage, test_c07c_partial_fill_then_rest_on_a_new_quote | PASS |
+| SPT-C-08 | test_c08_five_level_depth_fills_level_by_level | PASS |
+| SPT-C-09 | test_c09_no_bid_ask_fills_at_most_a_quarter_of_the_order_at_ltp_plus_spread, test_c09b_ask_without_quantity_is_depth_unknown | PASS |
+| SPT-C-10 | test_c10_no_fill_without_a_fresh_quote (5 cases), test_c10b_out_of_session_and_feed_not_live | PASS |
+| SPT-C-11 | test_c11_limit_buy_never_above_its_limit, test_c11b_stop_orders_trigger_on_ltp_crossing | PASS |
+| SPT-C-12 | test_c12_costs_per_fill_from_the_desk_card | PASS |
+| SPT-C-13 | test_c13_one_quote_is_consumed_once | PASS |
+| SPT-C-14 | test_c14_entry_guard_against_the_plan, test_c14b_exit_never_sells_more_than_held | PASS |
+| SPT-C-15 | test_c15_position_on_first_fill_with_weighted_average | PASS |
+| SPT-C-16 | test_c16_c17_pnl_from_fills_and_one_release | PASS |
+| SPT-C-17 | test_c16_c17_pnl_from_fills_and_one_release, test_c17b_missing_reservation_is_recorded_not_fixed, test_c17c_a_fill_for_a_closed_position_is_never_applied | PASS |
+| SPT-C-18 | test_c21_c22_c35_t1_breakeven_then_t2_and_the_outcome (R, MFE), test_c32d_positions_modify_trades_reconcile (R, MFE in /trades) | PASS |
+| SPT-C-19 | test_c19_stop_on_the_bid_exits_at_the_bid_not_the_stop | PASS |
+| SPT-C-20 | test_c20_gap_through_the_stop_exits_at_the_first_live_bid | PASS |
+| SPT-C-21 | test_c21_c22_c35_t1_breakeven_then_t2_and_the_outcome, test_c21b_stop_after_t1_is_the_breakeven | PASS |
+| SPT-C-22 | test_c21_c22_c35_t1_breakeven_then_t2_and_the_outcome | PASS |
+| SPT-C-23 | test_c23_kill_switch_cancels_entries_but_exits_still_fill | PASS |
+| SPT-C-24 | test_c24_replaying_a_round_never_double_fills, test_c24b_crash_after_the_fill_is_recovered_once, test_c24c_concurrent_writer_loses_cleanly | PASS |
+| SPT-C-25 | test_c25_evening_trail_raises_only_and_waits_for_todays_bar, test_c25b_trend_exit_pending_then_next_session_first_quote, test_c25c_time_exit_and_missed_stop, test_c25d_a_low_below_only_a_stop_raised_later_that_day_is_not_a_missed_stop | PASS |
+| SPT-C-26 | test_c26_gating_leader_and_robustness, test_c26b_start_respects_the_flag | PASS |
+| SPT-C-27 | test_c27_reducing_changes_apply_without_b_also_under_the_kill_switch | PASS |
+| SPT-C-28 | test_c28_increasing_changes_go_to_b, test_c28b_increasing_refused_under_kill_switch_and_without_b | PASS (B's check_modification is a FAKE) |
+| SPT-C-29 | test_c29_target_reached_while_the_stop_is_being_modified | PASS |
+| SPT-C-30 | test_c30_reduce_and_close_work_under_the_kill_switch | PASS |
+| SPT-C-31 | test_c31_reconciliation_report_and_startup_marks | PASS |
+| SPT-C-32 | test_c32_auth_and_ownership, test_c32b_orders_endpoints, test_c32c_entry_needs_a_ready_proposal_and_b, test_c32d_positions_modify_trades_reconcile | PASS (B's pipeline is a FAKE) |
+| SPT-C-33 | test_c33_manual_exit_twice_is_one_order | PASS |
+| SPT-C-34 | test_c34_events_after_sends_only_new_events_of_the_caller, test_c34b_stream_endpoint | PASS |
+| SPT-C-35 | test_c21_c22_c35_t1_breakeven_then_t2_and_the_outcome | PASS |
 
 ## Test Cases
 
