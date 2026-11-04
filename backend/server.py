@@ -137,6 +137,11 @@ from routes.portfolio_desk import router as portfolio_desk_router  # Trading des
 from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.desk_pnl import router as desk_pnl_router  # Trade Desk › Paper Trading › P&L dashboard (/api/desk/pnl*), read-only
+# Scanner-to-Paper Trading (docs/scanner_paper_trading/DESIGN.md): signals → opportunities → proposals → risk → paper orders
+from routes.spt_signals import router as spt_signals_router    # /api/v1/scanner/signals, /api/v1/opportunities, /api/v1/analytics/scanners
+from routes.spt_accounts import router as spt_accounts_router  # /api/v1/paper/accounts (SPT mode + config, ledger)
+from routes.spt_risk import router as spt_risk_router          # /api/v1/risk/*, /api/v1/allocation/*, /api/v1/proposals, approve/reject
+from routes.spt_paper import router as spt_paper_router        # /api/v1/paper/orders, /positions, /trades, /reconcile, /stream
 from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
 from routes.desk_chart_events import router as desk_chart_events_router  # Live chart: market events + the stock's reaction (/api/desk/chart-events/*, read only)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
@@ -301,6 +306,10 @@ app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /ha
 app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(desk_pnl_router)          # /api/desk/pnl, /api/desk/pnl/stream, /api/desk/pnl/timeseries (paper P&L, read-only)
+app.include_router(spt_signals_router)       # SPT slice A: scanner signals, opportunities, scanner analytics
+app.include_router(spt_accounts_router)      # SPT slice B: paper account SPT mode/config
+app.include_router(spt_risk_router)          # SPT slice B: sizing, risk, allocation, proposals, approve/reject
+app.include_router(spt_paper_router)         # SPT slice C: paper orders, positions, trades, reconcile, stream
 app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}
 app.include_router(desk_chart_events_router)  # /api/desk/chart-events/{symbol}
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
@@ -502,6 +511,18 @@ async def startup_seed():
         exit_watch_runner.start()
     except Exception as e:
         logger.warning("exit watch did not start: %s", type(e).__name__)
+    # Scanner-to-Paper Trading loops (docs/scanner_paper_trading/DESIGN.md), each one leader across workers (Redis lock),
+    # on where APP_ENV=staging; SPT_A_ENABLED / SPT_B_ENABLED / SPT_C_ENABLED = 0 turns one off. A: catch-up ingest of
+    # scan signals, consolidation, validation, expiry, evening signal outcomes. B: proposals for accounts whose SPT mode
+    # is not "off" (default off), sizing, allocation, risk. C: paper order fills on live quotes, stop/target exits, the
+    # evening exit-rule pass. Nothing reaches a broker.
+    for _spt_name, _spt_mod in (("spt signals", "services.spt.opportunities.runner"), ("spt pipeline", "services.spt.pipeline"),
+                                ("spt paper monitor", "services.spt.paper.monitor")):
+        try:
+            import importlib
+            importlib.import_module(_spt_mod).start()
+        except Exception as e:
+            logger.warning("%s did not start: %s", _spt_name, type(e).__name__)
 
 
 @app.on_event("shutdown")
@@ -516,6 +537,13 @@ async def shutdown_db_client():
         exit_watch_runner.stop()
     except Exception as e:
         logger.warning("exit watch did not stop cleanly: %s", type(e).__name__)
+    for _spt_name, _spt_mod in (("spt signals", "services.spt.opportunities.runner"), ("spt pipeline", "services.spt.pipeline"),
+                                ("spt paper monitor", "services.spt.paper.monitor")):
+        try:
+            import importlib
+            importlib.import_module(_spt_mod).stop()
+        except Exception as e:
+            logger.warning("%s did not stop cleanly: %s", _spt_name, type(e).__name__)
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)

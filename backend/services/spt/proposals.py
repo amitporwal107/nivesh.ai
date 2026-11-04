@@ -202,6 +202,11 @@ def build(opp: Dict[str, Any], price: Dict[str, Any], config: Dict[str, Any], no
     if body["instrument"] not in C.TRADABLE_INSTRUMENTS:
         return refuse("not_tradable", "instrument_not_enabled",
                       f"The {body['instrument']} instrument is tracked, not traded, in this release (cash shares only).")
+    # Slice A keeps a QUALIFIED opportunity QUALIFIED when an opposite-direction signal arrives later (DESIGN §5 has no
+    # move for it) and flags it instead; a proposal is not made against conflicting evidence (Workflow §5.4).
+    if opp.get("conflict_after_qualified"):
+        return refuse("rejected", "conflicting_signals",
+                      "An opposite-direction signal for this stock arrived after the opportunity qualified.")
     plan = ((opp.get("strong") or {}).get("plan") or {})
     p_entry, p_stop = _f(plan.get("entry")), _f(plan.get("stop_loss"))
     t1, t2 = _f(plan.get("target_1")), _f(plan.get("target_2"))

@@ -260,6 +260,19 @@ jobs:
           tests/test_paper_pnl.py
           tests/test_paper_pnl_live.py
           tests/test_exit_watch.py
+          tests/test_spt_a_api.py
+          tests/test_spt_a_opportunities.py
+          tests/test_spt_a_outcomes.py
+          tests/test_spt_a_signals.py
+          tests/test_spt_b_contract.py
+          tests/test_spt_b_core.py
+          tests/test_spt_b_pipeline.py
+          tests/test_spt_b_routes.py
+          tests/test_spt_c_execution.py
+          tests/test_spt_c_modify.py
+          tests/test_spt_c_monitor.py
+          tests/test_spt_c_orders.py
+          tests/test_spt_c_routes.py
           tests/test_paper_reconcile.py
           tests/test_paper_trades_routes.py
           tests/test_payoff_cost_card.py

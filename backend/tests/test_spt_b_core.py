@@ -304,3 +304,11 @@ def test_spt_b_17_ranking_uses_opportunity_score_then_rr_then_liquidity_never_th
         got.append((a["decision"], a["quantity"]))
     assert got == [("ALLOCATION_APPROVED", 243), ("ALLOCATION_REDUCED", 157), ("ALLOCATION_REJECTED", 0)]
     assert used["capital_rs"] <= 200_000.0
+
+
+def test_spt_int_conflict_after_qualified_is_refused_not_proposed():
+    """Integration (slice A ↔ B): A flags a QUALIFIED opportunity with `conflict_after_qualified` when an opposite
+    signal arrives later; B refuses to propose against it (Workflow §5.4). MOCK opportunity."""
+    b = proposals.build(opportunity(conflict_after_qualified=True), price(502.0), cfg(), NOW)
+    assert b["outcome"] == "rejected" and "conflicting_signals" in b["reason_codes"]
+    assert proposals.build(opportunity(), price(502.0), cfg(), NOW)["outcome"] == "ok"
