@@ -23,7 +23,7 @@ TrueData's main REST login was refused 3–4 Nov ("incorrect or subscription exp
 | TC-K4 | backend | quote cache row carries the 5 fields; as_quote adds them only when counted | unit | as rule | passed |
 | TC-K5 | backend | dashboard: TrueData used when it answers; Kite counts otherwise; missing stocks requested from the feed; card says "Kite ticks to …" and the Kite note | unit | as rule | passed |
 | TC-K6 | backend | existing kite live feed / quote cache / day quote / market sources / scan builder suites unchanged, with and without APP_ENV=staging | unit | all pass | passed |
-| TC-K7 | staging | after merge + deploy + backend restart, in the session: cash quotes in the cache carry counts; the 10x card applies the trade side "from Kite live ticks" | live | counts + card | NOT RUN — needs the merge and the session |
+| TC-K7 | staging | after merge + deploy + backend restart, in the session: cash quotes in the cache carry counts; the 10x card applies the trade side "from Kite live ticks" | live | counts + card | passed (09:21 IST) |
 
 ## Results
 - **TC-K0** (4 Nov, before 08:00 IST, offline on 3 Nov data): the 1-minute proxy agreed with TrueData's sides on 4 of the 10 stocks TrueData
@@ -35,8 +35,24 @@ TrueData's main REST login was refused 3–4 Nov ("incorrect or subscription exp
 - Instrument count with the switch on (staging `kite_live_snapshot` status, 4 Nov 08:06): ~968 full-mode + 119 quote-mode tokens,
   under Kite's 3,000 per connection.
 
-## Not verified
-- TC-K7: real Kite full-mode cash ticks during a session (tick rate, how the auction volume arrives, counts vs the day's volume)
-  and the card on staging. Needs the merge, the deploy and a backend restart.
+- **Merge + deploy:** owner "merge #474" → merged 08:19 IST (b041face); "Deploy backend → CloudPe app VM [staging]" success;
+  container restarted 08:19:25 IST (trade_side.py on disk 08:19:13), healthy; `APP_ENV=staging`, `trade_side.enabled()` = True.
+- **TC-K7** (4 Nov 09:21 IST, staging backend container, read-only, `k7_check.py`):
+  - Quote cache: **20 of 20** sample stocks counted, all `sides_since 09:15:06` (the first in-session tick after the auction
+    baseline), last update 09:21:06–09:21:10. Sided volume = 71–96 % of the day's volume (the rest is the opening-auction volume,
+    which is never sided). Examples: RELIANCE ask 172 / bid 168 prints (78 % of 1,036,109 sided); ITC 198 / 143 (96 %);
+    COALINDIA 64 / 30; GRSE 142 / 79; small caps outside Nifty 500 counted too: KITEX 88 / 90, JAINREC 28 / 12.
+  - 10x card (16 s): status ok; as_of "Kite live 09:21:06 IST · 5-minute candles to 09:20 · Kite ticks to 09:21:27 IST"; every
+    criterion applied; trade-side note "from Kite live ticks (each trade against the bid/ask before it), while TrueData is
+    unavailable …"; 9 stocks: AWFIS, SANDUMA, HEGAM, ITC, PASHUPATI, SBIN, SHAREINDIA, ZEEL, KEC. TrueData still answers
+    AUTH_EXPIRED (logged), so the Kite path was used.
+  - No trade-side or feed warnings in the backend log since 09:00.
 
-## Verdict: IN PROGRESS — unit-verified; the live check runs in today's session after the merge
+## Not verified
+- Accuracy of the Kite sides against exchange trade data: no independent trade-side source while TrueData's login is refused.
+  The rule equals tick_flow's (unit grid); Kite ticks are ~1-a-second snapshots, so counts are prints, not exchange trades.
+- The page in a browser (needs the owner's staging session token).
+
+Changed areas are backend only; they are merged, deployed and verified live on staging in the 4 Nov session (counts + card).
+
+## Verdict: PASS
