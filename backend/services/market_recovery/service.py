@@ -64,6 +64,7 @@ class RecoveryService:
         self._clock, self._now = clock, now
         self._lock = asyncio.Lock()
         self._cached: Optional[Tuple[str, float, Dict[str, Any]]] = None    # (eod date, when, result)
+        self._context: Dict[str, Dict[str, Any]] = {}                        # per scored stock, from the same run
 
     @property
     def data(self) -> ScanData:
@@ -79,7 +80,13 @@ class RecoveryService:
             today = self._now().astimezone(IST).date()
             result = engine.compute(inp, today=today, computed_at=self._now().strftime("%Y-%m-%dT%H:%M:%SZ"))
             self._cached = (eod, self._clock(), result)
+            self._context = dict(inp.context)
             return result
+
+    async def stock_context(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """The scored stock's close, plan, beta, name and sector from the current page run (None when it is not scored)."""
+        await self.get()
+        return self._context.get(symbol.upper())
 
     # ── loading ─────────────────────────────────────────────────────────────────────────────────────────────────────
     async def load(self) -> engine.Inputs:

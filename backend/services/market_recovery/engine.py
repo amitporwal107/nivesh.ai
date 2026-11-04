@@ -125,6 +125,9 @@ class Inputs:
     members_as_of: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
     sources: List[Dict[str, Any]] = field(default_factory=list)
+    #: Filled by compute(): symbol -> {close, plan, beta, name, sector, score, trap} for every scored stock, so the strategies
+    #: endpoint (strategies.py) can serve any scored stock without recomputing the page. Not part of the API answer.
+    context: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 class StaleData(Exception):
@@ -755,6 +758,9 @@ def compute(inp: Inputs, *, today: Optional[date] = None, computed_at: Optional[
                              "improving": None if d is None else d > 0})
         trap = find_trap(s, inp.fno.get(sym))
         scored[sym] = {"s": s, "f": f, "res": res, "acc_rows": acc_rows, "trap": trap, "sector": sec}
+        inp.context[sym] = {"close": s["close"], "plan": trade_plan(s), "beta": fnum(f.get("beta_1y")),
+                            "name": inp.names.get(sym) or sym, "sector": s.get("sector"), "score": res["score"],
+                            "trap": None if trap is None else trap["trap"]}
 
     ranks = {k: pct_ranks(v) for k, v in deltas.items()}
     for sym, item in scored.items():
