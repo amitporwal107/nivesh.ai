@@ -15,7 +15,11 @@ made up; no staging data in any fixture). Status column is filled in at the end 
 | DB-5 | **Drawdown ladder bands:** below `reduce_at` normal; `reduce_at`–`restrict_at` the SPT risk % × `reduce_factor`; `restrict_at`–`halt_at` RESTRICTED = new entries BLOCKED; ≥ `halt_at` HALT_ACCOUNT. Exits and risk-reducing changes are never refused. | PRD §9.7 names the bands but not what "restricted" allows; refusing new risk while not halting the account is the conservative reading. |
 | DB-6 | **Kill-switch state `RESET_PENDING` is not produced.** | `risk_controls` has no reset-request record: clearing is one admin action. The mapping (in `risk.kill_switch_state`) says so instead of inventing a state. |
 | DB-7 | **New policy defaults not in the PRD** (owner to confirm): `max_chase_pct` 1.0 %, `min_adv_rs` ₹1 crore, `max_adv_participation_pct` 5 % (= the governor's gov-v1 `max_adv_pct`), `approval_expiry_minutes` 30, `max_positions` ≤ 10 (the risk service's own cap), `max_new_per_day` 5. | The PRD gives none of these; each is a named, versioned config value a user can tighten. |
-| DB-8 | **Equity basis = `risk_book.read` equity** (paper cash + net unrealised P&L of desk positions at end-of-day marks). SPT positions are in the account's reservation counters (open risk, exposure, sector, positions, funds) but **not in risk_book's equity or day/week P&L**: risk_book does not read `spt_positions`. | Outside slice B's allowed edits. Flagged for the integrator (risk_book needs an `spt_positions` reader once slice C's position shape is fixed). |
+| DB-8 | **B's equity = risk_book equity + the P&L of SPT positions not yet in paper cash** (`allocation.spt_pnl`, reading slice C's `spt_positions`: `realized_net_rs` + `mark.unrealized_net_rs`). B's drawdown ladder and day / week loss use it. A position held from BEFORE the period counts only its loss since entry (a gain is never used to offset a loss), because no start-of-period mark is stored for SPT positions. An open position with no mark (more than 300 s after its fill) or a stale mark makes equity unknown → entries blocked. | risk_book reads desk trades and the journal only (integrator note 5, 5 Nov). `risk_book.py` is not edited, so **the universal risk service still measures its limits on desk-only equity**; B's checks on the adjusted figures can only add refusals. The 300 s grace stops slice C cancelling the rest of a partly filled entry before its first mark. |
+| DB-9 | **A REJECTED order from slice C ends the proposal ORDER_CREATED** with `order_rejected: true` and `order.state` REJECTED. B does not release the reservation again (C already gave it back). | The state machine has no other exit from READY_FOR_ORDER, and one order per (user, opportunity) is the rule (PRD §18 rule 6). C's idempotency key would return the same rejected order to any retry anyway. |
+| DB-10 | **`PipelineError` is an `HTTPException`** (detail `{code, message, ...}`). | Slice C's `POST /api/v1/paper/orders` (ENTRY) calls `place_entry_order` and does not catch its errors, so a refusal must still be a 4xx, not a 500. |
+| DB-11 | **`kill_switch_state(db, user_id=...)` caches the account part for 15 s per user.** The kill switch and halt are re-read on every call. Passing `now` or `state` bypasses the cache. | Slice C asks on every monitor round (15 s), and risk_book reads the data platform for desk marks. |
+| DB-12 | **P1 item 9 (F&O defined-risk proposals) is not built.** F&O stays NOT_TRADABLE `instrument_not_enabled`. | DESIGN §9 puts F&O multi-leg execution out of scope tonight, and slice C's `create_entry_order` is single-leg cash. A proposal nothing can execute would mislead. |
 
 ## Test cases
 
@@ -32,7 +36,7 @@ Ids map to WF §25 acceptance items (WF#), PRD §23.3 scenarios (PRD-S#) and the
 | SPT-B-07 | proposal | Refusals | WF#5, PRD §18 r1-2 | no plan / `plan_ok` false → REJECTED `no_valid_plan`; price ≤ stop → REJECTED `price_at_or_below_stop` and the opportunity → EXPIRED through A's `transition`; R:R(T2) < min → REJECTED `rr_below_minimum`. Stop never widened |
 | SPT-B-08 | proposal | Out of scope | D5 | intraday → NOT_TRADABLE `horizon_not_enabled`; short → `direction_not_enabled`; non-cash → `instrument_not_enabled` |
 | SPT-B-09 | proposal | Idempotent | WF#2, PRD §18 r6 | a second create for the same (user, opportunity) returns the first proposal; one document |
-| SPT-B-10 | proposal | Price missing / stale | WF#18, PRD §18 r18 | no live quote, or one older than `SPT_QUOTE_MAX_AGE_S` → no entry is priced; the risk decision BLOCKED `price_stale` / `price_unavailable`; no number is made up |
+| SPT-B-10 | proposal | Price missing / stale | WF#18, PRD §18 r18 | no live quote, or one older than `SPT_QUOTE_MAX_AGE_S` → no proposal is written (`PriceUnavailable`), and the pipeline tries again next round; refusals that need no price are still written; inside the risk step a stale price → BLOCKED `price_stale`; no number is made up |
 | SPT-B-11 | sizing | PRD §8.4 example | WF#6, PRD §8.4, WF §8.4 | equity ₹10,00,000, 0.5 %, 500/480, cost ₹0.50/share → 243 shares, capital ₹1,21,500, planned risk ₹4,981.50; stressed = planned + 243 × 480 × gap % |
 | SPT-B-12 | sizing | Costs from the desk cost card | WF#6 | with no cost given, `desk_trading.max_units_within_budget`: loss at stop + desk-cost-v2 round trip ≤ allowed risk, and one share more would not be |
 | SPT-B-13 | sizing | Caps in order | WF §8.2 | liquidity (≤ participation % of the 20-day ADV), position exposure (profile `max_position_pct`), available capital minus the reserve bucket; each step `{cap, before, after, reason}`; SPT risk % capped at the profile's per-trade % (never looser); the profile per-trade cap (DB-3) |
@@ -41,7 +45,7 @@ Ids map to WF §25 acceptance items (WF#), PRD §23.3 scenarios (PRD-S#) and the
 | SPT-B-16 | allocation | Reserved + buckets + limits | WF#7 | pending-entry reservations counted as reserved (not deployed); equity_positional bucket room; sector room; max positions and max new per day → REJECTED with the code |
 | SPT-B-17 | allocation | Ranking | PRD §8.7 | ordered by opportunity_score, then R:R, then liquidity; a higher scanner score alone does not rank first; a batch never exceeds the room (capital/bucket/positions) |
 | SPT-B-18 | risk | Risk before the order | WF#8 | auto mode: `create_entry_order` called only after an APPROVE / APPROVE_REDUCED with a reservation; `order_id` = the reservation's `trade_id`; EntryRequest path `spt_entry`, store `spt_orders`, mode paper, target = T2, actor `spt_pipeline` |
-| SPT-B-19 | risk | PRD-S2: valid but breaches portfolio risk | WF#9, PRD-S2 | open risk already at the cap → BLOCKED_BY_RISK, decision BLOCKED with the risk service's `open_risk_exceeded`, no reservation, no order |
+| SPT-B-19 | risk | PRD-S2: valid but breaches portfolio risk; the service's veto | WF#9, PRD-S2 | open risk already at the cap → BLOCKED_BY_RISK at allocation (`open_risk_full`), before the service, with no reservation and no order. 19b: SPT's checks pass and the service refuses (profile min R:R 5 set by an admin, MOCK) → REJECTED `reward_risk_too_low` |
 | SPT-B-20 | risk | PRD-S7: daily loss breached | PRD-S7, WF#17 | day loss ≥ limit → BLOCKED (`daily_loss_halt`), no order; `kill_switch_state` RESTRICTED |
 | SPT-B-21 | risk | PRD-S14: kill switch with orders pending | PRD-S14, WF#17 | kill switch on → HALT_ACCOUNT before any reservation; approve refused (409); `kill_switch_state` TRIGGERED. Cancelling pending ENTRY orders is slice C's (DESIGN §6) |
 | SPT-B-22 | risk | Drawdown ladder | PRD §9.7 | 2.5 % → risk % × 0.5 in sizing; 4.5 % → BLOCKED `drawdown_restricted`; 6.5 % → HALT_ACCOUNT `drawdown_halt_ladder` |
@@ -61,9 +65,45 @@ Ids map to WF §25 acceptance items (WF#), PRD §23.3 scenarios (PRD-S#) and the
 | SPT-B-36 | routes | Account, risk, exposures, allocation, proposals, ledger | PRD §17.1, §17.3 | shapes present; recommendations write nothing; recalculate re-runs allocation on the caller's AWAITING proposals; proposals are the caller's only; ledger paginated by `before` |
 | SPT-B-37 | risk service | `spt_entry` path | D2 | `"spt_entry" in service.PATHS`; an spt_entry request decides like a desk one; the neighbour suites stay green |
 | SPT-B-38 | P1 stress test | GET /risk/stress-test | PRD §9.2, §10.5 | each open SPT reservation gaps x % through its stop; sector −5 %; market −3 / −5 % with beta 1 labelled `beta_assumed`; planned vs stressed totals |
+| SPT-B-39 | contract (C→B) | `place_entry_order(db, *, user_id, proposal_id, actor_id)` | integrator note 1, WF §11.2 | READY_FOR_ORDER (left by a failed create) → re-validated, fresh risk with a new reservation, create with the same idempotency key → ORDER_CREATED; ORDER_CREATED → the existing order (`duplicate`); AWAITING → an approval; another user's → 404; refusals are 409 HTTP errors (`entry_no_longer_valid`, `risk_refused`) with `last_place_refusal` recorded |
+| SPT-B-40 | contract (C→B) | C returns a REJECTED order | integrator note 4 | proposal ORDER_CREATED + `order_rejected`; the ledger shows one `cancel_reservation` (C's), none from B |
+| SPT-B-41 | contract (C→B) | `kill_switch_state(db, user_id=...)` keys | integrator note 2, WF §19.3 | `entries_blocked`, `blocking`, `kill_switch`, `halted`, `state`, `reasons`, `code`, `reason`; the halt read live through the 15 s cache; ladder restricted / halt and period losses block |
+| SPT-B-42 | SPT P&L | an open SPT loss today | integrator note 5, PRD-S7 | −₹30,000 marked → equity ₹9,70,000, day P&L −₹30,000, drawdown 3 % (reduce band), RESTRICTED `daily_loss_halt` |
+| SPT-B-43 | SPT P&L | positions from before the period | DB-8 | losses since entry count, gains don't (`conservative`); a position opened this week counts in full in the week; one closed today and paid out counts in the day's P&L, not again in equity |
+| SPT-B-44 | SPT P&L | unmarked / stale | DB-8 | no mark 10 min after the fill, or a 5-day-old mark → equity unknown, entries blocked; no mark 1 min after the fill → valued at the fill (− entry costs) |
 
 ## Not in slice B (stated so nobody assumes it)
 
 Cancelling pending entry orders on the kill switch, fills, positions, exits and modifications themselves (slice C);
 opportunity creation and validation (slice A); server wiring (integrator); correlation / VaR (P1, out of scope);
 F&O proposals (P1 stretch, item 9).
+
+## Status (5 Nov 2026 ~03:00 IST, `backend/tests/test_spt_b_*.py`, 121 tests)
+
+Every id SPT-B-01 … SPT-B-44 has at least one test, and all of them pass. The full run, with the neighbour suites, is in
+`test_reports/spt_b_pytest.txt`.
+
+| Ids | Tests |
+|---|---|
+| 01–03, 05–17 | `test_spt_b_core.py` (config, proposals, sizing, allocation; 07b and 10 run the pipeline) |
+| 18–33, 37, 38 | `test_spt_b_pipeline.py` (the risk decision through the real universal risk service and paper account, the modes, approvals, modifications in slice C's form too, the kill-switch state, events, stress) |
+| 02–04, 31, 34–36 | `test_spt_b_routes.py` (over HTTP) |
+| 39–44 | `test_spt_b_contract.py` (the integrator's slice-C contract notes and the SPT positions' P&L) |
+
+**Cross-slice check (scratch only, not committed).** B's branch was combined with slice A's and slice C's current
+modules in a scratch copy and tested together. C's real `POST /api/v1/paper/orders` (ENTRY) placed a READY_FOR_ORDER
+proposal through `place_entry_order` and C's real `create_entry_order` (order PENDING, reservation held, the orphan
+sweep keeps it). A kill-switch refusal came back as 409 `risk_refused`. C's `controls.entry_block` read B's restricted
+band. A's real `transition` expired an invalidated opportunity.
+
+Two of C's tests fail in that combined copy, both test-isolation issues in C's tests (B's code is not involved):
+- `test_c28b`
+- `test_c32c`
+
+They simulate "B not importable" with `sys.modules[...] = None`, but `from services.spt import risk / pipeline` returns
+the package attribute once B's real module has been imported. Fix (C's tests): also
+`monkeypatch.delattr(services.spt, "risk" / "pipeline", raising=False)`.
+
+**Not verified:**
+- No staging run: no writes to staging were allowed, and the integrator owns the staging step.
+- The real-Mongo reservation suite (`tests/test_risk_reservation_mongo.py`, 5 tests) is skipped: it needs `RISK_MONGO_URL`.
