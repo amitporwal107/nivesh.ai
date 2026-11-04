@@ -11,16 +11,18 @@ Endpoints (prefix /api/v1; every one needs a session: 401 without one). Market-w
                                              returns the validation record. The only write on this router.
 
 Errors (`detail` codes are stable): 422 invalid_day | invalid_symbol | invalid_limit | invalid_state | invalid_status |
-invalid_category | invalid_horizon | invalid_direction | invalid_scanner_id; 404 signal_not_found | opportunity_not_found;
+invalid_category | invalid_horizon | invalid_direction | invalid_scanner_id | invalid_kind | invalid_range; 404 signal_not_found | opportunity_not_found;
 409 opportunity_not_revalidatable | validation_in_progress | state_changed.
 
-GET /analytics/scanners (P1, read-only) is in services/spt/outcomes/analytics.py and added below when present.
+    GET  /analytics/scanners                 ?from=YYYY-MM-DD &to=YYYY-MM-DD (default: the 30 days to today, at most 92)
+                                             &kind=list|strong  signal outcomes per scanner / category / score band, with
+                                             sample sizes (services/spt/outcomes/analytics.py); read-only
 """
 from __future__ import annotations
 
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -29,6 +31,8 @@ from deps import db, get_current_user
 from services.spt import constants as C
 from services.spt.opportunities import store as opp_store
 from services.spt.opportunities import validate as opp_validate
+from services.spt.outcomes import analytics
+from services.spt.signals import clock
 from services.spt.signals import normalize
 from services.spt.signals import store as sig_store
 
@@ -149,3 +153,15 @@ async def revalidate(opportunity_id: str, request: Request) -> Dict[str, Any]:
         err = r.get("error") or "state_changed"
         raise HTTPException(status_code=404 if err == "opportunity_not_found" else 409, detail=err)
     return {"ok": True, "opportunity_id": opportunity_id, "state": r["state"], "validation": r["validation"]}
+
+
+@router.get("/analytics/scanners")
+async def scanner_analytics(request: Request, day_from: Optional[str] = Query(None, alias="from"),
+                            day_to: Optional[str] = Query(None, alias="to"), kind: Optional[str] = None) -> Dict[str, Any]:
+    await get_current_user(request)
+    to = _day(day_to) or clock.ist_day(datetime.now(timezone.utc)).isoformat()
+    frm = _day(day_from) or (date.fromisoformat(to) - timedelta(days=30)).isoformat()
+    if frm > to or (date.fromisoformat(to) - date.fromisoformat(frm)).days > analytics.MAX_DAYS:
+        raise HTTPException(status_code=422, detail="invalid_range")
+    k = _one_of(kind, ("list", "strong"), "invalid_kind")
+    return await analytics.scanners(db, day_from=frm, day_to=to, kind=k)

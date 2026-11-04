@@ -455,3 +455,17 @@ def test_SPT_A_31_a_failing_step_is_recorded_and_the_round_goes_on(monkeypatch):
     assert {"catch_up", "validate", "expire"} <= set(r["counts"])
     st = db["spt_state"].docs[0]
     assert st["errors"] == ["consolidate: ConnectionError"] and "last_ok_at" not in st
+
+
+def test_SPT_A_31_the_evening_round_runs_the_outcomes_step():
+    db = DB()
+    scan = SIG.LocalSignalStore()
+    run(load(db, [mark("dt_52w_high", "AAA", ist(9, 30), 100.0)]))
+    bars = rising(260, start=50.0, step=0.2, end=D)                       # 4 Nov's file is in
+    r = run(runner.round_once(db, ist(20, 15), scan_store=scan, inputs=Inputs({"AAA": bars, "RELIANCE": bars}), me="w1",
+                              outcomes=runner.outcomes_step))
+    assert r["errors"] == [] and r["counts"]["outcomes"]["computed"] == 1
+    assert db["spt_signal_outcomes"].docs[0]["_id"] == "sig:2026-11-04:dt_52w_high:AAA"
+    r = run(runner.round_once(db, ist(10, 0, day=D + timedelta(days=1)), scan_store=scan, inputs=Inputs({}), me="w1",
+                              outcomes=runner.outcomes_step))
+    assert r["counts"]["outcomes"] == {"skipped": "not_evening"}

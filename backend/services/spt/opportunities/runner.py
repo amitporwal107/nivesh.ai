@@ -108,6 +108,8 @@ async def round_once(db, now: datetime, *, scan_store: Any = None, inputs: Optio
         return out
 
     await step("catch_up", catch_up)
+    if "catch_up" in counts:
+        _mem["first_round"] = False
     started = now
     await step("consolidate", lambda: cons.consolidate(db, days=active_days(now, sessions), now=now, sessions=sessions,
                                                        received_since=_mem["received_since"]))
@@ -116,9 +118,7 @@ async def round_once(db, now: datetime, *, scan_store: Any = None, inputs: Optio
     await step("validate", lambda: val.validate_due(db, now=now, inputs=inputs, limit=max_per_round(env), env=env))
     await step("expire", lambda: val.expire(db, now=now, inputs=inputs))
     if outcomes is not None:
-        await step("outcomes", lambda: outcomes(db, now=now, inputs=inputs))
-    if not errors:
-        _mem["first_round"] = False
+        await step("outcomes", lambda: outcomes(db, now=now, inputs=inputs, scan_store=s))
     state = {"at": clock.utc_iso(now), "leader": me, "round_ms": int((time.monotonic() - t0) * 1000), "counts": counts,
              "errors": errors, "in_session": clock.in_session(now)}
     if not errors:
@@ -130,16 +130,17 @@ async def round_once(db, now: datetime, *, scan_store: Any = None, inputs: Optio
     return {"counts": counts, "errors": errors}
 
 
-async def _outcomes_step(db, *, now: datetime, inputs: inputs_mod.MarketInputs) -> Dict[str, Any]:
+async def outcomes_step(db, *, now: datetime, inputs: inputs_mod.MarketInputs, scan_store: Any = None) -> Dict[str, Any]:
+    """Step 5 (P1): the evening signal outcomes (services/spt/outcomes/tracker.evening)."""
     from services.spt.outcomes import tracker
-    return await tracker.evening(db, now=now, inputs=inputs)
+    return await tracker.evening(db, now=now, inputs=inputs, scan_store=scan_store)
 
 
 async def _loop() -> None:
     while True:
         now = datetime.now(timezone.utc)
         try:
-            await round_once(_db(), now, outcomes=_outcomes_step)
+            await round_once(_db(), now, outcomes=outcomes_step)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — round_once never raises by design; this is the last guard, logged with its trace
