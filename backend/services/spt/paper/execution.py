@@ -248,7 +248,7 @@ async def execute_order(db, order: Dict[str, Any], quote: Any, now: datetime, *,
     advances its version and state, so a replay or a second worker records nothing twice."""
     from . import orders                                    # orders imports this module
 
-    order = await orders.sync_order(db, order["_id"])
+    order = await orders.sync_order(db, order["_id"], now=now)
     if order is None or order.get("state") not in C.ORD_LIVE_STATES:
         return {"order_id": (order or {}).get("_id"), "filled": 0, "reason": "not_live"}
     max_qty = None
@@ -262,5 +262,5 @@ async def execute_order(db, order: Dict[str, Any], quote: Any, now: datetime, *,
     after = await orders.record_fills(db, order, sim, now)
     if after is None:
         return {"order_id": order["_id"], "filled": 0, "reason": "changed_concurrently"}
-    await orders.sync_order(db, order["_id"])
+    await orders.sync_order(db, order["_id"], now=now)
     return {"order_id": order["_id"], "filled": sum(f["quantity"] for f in sim["fills"]), "reason": None}
