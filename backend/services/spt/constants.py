@@ -1,0 +1,123 @@
+"""Shared SPT vocabulary: states, decisions, event types, versions and collection names (DESIGN.md §3, §5, §7).
+
+Every slice imports these; a value here is a contract between slices, so change one only together with its users.
+"""
+from __future__ import annotations
+
+# ── collections (Mongo, DESIGN.md D1) ─────────────────────────────────────────────────────────────────────────────────
+SIGNAL_EVENTS = "spt_signal_events"
+OPPORTUNITIES = "spt_opportunities"
+SIGNAL_OUTCOMES = "spt_signal_outcomes"
+ACCOUNT_CONFIG = "spt_account_config"
+ACCOUNT_CONFIG_VERSIONS = "spt_account_config_versions"
+PROPOSALS = "spt_proposals"
+ORDERS = "spt_orders"
+FILLS = "spt_fills"
+POSITIONS = "spt_positions"
+EVENTS = "spt_events"
+STATE = "spt_state"
+
+# ── versions ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+NORMALIZER_VERSION = "spt-normalize-v1"
+CONSOLIDATION_VERSION = "spt-consolidate-v1"
+VALIDATION_VERSION = "spt-validate-v1"
+PROPOSAL_VERSION = "spt-proposal-v1"
+SIZING_VERSION = "spt-sizing-v1"
+ALLOCATION_VERSION = "spt-allocation-v1"
+SPT_RISK_VERSION = "spt-risk-v1"
+EXECUTION_VERSION = "spt-exec-v1"
+OUTCOME_VERSION = "spt-outcome-v1"
+EVENT_VERSION = 1
+
+# ── account modes (DESIGN.md D4) ──────────────────────────────────────────────────────────────────────────────────────
+MODE_OFF, MODE_TRACKING, MODE_APPROVAL, MODE_AUTO = "off", "tracking", "approval", "auto"
+MODES = (MODE_OFF, MODE_TRACKING, MODE_APPROVAL, MODE_AUTO)
+
+# ── opportunity states (market-wide, slice A) ─────────────────────────────────────────────────────────────────────────
+OPP_CREATED = "CREATED"
+OPP_VALIDATING = "VALIDATING"
+OPP_QUALIFIED = "QUALIFIED"
+OPP_CONDITIONAL = "CONDITIONAL"
+OPP_WATCHLIST = "WATCHLIST"
+OPP_REJECTED = "REJECTED"
+OPP_EXPIRED = "EXPIRED"
+OPP_DATA_INSUFFICIENT = "DATA_INSUFFICIENT"
+OPP_STATES = (OPP_CREATED, OPP_VALIDATING, OPP_QUALIFIED, OPP_CONDITIONAL, OPP_WATCHLIST, OPP_REJECTED, OPP_EXPIRED,
+              OPP_DATA_INSUFFICIENT)
+OPP_OPEN_STATES = (OPP_CREATED, OPP_VALIDATING, OPP_QUALIFIED, OPP_CONDITIONAL, OPP_WATCHLIST, OPP_DATA_INSUFFICIENT)
+
+# ── proposal states (per account, slice B) ────────────────────────────────────────────────────────────────────────────
+PROP_GENERATED = "PROPOSAL_GENERATED"
+PROP_AWAITING_RISK = "AWAITING_RISK"
+PROP_BLOCKED_BY_RISK = "BLOCKED_BY_RISK"
+PROP_REJECTED = "REJECTED"
+PROP_NOT_TRADABLE = "NOT_TRADABLE"
+PROP_RISK_APPROVED = "RISK_APPROVED"
+PROP_AWAITING_USER = "AWAITING_USER_APPROVAL"
+PROP_USER_REJECTED = "USER_REJECTED"
+PROP_APPROVAL_EXPIRED = "APPROVAL_EXPIRED"
+PROP_READY_FOR_ORDER = "READY_FOR_ORDER"
+PROP_ORDER_CREATED = "ORDER_CREATED"
+PROP_TRACKING_ONLY = "TRACKING_ONLY"
+PROP_STATES = (PROP_GENERATED, PROP_AWAITING_RISK, PROP_BLOCKED_BY_RISK, PROP_REJECTED, PROP_NOT_TRADABLE,
+               PROP_RISK_APPROVED, PROP_AWAITING_USER, PROP_USER_REJECTED, PROP_APPROVAL_EXPIRED, PROP_READY_FOR_ORDER,
+               PROP_ORDER_CREATED, PROP_TRACKING_ONLY)
+
+# ── risk decisions (PRD §9.9, WF §10.3) ───────────────────────────────────────────────────────────────────────────────
+RISK_APPROVE = "APPROVE"
+RISK_APPROVE_REDUCED = "APPROVE_REDUCED"
+RISK_CONDITIONAL = "CONDITIONAL_APPROVAL"
+RISK_REJECT = "REJECT"
+RISK_BLOCKED = "BLOCKED"
+RISK_EXIT_REQUIRED = "EXIT_REQUIRED"
+RISK_HALT = "HALT_ACCOUNT"
+RISK_DECISIONS = (RISK_APPROVE, RISK_APPROVE_REDUCED, RISK_CONDITIONAL, RISK_REJECT, RISK_BLOCKED, RISK_EXIT_REQUIRED,
+                  RISK_HALT)
+
+# ── orders (slice C) ──────────────────────────────────────────────────────────────────────────────────────────────────
+ORD_CREATED = "CREATED"
+ORD_VALIDATED = "VALIDATED"
+ORD_PENDING = "PENDING"
+ORD_PARTIAL = "PARTIALLY_FILLED"
+ORD_FILLED = "FILLED"
+ORD_CANCELLED = "CANCELLED"
+ORD_EXPIRED = "EXPIRED"
+ORD_REJECTED = "REJECTED"
+ORD_STATES = (ORD_CREATED, ORD_VALIDATED, ORD_PENDING, ORD_PARTIAL, ORD_FILLED, ORD_CANCELLED, ORD_EXPIRED, ORD_REJECTED)
+ORD_LIVE_STATES = (ORD_CREATED, ORD_VALIDATED, ORD_PENDING, ORD_PARTIAL)
+ORDER_TYPES = ("MARKET", "LIMIT", "SL", "SL_M")
+SIDES = ("BUY", "SELL")
+TIME_IN_FORCE = ("DAY", "GTD")
+ORDER_PURPOSES = ("ENTRY", "EXIT")
+
+# ── positions (slice C) ───────────────────────────────────────────────────────────────────────────────────────────────
+POS_OPEN = "OPEN"
+POS_MONITORING = "MONITORING"
+POS_PARTIALLY_EXITED = "PARTIALLY_EXITED"
+POS_CLOSING = "CLOSING"
+POS_CLOSED = "CLOSED"
+POS_RISK_RESTRICTED = "RISK_RESTRICTED"
+POS_EXIT_PENDING = "EXIT_PENDING"
+POS_EXECUTION_EXCEPTION = "EXECUTION_EXCEPTION"
+POS_RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
+POS_STATES = (POS_OPEN, POS_MONITORING, POS_PARTIALLY_EXITED, POS_CLOSING, POS_CLOSED, POS_RISK_RESTRICTED,
+              POS_EXIT_PENDING, POS_EXECUTION_EXCEPTION, POS_RECONCILIATION_REQUIRED)
+POS_OPEN_STATES = tuple(s for s in POS_STATES if s != POS_CLOSED)
+
+# ── events (WF §22, plus DESIGN.md §7) ────────────────────────────────────────────────────────────────────────────────
+EVENT_TYPES = (
+    "SCANNER_SIGNAL_RECEIVED", "SCANNER_SIGNAL_NORMALIZED", "SIGNAL_CONFLICT_DETECTED",
+    "OPPORTUNITY_CREATED", "OPPORTUNITY_UPDATED", "OPPORTUNITY_VALIDATED", "OPPORTUNITY_QUALIFIED", "OPPORTUNITY_REJECTED",
+    "OPPORTUNITY_EXPIRED",
+    "TRADE_PROPOSAL_CREATED", "PROPOSAL_STATE_CHANGED", "POSITION_SIZE_CALCULATED", "ALLOCATION_APPROVED",
+    "ALLOCATION_REDUCED", "ALLOCATION_REJECTED", "RISK_APPROVED", "RISK_REJECTED",
+    "PAPER_ORDER_CREATED", "PAPER_ORDER_PARTIALLY_FILLED", "PAPER_ORDER_FILLED", "PAPER_ORDER_CANCELLED", "ORDER_EXPIRED",
+    "POSITION_OPENED", "POSITION_MODIFIED", "POSITION_PARTIALLY_EXITED", "STOP_MOVED", "STOP_TRIGGERED",
+    "TARGET_TRIGGERED", "POSITION_CLOSED",
+    "RISK_LIMIT_BREACHED", "KILL_SWITCH_TRIGGERED", "TRADE_ANALYTICS_COMPLETED",
+)
+
+# ── scope tonight (DESIGN.md D5) ──────────────────────────────────────────────────────────────────────────────────────
+TRADABLE_HORIZONS = ("positional",)
+TRADABLE_DIRECTIONS = ("long",)
+TRADABLE_INSTRUMENTS = ("cash",)
