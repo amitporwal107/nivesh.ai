@@ -449,12 +449,16 @@ async def validate(db, opp_id: str, *, inputs: Optional[inputs_mod.MarketInputs]
     except Exception as e:  # noqa: BLE001 — never left in VALIDATING: recorded as DATA_INSUFFICIENT and retried
         logger.warning("spt validate: %s failed (%s)", opp_id, type(e).__name__)
         rec = error_record(opp, now, type(e).__name__, pol)
-    done = await store.transition(
-        db, opp_id, expect_states=[C.OPP_VALIDATING], to_state=rec["decision"],
-        reason=",".join(rec["reason_codes"]) or "passed",
-        extra={"validation": rec, "opportunity_score": rec["opportunity_score"], "revalidate_at": rec["revalidate_at"],
-               "validated_evidence_version": opp.get("evidence_version") or 0, "validating_since": None},
-        now=clock.utc_iso(now))
+    done = None
+    for _ in range(3):              # a signal attached meanwhile bumps `version`: retry while it is still VALIDATING
+        done = await store.transition(
+            db, opp_id, expect_states=[C.OPP_VALIDATING], to_state=rec["decision"],
+            reason=",".join(rec["reason_codes"]) or "passed",
+            extra={"validation": rec, "opportunity_score": rec["opportunity_score"], "revalidate_at": rec["revalidate_at"],
+                   "validated_evidence_version": opp.get("evidence_version") or 0, "validating_since": None},
+            now=clock.utc_iso(now))
+        if done is not None or ((await store.get(db, opp_id)) or {}).get("state") != C.OPP_VALIDATING:
+            break
     if done is None:
         cur = await store.get(db, opp_id)
         return {"ok": False, "error": "state_changed", "state": (cur or {}).get("state")}
@@ -470,7 +474,7 @@ def _due_query(now: datetime) -> Dict[str, Any]:
     stale = clock.utc_iso(now - timedelta(seconds=VALIDATING_STALE_S))
     return {"state": {"$in": list(REVALIDATABLE) + [C.OPP_VALIDATING]},
             "$or": [{"state": C.OPP_CREATED},
-                    {"state": C.OPP_VALIDATING, "updated_at": {"$lte": stale}},
+                    {"state": C.OPP_VALIDATING, "validating_since": {"$lte": stale}},
                     {"state": {"$ne": C.OPP_VALIDATING},
                      "$expr": {"$gt": ["$evidence_version", {"$ifNull": ["$validated_evidence_version", 0]}]}},
                     {"state": {"$ne": C.OPP_VALIDATING}, "revalidate_at": {"$lte": at}}]}

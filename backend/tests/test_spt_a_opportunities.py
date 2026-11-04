@@ -469,3 +469,36 @@ def test_SPT_A_31_the_evening_round_runs_the_outcomes_step():
     r = run(runner.round_once(db, ist(10, 0, day=D + timedelta(days=1)), scan_store=scan, inputs=Inputs({}), me="w1",
                               outcomes=runner.outcomes_step))
     assert r["counts"]["outcomes"] == {"skipped": "not_evening"}
+
+
+def test_a_validation_stuck_in_validating_is_resumed_after_five_minutes():
+    db = DB()
+    o = qualified_setup(db)
+    run(store.transition(db, o["_id"], expect_states=[C.OPP_CREATED], to_state=C.OPP_VALIDATING,
+                         reason="validation_started", extra={"validating_since": clock.utc_iso(NOW)}))
+    # the worker died here; a signal still attaches (it moves updated_at, not validating_since)
+    run(load(db, [mark("cup_handle", "AAA", ist(10, 2))], now=ist(10, 2, 30)))
+    soon = NOW + timedelta(minutes=2)
+    assert run(val.validate(db, o["_id"], inputs=Inputs(market()), now=soon))["error"] == "validation_in_progress"
+    assert run(val.validate_due(db, now=soon, inputs=Inputs(market())))["due"] == 0
+    c = run(val.validate_due(db, now=NOW + timedelta(minutes=6), inputs=Inputs(market())))
+    assert c["validated"] == 1 and only(db)["state"] == C.OPP_QUALIFIED
+    assert only(db)["validated_evidence_version"] == only(db)["evidence_version"]
+
+
+def test_evidence_that_arrives_during_a_validation_is_not_lost():
+    db = DB()
+    run(load(db, [mark("dt_52w_high", "AAA", ist(9, 30), 102.0)]))
+    o = only(db)
+
+    class Racing(Inputs):
+        async def regime(self):
+            await load(db, [], [strong("AAA", ist(9, 45), entry=103.0)])     # attaches while the record is built
+            return await super().regime()
+
+    r = run(val.validate(db, o["_id"], inputs=Racing(market()), now=NOW))
+    assert r["state"] == C.OPP_WATCHLIST and r["validation"]["reason_codes"] == ["no_strong_signal"]
+    doc = only(db)
+    assert doc["strong"] is not None and doc["evidence_version"] > doc["validated_evidence_version"]
+    c = run(val.validate_due(db, now=NOW + timedelta(seconds=30), inputs=Inputs(market())))
+    assert c["validated"] == 1 and only(db)["state"] == C.OPP_QUALIFIED

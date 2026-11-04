@@ -3,7 +3,8 @@ an `error` instead of raising, so a data-provider outage becomes DATA_INSUFFICIE
 
     bars(symbol)   NSE end-of-day bars (services/desk_trading.fetch_bars: nidp.prices_eod through the data platform, raw
                    traded prices, NOT adjusted for bonuses or splits; validate.py cuts at exit_watch.rules.series_break)
-                   for BARS_LOOKBACK_DAYS calendar days (≈ 290 sessions: enough for EMA200), cached BARS_TTL_S per symbol
+                   for BARS_LOOKBACK_DAYS calendar days (≈ 290 sessions: enough for EMA200), cached BARS_TTL_S per symbol,
+                   at most BARS_CACHE_MAX symbols (least recently used dropped first: ~290 bars a symbol)
     regime()       the desk regime (macro_engine.classify_desk_regime through strategy_plan.regime_fit.read_regime), cached
                    REGIME_TTL_S
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 BARS_LOOKBACK_DAYS = 420
 BARS_TTL_S = 1800.0
+BARS_CACHE_MAX = 200
 REGIME_TTL_S = 300.0
 FETCH_CONCURRENCY = 6
 BARS_SOURCE = "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform, desk_trading.fetch_bars)"
@@ -46,7 +49,7 @@ class MarketInputs:
         self._fetch = fetch_bars or _default_fetch_bars
         self._regime = read_regime or _default_read_regime
         self._mono = monotonic
-        self._bars: Dict[str, Dict[str, Any]] = {}
+        self._bars: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self._reg: Dict[str, Any] = {"at": float("-inf"), "value": None}
         self._gate = asyncio.Semaphore(FETCH_CONCURRENCY)
 
@@ -54,6 +57,7 @@ class MarketInputs:
         """{bars, error, source, read_at}. A read error is cached for a minute only."""
         hit = self._bars.get(symbol)
         if hit is not None and self._mono() - hit["at"] < hit["ttl"]:
+            self._bars.move_to_end(symbol)
             return hit["value"]
         now = now or datetime.now(timezone.utc)
         start = clock.ist_day(now) - timedelta(days=BARS_LOOKBACK_DAYS)
@@ -65,6 +69,9 @@ class MarketInputs:
             logger.warning("spt validate: bars for %s unreadable (%s)", symbol, type(e).__name__)
             out["error"] = f"the end-of-day bars could not be read ({type(e).__name__})"
         self._bars[symbol] = {"at": self._mono(), "ttl": 60.0 if out["error"] else BARS_TTL_S, "value": out}
+        self._bars.move_to_end(symbol)
+        while len(self._bars) > BARS_CACHE_MAX:
+            self._bars.popitem(last=False)
         return out
 
     async def regime(self) -> Dict[str, Any]:

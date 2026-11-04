@@ -278,10 +278,13 @@ async def compute(db, *, now: datetime, inputs: inputs_mod.MarketInputs, days: S
                   scores_docs: Optional[Dict[str, Dict[str, Any]]] = None, limit: int = MAX_PER_ROUND,
                   through: Optional[str] = None) -> Dict[str, int]:
     """(Re)compute the outcomes of the outcome-eligible events of `days` that are not complete and not yet computed
-    through `through` (default: today IST), newest day first, at most `limit`. Returns counts."""
+    through `through` (default: today IST), newest day first, at most `limit`; bars are read once per symbol for all its
+    events. Returns counts."""
     through = through or clock.ist_day(now).isoformat()
     counts = {"events": 0, "computed": 0, "complete": 0, "skipped": 0, "bars_errors": 0, "remaining": 0}
     budget = max(0, int(limit))
+    todo: List[Dict[str, Any]] = []
+    prev: Dict[str, Dict[str, Any]] = {}
     for day in sorted(days, reverse=True):
         evs = [e for e in await sig_store.list_signals(db, day=day, limit=0, newest_first=False)
                if e.get("outcome_eligible") and e.get("detected_price") and e.get("detected_at")]
@@ -289,32 +292,36 @@ async def compute(db, *, now: datetime, inputs: inputs_mod.MarketInputs, days: S
             continue
         have = {d["_id"]: d for d in await db[COLL].find({"day": day}, {"complete": 1, "bars_through": 1, "fade": 1})
                 .to_list(length=None)}
-        todo = [e for e in evs if not (have.get(e["signal_id"], {}).get("complete")
+        need = [e for e in evs if not (have.get(e["signal_id"], {}).get("complete")
                                        or (have.get(e["signal_id"], {}).get("bars_through") or "") >= through)]
         counts["events"] += len(evs)
-        counts["skipped"] += len(evs) - len(todo)
-        if len(todo) > budget:
-            counts["remaining"] += len(todo) - budget
-            todo = todo[:budget]
-        budget -= len(todo)
-        if not todo:
+        counts["skipped"] += len(evs) - len(need)
+        if len(need) > budget:
+            counts["remaining"] += len(need) - budget
+            need = need[:budget]
+        budget -= len(need)
+        todo.extend(need)
+        prev.update({e["signal_id"]: have.get(e["signal_id"]) or {} for e in need})
+    if not todo:
+        return counts
+    opps = await _opps_of(db, [e["signal_id"] for e in todo])
+    by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+    for e in todo:
+        by_symbol.setdefault(e["symbol"], []).append(e)
+    for sym, evs in by_symbol.items():
+        got = await inputs.bars(sym, now)
+        if got.get("error"):
+            counts["bars_errors"] += len(evs)
             continue
-        opps = await _opps_of(db, [e["signal_id"] for e in todo])
-        sdoc = (scores_docs or {}).get(day)
-        for ev in todo:
-            got = await inputs.bars(ev["symbol"], now)
-            if got.get("error"):
-                counts["bars_errors"] += 1
-                continue
-            prev = have.get(ev["signal_id"]) or {}
-            fd = fade(ev.get("kind"), ev["symbol"], sdoc) if sdoc else prev.get("fade") or fade(ev.get("kind"), ev["symbol"], None)
+        for ev in evs:
+            sdoc = (scores_docs or {}).get(ev["day"])
+            fd = (fade(ev.get("kind"), sym, sdoc) if sdoc
+                  else prev[ev["signal_id"]].get("fade") or fade(ev.get("kind"), sym, None))
             doc = outcome_doc(ev, got, now=now, opportunity_ids=opps.get(ev["signal_id"], []), fade_rec=fd)
             await db[COLL].update_one({"_id": doc["_id"]}, {"$set": {k: v for k, v in doc.items() if k != "_id"}},
                                       upsert=True)
             counts["computed"] += 1
             counts["complete"] += 1 if doc["complete"] else 0
-        if budget <= 0:
-            break
     return counts
 
 

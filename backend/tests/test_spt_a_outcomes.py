@@ -244,3 +244,19 @@ def test_SPT_A_41_evening_run_waits_for_the_nse_file_and_runs_once():
     assert run(tracker.evening(db, now=ist(20, 20), inputs=inp, scan_store=scan)) == {"skipped": "done"}
     assert run(tracker.evening(db, now=ist(20, 0, day=date(2026, 11, 7)), inputs=inp, scan_store=scan)) == {
         "skipped": "not_evening"}                                             # Saturday
+
+
+def test_bars_are_read_once_per_symbol_and_the_cache_is_bounded(monkeypatch):
+    from services.spt.opportunities import inputs as inputs_mod
+    monkeypatch.setattr(inputs_mod, "BARS_CACHE_MAX", 1)
+    db = DB()
+    setup_day(db)                                     # events in time order: AAA, BBB, AAA (15m), AAA (strong)
+    inp = Inputs(market_after(20))
+    c = run(tracker.compute(db, now=datetime(2026, 12, 2, 15, 0, tzinfo=timezone.utc), inputs=inp, days=[DAY]))
+    assert c["computed"] == 4 and sorted(inp.bar_calls) == ["AAA", "BBB"]
+    inp2 = Inputs(market_after(1))
+    for sym in ("AAA", "BBB", "AAA"):
+        run(inp2.bars(sym, NOW))
+    assert inp2.bar_calls == ["AAA", "BBB", "AAA"] and list(inp2._bars) == ["AAA"]      # AAA was dropped for BBB
+    run(inp2.bars("AAA", NOW))
+    assert inp2.bar_calls == ["AAA", "BBB", "AAA"]                                     # a cache hit
