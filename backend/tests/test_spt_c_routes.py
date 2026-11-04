@@ -101,6 +101,8 @@ def test_c32c_entry_needs_a_ready_proposal_and_b(env, monkeypatch):
     assert c.post("/api/v1/paper/orders", headers=A, json={"purpose": "ENTRY", "proposal_id": "p1"}).status_code == 422
     assert c.post("/api/v1/paper/orders", headers=A, json={"purpose": "ENTRY", "proposal_id": "p2"}).status_code == 422
     monkeypatch.setitem(sys.modules, "services.spt.pipeline", None)
+    import services.spt as _spt_pkg                                      # once B's real module is loaded, the package
+    monkeypatch.delattr(_spt_pkg, "pipeline", raising=False)             # attribute must go too, or the import finds it
     r3 = c.post("/api/v1/paper/orders", headers=A, json={"purpose": "ENTRY", "proposal_id": "p3"})
     assert r3.status_code == 503 and r3.json()["detail"]["code"] == "entry_pipeline_unavailable"
     calls = []

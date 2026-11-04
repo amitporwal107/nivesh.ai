@@ -485,3 +485,18 @@ def test_rc7_a_trade_that_closed_after_the_plan_is_not_reserved(db):
     assert report["moved"] == [] and report["skipped"][0]["key"] == plan["entries"][0]["key"]
     assert account(db)["blocked_rs"] == blocked and checks_ok(db)
     assert "reconciliation" not in next(t for t in db[svc.TRADES].docs if t["_id"] == ICICI1)
+
+
+# ── SPT reservations (services/spt: risk_gate EntryRequest.store = "spt_orders") ───────────────────────────────────────
+def test_rc_spt_reservation_counts_as_reserved_and_is_never_proposed_as_an_orphan():
+    # MOCK — not real data: one account whose only blocked funds are a live SPT order's risk reservation.
+    acc = {"user_id": "u_spt", "cash_rs": 1_000_000.0, "blocked_rs": 50_000.0, "starting_capital_rs": 1_000_000.0,
+           "reservations": [{"id": "dec-1", "trade_id": "ord-1", "store": "spt_orders", "funding_rs": 50_000.0}]}
+    ledger = [{"_id": "l-1", "user_id": "u_spt", "action": "reserve", "amount_rs": 50_000.0, "trade_id": "ord-1"}]
+    inv = rec.invariants(acc, ledger, [])
+    assert inv["I3_spt_reserved"] == 50_000.0 and inv["I3_ok"] and inv["I2_ok"] and inv["ok"]
+    plan = rec.build_plan([acc], ledger, [])
+    assert [i for i in plan["issues"] if i["code"] in (rec.ORPHAN_RESERVATION, rec.ACCOUNT_BLOCKED)] == []
+    # A desk reservation is not SPT's: the same ledger row without the live SPT reservation is still an orphan.
+    plan2 = rec.build_plan([{**acc, "reservations": []}], ledger, [])
+    assert any(i["code"] == rec.ORPHAN_RESERVATION and i["trade_id"] == "ord-1" for i in plan2["issues"])

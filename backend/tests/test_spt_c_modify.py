@@ -110,6 +110,8 @@ def test_c28_increasing_changes_go_to_b(w, b):
 def test_c28b_increasing_refused_under_kill_switch_and_without_b(w, monkeypatch):
     o, pos = opened(w)
     monkeypatch.setitem(sys.modules, "services.spt.risk", None)          # B's module not importable
+    import services.spt as _spt_pkg                                      # once B's real module is loaded, the package
+    monkeypatch.delattr(_spt_pkg, "risk", raising=False)                 # attribute must go too, or the import finds it
     with pytest.raises(modify.ModifyRefused) as e:
         mod(w, pos, {"kind": "stop_loss", "value": 95.0})
     assert e.value.code == "risk_check_unavailable" and e.value.status == 503
