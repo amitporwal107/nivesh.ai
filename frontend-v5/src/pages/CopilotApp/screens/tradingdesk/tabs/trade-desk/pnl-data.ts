@@ -15,8 +15,10 @@
  *   GET /api/desk/pnl/timeseries?interval=15m&trade=  ONE trade's net P&L (a paper share trade since its entry; a structure or
  *                                                     a live position over today's session)
  *   GET /api/desk/pnl/journal/{trade_id}              the Scan dashboard's signal for the stock on the trade's entry day
- *   PATCH /api/desk/paper-trades/{trade_id}/levels    Modify risk — the ONE write here (paper share trades; new stop loss /
- *                                                     target in force from the next session)
+ *   PATCH /api/desk/paper-trades/{trade_id}/levels    Modify risk (paper share trades; new stop loss / target in force from
+ *                                                     the next session)
+ *   GET /api/desk/pnl/exits · POST …/exits/seen       Exit watch (EXIT_WATCH.md): live positions' stop loss and exit alerts;
+ *   PUT / DELETE /api/positions/{U}/levels            marking alerts seen; the user's own stop for an underlying
  *
  * Transport (usePaperPnl): the stream first; polling GET /api/desk/pnl (3 s in session, 30 s otherwise) when EventSource is
  * missing, the session rides a bearer token or an advisor's X-Active-Profile (EventSource cannot send headers), or the stream
@@ -25,7 +27,8 @@
  * back. Each snapshot is the whole picture, so a gap needs no repair.
  *
  * Reads trust nothing: a missing or non-numeric figure is null (the screen shows "—"), never 0; a body without `summary` or
- * `positions` is a contract error. Nothing here reaches a broker; the only write is the paper levels PATCH.
+ * `positions` is a contract error. Nothing here reaches a broker order; the writes are the paper levels PATCH, the exit alerts'
+ * seen mark and the user's own stop levels.
  */
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -997,4 +1000,227 @@ export function downloadText(name: string, text: string, type = "text/csv;charse
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+// ── Exit watch (docs/paper_pnl_dashboard/EXIT_WATCH.md): live broker positions' stop loss and exit alerts ──────────────
+//
+//   GET  /api/desk/pnl/exits?account=        the watched live positions (stop, method, distance, status, loss at stop,
+//                                            history), what is not watched and why, the last 7 days of alerts. READ-ONLY.
+//   POST /api/desk/pnl/exits/seen {ids?}     marks the caller's alerts seen ({} = every unseen one)
+//   PUT / DELETE /api/positions/{U}/levels   the user's own stop for an underlying (replaces the rule) / back to the rule
+//
+// Alerts are in-app only (owner, 4 Nov 2026) and nothing here reaches a broker order.
+
+export type ExitKind = "shares" | "future" | "hedged";
+export type ExitMethod = "atr_trail" | "yours" | "put_floor" | "call_cap" | "none";
+export type ExitStatus = "OK" | "NEAR" | "HIT" | "FLOOR" | "NO_STOP";
+
+export interface ExitLeg { instrument: string | null; type: string | null; quantity: number | null; avg: number | null; expiry: string | null; strike: number | null }
+export interface ExitHistory { day: string | null; stop: number | null; candidate: number | null; close: number | null; atr: number | null; moved: boolean | null; reason: string | null }
+
+export interface ExitPosition {
+  key: string;
+  accountId: string | null;
+  account: string | null;
+  underlying: string;
+  label: string;
+  kind: ExitKind | null;
+  side: "long" | "short" | null;
+  legs: ExitLeg[];
+  price: number | null;
+  /** "kite_live" | "kite_close" | "eod" (anything else is shown as given). */
+  priceSource: string | null;
+  priceAsOf: string | null;
+  stop: number | null;
+  method: ExitMethod;
+  stopDay: string | null;
+  /** False: worked out for this answer, not yet stored by the watcher. */
+  stored: boolean | null;
+  ruleStop: number | null;
+  atr: number | null;
+  atrPct: number | null;
+  distancePct: number | null;
+  distanceAtr: number | null;
+  status: ExitStatus;
+  why: string | null;
+  /** ₹, gross, from the average cost; negative = a gain locked in. */
+  lossAtStop: number | null;
+  lossBasis: string | null;
+  support: number | null;
+  note: string | null;
+  history: ExitHistory[];
+  /** The user's own levels for the underlying as stored (positions workspace), null when none. Sent back whole when the stop
+   *  changes: PUT /api/positions/{U}/levels replaces the document, so leaving them out would wipe a target or a trail. */
+  own: OwnLevels | null;
+}
+
+export interface OwnLevels {
+  stop: number | null;
+  target: number | null;
+  trailPct: number | null;
+}
+
+export interface ExitAlert {
+  id: string;
+  at: string | null;
+  day: string | null;
+  kind: string;
+  severity: AlertSeverity;
+  key: string | null;
+  underlying: string | null;
+  account: string | null;
+  text: string;
+  price: number | null;
+  level: number | null;
+  source: string | null;
+  seen: boolean;
+}
+
+export interface ExitWatch {
+  asOf: string | null;
+  session: string | null;
+  rule: { id: string | null; text: string | null };
+  watcher: { enabled: boolean | null; liveRoundAt: string | null; eodDay: string | null; feedWhy: string | null };
+  positions: ExitPosition[];
+  notWatched: Array<{ label: string; why: string | null }>;
+  /** Newest first. */
+  alerts: ExitAlert[];
+  unseen: number;
+  accounts: Array<{ accountId: string; name: string | null; state: string | null }>;
+}
+
+const EXIT_KINDS: readonly string[] = ["shares", "future", "hedged"];
+const EXIT_METHODS: readonly string[] = ["atr_trail", "yours", "put_floor", "call_cap", "none"];
+const EXIT_STATUSES: readonly string[] = ["OK", "NEAR", "HIT", "FLOOR", "NO_STOP"];
+
+function readExitPosition(v: unknown): ExitPosition | null {
+  const p = rec(v);
+  const key = str(p.key);
+  const underlying = str(p.underlying);
+  if (!key || !underlying) return null;
+  const kind = str(p.kind);
+  const side = str(p.side);
+  const method = str(p.method);
+  const status = str(p.status);
+  return {
+    key, accountId: str(p.account_id), account: str(p.account), underlying, label: str(p.label) ?? underlying,
+    kind: kind && EXIT_KINDS.includes(kind) ? (kind as ExitKind) : null,
+    side: side === "long" || side === "short" ? side : null,
+    legs: arr(p.legs).map((x) => {
+      const l = rec(x);
+      return { instrument: str(l.instrument), type: str(l.type), quantity: num(l.quantity), avg: num(l.avg), expiry: str(l.expiry), strike: num(l.strike) };
+    }),
+    price: num(p.price), priceSource: str(p.price_source), priceAsOf: str(p.price_as_of),
+    stop: num(p.stop), method: method && EXIT_METHODS.includes(method) ? (method as ExitMethod) : "none", stopDay: str(p.stop_day), stored: bool(p.stored),
+    ruleStop: num(p.rule_stop), atr: num(p.atr), atrPct: num(p.atr_pct), distancePct: num(p.distance_pct), distanceAtr: num(p.distance_atr),
+    // An unknown status is never shown as OK.
+    status: status && EXIT_STATUSES.includes(status) ? (status as ExitStatus) : "NO_STOP",
+    why: str(p.why), lossAtStop: num(p.loss_at_stop), lossBasis: str(p.loss_basis), support: num(p.support), note: str(p.note),
+    history: arr(p.history).map((x) => {
+      const h = rec(x);
+      return { day: str(h.day), stop: num(h.stop), candidate: num(h.candidate), close: num(h.close), atr: num(h.atr), moved: bool(h.moved), reason: str(h.reason) };
+    }),
+    own: p.own && typeof p.own === "object" ? { stop: num(rec(p.own).stop), target: num(rec(p.own).target), trailPct: num(rec(p.own).trail_pct) } : null,
+  };
+}
+
+function readExitAlert(v: unknown): ExitAlert | null {
+  const a = rec(v);
+  const id = str(a.id);
+  const text = str(a.text);
+  if (!id || !text) return null;
+  const sev = str(a.severity);
+  return {
+    id, at: str(a.at), day: str(a.day), kind: str(a.kind) ?? "ALERT",
+    severity: sev && SEVERITIES.includes(sev) ? (sev as AlertSeverity) : "WARNING",
+    key: str(a.key), underlying: str(a.underlying), account: str(a.account), text, price: num(a.price), level: num(a.level), source: str(a.source),
+    // Only an explicit true is seen: an alert never goes quiet on a missing flag.
+    seen: a.seen === true,
+  };
+}
+
+/** GET /api/desk/pnl/exits: the body as the screen uses it. A body without a positions list is a contract error. */
+export function readExits(body: unknown): ExitWatch {
+  const b = rec(body);
+  if (!Array.isArray(b.positions)) throw ApiError.contractDrift("desk.pnl.exits: no positions list");
+  const rule = rec(b.rule);
+  const w = rec(b.watcher);
+  const alerts = arr(b.alerts).map(readExitAlert).filter((x): x is ExitAlert => !!x)
+    .sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
+  const unseen = num(b.unseen);
+  return {
+    asOf: str(b.as_of), session: str(b.session),
+    rule: { id: str(rule.id), text: str(rule.text) },
+    watcher: { enabled: bool(w.enabled), liveRoundAt: str(w.live_round_at), eodDay: str(w.eod_day), feedWhy: str(w.feed_why) },
+    positions: (b.positions as unknown[]).map(readExitPosition).filter((x): x is ExitPosition => !!x),
+    notWatched: arr(b.not_watched).flatMap((x) => { const n = rec(x); const label = str(n.label); return label ? [{ label, why: str(n.why) }] : []; }),
+    alerts,
+    unseen: unseen ?? alerts.filter((a) => !a.seen).length,
+    accounts: arr(b.accounts).flatMap((x) => { const a = rec(x); const id = str(a.account_id); return id ? [{ accountId: id, name: str(a.name), state: str(a.state) }] : []; }),
+  };
+}
+
+export const EXITS_KEY = ["copilot", "desk", "pnl-exits"] as const;
+
+/** GET /api/desk/pnl/exits, every 30 s while the page is open (paused in a hidden tab). */
+export function useExitWatch(account: string, enabled: boolean) {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<ExitWatch>({
+    queryKey: [...EXITS_KEY, account, profile ?? "self"],
+    enabled,
+    staleTime: 15_000,
+    retry: (count: number, e: unknown) => !(e instanceof ApiError && e.status === 404) && retry(count, e),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    queryFn: async ({ signal }) => readExits((await http({ path: "/api/desk/pnl/exits", query: { account }, signal, noRetry: true, timeoutMs: 30_000 })).data),
+  });
+}
+
+/** POST /api/desk/pnl/exits/seen — the given alerts, or (no ids) every unseen one of the caller's. */
+export function useMarkExitsSeen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids?: string[]): Promise<number | null> => {
+      const res = await http({ method: "POST", path: "/api/desk/pnl/exits/seen", body: ids && ids.length ? { ids } : {}, noRetry: true, timeoutMs: 20_000 });
+      return num(rec(res.data).marked);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: EXITS_KEY }),
+  });
+}
+
+/** PUT /api/positions/{U}/levels {stop}: the user's own stop loss for that underlying (every account), in place of the rule. */
+export function useSetOwnStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    // The PUT replaces the whole document, so the target and trail the user already has are sent back unchanged.
+    mutationFn: async ({ underlying, stop, own }: { underlying: string; stop: number; own: OwnLevels | null }) => {
+      const body = { stop, target: own?.target ?? null, trail_pct: own?.trailPct ?? null };
+      const res = await http({ method: "PUT", path: `/api/positions/${encodeURIComponent(underlying)}/levels`, body, noRetry: true, timeoutMs: 20_000 });
+      return { stop: num(rec(res.data).stop) };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: EXITS_KEY }),
+  });
+}
+
+/** DELETE /api/positions/{U}/levels — back to the rule; 404 levels_not_found means there was nothing to clear. */
+export function useClearOwnStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    // Back to the rule = no own stop and no own trail (both set the stop). A target the user keeps stays: then the document is
+    // rewritten with only the target, else it is deleted.
+    mutationFn: async ({ underlying, own }: { underlying: string; own: OwnLevels | null }) => {
+      try {
+        if (own?.target != null) {
+          await http({ method: "PUT", path: `/api/positions/${encodeURIComponent(underlying)}/levels`,
+            body: { stop: null, target: own.target, trail_pct: null }, noRetry: true, timeoutMs: 20_000 });
+        } else {
+          await http({ method: "DELETE", path: `/api/positions/${encodeURIComponent(underlying)}/levels`, noRetry: true, timeoutMs: 20_000 });
+        }
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404)) throw e;
+      }
+      return true;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: EXITS_KEY }),
+  });
 }
