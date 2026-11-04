@@ -7,7 +7,6 @@ MOCK — not real data: every user, symbol, price, opportunity and order is made
 from __future__ import annotations
 
 import asyncio
-import copy
 from datetime import timedelta
 
 import pytest
@@ -18,7 +17,7 @@ from services import risk_controls as rc
 from services.risk_gate import estimate as est
 from services.risk_gate import service
 from services.spt import allocation, constants as C, events, pipeline, policy, proposals, risk
-from tests.spt_b_fakes import NOW, U1, U2, opportunity, plan, world  # noqa: F401 (world is a fixture)
+from tests.spt_b_fakes import NOW, U1, U2, opportunity, world  # noqa: F401 (world is a fixture)
 
 
 def run(coro):
@@ -512,3 +511,16 @@ def test_spt_b_38_stress_scenarios_on_the_open_spt_book(world):
     sec = next(s for s in out["scenarios"] if s["name"] == "sector_shock")
     assert sec["worst_sector"] == "MOCK Sector" and sec["worst_loss_rs"] == round(q * 502 * 0.05, 2)
     assert risk.stress([{"order_id": "x", "quantity": None, "entry": 1.0, "stop": 0.5}], gap_pct=1.0)["unpriced"] == ["x"]
+
+
+def test_spt_b_26c_an_unexpected_evaluation_error_fails_closed_on_record(world, monkeypatch):
+    setup(world)
+
+    async def boom(*a, **kw):
+        raise RuntimeError("MOCK evaluation failure")
+    monkeypatch.setattr(risk, "evaluate", boom)
+    report = run(pipeline.run_round(world.db, NOW))
+    p = only(world)
+    assert p["state"] == C.PROP_BLOCKED_BY_RISK and p["risk"]["reason_codes"] == ["internal_error"]
+    assert report["errors"] == [{"proposal_id": p["_id"], "stage": "evaluate", "error": "RuntimeError"}]
+    assert world.orders.calls == []

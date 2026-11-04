@@ -5,8 +5,6 @@ test_reports/spt_b_TESTCASES.md SPT-B-02..04 over HTTP, 31 over HTTP, 34, 35, 36
 MOCK — not real data: every user, symbol, price, opportunity and ledger row is made up."""
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient

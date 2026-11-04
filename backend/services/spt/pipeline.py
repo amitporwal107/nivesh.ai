@@ -309,12 +309,25 @@ async def process_one(db, *, user_id: str, config: Dict[str, Any], state: Dict[s
     prop = moved
     mode = config["mode"]
     how = HOW_BY_MODE[mode]
-    ev = await evaluate_proposal(db, prop, state=state, config=config, price=price, opp=opp, how=how,
-                                 actor_id=risk.PIPELINE_ACTOR, now=now, consumed=consumed)
+    try:
+        ev = await evaluate_proposal(db, prop, state=state, config=config, price=price, opp=opp, how=how,
+                                     actor_id=risk.PIPELINE_ACTOR, now=now, consumed=consumed)
+    except Exception as e:  # noqa: BLE001 — fail closed and on record; a reservation taken before the failure has no
+        # order, so paper_account.sweep_orphans releases it after its 120 s grace on the user's next entry
+        logger.warning("spt pipeline: evaluating proposal %s failed (%s)", prop["_id"], type(e).__name__)
+        report["errors"].append({"proposal_id": prop["_id"], "stage": "evaluate", "error": type(e).__name__})
+        rec = _spt_refusal(prop, state, C.RISK_BLOCKED, [{"code": "internal_error", "message": f"The evaluation failed "
+                                                          f"({type(e).__name__}); nothing was ordered."}], now, "evaluate")
+        return await proposals.transition(db, prop, C.PROP_BLOCKED_BY_RISK, reason=f"internal_error: {type(e).__name__}",
+                                          now=now, extra={"risk": rec}, actor=risk.PIPELINE_ACTOR) or prop
     prop = await _record_and_move(db, prop, ev, now, actor=risk.PIPELINE_ACTOR)
     rec = ev["risk"]
     if rec["decision"] not in risk.APPROVED:
         report["refused"] += 1
+        return prop
+    if prop["state"] != C.PROP_RISK_APPROVED:              # another writer moved it first: give the reservation back
+        await service.release_unused(db, user_id, {"reservation_id": rec.get("reservation_id")},
+                                     reason="spt: the proposal moved before it was recorded as approved")
         return prop
     allocation.consume(consumed, ev["candidate"], {"quantity": rec["approved_qty"]})
     if mode == C.MODE_TRACKING:

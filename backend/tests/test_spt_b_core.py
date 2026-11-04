@@ -4,7 +4,6 @@ examples use the documents' own hypothetical numbers (PRD §8.4, WF §8.4, WF §
 from __future__ import annotations
 
 import asyncio
-import math
 from datetime import timedelta
 
 import pytest

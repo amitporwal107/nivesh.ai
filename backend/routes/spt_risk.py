@@ -33,7 +33,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
 from services import desk_trading as desk
-from services.spt import allocation, constants as C, pipeline, policy, proposals, risk, sizing
+from services.spt import allocation, constants as C, pipeline, proposals, risk, sizing
 
 from .spt_accounts import own
 
