@@ -231,6 +231,18 @@ def get_store() -> Any:
 
 # ── recording and reading ───────────────────────────────────────────────────────────────────────────────────────────
 
+def _to_spt(day: str, kind: str, stored: List[Dict[str, Any]], store: Any) -> None:
+    """Hand the marks this call stored to SPT ingest (services/spt/signals/hook.py): scheduled as a task, never awaited here,
+    never raises (its own catch-up ingests anything missed). Off unless SPT_INGEST_ENABLED / APP_ENV=staging."""
+    if not stored:
+        return
+    try:
+        from services.spt.signals import hook
+        hook.after_store(day, kind, stored, store)
+    except Exception as e:  # noqa: BLE001 — the scan loop never fails because of SPT
+        logger.warning("scan signals: SPT hand-off failed (%s)", type(e).__name__)
+
+
 _seen: Dict[str, Set[str]] = {}            # this process: day -> widget:symbol already handled
 
 
@@ -274,6 +286,7 @@ async def record(widgets: Sequence[Dict[str, Any]], inputs_for: Callable[[Sequen
         if await store.add(kp + sid, index, json.dumps(sig), TTL_S):
             stored.append(sig)
         seen.add(sid)
+    _to_spt(day, "list", stored, store)
     return stored
 
 
@@ -331,6 +344,7 @@ async def record_strong(candidates: Sequence[Dict[str, Any]], now: datetime, *, 
         if await store.add(kp + sym, index, json.dumps(rec), TTL_S):
             stored.append(rec)
         seen.add(sym)
+    _to_spt(day, "strong", stored, store)
     return stored
 
 
