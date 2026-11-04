@@ -203,3 +203,79 @@ lies between close + 1R and close + 3R, else close + 2R. **Target 2** = max(clos
 | TC-E4 | UI | 503 → error message; no candidates → empty state | e2e | as stated |
 | TC-E5 | wording | lint the page; only the five plan labels are allowed | e2e | no other banned word |
 | TC-E6 | UI | 390 px wide: no horizontal page overflow | e2e | scrollWidth ≤ width |
+
+## 8. Strategies with downside protection (owner, 4 Nov ~01:30 IST)
+
+Owner ask: "For each of the scored stocks please provide trading strategies, we need to hedge the risk as well", with five
+strategies pasted: Protective Put, Bull Call Spread, Collar, Bull Put Credit Spread, Put Ratio Backspread. Decisions
+(AskUserQuestion, 4 Nov): leg words **Buy / Sell** (a second exception on this page); **all five** shown, the ones failing a
+check greyed with the reason; stocks **without stock options** get a **Nifty put hedge** sized by beta (Quick Hedge sizing);
+premiums **end of day** (NSE F&O bhavcopy close, else settlement price), dated.
+
+`GET /api/market-recovery/strategies/{symbol}` — same flag; any stock scored on the page (404 `not_scored` otherwise). Built on
+request from the signed-in user's request through `routes/fno.py` (expiries + chain: current session only, unexpired series),
+cached per symbol and chain date for 15 minutes. Errors: `not_scored` (404), `chain_unavailable` (503, the stock has options
+but no current chain), `data_unavailable` (503).
+
+Expiry: the nearest listed expiry with ≥ 14 calendar days left (the middle of the 5–20 session horizon) and ≤ 60; else the
+nearest with ≥ 5 days (the builder's options minimum). One lot. Strikes come from the page's own plan for the stock:
+
+| key | Strategy | Legs (1 lot) |
+|---|---|---|
+| `protective_put` | Protective Put | Buy shares (1 lot); Buy put at the highest strike ≤ the close (ATM / slightly OTM) |
+| `bull_call_spread` | Bull Call Spread | Buy call at the ATM strike; Sell call at the strike nearest Target 1 (above the bought one) |
+| `collar` | Collar | Hold shares (1 lot); Buy put at the strike nearest the Stop loss (below the close); Sell call at the strike nearest Target 1 (above the close) |
+| `bull_put_spread` | Bull Put Credit Spread | Sell put at the highest strike ≤ the entry-zone low; Buy put at the strike nearest the Stop loss (below the sold one) |
+| `put_ratio_backspread` | Put Ratio Backspread | Sell 1 put at the ATM strike; Buy 2 puts at the strike nearest the Stop loss (below) |
+
+Figures at expiry, whole position, from `services/strategy_plan/payoff.py` (exact max profit / loss over all prices, breakevens,
+the desk cost card desk-cost-v2 for costs): net premium (debit < 0, credit > 0), max profit (null + `profit_unbounded`), max
+loss, max loss incl. costs (capital at risk), breakevens, reward : risk (max profit ÷ max loss; when profit is unbounded, the
+P&L at Target 1 ÷ max loss; null for the put ratio backspread, whose "max profit" needs the stock to collapse), scenarios at the Stop loss, the close, Target 1 and Target 2 (and, for share strategies, the
+same shares without the hedge), and 41 payoff points from 0.7× to 1.3× the close.
+
+Checks (the Strategy Builder's own rules): `liquid` — every option leg has a premium, open interest and trades that day
+(`candidates.leg_view` blockers; low OI / volume are flagged, not blocking); `reward_risk` — ≥ 1.5 (`rules.min_reward_risk`;
+not applied to the put ratio backspread, a volatility hedge judged by its loss zone); `credit` — a credit spread takes in at
+least a third of its strike width (the risk service's rule); `strikes` — the strikes the rule needs exist. A strategy passes
+when every applicable check passes; otherwise it is shown greyed with the failing reasons. Not estimated: exchange margin
+for sold options (credit spreads, collar call, backspread) — the page says so.
+
+Stocks without stock options (`kind: "index_hedge"`): one Nifty put lot at the nearest Nifty expiry by the same rule; strike =
+Quick Hedge `pick_put_strike` with fall = the stock's stop distance ÷ its beta (capped at 5%: on 3 Nov
+real data a 10% cap picked a ~8% OTM put for SYNGENE that paid nothing at −5% and ~15% of the loss at −10%); hedged stock value = Nifty
+close × lot ÷ beta (`beta_1y`, feature store); cost per lot and as % of that value; scenarios for a 5%, 10% and 15% Nifty fall (put
+payoff vs the beta-implied stock loss). Caveat on screen: it covers a market-wide fall only, not a fall in the stock alone.
+
+Response:
+```jsonc
+{"symbol": "LAURUSLABS", "kind": "options",            // or "index_hedge"
+ "as_of": "2026-11-03", "expiry": "2026-11-23", "days_to_expiry": 20, "lot_size": 425, "spot": 2323.0,
+ "plan": {"entry_low": 2285.27, "close": 2323.0, "stop_loss": 2096.64, "target_1": 2775.72, "target_2": 3002.08},
+ "strategies": [{
+   "key": "protective_put", "label": "Protective Put", "best_when": "…", "status": "passes",   // passes | fails | unavailable
+   "why": null,                                          // text when fails / unavailable
+   "legs": [{"action": "Buy", "instrument": "Shares", "strike": null, "lots": 1, "units": 425, "price": 2323.0,
+             "price_basis": "close", "oi": null, "volume": null, "flags": []},
+            {"action": "Buy", "instrument": "Put", "strike": 2300.0, "lots": 1, "units": 425, "price": 61.5,
+             "price_basis": "close", "oi": 120000, "volume": 300, "flags": []}],
+   "net_premium": -26137.5, "net_premium_per_share": -61.5, "outlay": -1013412.5,
+   "max_profit": null, "profit_unbounded": true, "max_loss": -36912.5, "max_loss_with_costs": -38100.0,
+   "breakevens": [2384.5], "reward_risk": 4.1, "costs_round_trip": 1180.0,
+   "scenarios": [{"label": "At the Stop loss", "price": 2096.64, "pnl": -36912.5, "pnl_unhedged": -96203.0}],
+   "checks": [{"id": "liquid", "label": "Every leg traded on 3 Nov", "pass": true, "detail": "…"}],
+   "payoff": [[1626.1, -36912.5]]}],
+ "index_hedge": null,                                    // {…} when kind = index_hedge
+ "notes": ["…"], "sources": [{"what": "…", "source": "…", "as_of": "…"}], "warnings": []}
+```
+index_hedge: `{"index": "NIFTY", "expiry", "days_to_expiry", "lot_size", "spot", "beta", "put_strike", "premium", "price_basis",
+"oi", "volume", "cost_per_lot", "hedged_value", "cost_pct", "fall_used_pct", "scenarios": [{"label": "Nifty −5%", "nifty_move_pct": -5,
+"put_pnl", "stock_loss"}], "checks": [...], "caveat": "…"}`.
+
+Test cases (§8): TC-S1 strikes per strategy from the plan (ATM, nearest-to-level, "above/below" fallbacks); TC-S2 payoff
+figures for each structure equal hand-computed values (max loss, max profit or unbounded, breakevens); TC-S3 checks:
+illiquid leg, R:R < 1.5, credit < ⅓ width, missing strike → fails/unavailable with reasons; TC-S4 expiry choice (≥ 14, else ≥ 5);
+TC-S5 Nifty hedge sizing (hedged value, strike via pick_put_strike, scenarios); TC-S6 route: not scored → 404, chain down → 503;
+TC-S7 real staging run for a stock with options and one without; TC-S8 UI: a candidate's detail loads the five strategies
+(legs with Buy / Sell, figures, failing ones greyed) and the Nifty hedge for a stock without options; wording lint allows
+only the plan labels and Buy / Sell in legs.
