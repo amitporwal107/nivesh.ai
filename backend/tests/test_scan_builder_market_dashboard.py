@@ -22,11 +22,16 @@ from tests.test_scan_builder_routes import ROWS, H, _client, _reset  # noqa: F40
 def _fresh_cache():
     from services.scan_builder import signals as SIG
     MD._cache.update(at=float("-inf"), value=None)
+    from services.scan_builder import signal_strength as SS
     saved, SIG._store = SIG._store, SIG.LocalSignalStore()          # signals never touch Redis in these tests
     SIG._seen.clear()
+    SIG._seen_strong.clear()
+    SS.reset_caches()
     yield
     SIG._store = saved
     SIG._seen.clear()
+    SIG._seen_strong.clear()
+    SS.reset_caches()
     MD._cache.update(at=float("-inf"), value=None)
 
 
@@ -468,7 +473,13 @@ def test_the_dashboard_carries_todays_signals_and_says_when_it_is_not_recording(
     assert out["signals_meta"]["recording"] is False and out["signals_meta"]["count"] == 1     # pre-open: EOD basis
     s = out["signals"][0]
     assert s["symbol"] == "AAA" and s["entry"] == 100.0 and s["price_now"] == 106.0 and s["move_since_pct"] == 6.0
-    assert "Stop loss" in out["signals_meta"]["rules"] and out["signals_meta"]["caveat"]
+    assert "strong signals" in out["signals_meta"]["rules"] and out["signals_meta"]["caveat"]
+    assert s["plan_ok"] is False and s["stop_loss"] is None                     # list entries carry no plan (§11)
+    # signal strength: AAA is scored from the hand-made panel and screener rows; DaaS sources the fake does not serve
+    # are named in scores_meta.warnings; nothing is recorded as strong before the session
+    assert out["scores_meta"]["threshold"] == 70 and "AAA" in out["scores"] and out["strong"] == []
+    assert s["score"] == out["scores"]["AAA"]["score"]
+    assert "atr" not in out["scores"]["AAA"] and out["scores_meta"]["warnings"]
 
 
 # ── trade side: TrueData first, Kite 1-minute candles when TrueData gives nothing (owner 4 Nov) ────────────────────────

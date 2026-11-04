@@ -26,6 +26,7 @@ from . import engine
 from . import service as SV
 from . import early_movers as EM
 from . import signals as SIG
+from . import signal_strength as SS
 from . import spec as S
 from .data import SOURCE_PRICES, SOURCE_TODAY, DataUnavailable, ScanData
 
@@ -717,6 +718,12 @@ async def kite_sides(symbols: Sequence[str], *, read_quotes=None, request=None) 
     return _SideResult(values=values, as_of=as_of, source=KITE_SIDE_SOURCE, warnings=warnings, missing=missing)
 
 
+async def _default_side_reader(symbols: List[str]) -> Any:
+    """Kite trade sides counted by the live feed (quote cache rows: ask_trades, bid_trades)."""
+    from services.kite_live_feed.quote_cache import read_quotes
+    return await read_quotes(list(symbols))
+
+
 async def _default_tick_flow(symbols, *, truedata=None, kite=None):
     """Trade sides for `symbols`: TrueData's tick prints with best bid/ask when TrueData answers; when it gives nothing for any
     of them (login refused, no ticks), Kite's live ticks counted by the live feed (owner 4 Nov: "please fetch from kite if
@@ -785,7 +792,8 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
                   index_result: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None,
                   tick_flow: Optional[Callable[..., Awaitable[Any]]] = None,
                   now: Optional[Callable[[], datetime]] = None,
-                  feed_request: Optional[Callable[[Sequence[str]], Awaitable[Any]]] = _request_feed) -> Dict[str, Any]:
+                  feed_request: Optional[Callable[[Sequence[str]], Awaitable[Any]]] = _request_feed,
+                  side_reader: Optional[Callable[[List[str]], Awaitable[Any]]] = None) -> Dict[str, Any]:
     """One dashboard (DASHBOARDS key) once. Raises DataUnavailable when prices cannot be read at all."""
     t0 = time.monotonic()
     at = (now or (lambda: datetime.now(timezone.utc)))()
@@ -981,6 +989,31 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
     sig_today = await SIG.today(at, prices)
     if sig_today["error"]:
         warnings.append(sig_today["error"])
+
+    # Signal strength (signal_strength.py, DESIGN.md §11): every stock with a list entry today is scored; a long stock that
+    # first reaches the threshold in the session becomes a strong signal with the positional plan frozen at the price then.
+    scores: Dict[str, Dict[str, Any]] = {}
+    scores_meta: Optional[Dict[str, Any]] = None
+    strong: Dict[str, Any] = {"strong": [], "error": None}
+    eod_day = base.eod_date.isoformat()
+    try:
+        scores, scores_meta = await SS.build_scores(data._get, panel, ref, sig_today["signals"], at,
+                                                    live=overlay.mode == "live", eod_day=eod_day,
+                                                    side_reader=side_reader or _default_side_reader)
+        if recording:
+            cands = [SS.strong_candidate(sym, r, prices.get(sym), eod_day) for sym, r in scores.items()
+                     if r.get("score") is not None and r["score"] >= SS.THRESHOLD]
+            if cands:
+                await SIG.record_strong(cands, at)
+        strong = await SIG.strong_today(at, prices, scores)
+        if strong["error"]:
+            warnings.append(strong["error"])
+    except Exception:  # noqa: BLE001 — the dashboard stands without scores this round; logged with its trace
+        logger.exception("market dashboard: signal strength failed")
+        warnings.append("Signal strength could not be computed just now; it retries on the next refresh.")
+    for sg in sig_today["signals"]:
+        sg["score"] = (scores.get(sg.get("symbol")) or {}).get("score")
+    public_scores = {sym: {k: v for k, v in r.items() if k not in ("atr", "sma20")} for sym, r in scores.items()}
     no_today = int(len(panel.symbols) - int(eligible.sum()))
     if overlay.mode == "eod" and no_today:
         warnings.append(f"{no_today} stock(s) have no candle on {overlay.day.isoformat()} (suspended, or not traded) and are left out.")
@@ -1012,7 +1045,10 @@ async def compute(data: ScanData, *, dashboard: str = DEFAULT_DASHBOARD,
         "widgets": out_widgets,
         "signals": sig_today["signals"],
         "signals_meta": {"day": at.astimezone(SIG.IST).date().isoformat(), "count": len(sig_today["signals"]),
-                         "recording": recording, "rules": SIG.RULES_TEXT, "caveat": SIG.CAVEAT},
+                         "recording": recording, "rules": SIG.RULES_TEXT, "caveat": SS.CAVEAT},
+        "scores": public_scores,
+        "strong": strong["strong"],
+        "scores_meta": scores_meta,
     }
 
 

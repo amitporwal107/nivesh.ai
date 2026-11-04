@@ -21,34 +21,24 @@ def at(h, m, day=3):
 @pytest.fixture(autouse=True)
 def _clean():
     SIG._seen.clear()
+    SIG._seen_strong.clear()
     yield
     SIG._seen.clear()
+    SIG._seen_strong.clear()
 
 
-# ── the plan ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── a list entry carries no plan (4 Nov: plans go to strong signals only, DESIGN.md §11) ─────────────────────────────
 
-def test_plan_v2_long_levels_from_the_entry():
-    p = SIG.make_plan("long", 100, 98, 101, 3, 120, 80)
-    assert (p["stop_loss"], p["target_1"], p["target_2"]) == (99.0, 101.5, 103.0)
-    assert (p["risk_per_share"], p["rr_1"], p["rr_2"], p["plan_ok"]) == (1.0, 1.5, 3.0, True)
-    assert (p["stop_basis"], p["target_1_basis"]) == ("Entry − 1 %", "Entry + 1.5 %")
-    assert (p["day_low"], p["day_high"], p["atr"]) == (98.0, 101.0, 3.0)        # kept for the record of the stock's day
-
-
-def test_plan_v2_short_is_the_mirror():
-    p = SIG.make_plan("short", 200, 198, 205, 4, 220, 190)
-    assert (p["stop_loss"], p["target_1"], p["target_2"], p["rr_1"]) == (202.0, 197.0, 194.0, 1.5)
-    assert (p["stop_basis"], p["target_1_basis"]) == ("Entry + 1 %", "Entry − 1.5 %")
+def test_a_list_entry_keeps_the_price_and_the_day_but_no_plan():
+    p = SIG.list_entry("long", 100, 98, 101, 3)
+    assert (p["entry"], p["day_low"], p["day_high"], p["atr"]) == (100.0, 98.0, 101.0, 3.0)
+    assert (p["stop_loss"], p["target_1"], p["target_2"], p["plan_ok"]) == (None, None, None, False)
+    assert p["plan_note"] == SIG.NO_PLAN_NOTE and "70" in p["plan_note"]
 
 
-def test_no_price_gives_no_plan_with_a_reason():
-    p = SIG.make_plan("long", None)
-    assert p["plan_ok"] is False and p["plan_note"].startswith("No live price") and p["stop_loss"] is None
-
-
-def test_plan_words_are_the_owners_choice_and_nothing_else_is_barred():
+def test_no_barred_words_in_the_list_texts():
     import re
-    text = json.dumps([SIG.make_plan(d, 100, 98, 101, 3, 104, 96) for d in ("long", "short")]) + SIG.RULES_TEXT + SIG.CAVEAT
+    text = json.dumps([SIG.list_entry(d, 100, 98, 101, 3) for d in ("long", "short")]) + SIG.RULES_TEXT
     assert not re.search(r"\b(buy\w*|sell\w*|recommend\w*|pick\w*)\b", text, re.I)
 
 
@@ -101,7 +91,8 @@ def test_record_once_per_day_widget_stock_first_writer_wins_and_falling_oi_stock
     by = {g["id"]: g for g in got}
     assert by["open_interest:BBB"]["direction"] == "short" and by["open_interest:AAA"]["direction"] == "long"
     assert all(g["at_open"] for g in got) and by["n50_gainers:AAA"]["first_seen"] == "2026-11-03T09:18:00+05:30"
-    assert by["n50_gainers:AAA"]["entry"] == 100.0 and by["n50_gainers:AAA"]["plan_ok"] is True
+    assert by["n50_gainers:AAA"]["entry"] == 100.0 and by["n50_gainers:AAA"]["plan_ok"] is False
+    assert by["n50_gainers:AAA"]["rules"] == SIG.LIST_RULES
     assert asyncio.run(SIG.record(widgets, inputs, at(9, 30), store=store)) == []           # already handled here
     SIG._seen.clear()                                                                      # another worker, same store
     assert asyncio.run(SIG.record(widgets, inputs, at(9, 31), store=store)) == []           # first writer won
@@ -148,3 +139,42 @@ def test_the_loop_runs_on_staging_and_can_be_switched():
     assert SIG.enabled({"APP_ENV": "prod"}) is False
     assert SIG.enabled({"APP_ENV": "staging", "SCAN_SIGNALS_ENABLED": "0"}) is False
     assert SIG.enabled({"APP_ENV": "prod", "SCAN_SIGNALS_ENABLED": "1"}) is True
+
+
+# ── strong signals (score ≥ 70): once per (day, stock), first writer wins, plan frozen (DESIGN.md §11) ─────────────────
+
+def cand(sym, score=82, entry=100.0):
+    return {"symbol": sym, "name": f"{sym} Ltd", "score_at": score, "parts_at": {"quality": 30}, "reasons_at": ["x"],
+            "penalties_at": [], "lists_at": [{"id": "dt_52w_high", "title": "52 week high"}], "rules": "scan-plan-v3",
+            "entry": entry, "stop_loss": entry - 4, "target_1": entry + 8, "target_2": entry + 16, "plan_ok": True}
+
+
+def test_strong_signals_are_recorded_once_per_day_and_stock_first_writer_wins():
+    store = SIG.LocalSignalStore()
+    got = asyncio.run(SIG.record_strong([cand("AAA"), cand("BBB")], at(10, 5), store=store))
+    assert [g["id"] for g in got] == ["strong:AAA", "strong:BBB"] and got[0]["first_strong"] == "2026-11-03T10:05:00+05:30"
+    assert asyncio.run(SIG.record_strong([cand("AAA", 90, 120.0)], at(11, 0), store=store)) == []      # handled here
+    SIG._seen_strong.clear()                                                                            # another worker
+    assert asyncio.run(SIG.record_strong([cand("AAA", 90, 120.0)], at(11, 1), store=store)) == []      # first writer won
+    t = asyncio.run(SIG.strong_today(at(11, 2), {"AAA": 105.0}, {"AAA": {"score": 75, "parts": {"quality": 28}}},
+                                     store=store))
+    a = next(r for r in t["strong"] if r["symbol"] == "AAA")
+    assert (a["entry"], a["score_at"], a["score_now"], a["price_now"], a["move_since_pct"]) == (100.0, 82, 75, 105.0, 5.0)
+    assert a["parts_now"] == {"quality": 28} and t["error"] is None
+
+
+def test_strong_signals_newest_first_and_a_new_day_starts_empty():
+    store = SIG.LocalSignalStore()
+    asyncio.run(SIG.record_strong([cand("AAA")], at(10, 0), store=store))
+    asyncio.run(SIG.record_strong([cand("BBB")], at(10, 30), store=store))
+    t = asyncio.run(SIG.strong_today(at(11, 0), {}, {}, store=store))
+    assert [r["symbol"] for r in t["strong"]] == ["BBB", "AAA"] and t["strong"][0]["price_now"] is None
+    assert asyncio.run(SIG.strong_today(at(9, 30, day=4), {}, {}, store=store))["strong"] == []
+
+
+def test_an_unreadable_strong_list_gives_an_empty_list_and_a_reason():
+    class Broken(SIG.LocalSignalStore):
+        async def read(self, index, last):
+            raise RuntimeError("redis down")
+    t = asyncio.run(SIG.strong_today(at(11, 0), {}, {}, store=Broken()))
+    assert t["strong"] == [] and "could not be read" in t["error"]
