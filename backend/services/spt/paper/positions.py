@@ -254,10 +254,10 @@ async def close_followups(db, pos: Dict[str, Any], *, now: Optional[datetime] = 
     from . import orders                                    # orders imports this module
     moment = now or store.utcnow()
     for o in await store.live_orders(db, position_id=pos["_id"]):
-        await orders.cancel_order(db, o["_id"], reason="position_closed", now=moment)
+        await orders.cancel_paper_order(db, o["_id"], reason="position_closed", now=moment)
     entry = await store.get_order(db, pos.get("entry_order_id"))
     if entry is not None and entry.get("state") in C.ORD_LIVE_STATES:
-        await orders.cancel_order(db, entry["_id"], reason="position_closed", now=moment)
+        await orders.cancel_paper_order(db, entry["_id"], reason="position_closed", now=moment)
     await release_once(db, pos, now=moment)
     pos = await store.get_position(db, pos["_id"]) or pos
     await _emit(db, pos, "POSITION_CLOSED", f"position:{pos['_id']}:closed",

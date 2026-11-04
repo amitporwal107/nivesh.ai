@@ -170,7 +170,7 @@ async def get_order(request: Request, order_id: str):
 async def cancel(request: Request, order_id: str):
     uid = await _uid(request)
     await _own_order(uid, order_id)
-    o = await orders.cancel_order(db, order_id, reason="user_cancelled", user_id=uid)
+    o = await orders.cancel_paper_order(db, order_id, reason="user_cancelled", user_id=uid)
     if o is None:
         raise _err(409, "order_not_live", "The order is no longer live, so it cannot be cancelled.")
     return {"order": orders.public(o)}

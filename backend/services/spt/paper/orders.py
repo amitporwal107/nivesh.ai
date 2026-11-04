@@ -279,7 +279,7 @@ async def reject(db, order_id: str, reason: str, *, now: Optional[datetime] = No
     return await _end(db, order_id, C.ORD_REJECTED, reason=reason, field="reject_reason", now=now)
 
 
-async def cancel_order(db, order_id: str, *, reason: str, user_id: Optional[str] = None,
+async def cancel_paper_order(db, order_id: str, *, reason: str, user_id: Optional[str] = None,
                        now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
     """Cancel a live order (the user's, when `user_id` is given). None when it is not live (or not the user's)."""
     order = await store.get_order(db, order_id)
@@ -480,12 +480,12 @@ async def create_exit_order(db, *, position_id: str, reason: str, quantity: Any 
                     return {**live, "duplicate": True}
                 if not full:
                     raise ExitRefused("exit_order_live")
-                await cancel_order(db, live_id, reason="replaced_by_full_exit", now=moment)
+                await cancel_paper_order(db, live_id, reason="replaced_by_full_exit", now=moment)
                 continue                                    # re-read the position after the cancel
         if full:
             entry = await store.get_order(db, pos.get("entry_order_id"))
             if entry is not None and entry.get("state") in C.ORD_LIVE_STATES:
-                await cancel_order(db, entry["_id"], reason="exit_started", now=moment)
+                await cancel_paper_order(db, entry["_id"], reason="exit_started", now=moment)
                 continue
         new_id = str(uuid.uuid4())
         seq = int(pos.get("exit_seq") or 0) + 1

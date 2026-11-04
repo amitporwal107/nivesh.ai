@@ -117,15 +117,15 @@ def test_c04_cancel_unfilled_entry_releases_exactly_once(w):
     o = run(w.entry())
     before = run(w.account("user_a"))
     assert before["blocked_rs"] == 10000.0 and before["open_positions"] == 1
-    c = run(orders.cancel_order(w.db, o["_id"], reason="user", user_id="user_a", now=w.now))
+    c = run(orders.cancel_paper_order(w.db, o["_id"], reason="user", user_id="user_a", now=w.now))
     assert c["state"] == C.ORD_CANCELLED and c["cancelled_quantity"] == 100 and c["reservation_state"] == "released"
-    assert run(orders.cancel_order(w.db, o["_id"], reason="user", user_id="user_a", now=w.now)) is None
+    assert run(orders.cancel_paper_order(w.db, o["_id"], reason="user", user_id="user_a", now=w.now)) is None
     run(orders.sync_order(w.db, o["_id"], now=w.now))
     acc = run(w.account("user_a"))
     assert acc["blocked_rs"] == 0 and acc["open_positions"] == 0 and acc["cash_rs"] == acct.DEFAULT_CAPITAL
     assert len(w.ledger("user_a", "cancel_reservation")) == 1
     assert len(w.events("PAPER_ORDER_CANCELLED")) == 1
-    assert run(orders.cancel_order(w.db, o["_id"], reason="x", user_id="user_b", now=w.now)) is None
+    assert run(orders.cancel_paper_order(w.db, o["_id"], reason="x", user_id="user_b", now=w.now)) is None
 
 
 # ── SPT-C-05 ─────────────────────────────────────────────────────────────────────────────────────────────────────────

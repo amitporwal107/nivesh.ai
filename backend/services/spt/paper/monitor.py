@@ -301,7 +301,7 @@ async def live_round(now: datetime, deps: Deps) -> Dict[str, Any]:
         for o in live:
             if o.get("purpose") == "ENTRY" and o["user_id"] in blocked:
                 try:
-                    if await orders.cancel_order(db, o["_id"], reason=blocked[o["user_id"]]["code"], now=now):
+                    if await orders.cancel_paper_order(db, o["_id"], reason=blocked[o["user_id"]]["code"], now=now):
                         r.inc("entries_cancelled_by_controls")
                 except Exception as e:  # noqa: BLE001
                     r.fail(f"cancel {o['_id']}", e)
