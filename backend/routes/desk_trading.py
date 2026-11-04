@@ -20,6 +20,15 @@ Endpoints (all under /api/desk):
     GET    /paper-trades/{id}          — one trade with its lifecycle log (and, for a strategy, its signal); read-only
     POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual");
                                          a trade whose conditional entry was not reached is "cancelled" (no P&L)
+    PATCH  /paper-trades/{id}/levels   — Modify risk: {stop_price?, target_price? (null removes it), note?} on an OPEN share
+                                         trade; appended to its `level_changes` and in force from the NEXT session (today's
+                                         bar keeps the old levels at the evening check). Optional Idempotency-Key. 404
+                                         trade_not_found · 409 trade_already_closed / levels_not_editable (a structure) /
+                                         no_close_available / levels_changed · 422 invalid_stop_price, invalid_target_price,
+                                         stop_not_below_price, target_not_above_price, stop_not_below_target (and, before
+                                         the entry fills, stop_not_below_entry / target_not_above_entry), no_change,
+                                         unknown_field, invalid_body · 503 prices_unavailable. Audited in risk_decisions
+                                         (action desk_paper_levels). → 200 {trade, replayed}
     GET    /paper-trades/{id}/roll     — preview of an F&O roll (services/fno_roll.py): both legs at session D's NSE
                                          bhavcopy close, the next listed expiry, costs; or the reason it cannot roll
     POST   /paper-trades/{id}/roll     — {strike_mode?}: close the old structure and open the same one on the next
@@ -715,6 +724,96 @@ async def close_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed paper trade %s at %s", uid, trade_id, exit_price)
     return {"trade": _with_lifecycle(svc.public_trade(stored), stored), **_price_context()}
+
+
+# ── Modify risk: a share trade's stop loss and target (services/desk_trading FILL MODEL "Level changes") ──────────
+_LEVEL_409 = ("no_close_available", "too_many_level_changes")
+
+
+def _level_error(exc: svc.DeskInputError) -> HTTPException:
+    detail: Any = {"code": exc.code, "message": exc.message} if exc.message else exc.code
+    return HTTPException(status_code=409 if exc.code in _LEVEL_409 else 422, detail=detail)
+
+
+async def _levels_replay(doc: Dict[str, Any], key: str, fingerprint: str) -> Optional[Dict[str, Any]]:
+    """The answer to a request whose Idempotency-Key already made a change on this trade: the trade as it now stands
+    (`replayed`), no second change; the same key with another body is 409 idempotency_conflict. None = key not used."""
+    prior = next((ch for ch in doc.get("level_changes") or [] if ch.get("idempotency_key") == key), None)
+    if prior is None:
+        return None
+    if prior.get("request_fingerprint") != fingerprint:
+        raise HTTPException(status_code=409, detail={
+            "code": "idempotency_conflict", "message": "This Idempotency-Key was already used for a different change of "
+                                                       "this trade's levels; nothing new was changed."})
+    return {"trade": _public(doc), "replayed": True, **_price_context()}
+
+
+@router.patch("/paper-trades/{trade_id}/levels")
+async def change_paper_levels(request: Request, trade_id: str) -> Dict[str, Any]:
+    """Modify risk: a new stop loss and/or target for an open paper SHARE trade, in force from the next session. The
+    exit rule is checked first, as on a close: a trade the bars show already stopped out or at target is closed that way
+    and the request answers 409 trade_already_closed. Nothing here reaches a broker."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    body = await _body(request)
+    try:
+        key = svc.clean_idempotency_key(request.headers.get(svc.IDEMPOTENCY_HEADER))
+        req = svc.clean_level_request(body)
+    except svc.DeskInputError as exc:
+        raise _level_error(exc)
+    owner = {"_id": trade_id, "user_id": uid}
+    doc = await db[svc.TRADES].find_one(owner) if len(trade_id) <= _ID_MAX else None
+    if not doc:
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    fingerprint = svc.request_fingerprint(body)
+    if key:
+        replay = await _levels_replay(doc, key, fingerprint)
+        if replay is not None:
+            return replay
+    if doc.get("status") != "open":
+        raise HTTPException(status_code=409, detail="trade_already_closed")
+    if doc.get("kind") == strat.KIND:
+        raise HTTPException(status_code=409, detail={
+            "code": "levels_not_editable", "message": "An option or futures structure keeps the levels it was opened "
+                                                      "with in this release; only a share trade's levels can be changed."})
+    start = svc.fetch_starts([doc], "opened_at")[doc["symbol"]]
+    try:
+        bars = await svc.fetch_bars(doc["symbol"], start)
+    except svc.PricesUnavailable as exc:
+        logger.warning("desk: no end-of-day bars for %s while changing the levels of %s: %s", doc["symbol"], trade_id, exc)
+        raise HTTPException(status_code=503, detail="prices_unavailable")
+    sim = svc.simulate(doc, bars)
+    if sim["exit"] is not None:
+        await svc.close_trade(db, doc, **sim["exit"], sim=sim)
+        raise HTTPException(status_code=409, detail="trade_already_closed")
+    try:
+        change = svc.level_change(doc, req, sim=sim, last_bar=svc.last_close(bars), now=svc.utcnow())
+    except svc.DeskInputError as exc:
+        raise _level_error(exc)
+    stored = await svc.record_level_change(db, doc, change, idempotency_key=key, fingerprint=fingerprint)
+    if stored is None:
+        fresh = await db[svc.TRADES].find_one(owner)
+        if fresh is None or fresh.get("status") != "open":
+            raise HTTPException(status_code=409, detail="trade_already_closed")
+        if key:
+            replay = await _levels_replay(fresh, key, fingerprint)
+            if replay is not None:
+                return replay
+        raise HTTPException(status_code=409, detail={
+            "code": "levels_changed", "message": "This trade's levels were changed by another request just now; read the "
+                                                 "trade again and retry."})
+    audit = {k: change.get(k) for k in ("version", "session", "stop_price", "target_price", "prev_stop", "prev_target",
+                                        "changed", "note")}
+    await rc.record_decision(db, uid, action="desk_paper_levels", outcome="allowed", symbol=doc["symbol"],
+                             requested_qty=int(doc["quantity"]),
+                             reasons=[{"code": "level_change", "text": svc.LEVEL_RULE_TEXT}],
+                             correlation_id=risk_gate.correlation_id(request), path="desk_paper_levels",
+                             detail={"trade_id": trade_id, **audit})
+    logger.info("desk: user %s changed the levels of paper trade %s (v%s: %s)", uid, trade_id, change["version"],
+                ", ".join(change["changed"]))
+    after = svc.simulate(stored, bars)
+    out = svc.public_trade(stored, svc.last_close(bars), None, after["checked_through"], sim=after)
+    return {"trade": _with_lifecycle(out, stored), "replayed": False, **_price_context()}
 
 
 async def _close_strategy(doc: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
