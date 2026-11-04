@@ -107,7 +107,8 @@ RULE_CREDIT = "credit_vs_width"
 RULE_REWARD_RISK = "min_reward_risk"
 SNAPSHOT_VERSION = "risk-service-snapshot-v1"
 SOURCE = "risk_service"
-PATHS = ("desk_paper_trade", "desk_paper_roll", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm")
+PATHS = ("desk_paper_trade", "desk_paper_roll", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm",
+         "spt_entry")                           # spt_entry: Scanner-to-Paper Trading entries (services/spt/risk.py)
 ACTIONS = ("open", "add")
 INSTRUMENTS = ("cash", "structure")
 MAX_ENTRY_DISTANCE_PCT = 20.0
