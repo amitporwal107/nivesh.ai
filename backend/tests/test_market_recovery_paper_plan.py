@@ -156,6 +156,17 @@ def test_tc_p2_structure_body(monkeypatch):
     assert b["signal"]["rule_version"] == "recovery-plan-v1"
 
 
+def test_tc_p2_shares_request_is_within_the_desk_limit(monkeypatch):
+    seen = []
+
+    def gate(body):
+        seen.append(body)
+        return {"outcome": "reduce", "approved_qty": 400} if body.get("symbol") else {"outcome": "allow", "approved_lots": 1}
+    run(monkeypatch, [cand(1, "BBB")], quotes=LIVE, fno=(), gate=gate)
+    q = next(b["quantity"] for b in seen if b.get("symbol"))
+    assert 1 <= q <= P.MAX_QUANTITY and q == int(1e7 // 100.0)          # all the Rs 1 crore cash at 100 a share
+
+
 def test_tc_p2_wording():
     import re
     from tests.test_compliance_wording_lint import hits

@@ -60,7 +60,7 @@ const price = (v: unknown): number | null => {
 const isForbidden = (e: unknown) => e instanceof ApiError && (e.kind === "forbidden" || e.status === 403);
 const retry = (count: number, e: unknown) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1;
 
-const PAPER_KEY = ["copilot", "desk", "paper-trades"] as const;
+export const PAPER_KEY = ["copilot", "desk", "paper-trades"] as const;
 const ALERTS_KEY = ["copilot", "desk", "alerts"] as const;
 
 /** The route's error codes (backend/routes/desk_trading.py) in plain words; the code itself is shown beside them. */
@@ -847,7 +847,10 @@ export interface NewPaperTrade {
   entry_price: number;
   stop_price: number;
   target_price: number | null;
-  source: { kind: "scanner" | "strategy_plan"; bucket?: string; signal_date?: string };
+  source: { kind: "scanner" | "strategy_plan" | "market_recovery"; bucket?: string; signal_date?: string };
+  /** A live-priced at-once entry (Market Recovery, docs/market_recovery/DESIGN.md §10 B): the route checks it against TODAY's live
+   *  day range instead of the last completed session's bars, and refuses it without a live quote of today. */
+  price_source?: { kind: "kite_live"; at: string };
   /** PRD §13.4, all optional: how the entry fills, how long it waits, the most sessions to hold, when the signal was
    *  generated, the strategy's version and why. */
   entry_rule?: EntryRule;

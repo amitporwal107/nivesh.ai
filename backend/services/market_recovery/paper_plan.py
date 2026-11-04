@@ -29,6 +29,7 @@ from .engine import fnum
 logger = logging.getLogger(__name__)
 
 TOP_N = 10
+MAX_QUANTITY = 1_000_000          # services/desk_trading.MAX_QUANTITY: a larger request is refused as invalid_quantity
 RULE = ("Highest reward : risk after costs among the shares plan and the option strategies that passed their checks, at live "
         "prices, sized by your risk gate (0.5% risk per trade of paper equity and your other limits); ties go to the lower "
         "maximum loss.")
@@ -190,6 +191,7 @@ async def build_plan(request: Request, user: Dict[str, Any], *, gate: GateFn = g
         option_quotes = option_quotes or paper_live.option_quotes
     open_trades = open_trades or _open_market_recovery_trades
     account = account or _account
+    acct = await account(user["user_id"])
     svc = page_service.get_service()
     page = await svc.get()
     as_of = str(page.get("as_of"))
@@ -258,7 +260,10 @@ async def build_plan(request: Request, user: Dict[str, Any], *, gate: GateFn = g
         for o in options:
             body = dict(o["body"])
             if o["key"] == "shares":
-                body["quantity"] = max(1, int(1e9 // max(o["per_unit_loss"], 0.01)))       # oversized: the gate reduces it
+                # Oversized on purpose — all the cash could buy, within the desk's own quantity limit — so the gate REDUCES
+                # it to the largest size the user's limits allow (per-trade risk, position, sector, open risk, funds).
+                cash = float(acct.get("cash_rs") or 0.0)
+                body["quantity"] = max(1, min(MAX_QUANTITY, int(cash // max(ltp, 0.01))))
             try:
                 g = await gate(user, body, f"mr-plan-{sym}")
             except Exception as e:  # noqa: BLE001 — a candidate the desk refuses as a body is not eligible, with the reason
@@ -296,7 +301,6 @@ async def build_plan(request: Request, user: Dict[str, Any], *, gate: GateFn = g
             item["skipped_reason"] = "Nothing qualifies: " + ("; ".join(f"{o['label']}: {o.get('why')}" for o in ranked if o.get("why"))
                                                               or "no candidate passed the risk gate") + "."
         items.append(item)
-    acct = await account(user["user_id"])
     return {"as_of": as_of, "list_date": list_date,
             "market": {"live": live, "source": sq.get("source"), "why": sq.get("why"), "as_of": sq.get("as_of")},
             "capital": {k: acct.get(k) for k in ("starting_capital_rs", "cash_rs", "blocked_rs", "available_rs")},
