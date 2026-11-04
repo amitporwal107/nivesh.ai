@@ -34,13 +34,23 @@ LAST_SESSION = "2026-11-04"
 U1, U2 = "spt-user-1", "spt-user-2"
 
 
+class Collection(FakeCollection):
+    """FakeCollection that also takes a single field name as the index key, as Mongo does
+    (services/spt/events.ensure_indexes asks for create_index("idempotency_key", unique=True))."""
+
+    async def create_index(self, keys, **kw):
+        if isinstance(keys, str):
+            keys = [(keys, 1)]
+        return await super().create_index(keys, **kw)
+
+
 class FakeDB:
     def __init__(self) -> None:
         self.cols: Dict[str, FakeCollection] = {}
 
     def __getitem__(self, name: str) -> FakeCollection:
         if name not in self.cols:
-            self.cols[name] = FakeCollection()
+            self.cols[name] = Collection()
         return self.cols[name]
 
     def __getattr__(self, name: str) -> FakeCollection:
@@ -169,7 +179,10 @@ class World:
             return {s: copy.deepcopy(self.quotes[s]) for s in symbols if s in self.quotes}
         monkeypatch.setattr(quote_cache, "read_quotes", read_quotes)
 
-    def quote(self, sym: str, ltp: float, **kw) -> None:
+    def quote(self, sym: str, ltp: float, *, at: Optional[datetime] = None, **kw) -> None:
+        """A quote received 5 s before `at` (NOW by default)."""
+        if at is not None:
+            kw["age_s"] = 5.0 - (at - NOW).total_seconds()
         self.quotes[sym] = quote_row(sym, ltp=ltp, **kw)
 
     async def set_mode(self, user: str, mode: str, **extras) -> Dict[str, Any]:

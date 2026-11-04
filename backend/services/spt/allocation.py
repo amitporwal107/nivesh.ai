@@ -179,7 +179,7 @@ def allocate(state: Dict[str, Any], cand: Dict[str, Any], consumed: Optional[Dic
                            "room": {}, "version": C.ALLOCATION_VERSION, "category": cand.get("category")}
 
     def reject(code: str, message: str) -> Dict[str, Any]:
-        out["reasons"].append({"code": code, "message": message})
+        out["reasons"].insert(0, {"code": code, "message": message})       # the refusal first, the cuts behind it
         out.update(decision="ALLOCATION_REJECTED", quantity=0)
         return out
 
