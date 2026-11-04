@@ -279,3 +279,75 @@ TC-S5 Nifty hedge sizing (hedged value, strike via pick_put_strike, scenarios); 
 TC-S7 real staging run for a stock with options and one without; TC-S8 UI: a candidate's detail loads the five strategies
 (legs with Buy / Sell, figures, failing ones greyed) and the Nifty hedge for a stock without options; wording lint allows
 only the plan labels and Buy / Sell in legs.
+
+## 9. Nifty and Bank Nifty by expiry (owner, 4 Nov ~09:00 IST)
+
+Owner: "Please also put this nifty analysis here in the dashboard", after the per-expiry Nifty / Bank Nifty analysis in chat
+(and "We have nifty weekly and monthly expiry so nifty analysis should be done on each of the expiry dates"). A new part of
+this page, after the Recovery check: **2 · Nifty and Bank Nifty** (the later parts renumber). Computed from our data every
+day (never a pasted snapshot), end of day like the rest of the page.
+
+`GET /api/market-recovery/indices` — same flag; one computation per end-of-day date per worker, reused 15 minutes. Reads:
+index closes (DaaS /indices/{Nifty 50 | Nifty Bank | India VIX}/eod), option chains per live expiry and futures via
+routes/fno (current session, unexpired series only), NSE FII/DII daily cash (DaaS market pulse). Errors: data_unavailable (503).
+
+```jsonc
+{"as_of": "2026-11-03",
+ "indices": [{
+   "symbol": "NIFTY", "name": "Nifty 50", "close": 23810.85, "change": 370.05, "change_pct": 1.58,
+   "open": 23582.25, "high": 23810.85, "low": 23482.8, "up_streak": 4, "ret_5d": 4.66, "ret_20d": 5.56,
+   "technicals": {"ema20", "ema50", "ema200", "vs_ema20_pct", "vs_ema50_pct", "vs_ema200_pct", "rsi14", "rsi14_5ago",
+                  "macd", "macd_signal", "macd_hist", "macd_hist_prev", "atr14", "atr_pct", "high20", "low20",
+                  "high52", "low52", "from_high52_pct", "from_low52_pct", "sessions"},
+   "pivots": {"p", "r1", "r2", "r3", "s1", "s2", "s3"},              // classic floor pivots from the last H / L / C
+   "futures": [{"expiry", "close", "change_pct", "oi", "oi_change", "oi_change_pct", "basis", "buildup"}],
+              // buildup: long_buildup | short_covering | short_buildup | long_unwinding (price change × OI change)
+   "levels": {"above": [{"level": 23907.99, "label": "200-day average (EMA)"}], "below": [{"level", "label"}]},  // ≤ 5 each, nearest first
+   "expiries": [{
+     "expiry": "2026-11-09", "days": 6, "kind": "weekly",              // weekly | monthly (monthly = the last listed expiry of its month)
+     "liquidity": "active",                                            // active | thin | too_thin (volume vs the busiest expiry: ≥ 20% / ≥ 3%)
+     "volume": 12700000, "pcr": 1.14, "call_oi": 87390000, "put_oi": 99220000, "max_pain": 23600,
+     "atm": 23800, "atm_call": 149.9, "atm_put": 224.75, "straddle": 374.65, "move_pct": 1.57, "range_lo": 23436, "range_hi": 24186,
+     "call_wall": 24000, "put_wall": 23700,                            // heaviest OI at/above and at/below the close (chain summary)
+     "call_oi_top": [{"strike": 24000, "oi": 5820000}], "put_oi_top": [...],        // top 3 by OI
+     "call_adds": [{"strike": 25000, "change": 2990000}], "put_adds": [...],        // top 3 OI additions
+     "call_cuts": [{"strike": 23300, "change": -550000}], "put_cuts": [...],        // top 2 OI reductions
+     "read": "…one sentence…"}],
+   "setups": [{
+     "expiry": "2026-11-09", "kind": "weekly", "key": "bull_call_spread",   // bull_call_spread | bear_put_spread | iron_condor | hedge_put_spread
+     "label": "Bull Call Spread", "when": "If it rises toward 24,000", "lot_size": 65,
+     "legs": [{"action": "Buy", "instrument": "Call", "strike": 23800, "lots": 1, "price": 149.9, "price_basis": "close",
+               "oi": 0, "volume": 0, "flags": []}],
+     "net_premium": -4494.75, "max_gain": 8505.25, "max_loss": -4494.75, "reward_risk": 1.89, "breakevens": [23869.15],
+     "status": "passes", "why": null, "checks": [{"id", "label", "pass", "detail"}]}],
+   "read": ["…rule-based bullets…"]}],
+ "vix": {"close": 15.72, "change_pct": 1.42, "close_5ago": 16.4, "change_5d_pct": -4.15, "up_streak": 3},
+ "relative": {"bank_minus_nifty_1d": -0.6, "bank_minus_nifty_5d": -1.76, "bank_minus_nifty_20d": -4.05},
+ "flows": {"as_of": "2026-11-03", "days": [{"date", "fii", "dii"}], "fii_5d": 13478.0, "fii_buy_days_5": 4},
+ "together": ["…Nifty across expiries…"],
+ "notes": ["…"], "sources": [{"what", "source", "as_of"}], "warnings": []}
+```
+
+Rules: expiries = every live option expiry within 70 days (Nifty weeklies + monthlies; Bank Nifty monthlies), from the chain
+route; a series expiring on the data day is never used. Technicals use the scan builder's conventions (SMA-seeded EMA, Wilder
+RSI / ATR) on index closes. Setups per expiry (skipped for too_thin; 1 lot; legs Buy / Sell; figures at expiry via
+strategy_plan.payoff; leg liquidity via candidates.leg_view):
+* **bull_call_spread** — Buy the ATM call; Sell the call at the heaviest-OI strike above the ATM up to the straddle's upper bound
+  (else the strike nearest that bound). "If it rises toward {short}". Check: reward : risk ≥ 1.5.
+* **bear_put_spread** — Buy the ATM put; Sell the put at the heaviest-OI strike below the ATM down to the lower bound (else the
+  strike nearest it). "If it breaks below {put_wall}". Check: reward : risk ≥ 1.5.
+* **iron_condor** — Sell the call at the call wall and the put at the put wall; Buy wings ~1% of the close further out (nearest
+  listed strikes). "If it stays {put_wall}–{call_wall}". Check: credit ≥ ⅓ of the wider wing. Skipped when a wall is the ATM.
+* **hedge_put_spread** — Buy the put nearest 1% below the close; Sell the put nearest the straddle's lower bound. "To protect
+  long stocks". No reward : risk check (a hedge).
+Every setup also checks that each leg traded that day; a thin expiry adds a "use limit orders" note.
+`together` (Nifty): the strike with the most put additions summed over the active / thin expiries ("common floor"), the
+nearest active expiry's call wall ("near ceiling"), and the longest active monthly's max pain vs the close.
+
+Test cases (§9): TC-I1 technicals and pivots on a hand-made series (EMA / RSI / ATR match the scan builder functions; pivots
+by formula); TC-I2 futures build-up labels (4 quadrants); TC-I3 expiry kind (monthly = last of month), liquidity classes,
+the expired-today series dropped; TC-I4 per-expiry figures from a hand-made chain (walls, adds / cuts, straddle range, read);
+TC-I5 setups: strikes by rule, figures vs hand-worked values, checks (R:R, credit, illiquid leg), too_thin skipped; TC-I6
+levels above / below sorted and capped; together lines; TC-I7 route 200 / 503 / flag; wording lint (Buy / Sell legs only);
+TC-I8 real staging run vs nidp SQL (closes, PCR, max pain, walls for 9 Nov / 23 Nov equal the 4 Nov chat analysis);
+TC-I9 UI: the section renders both indices, per-expiry table, setups with Buy / Sell legs, levels, futures, flows; 390 px.
