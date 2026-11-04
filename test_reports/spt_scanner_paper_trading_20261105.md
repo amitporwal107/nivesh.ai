@@ -48,6 +48,8 @@ after the rename (tests/test_order_path_guard.py + tests/test_spt_*.py + tests/t
   3 failed, 9821 passed, 52 skipped, 16 warnings in 255.66s (0:04:15)
   ```
   Only the three known failures remain.
+- GitHub CI on PR #485, checked 04:01 IST: `Backend unit tests (allowlist): completed success`, mergeable, clean. PR #484
+  is also green.
 
 ## Staging API run, outside the session (5 Nov 02:56 IST, real output)
 
