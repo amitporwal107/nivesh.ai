@@ -17,7 +17,8 @@
  *                                         sections: view=open / paper → paper live, closed → paper journal, new → the chart;
  *                                         Market Desk's watchlists → here.
  *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener (sub=: screens · dashboard · builder;
- *                                         the last two flagged: Scan dashboard, Scan builder; docs/scan_builder/DESIGN.md §7)
+ *                                         the last two flagged: Scan dashboard, Scan builder; docs/scan_builder/DESIGN.md §7) ·
+ *                                         recovery (Market Recovery, owner 3 Nov; flagged market_recovery; docs/market_recovery/DESIGN.md)
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
  *   04 Risk Desk         tab=risk         limits · controls · log · hedge (flagged: Portfolio hedge)
@@ -65,6 +66,9 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" },
     { key: "screener", label: "Screener" },
+    // Market Recovery (owner, 3 Nov: the recovery radar under Market Desk; docs/market_recovery/DESIGN.md). Listed last so the
+    // other views keep their places; the switcher shows it only with the `market_recovery` flag (FLAGGED_VIEWS).
+    { key: "recovery", label: "Market Recovery" },
   ],
   risk: [
     { key: "limits", label: "Exposure & limits" },
@@ -77,7 +81,7 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
 };
 
 /** Views that exist but are shown in the switcher only when the account has the named feature flag. */
-export const FLAGGED_VIEWS: Readonly<Record<string, string>> = { "risk/hedge": "portfolio_hedge" };
+export const FLAGGED_VIEWS: Readonly<Record<string, string>> = { "risk/hedge": "portfolio_hedge", "market/recovery": "market_recovery" };
 
 /** Sub-views ("<tab>/<view>/<sub>") shown in the sub-view switcher only when the account has the named feature flag. The
  *  owner's Chartink-style scans live under the existing Screener (3 Nov): Scan dashboard and Scan builder (DESIGN.md §7). */
