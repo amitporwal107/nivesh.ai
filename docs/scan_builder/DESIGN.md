@@ -389,3 +389,22 @@ UI: a "Strong signals (score ≥ 70)" feed (score, parts, reasons, penalties, pl
 since), a collapsed "Below 70 (n)" list (stock, score, lists, main reasons and penalties); browser alerts only for new strong
 signals.
 Price band, ETF flag and traded value come from the feature-store snapshot (DaaS /features/scan-snapshot, one call).
+
+### 11.1 Signals by company — search and timeline (owner 4 Nov ~14:30 IST)
+
+Owner: "group signals by company symbol and timeline … a search by company symbol and name, auto suggestion … by default it
+lists all signals for that day." A day holds far more list marks than the dashboard's feed reads (4 Nov: 2,111 by 14:35; the
+feed shows the newest 300), so every stock with a mark that day is scored (not only the feed's), the leader stores the day's
+scores (Redis `nivesh:sb:signals:<day>:scores`, refreshed at most every 20 s, TTL 3 days), and a separate call serves the day:
+
+`GET /api/scan-builder/signals/day[?day=YYYY-MM-DD]` (default: today, IST; same flag) →
+`{ok, day, count (list marks), companies_count, threshold, scores_as_of, lists {widget_id: title}, warnings[], companies[]}`;
+each company `{symbol, name, score | null, parts | null, reasons[≤3], penalties[], note, strong | null, first_seen, last_seen,
+n, marks[{time "HH:MM:SS", list (widget_id), price, direction}] (oldest first)}`, companies newest activity first; `strong` =
+the frozen strong-signal record (first_strong, score_at, entry, stop_loss, target_1, target_2, risk_per_share, rr_1, rr_2, atr,
+sma20, trend_exit, plan_ok, plan_note, rules). A malformed day → 400 `bad_day`.
+
+UI: "Signals by company" under Strong signals, replacing the Below-70 fold: a search box (combobox) suggesting companies with a
+mark that day by symbol and name; by default every company is listed (newest activity first; filters All / 70+ / Below 70 /
+Not scored; sort Latest / Score / A–Z), each with its score and its day as a timeline (time · list · price then; the strong
+event with its plan inside a plan block). Picking a suggestion shows that company only. Refreshed every 30 s in the session.

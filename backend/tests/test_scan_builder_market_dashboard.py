@@ -27,11 +27,13 @@ def _fresh_cache():
     SIG._seen.clear()
     SIG._seen_strong.clear()
     SS.reset_caches()
+    MD._score_memo.clear()
     yield
     SIG._store = saved
     SIG._seen.clear()
     SIG._seen_strong.clear()
     SS.reset_caches()
+    MD._score_memo.clear()
     MD._cache.update(at=float("-inf"), value=None)
 
 
@@ -282,6 +284,42 @@ def test_route_answers_the_dashboard_and_a_typed_503(monkeypatch, tmp_path):
     monkeypatch.setattr(rsb.market_dashboard, "get_dashboard", down)
     r = client.get("/api/scan-builder/market-dashboard", headers=H())
     assert r.status_code == 503 and r.json()["detail"]["code"] == "data_unavailable"
+
+
+def test_route_signals_day_default_today_and_a_bad_day(monkeypatch, tmp_path):
+    import routes.scan_builder as rsb
+    from services.scan_builder import signals as SIG
+    client, _ = _client(monkeypatch, tmp_path)
+    asked = []
+
+    async def view(day, store=None):
+        asked.append(day)
+        return {"ok": True, "day": day, "companies": []}
+    monkeypatch.setattr(SIG, "day_view", view)
+    r = client.get("/api/scan-builder/signals/day", headers=H())
+    assert r.status_code == 200 and r.json()["day"] == asked[0] and len(asked[0]) == 10
+    assert client.get("/api/scan-builder/signals/day?day=2026-11-03", headers=H()).json()["day"] == "2026-11-03"
+    for bad in ("2026-13-01", "4 Nov", "2026-11-3"):
+        r = client.get(f"/api/scan-builder/signals/day?day={bad}", headers=H())
+        assert r.status_code == 400 and r.json()["code"] == "bad_day"
+    assert client.get("/api/scan-builder/signals/day", headers=H("other")).status_code == 403          # flag: owner only
+
+
+def test_every_stock_with_a_mark_today_is_scored_not_only_the_feeds(tmp_path, monkeypatch):
+    from services.scan_builder import signals as SIG
+    monkeypatch.setattr(SIG, "MAX_LISTED", 1)
+    when = datetime(2026, 11, 3, 2, 0, tzinfo=timezone.utc)
+    wl = [{"id": "n50_gainers", "title": "Nifty 50", "row_kind": "symbol", "status": "ok", "rows": [["AAA", 1], ["CCC", 2]],
+           "criteria": [{"applied": True}]}]
+
+    def inp(syms):
+        return {s: {"close": 100.0, "chg": 1.0} for s in syms}
+    asyncio.run(SIG.record(wl, inp, when))
+    out = asyncio.run(MD.compute(_data(tmp_path, results=_Results({})), intraday_values=lambda *a, **k: _none(),
+                                 index_result=_indices, now=lambda: when))
+    assert len(out["signals"]) == 1                                                # the feed's cap
+    scored = MD._score_memo["value"][0]
+    assert {"AAA", "CCC"} <= set(scored)                                           # both companies of the day
 
 
 def test_stale_quarterly_results_are_not_used():

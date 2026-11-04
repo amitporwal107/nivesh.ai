@@ -16,6 +16,7 @@ Storage (Redis, shared by the 4 workers; first writer wins):
     nivesh:sb:signals:<day>:index                 RPUSH of the keys in the order recorded
     nivesh:sb:signals:<day>:g:<SYMBOL>            a strong signal (JSON), SET NX, TTL 3 days
     nivesh:sb:signals:<day>:strong                RPUSH of the strong-signal keys in the order recorded
+    nivesh:sb:signals:<day>:scores                the day's scores (JSON {as_of, scores}), rewritten by the leader, TTL 3 days
     nivesh:sb:signals:leader                      the worker that computes the dashboard every LOOP_S in the session
 Without Redis each worker keeps its own list (tests, local runs).
 
@@ -33,7 +34,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -55,9 +56,11 @@ SHORT_WIDGETS = {"open_interest", "oi_7"}   # F&O-only lists whose conditions al
 TTL_S = 3 * 86400
 MAX_LISTED = 300
 MAX_STRONG = 200
+MAX_DAY = 5000                          # list marks read for a whole day (4 Nov 2026: 2,111 by 14:35)
 LOOP_S = 15.0
 LEADER_TTL_S = 45
 PREFIX = "nivesh:sb:signals:"
+STRONG_THRESHOLD = 70                   # = signal_strength.THRESHOLD (kept here so this module does not import it)
 IST = cfg.IST
 
 
@@ -136,6 +139,13 @@ class LocalSignalStore:
         keys = self.lists.get(index, [])[-last:]
         return [self.kv[k] for k in keys if k in self.kv]
 
+    async def put(self, key: str, value: str, ttl: int) -> bool:
+        self.kv[key] = value
+        return True
+
+    async def get(self, key: str) -> Optional[str]:
+        return self.kv.get(key)
+
     async def lead(self, key: str, me: str, ttl: int, now: float) -> bool:
         if self.leader in (None, me) or now >= self.leader_until:
             self.leader, self.leader_until = me, now + ttl
@@ -172,6 +182,24 @@ class RedisSignalStore:
             vals = await asyncio.wait_for(c.mget(keys), 2.0)
             return [v.decode() if isinstance(v, bytes) else v for v in vals if v]
         except Exception as e:  # noqa: BLE001 — the dashboard answers without the feed and says so
+            logger.warning("scan signals: redis read failed (%s)", type(e).__name__)
+            raise
+
+    async def put(self, key: str, value: str, ttl: int) -> bool:
+        try:
+            c = await asyncio.wait_for(self._getter(), 4.0)
+            await asyncio.wait_for(c.set(key, value, ex=ttl), 2.0)
+            return True
+        except Exception as e:  # noqa: BLE001 — the next round writes again
+            logger.warning("scan signals: redis write failed (%s)", type(e).__name__)
+            return False
+
+    async def get(self, key: str) -> Optional[str]:
+        try:
+            c = await asyncio.wait_for(self._getter(), 4.0)
+            v = await asyncio.wait_for(c.get(key), 2.0)
+            return v.decode() if isinstance(v, bytes) else v
+        except Exception as e:  # noqa: BLE001
             logger.warning("scan signals: redis read failed (%s)", type(e).__name__)
             raise
 
@@ -331,6 +359,110 @@ async def strong_today(now: datetime, prices: Dict[str, float], scores: Dict[str
         out.append(rec)
     out.sort(key=lambda r: r.get("first_strong") or "", reverse=True)
     return {"strong": out, "error": None}
+
+
+# ── a whole day, grouped by company (DESIGN.md §11.1) ──────────────────────────────────────────────────────────────
+
+def _parse(raw: Sequence[str], what: str) -> List[Dict[str, Any]]:
+    out = []
+    for v in raw:
+        try:
+            out.append(json.loads(v))
+        except ValueError:
+            logger.warning("scan signals: an unreadable %s was skipped", what)
+    return out
+
+
+async def day_marks(day: str, *, store: Any = None) -> List[Dict[str, Any]]:
+    """Every list mark of `day` (ISO), oldest first. Raises when the store cannot be read."""
+    store = store or get_store()
+    index, _ = _day_keys(day)
+    marks = _parse(await store.read(index, MAX_DAY), "signal")
+    marks.sort(key=lambda m: m.get("first_seen") or "")
+    return marks
+
+
+def _scores_key(day: str) -> str:
+    return f"{PREFIX}{day}:scores"
+
+
+async def save_scores(day: str, scores: Dict[str, Dict[str, Any]], now: datetime, *, store: Any = None) -> bool:
+    """Store the day's scores (as they stand at `now`) for the day view; each stock keeps what the view shows."""
+    store = store or get_store()
+    keep = ("name", "score", "parts", "reasons", "penalties", "note")
+    doc = {"as_of": now.astimezone(IST).isoformat(timespec="seconds"),
+           "scores": {sym: {k: (r.get(k)[:3] if k == "reasons" and r.get(k) else r.get(k)) for k in keep}
+                      for sym, r in scores.items()}}
+    return await store.put(_scores_key(day), json.dumps(doc), TTL_S)
+
+
+async def load_scores(day: str, *, store: Any = None) -> Dict[str, Any]:
+    store = store or get_store()
+    raw = await store.get(_scores_key(day))
+    if not raw:
+        return {"as_of": None, "scores": {}}
+    try:
+        return json.loads(raw)
+    except ValueError:
+        logger.warning("scan signals: the stored scores were unreadable")
+        return {"as_of": None, "scores": {}}
+
+
+def group_day(marks: Sequence[Dict[str, Any]], strong: Sequence[Dict[str, Any]], scores: Dict[str, Dict[str, Any]]
+              ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """Companies (newest activity first) with their marks oldest first, score and strong record; and {widget_id: title}."""
+    lists: Dict[str, str] = {}
+    by: Dict[str, Dict[str, Any]] = {}
+    strong_by = {r.get("symbol"): r for r in strong if r.get("symbol")}
+    plan_keys = ("first_strong", "score_at", "entry", "stop_loss", "target_1", "target_2", "risk_per_share", "rr_1", "rr_2",
+                 "atr", "sma20", "trend_exit", "plan_ok", "plan_note", "rules")
+    for m in sorted(marks, key=lambda x: x.get("first_seen") or ""):
+        sym, wid, when = m.get("symbol"), m.get("widget_id"), m.get("first_seen") or ""
+        if not sym or not wid:
+            continue
+        lists.setdefault(wid, m.get("widget_title") or wid)
+        sc = scores.get(sym) or {}
+        c = by.get(sym)
+        if c is None:
+            st = strong_by.get(sym)
+            c = by[sym] = {"symbol": sym, "name": sc.get("name") or (st or {}).get("name") or "",
+                           "score": sc.get("score"), "parts": sc.get("parts"), "reasons": (sc.get("reasons") or [])[:3],
+                           "penalties": sc.get("penalties") or [], "note": sc.get("note"),
+                           "strong": {k: st.get(k) for k in plan_keys} if st else None,
+                           "first_seen": when, "last_seen": when, "n": 0, "marks": []}
+        c["marks"].append({"time": when[11:19], "list": wid, "price": m.get("entry"), "direction": m.get("direction")})
+        c["n"] += 1
+        c["last_seen"] = max(c["last_seen"], when)
+    companies = sorted(by.values(), key=lambda c: c["last_seen"], reverse=True)
+    return companies, lists
+
+
+async def day_view(day: str, *, store: Any = None) -> Dict[str, Any]:
+    """The answer of GET /signals/day: every list mark of `day` grouped by company. A store that cannot be read gives an empty
+    day and a warning, never an exception."""
+    store = store or get_store()
+    warnings: List[str] = []
+    try:
+        marks = await day_marks(day, store=store)
+    except Exception:  # noqa: BLE001 — logged by the store
+        return {"ok": True, "day": day, "count": 0, "companies_count": 0, "threshold": STRONG_THRESHOLD, "scores_as_of": None,
+                "lists": {}, "companies": [], "warnings": ["The day's signals could not be read just now."]}
+    try:
+        strong_index, _ = _strong_keys(day)
+        strong = _parse(await store.read(strong_index, MAX_STRONG), "strong signal")
+    except Exception:  # noqa: BLE001
+        strong = []
+        warnings.append("The day's strong signals could not be read just now.")
+    try:
+        doc = await load_scores(day, store=store)
+    except Exception:  # noqa: BLE001
+        doc = {"as_of": None, "scores": {}}
+        warnings.append("The day's scores could not be read just now.")
+    if marks and not doc.get("scores"):
+        warnings.append("Scores for this day are not stored yet; they appear after the next dashboard refresh.")
+    companies, lists = group_day(marks, strong, doc.get("scores") or {})
+    return {"ok": True, "day": day, "count": len(marks), "companies_count": len(companies), "threshold": STRONG_THRESHOLD,
+            "scores_as_of": doc.get("as_of"), "lists": lists, "companies": companies, "warnings": warnings}
 
 
 # ── the loop that keeps signals early ───────────────────────────────────────────────────────────────────────────────
