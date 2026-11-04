@@ -4,6 +4,8 @@
  * test_reports/scan_builder_20261103_0431.md, for the simple realtime dashboard; TC-DE10 the strategy idea column (3 Nov);
  * TC-DE11 the second dashboard's tab, "Day trade" (Chartink 503347; test_reports/scan_dashboard_daytrade_20261103.md TC-11).
  * TC-DE11 (signals) … TC-DE13 the early signals: feed, row badges, browser alerts (DESIGN.md §10, 3 Nov).
+ * TC-E1 … TC-E5 signal strength (DESIGN.md §11, 4 Nov; test_reports/scan_signal_strength_20261104.md): strong signals ≥ 70 with
+ * the positional plan, the collapsed "Below 70" list, alerts only for strong signals, wording, older answers.
  *
  * MOCK — not real data. Every /api/scan-builder/market-dashboard answer below is hand-written to the contract: invented
  * symbols (ALPHA, BETA, GAMMA, DELTA), invented prices, invented index levels, invented day-trade widgets. Nothing here is
@@ -73,12 +75,53 @@ const extra = (n: number, from = 0): Sig[] => Array.from({ length: n }, (_, i) =
   first_seen: `2026-11-03T11:${String(10 + from + i).padStart(2, "0")}:00+05:30`, entry: 100, stop_loss: 98, target_1: 104, target_2: 106,
   rr_1: 2, rr_2: 3, plan_ok: true }));
 
-function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; ideas?: boolean; signals?: Sig[] | false; recording?: boolean } = {}) {
+// MOCK — not real data: signal strength (DESIGN.md §11). SAREGAMA's numbers follow the 4 Nov staging check (score 83 = Q26 T25
+// R20 S5 P7; Entry 614.80, ATR(14) 18.99 → Stop loss 576.82, Target 1 690.76, Target 2 766.72; 20-day average 510.65) but are
+// typed here by hand; ALPHA, BETA, EPSILON, SAKUMA and OILIETF are invented.
+type Strong = Record<string, unknown>;
+const P = (quality: number, trend: number, reason: number, size: number, participation: number, penalty = 0) => ({ quality, trend, reason, size, participation, penalty });
+const L = (id: string, title: string) => ({ id, title });
+const SCORES: Record<string, Record<string, unknown>> = {
+  SAREGAMA: { score: 84, parts: P(26, 25, 20, 6, 7), reasons: ["Results filed today (positive)", "52-week-high breakout", "Debt/equity 0.04"], penalties: [],
+    lists: [L("dt_52w_high", "52 week high"), L("early_movers", "Early movers")], note: null },
+  ALPHA: { score: 76, parts: P(24, 22, 14, 15, 6, 5), reasons: ["Nifty 50", "Near the 52-week high"], penalties: [{ text: "1-year volatility 74 %", points: 5 }],
+    lists: [L("n50_gainers", "Nifty 50 Top Gainers")], note: null },
+  BETA: { score: 64, parts: P(20, 18, 6, 15, 5), reasons: ["Nifty 50", "Above 6 of 8 averages", "No filing today"], penalties: [],
+    lists: [L("n50_gainers", "Nifty 50 Top Gainers")], note: null },
+  SAKUMA: { score: 0, parts: P(12, 10, 4, 0, 0, 35), reasons: ["Above 3 of 8 averages"], penalties: [{ text: "market cap < ₹500 cr", points: 25 }, { text: "price < ₹20", points: 10 }],
+    lists: [L("dt_vol_price_breakout", "Volume price breakout")], note: null },
+  EPSILON: { score: null, parts: null, reasons: [], penalties: [], lists: [L("oi_7", "Open interest 7")], note: "Long only: a falling stock is not scored" },
+  OILIETF: { score: null, parts: null, reasons: [], penalties: [], lists: [L("dt_multiyear", "Multi-year breakout")], note: "An ETF is not scored" },
+};
+const strongOf = (o: Strong): Strong => ({
+  name: null, score_now: null, rules: "scan-plan-v3", rr_1: 2, rr_2: 4, plan_ok: true, plan_note: null, lists_at: [], reasons_at: [], parts_at: null,
+  price_now: null, move_since_pct: null, ...o,
+});
+const STRONG_SAREGAMA = strongOf({ symbol: "SAREGAMA", name: "Saregama India Limited", first_strong: "2026-11-04T12:47:32+05:30", score_at: 83, score_now: 84,
+  parts_at: P(26, 25, 20, 5, 7), reasons_at: ["Results filed today (positive)", "52-week-high breakout"], entry: 614.8, stop_loss: 576.82,
+  target_1: 690.76, target_2: 766.72, risk_per_share: 37.98, atr: 18.99, sma20: 510.65,
+  trend_exit: "a daily close below the 20-day average (510.65 on 3 Nov; it rises as the trend runs)",
+  lists_at: [L("dt_52w_high", "52 week high")], price_now: 621.5, move_since_pct: 1.09 });
+const STRONG_ALPHA = strongOf({ symbol: "ALPHA", first_strong: "2026-11-04T10:05:00+05:30", score_at: 76, score_now: 76, parts_at: P(24, 22, 14, 15, 6, 5),
+  reasons_at: ["Nifty 50"], entry: 805, stop_loss: 781, target_1: 853, target_2: 901, risk_per_share: 24, atr: 12, sma20: 770,
+  trend_exit: "a daily close below the 20-day average (770.00 on 3 Nov)", lists_at: [L("n50_gainers", "Nifty 50 Top Gainers")], price_now: 812.5, move_since_pct: 0.93 });
+const SCORES_META = {
+  threshold: 70, weights: { quality: 30, trend: 25, reason: 20, size: 15, participation: 10 },
+  as_of: { fundamentals: "2026-11-03", eod: "2026-11-03", filings: "13:54 IST" },
+  rules: "MOCK score rules: quality 30 + trend 25 + reason 20 + size 15 + participation 10, less penalties; set by hand, not back-tested.",
+  plan_rules: "MOCK plan scan-plan-v3: Entry = the price when the score reached 70; Stop loss = Entry − 2 × ATR(14); Target 1 = 2 × risk; Target 2 = 4 × risk; trend exit on a daily close below the 20-day average.",
+  caveat: "MOCK caveat: rule-based, not investment advice; a stop loss is a level, not a fill.",
+  counts: { scored: 4, strong: 2, below: 4, not_scored: 2 }, warnings: [],
+};
+
+function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; ideas?: boolean; signals?: Sig[] | false; recording?: boolean;
+  strength?: boolean; strong?: Strong[]; scores?: Record<string, Record<string, unknown>>; day?: string } = {}) {
   const bump = o.bump ?? 0;
   const signals = o.signals === undefined ? SIGNALS : o.signals;
   return {
     ...(o.ideas === false ? {} : { ideas: IDEAS, ideas_meta: IDEAS_META }),
-    ...(signals === false ? {} : { signals, signals_meta: { ...SIGNALS_META, count: signals.length, recording: o.recording ?? SIGNALS_META.recording } }),
+    ...(o.strength ? { scores: o.scores ?? SCORES, strong: o.strong ?? [STRONG_SAREGAMA, STRONG_ALPHA], scores_meta: SCORES_META } : {}),
+    ...(signals === false ? {} : { signals, signals_meta: { ...SIGNALS_META, day: o.day ?? SIGNALS_META.day, count: signals.length, recording: o.recording ?? SIGNALS_META.recording } }),
     ok: true,
     run_at: "2026-11-03T04:45:30Z",                      // 10:15:30 IST
     elapsed_ms: 640,
@@ -723,6 +766,158 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
   });
 });
 
+test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboard · signal strength (DESIGN.md §11)", () => {
+  test("TC-E1 Strong signals: newest first; score when recorded and now; parts; reasons; penalties; the positional plan with its trend exit; lists; price now", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }) });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-strong");
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("sd-signals")).toHaveCount(0);                     // the §10 feed is replaced
+    await expect(panel.locator("h4")).toHaveText("Strong signals (score ≥ 70)");
+    await expect(panel.getByTestId("sd-strong-count")).toHaveText("2 today");
+    const items = panel.getByTestId("sd-strong-item");
+    expect(await items.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["SAREGAMA", "ALPHA"]);
+    const sare = panel.locator('[data-testid="sd-strong-item"][data-symbol="SAREGAMA"]');
+    await expect(sare.getByTestId("sd-strong-time")).toHaveText("12:47");
+    await expect(sare.getByTestId("sd-strong-name")).toHaveText("Saregama India Limited");
+    await expect(sare.getByTestId("sd-strong-score")).toHaveText("83/100");
+    await expect(sare.getByTestId("sd-strong-score-now")).toHaveText("83 when recorded · 84 now");
+    await expect(sare.getByTestId("sd-strong-parts")).toHaveText("Quality 26/30 · Trend 25/25 · Reason 20/20 · Size 6/15 · Participation 7/10");
+    await expect(sare.getByTestId("sd-strong-reason")).toHaveText(["Results filed today (positive)", "52-week-high breakout", "Debt/equity 0.04"]);
+    await expect(sare.getByTestId("sd-strong-penalty")).toHaveCount(0);
+    await expect(sare.getByTestId("sd-strong-plan")).toHaveText("Entry 614.80 · Stop loss 576.82 · Target 1 690.76 · Target 2 766.72 · R:R 2 / 4");
+    await expect(sare.getByTestId("sd-strong-plan")).toHaveAttribute("title", "ATR(14) 18.99 · risk 37.98 a share · rules scan-plan-v3");
+    await expect(sare.getByTestId("sd-strong-exit")).toHaveText("Trend exit: a daily close below the 20-day average (510.65 on 3 Nov; it rises as the trend runs)");
+    await expect(sare.getByTestId("sd-strong-lists")).toHaveText("In today's lists: 52 week high · Early movers");
+    await expect(sare.getByTestId("sd-strong-now")).toHaveText("Now 621.50 · +1.09%");
+    await expect(sare.getByTestId("sd-strong-sym")).toHaveAttribute("href", "/v5/app/trader/desk?tab=trade&view=chart&sub=live&sym=SAREGAMA");
+    const alpha = panel.locator('[data-testid="sd-strong-item"][data-symbol="ALPHA"]');
+    await expect(alpha.getByTestId("sd-strong-score")).toHaveText("76/100");
+    await expect(alpha.getByTestId("sd-strong-score-now")).toHaveCount(0);           // unchanged since recorded
+    await expect(alpha.getByTestId("sd-strong-parts")).toHaveText("Quality 24/30 · Trend 22/25 · Reason 14/20 · Size 15/15 · Participation 6/10 · Penalties −5");
+    await expect(alpha.getByTestId("sd-strong-penalty")).toHaveText(["1-year volatility 74 % −5"]);
+    await expect(alpha.getByTestId("sd-strong-idea")).toHaveText("Strategy idea: Bull call spread · R:R 2.10");
+    await expect(panel.getByTestId("sd-strong-rules")).toContainText("MOCK score rules");
+    await expect(panel.getByTestId("sd-strong-plan-rules")).toContainText("MOCK plan scan-plan-v3");
+    await expect(panel.getByTestId("sd-strong-asof")).toHaveText("Data as of: fundamentals 2026-11-03 · eod 2026-11-03 · filings 13:54 IST");
+    // the table rows carry the stock's score; 70 and above in mint
+    const n50 = widget(page, "n50_gainers");
+    await expect(n50.locator('[data-testid="sd-row"][data-key="ALPHA"] [data-testid="sd-score"]')).toHaveText("76");
+    await expect(n50.locator('[data-testid="sd-row"][data-key="ALPHA"] [data-testid="sd-score"]')).toHaveAttribute("data-strong", "true");
+    await expect(n50.locator('[data-testid="sd-row"][data-key="BETA"] [data-testid="sd-score"]')).toHaveAttribute("data-strong", "false");
+    await expect(n50.locator('[data-testid="sd-row"][data-key="GAMMA"] [data-testid="sd-score"]')).toHaveCount(0);
+    // a card's symbol opens the chart
+    await sare.getByTestId("sd-strong-sym").click();
+    await expect.poll(() => params(page).get("sym"), SLOW).toBe("SAREGAMA");
+  });
+
+  test("TC-E2 Below 70 is collapsed; opened it lists one row per other stock, highest score first, the not-scored with why; no plan inside", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }) });
+    await openDashboard(page);
+    const toggle = page.getByTestId("sd-below-toggle");
+    await expect(toggle).toContainText("Below 70 (4)");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("sd-below-list")).toHaveCount(0);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const list = page.getByTestId("sd-below-list");
+    const rows = list.getByTestId("sd-below-item");
+    expect(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["BETA", "SAKUMA", "EPSILON", "OILIETF"]);
+    const beta = list.locator('[data-testid="sd-below-item"][data-symbol="BETA"]');
+    await expect(beta.getByTestId("sd-below-score")).toHaveText("64/100");
+    await expect(beta.getByTestId("sd-below-reasons")).toHaveText("Nifty 50 · Above 6 of 8 averages");     // the top 2 reasons
+    await expect(beta.getByTestId("sd-below-lists")).toHaveText("Nifty 50 Top Gainers");
+    const sakuma = list.locator('[data-testid="sd-below-item"][data-symbol="SAKUMA"]');
+    await expect(sakuma.getByTestId("sd-below-score")).toHaveText("0/100");
+    await expect(sakuma.getByTestId("sd-below-penalty")).toHaveText(["market cap < ₹500 cr −25", "price < ₹20 −10"]);
+    const eps = list.locator('[data-testid="sd-below-item"][data-symbol="EPSILON"]');
+    await expect(eps).toHaveAttribute("data-scored", "false");
+    await expect(eps.getByTestId("sd-below-score")).toHaveText("not scored");
+    await expect(eps.getByTestId("sd-below-note")).toHaveText("Long only: a falling stock is not scored");
+    await expect(list.locator('[data-testid="sd-below-item"][data-symbol="OILIETF"] [data-testid="sd-below-note"]')).toHaveText("An ETF is not scored");
+    await expect(list.locator("[data-plan-words]")).toHaveCount(0);                      // no plan below the line
+    expect(await list.innerText()).not.toMatch(/\b(Entry|Stop loss|Target)\b/);
+    await toggle.click();
+    await expect(page.getByTestId("sd-below-list")).toHaveCount(0);
+  });
+
+  test("TC-E3 browser alerts announce only new strong signals: not what the page opened with, never a list entry below 70; grouped above 3", async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __notes: { title: string; body: string; tag: string }[]; Notification: unknown };
+      w.__notes = [];
+      class FakeNotification {
+        static permission = "granted";
+        static requestPermission() { return Promise.resolve(FakeNotification.permission); }
+        constructor(title: string, opts?: { body?: string; tag?: string }) { w.__notes.push({ title, body: opts?.body ?? "", tag: opts?.tag ?? "" }); }
+      }
+      w.Notification = FakeNotification;
+    });
+    await page.clock.install({ time: new Date("2026-11-04T07:20:00Z") });
+    const zeta = sig({ id: "n50_gainers:ZETA", widget_id: "n50_gainers", widget_title: "Nifty 50 Top Gainers", symbol: "ZETA", first_seen: "2026-11-04T12:49:00+05:30" });
+    const more = Array.from({ length: 5 }, (_, i) => strongOf({ symbol: `S${i}`, first_strong: `2026-11-04T13:0${i}:00+05:30`, score_at: 71 + i,
+      entry: 100, stop_loss: 96, target_1: 108, target_2: 116 }));
+    const answers = [
+      dashboard({ day: "2026-11-04", strength: true, strong: [STRONG_ALPHA] }),
+      // a new list entry below 70 (ZETA) and a new strong signal (SAREGAMA)
+      dashboard({ day: "2026-11-04", strength: true, strong: [STRONG_SAREGAMA, STRONG_ALPHA], signals: [zeta, ...SIGNALS], scores: { ...SCORES, ZETA: { score: 41, lists: [L("n50_gainers", "Nifty 50 Top Gainers")] } } }),
+      dashboard({ day: "2026-11-04", strength: true, strong: [...more.reverse(), STRONG_SAREGAMA, STRONG_ALPHA] }),
+    ];
+    await desk(page, { answer: (n) => ({ status: 200, body: answers[Math.min(n, answers.length) - 1] }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-strong").getByTestId("sd-alerts")).toHaveAttribute("data-state", "on");
+    const notes = () => page.evaluate(() => (window as unknown as { __notes: { title: string; body: string; tag: string }[] }).__notes);
+    expect(await notes()).toEqual([]);                                             // the first answer only seeds
+    await page.clock.runFor(10_500);
+    await expect.poll(async () => (await notes()).length, SLOW).toBe(1);
+    expect((await notes())[0]).toEqual({ title: "SAREGAMA · strong signal 83/100", body: "Entry 614.80 · Stop loss 576.82 · Target 1 690.76", tag: "strong:2026-11-04:SAREGAMA" });
+    await page.clock.runFor(10_500);
+    await expect.poll(async () => (await notes()).length, SLOW).toBe(2);
+    expect((await notes())[1].title).toBe("5 strong signals: S0, S1, S2, S3, S4");
+    expect((await notes()).some((n) => n.title.includes("ZETA"))).toBe(false);    // the list entry below 70 never alerted
+  });
+
+  test("TC-E4 outside the plan blocks the page never says buy, sell, target, stop loss, picks, recommend, entry or exit — Below 70 open, tooltips included", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-strong-plan").first()).toBeVisible();
+    await page.getByTestId("sd-below-toggle").click();
+    await expect(page.getByTestId("sd-below-item").first()).toBeVisible();
+    await page.getByTestId("sd-sources").locator("summary").click();
+    const panel = page.getByTestId("desk-panel-scandashboard");
+    const outside = await panel.evaluate((root) => {
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-plan-words]").forEach((e) => e.remove());
+      const titles = Array.from(root.querySelectorAll("[title]")).filter((e) => !e.closest("[data-plan-words]")).map((e) => e.getAttribute("title") ?? "");
+      return { text: clone.textContent ?? "", titles };
+    });
+    expect(outside.text).toContain("Strong signals");
+    for (const t of [await page.getByTestId("md-head").innerText(), outside.text, ...outside.titles]) expect(t).not.toMatch(BANNED);
+    // inside the plan blocks only the owner's words for this screen (Entry, Stop loss, Target 1/2, Trend exit) besides the rest
+    // innerText keeps the plan's lines apart (textContent would glue "R:R 2 / 4" to "Trend exit")
+    const plans = await panel.locator("[data-plan-words]").evaluateAll((els) => els.map((e) => `${(e as HTMLElement).innerText} ${e.getAttribute("title") ?? ""}`));
+    expect(plans.length).toBeGreaterThan(0);
+    for (const t of plans) expect(t.replace(/\b(Entry|Stop loss|stop loss|Target 1|Target 2|Trend exit|trend exit)\b/g, "")).not.toMatch(BANNED);
+  });
+
+  test("TC-E5 none strong yet: the panel says so (and, after the close, when they are recorded); an older answer without scores keeps the §10 feed", async ({ page }) => {
+    let mode: "none" | "old" = "none";
+    await desk(page, { answer: () => ({ status: 200, body: mode === "none" ? dashboard({ strength: true, strong: [], recording: false, open: false }) : dashboard({ open: false }) }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-strong-empty")).toHaveText("No stock has reached 70 today. Strong signals are recorded while the market is open.");
+    await expect(page.getByTestId("sd-strong-item")).toHaveCount(0);
+    // at or above 70 after the close without a recorded strong signal: listed apart, without a plan, never under "Below 70"
+    const unrec = page.getByTestId("sd-unrecorded-item");
+    expect(await unrec.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["SAREGAMA", "ALPHA"]);
+    await expect(unrec.first().getByTestId("sd-unrecorded-note")).toHaveText("At or above 70 now, while no signals were being recorded (outside the session), so it carries no plan.");
+    await expect(page.getByTestId("sd-below-toggle")).toContainText("Below 70 (4)");
+    mode = "old";
+    await page.reload();
+    await expect(page.getByTestId("sd-signals")).toBeVisible(SLOW);
+    await expect(page.getByTestId("sd-strong")).toHaveCount(0);
+    await expect(page.getByTestId("sd-score")).toHaveCount(0);
+  });
+});
+
 test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboard · two dashboards (Atlas fresh | Day trade)", () => {
   test("TC-DE11a the default tab is Atlas fresh: no dash= in the URL, the request asks atlas, the tab row is an accessible tablist", async ({ page }) => {
     const be = await desk(page, { answer: (_n, dash) => (dash === "daytrade" ? { status: 200, body: dayTrade() } : { status: 200, body: atlas() }) });
@@ -971,6 +1166,51 @@ test.describe("REAL snapshot (staging, 3 Nov 2026 close) replayed: Scan dashboar
       return clone.innerText;
     });
     expect(outsidePlan).not.toMatch(/\b(buy\w*|sell\w*|target\w*|stop ?loss|recommend\w*|picks?)\b/i);
+    expect(errors).toEqual([]);
+  });
+});
+
+// ── REAL signal strength (4 Nov 2026, live) replayed ─────────────────────────────────────────────────────────────────
+// e2e/fixtures/scan-dashboard-real/dashboard_20261104_scores.json: the widgets are the 3 Nov close answer above; signals,
+// scores, strong signals and scores_meta are REAL — today's 300 list marks scored at 14:15 IST in the staging backend container
+// by the branch's signal_strength.py (live Kite prices, screener fundamentals, snapshot, exchange filings), shaped as the
+// branch's market_dashboard sends them. Only the transport is mocked: this checks the page against real reason and penalty texts.
+test.describe("REAL signal strength (staging, 4 Nov 2026 14:15 IST) replayed: Scan dashboard", () => {
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/scan-dashboard-real/dashboard_20261104_scores.json"), "utf8"));
+
+  test("TC-RE2 real scores render: strong cards with plans, Below 70 folded, no page error, no barred words outside plans", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await desk(page, { answer: () => ({ status: 200, body: real }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-strong")).toBeVisible(SLOW);
+    const strongN = real.strong.length as number;
+    expect(strongN).toBeGreaterThan(0);
+    await expect(page.getByTestId("sd-strong-count")).toContainText(String(strongN));
+    const sare = real.strong.find((s: { symbol: string }) => s.symbol === "SAREGAMA");
+    if (sare) {
+      const card = page.locator('[data-testid="sd-strong-item"][data-symbol="SAREGAMA"]');
+      if ((await card.count()) === 0) await page.getByTestId("sd-strong-toggle").click();
+      await expect(card).toContainText(`${sare.score_at}/100`);
+      await expect(card.getByTestId("sd-strong-plan")).toContainText("Stop loss");
+      await expect(card.getByTestId("sd-strong-exit")).toContainText("20-day average");
+    }
+    const toggle = page.getByTestId("sd-below-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const scored = Object.values(real.scores) as { score: number | null }[];
+    const belowN = scored.filter((s) => !(typeof s.score === "number" && s.score >= 70)).length;
+    await expect(toggle).toContainText(`(${belowN.toLocaleString("en-IN")})`);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("sd-below-item")).toHaveCount(belowN);
+    await expect(page.getByTestId("sd-below-list").locator("[data-plan-words]")).toHaveCount(0);
+    const outsidePlan = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="scan-dashboard"]') as HTMLElement;
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-plan-words]").forEach((el) => el.remove());
+      return clone.innerText;
+    });
+    expect(outsidePlan).not.toMatch(BANNED);
     expect(errors).toEqual([]);
   });
 });

@@ -325,3 +325,67 @@ UI: a "New signals" feed above the widgets (newest first: time, stock, scan, Ent
 the options idea when one exists, price now and move since); an "Enable browser alerts" button (Notification API) that, while the
 page is open, notifies each signal newer than the last one this browser saw (grouped when several arrive at once); stock rows
 with a signal today carry a "New hh:mm" badge.
+
+## 11. Signal strength 0–100 — positional, long only (owner 4 Nov ~13:45 IST)
+
+Owner: "hundreds of signals … process only those signals where signal strength is above 70% … companies fundamentally and
+technically good and some solid reasons to have such strong movements … reduce the signal quality for pump and dump stocks and
+promote … trend reversal from 52 week low, momentum continuation, some market events … not intraday but positional … more
+weightage to blue chip". Decisions 4 Nov ~14:05 (asked): plan = ATR stop + trend exit; below 70 = folded away (no alert, no
+plan, shown with score and reasons); long only.
+
+**What is scored:** a STOCK that entered at least one list today (a list entry is still recorded per (day, list, stock) as in
+§10, now without a plan). The score is recomputed on every refresh from the data then; a stock whose long score first reaches
+70 becomes a STRONG SIGNAL: recorded once per (day, stock) — first writer wins across workers — with the score and its parts
+at that moment and the positional plan frozen at the live price then. Only strong signals raise alerts and carry a plan. A
+stock whose lists today are all short-side (falling F&O stock in the Open interest lists) is not scored ("long only").
+
+**Score = quality (30) + trend (25) + reason (20) + size (15) + participation (10) − penalties, clamped to 0–100.**
+Rule-based weights set by hand (not fitted or back-tested; stated on screen). Inputs and their dates travel with the score.
+- Quality (DaaS /stocks/screener, the NIDP feature store; as of its date): ROCE (ROE for banks/financial companies) ≥ 20 → 8,
+  ≥ 15 → 6, ≥ 10 → 3; ROE ≥ 18 → 5, ≥ 12 → 3, ≥ 8 → 1; debt/equity ≤ 0.3 → 5, ≤ 1 → 3, ≤ 2 → 1 (financials: 3); profit
+  margin ≥ 10 % → 3, > 0 → 1; earnings consistency ≥ 75 → 4, ≥ 50 → 2; promoter ≥ 50 % → 3, ≥ 30 % → 2; FII + DII ≥ 15 % → 2,
+  ≥ 5 % → 1. A missing figure scores 0 and is named.
+- Trend (EOD bars to the last session + the live price): price above each of the 5/10/20/30/50/100/150/200-day averages → 1
+  each; 50-day above 200-day → 4; setup: 52-week-high breakout (price ≥ the prior 250-session high) → 6, within 5 % of it → 4,
+  reversal from a 52-week low (price ≤ 1.3 × the 250-session low, above its 50-day average, 20-day average rising) → 6;
+  RSI(14) 50–72 → 4, 72–80 → 2, < 50 → 1, > 80 → 0; 125-session return > 10 % → 3, > 0 → 1. Capped at 25.
+- Reason (exchange filings since the previous session, DaaS /announcements, classified by category/sentiment/impact): results
+  filed with positive sentiment → 16; orders / M&A / capex / buyback, positive, high or medium impact → 12 (low: 8); other
+  positive high/medium → 8; results otherwise → 6; negative high/medium → −8. Plus the setup: 52-week-high breakout or
+  52-week-low reversal → 10, near the 52-week high → 6; plus 4 when one of today's lists is a positional pattern (52-week,
+  multi-year, cup and handle, consolidation, triple bottom, long build-up, swing/volume breakouts, results lists). Capped 0–20.
+- Size — blue chips weigh more: Nifty 50 → 15, Nifty 100 → 13, Nifty 200 / Midcap 150 → 10, other Nifty 500 → 7; an F&O stock
+  at least 9; outside these, market cap ≥ ₹5,000 cr → 5, ≥ ₹2,000 cr → 3; 20-day average traded value < ₹5 cr caps it at 2.
+- Participation: volume so far ÷ its usual by now (20-day average × the time-of-day share, §10 Early movers): 1.5–8× → 6;
+  8–20× → 4 with a filing, else 2; > 20× → 3 with a filing, else 0; below 1.5× → 2. Trade sides (Kite ticks) ask ÷ bid
+  > 1.1 → 2. In ≥ 2 positional lists → 2.
+- Penalties (pump-and-dump risk; each named on the card): market cap < ₹500 cr −25, < ₹1,000 cr −15; no market cap and in no
+  index −10; price < ₹20 −10; volume > 10× usual with no filing and outside Nifty 500 −15; parabolic (> 50 % in 21 sessions or
+  > 100 % in 63) without PAT growth > 25 % or a filing −15; loss-making −10; promoter pledge > 50 % −20, > 25 % −10; promoter
+  < 25 % and FII + DII < 5 % −5; 1-year volatility > 70 % −5; more than 25 % above the 20-day average (chasing) −5; exchange
+  negative filing since the last session −10 (on top of the reason part's −8); NSE price band 2 % −30, 5 % −15, 10 % −5
+  (the platform does not ingest NSE's ASM/GSM lists; 5 % and 2 % bands are what surveillance and illiquid stocks get);
+  locked at the upper band today (band ≤ 10 %) −10; the exchange queried the company about a volume spurt or a price
+  movement in the last 30 days (its reply filed, DaaS /desk/filings?family=exchange) −10. ETFs are not scored.
+
+**Plan (rules `scan-plan-v3`, strong signals only):** Entry = the live price when the score first reached 70; Stop loss =
+Entry − 2 × ATR(14) (ATR to the last session), judged on daily closes; Target 1 = Entry + 2 × risk; Target 2 = Entry + 4 ×
+risk; trend exit = a daily close below the 20-day average (its value shown, it rises as the trend runs). No stop below zero:
+without ATR or price → no plan and the reason.
+
+**API (GET /market-dashboard, additive):**
+- `scores`: {SYMBOL: {score: int | null, parts: {quality, trend, reason, size, participation, penalty}, reasons: [str],
+  penalties: [{text, points}], lists: [{id, title}], note: str | null}} for every stock with a list entry today (score null
+  with a note when not scored: long only, ETF, no price history).
+- `strong`: newest first, one per stock — {symbol, name, first_strong, score_at, parts_at, reasons_at, score_now, rules
+  "scan-plan-v3", entry, stop_loss, target_1, target_2, risk_per_share, rr_1 2, rr_2 4, atr, sma20, trend_exit, plan_ok,
+  plan_note, lists_at, price_now, move_since_pct}.
+- `signals[]` (list entries) gain `score` (the stock's score now or null); their plan fields are null with plan_ok false and
+  plan_note "Plans go to strong signals only (score ≥ 70)".
+- `scores_meta`: {threshold 70, weights {quality 30, trend 25, reason 20, size 15, participation 10}, as_of {fundamentals,
+  eod, snapshot, filings}, rules, plan_rules, caveat, counts {scored, strong, below, not_scored}, warnings[]}.
+UI: a "Strong signals (score ≥ 70)" feed (score, parts, reasons, penalties, plan with trend exit, lists, price now and move
+since), a collapsed "Below 70 (n)" list (stock, score, lists, main reasons and penalties); browser alerts only for new strong
+signals.
+Price band, ETF flag and traded value come from the feature-store snapshot (DaaS /features/scan-snapshot, one call).

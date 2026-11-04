@@ -1,19 +1,21 @@
-"""Early signals, alerts and trading plans of the Scan dashboard (docs/scan_builder/DESIGN.md §10).
+"""Early signals, alerts and trading plans of the Scan dashboard (docs/scan_builder/DESIGN.md §10, §11).
 
 A SIGNAL is a stock entering one of the dashboard's stock lists during the session: recorded once per (day, widget, stock)
 with the time first seen and the live price then, only from a list whose every condition was applied (a list still waiting
-for its intraday candles shows daily-only survivors and would raise false alerts). Each signal carries a PLAN (rules
-`scan-plan-v1`, frozen at the moment of the signal) in the words the owner chose for this screen on 3 Nov 2026: Entry,
-Stop loss, Target 1, Target 2. Rule-based levels, not advice; no accuracy is claimed.
+for its intraday candles shows daily-only survivors and would raise false alerts). Plan words (Entry, Stop loss, Target 1,
+Target 2) are the owner's choice for this screen (3 Nov 2026). Rule-based levels, not advice; no accuracy is claimed.
 
-Plan (rules `scan-plan-v2`, owner 3 Nov ~20:50 IST, from the early-signals study's typical move after a flag — a median further
-rise of ~1.0–1.5 % and a dip of ~0.6 %): long — Entry = the live price when first seen; Stop loss = Entry − 1 %; Target 1 =
-Entry + 1.5 %; Target 2 = Entry + 3 % (reward : risk 1.5 and 3.0). A falling F&O stock in the two "Open interest" lists gets
-the short mirror (Stop loss + 1 %, targets −1.5 % / −3 %). Every signal with a live price gets a plan.
+Since 4 Nov 2026 (owner: positional, not intraday; only signals with strength above 70 — DESIGN.md §11) a list entry
+carries NO plan: it records the stock, the list, the time and the live price then (for "move since"). The stock's strength
+(signal_strength.py) is recomputed on every refresh; the first time a long stock's score reaches 70 it becomes a STRONG
+SIGNAL, recorded once per (day, stock) with the score, its parts and reasons, and the positional plan (scan-plan-v3) frozen
+at the live price then. Only strong signals alert. The intraday plan v2 (Entry − 1 % …) is retired.
 
 Storage (Redis, shared by the 4 workers; first writer wins):
     nivesh:sb:signals:<day>:s:<widget>:<SYMBOL>   the signal (JSON), SET NX, TTL 3 days
     nivesh:sb:signals:<day>:index                 RPUSH of the keys in the order recorded
+    nivesh:sb:signals:<day>:g:<SYMBOL>            a strong signal (JSON), SET NX, TTL 3 days
+    nivesh:sb:signals:<day>:strong                RPUSH of the strong-signal keys in the order recorded
     nivesh:sb:signals:leader                      the worker that computes the dashboard every LOOP_S in the session
 Without Redis each worker keeps its own list (tests, local runs).
 
@@ -42,26 +44,24 @@ from . import spec as S
 
 logger = logging.getLogger(__name__)
 
-PLAN_RULES = "scan-plan-v2"
-RULES_TEXT = ("Entry = the live price when the stock entered the list; Stop loss = Entry − 1 %; Target 1 = Entry + 1.5 %; "
-              "Target 2 = Entry + 3 % (reward : risk 1.5 and 3.0). Falling F&O stocks in the Open interest lists: the short "
-              "mirror. Levels sized from the 3 Nov early-signals study's typical move after a flag.")
-CAVEAT = ("Rule-based levels from fixed settings (scan-plan-v2), frozen when the signal was recorded. Not investment advice; no "
-          "accuracy or hit rate is claimed. A stop loss is a level, not an executable price: an order can fill worse in a gap.")
-STOP_PCT, T1_PCT, T2_PCT = 1.0, 1.5, 3.0
+LIST_RULES = "scan-list-mark"
+RULES_TEXT = ("A list mark = a stock joining one of the lists in the session, with the live price then. Plans go only to "
+              "strong signals (score ≥ 70); see the score rules.")
+NO_PLAN_NOTE = "Plans go to strong signals only (score ≥ 70)."
 ATR_N = 14
 SWING_N = 20
 AT_OPEN_UNTIL = (9, 20)                 # first seen by 09:20 IST = "at open"
 SHORT_WIDGETS = {"open_interest", "oi_7"}   # F&O-only lists whose conditions also pass falling stocks
 TTL_S = 3 * 86400
 MAX_LISTED = 300
+MAX_STRONG = 200
 LOOP_S = 15.0
 LEADER_TTL_S = 45
 PREFIX = "nivesh:sb:signals:"
 IST = cfg.IST
 
 
-# ── the plan ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── the list entry ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 def _f(v: Any) -> Optional[float]:
     try:
@@ -75,27 +75,13 @@ def _r(v: Optional[float]) -> Optional[float]:
     return None if v is None else round(v, 2)
 
 
-def make_plan(direction: str, entry: Any, day_low: Any = None, day_high: Any = None, atr: Any = None,
-              swing_high: Any = None, swing_low: Any = None) -> Dict[str, Any]:
-    """The plan of one signal (scan-plan-v2, above). The other inputs are kept for the record of the stock's day; the levels
-    use the Entry only. Never raises; without a live price plan_ok is False with a plan_note."""
-    e = _f(entry)
-    out: Dict[str, Any] = {"direction": direction, "entry": _r(e), "stop_loss": None, "target_1": None, "target_2": None,
-                           "risk_per_share": None, "rr_1": None, "rr_2": None, "stop_basis": None, "target_1_basis": None,
-                           "plan_ok": False, "plan_note": None, "day_low": _r(_f(day_low)), "day_high": _r(_f(day_high)),
-                           "atr": _r(_f(atr))}
-    if e is None or e <= 0:
-        out["plan_note"] = "No live price when the signal was recorded, so no plan."
-        return out
-    sign = 1 if direction == "long" else -1
-    stop = e * (1 - sign * STOP_PCT / 100)
-    t1, t2 = e * (1 + sign * T1_PCT / 100), e * (1 + sign * T2_PCT / 100)
-    risk = abs(e - stop)
-    out.update(stop_loss=_r(stop), target_1=_r(t1), target_2=_r(t2), risk_per_share=_r(risk),
-               rr_1=round(T1_PCT / STOP_PCT, 2), rr_2=round(T2_PCT / STOP_PCT, 2),
-               stop_basis=f"Entry {'−' if sign > 0 else '+'} {STOP_PCT:g} %",
-               target_1_basis=f"Entry {'+' if sign > 0 else '−'} {T1_PCT:g} %", plan_ok=True)
-    return out
+def list_entry(direction: str, price: Any, day_low: Any = None, day_high: Any = None, atr: Any = None) -> Dict[str, Any]:
+    """A list entry's fields: the live price when first seen (kept as `entry` for "move since") and the stock's day; no plan
+    (plan fields null, plan_ok False with NO_PLAN_NOTE)."""
+    return {"direction": direction, "entry": _r(_f(price)), "stop_loss": None, "target_1": None, "target_2": None,
+            "risk_per_share": None, "rr_1": None, "rr_2": None, "stop_basis": None, "target_1_basis": None,
+            "plan_ok": False, "plan_note": NO_PLAN_NOTE, "day_low": _r(_f(day_low)), "day_high": _r(_f(day_high)),
+            "atr": _r(_f(atr))}
 
 
 def _plan_spec(limit: int) -> Dict[str, Any]:
@@ -255,9 +241,8 @@ async def record(widgets: Sequence[Dict[str, Any]], inputs_for: Callable[[Sequen
         inp = inputs.get(sym) or {}
         direction = "short" if w["id"] in SHORT_WIDGETS and (_f(inp.get("chg")) or 0.0) < 0 else "long"
         sig = {"id": sid, "widget_id": w["id"], "widget_title": w.get("title"), "symbol": sym,
-               "first_seen": ist.isoformat(timespec="seconds"), "at_open": at_open, "rules": PLAN_RULES,
-               **make_plan(direction, inp.get("close"), inp.get("low"), inp.get("high"), inp.get("atr"),
-                           inp.get("swing_high"), inp.get("swing_low"))}
+               "first_seen": ist.isoformat(timespec="seconds"), "at_open": at_open, "rules": LIST_RULES,
+               **list_entry(direction, inp.get("close"), inp.get("low"), inp.get("high"), inp.get("atr"))}
         if await store.add(kp + sid, index, json.dumps(sig), TTL_S):
             stored.append(sig)
         seen.add(sid)
@@ -286,6 +271,66 @@ async def today(now: datetime, prices: Dict[str, float], *, store: Any = None) -
         out.append(sig)
     out.sort(key=lambda s: s.get("first_seen") or "", reverse=True)
     return {"signals": out, "error": None}
+
+
+# ── strong signals (score ≥ 70, DESIGN.md §11) ──────────────────────────────────────────────────────────────────────
+
+def _strong_keys(day: str):
+    return f"{PREFIX}{day}:strong", f"{PREFIX}{day}:g:"
+
+
+_seen_strong: Dict[str, Set[str]] = {}
+
+
+async def record_strong(candidates: Sequence[Dict[str, Any]], now: datetime, *, store: Any = None) -> List[Dict[str, Any]]:
+    """Record each candidate stock as today's strong signal unless one exists (first writer wins across workers). A candidate
+    is the frozen record (symbol, score_at, parts_at, reasons_at, lists_at and the scan-plan-v3 fields). Returns those stored
+    by this call."""
+    store = store or get_store()
+    ist = now.astimezone(IST)
+    day = ist.date().isoformat()
+    seen = _seen_strong.setdefault(day, set())
+    for d in list(_seen_strong):
+        if d != day:
+            del _seen_strong[d]
+    index, kp = _strong_keys(day)
+    stored = []
+    for c in candidates:
+        sym = c.get("symbol")
+        if not sym or sym in seen:
+            continue
+        rec = {**c, "id": f"strong:{sym}", "first_strong": ist.isoformat(timespec="seconds")}
+        if await store.add(kp + sym, index, json.dumps(rec), TTL_S):
+            stored.append(rec)
+        seen.add(sym)
+    return stored
+
+
+async def strong_today(now: datetime, prices: Dict[str, float], scores: Dict[str, Dict[str, Any]], *,
+                       store: Any = None) -> Dict[str, Any]:
+    """{strong (newest first, with price_now, move_since_pct, score_now, parts_now), error} for the IST day of `now`."""
+    store = store or get_store()
+    day = now.astimezone(IST).date().isoformat()
+    index, _ = _strong_keys(day)
+    try:
+        raw = await store.read(index, MAX_STRONG)
+    except Exception:  # noqa: BLE001 — logged by the store
+        return {"strong": [], "error": "The strong-signal list could not be read just now."}
+    out = []
+    for v in raw:
+        try:
+            rec = json.loads(v)
+        except ValueError:
+            logger.warning("scan signals: an unreadable strong signal was skipped")
+            continue
+        sym = rec.get("symbol")
+        p, e = _f(prices.get(sym)), _f(rec.get("entry"))
+        now_s = scores.get(sym) or {}
+        rec.update(price_now=_r(p), move_since_pct=_r(((p - e) / e * 100) if p is not None and e else None),
+                   score_now=now_s.get("score"), parts_now=now_s.get("parts"))
+        out.append(rec)
+    out.sort(key=lambda r: r.get("first_strong") or "", reverse=True)
+    return {"strong": out, "error": None}
 
 
 # ── the loop that keeps signals early ───────────────────────────────────────────────────────────────────────────────

@@ -153,7 +153,7 @@ function SignalRow({ s, idea, chartHref, onOpenSymbol }: {
   );
 }
 
-function AlertsControl({ alerts }: { alerts: ReturnType<typeof useSignalAlerts> }) {
+export function AlertsControl({ alerts }: { alerts: Pick<ReturnType<typeof useSignalAlerts>, "permission" | "muted" | "enable" | "toggleMuted"> }) {
   const { permission, muted, enable, toggleMuted } = alerts;
   const btn = { border: "1px solid var(--line-2)", background: "transparent", borderRadius: 999, padding: "3px 10px", fontSize: 12, cursor: "pointer", color: "var(--cp-ink-2)" } as const;
   if (permission === "unsupported") {
