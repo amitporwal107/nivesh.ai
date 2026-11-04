@@ -211,7 +211,11 @@ _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 _TRADE_FIELDS = {"symbol", "quantity", "entry_price", "stop_price", "target_price", "note", "source",
                  "entry_rule", "entry_window_sessions", "max_hold_sessions", "signal_at", "strategy_version", "rationale",
-                 "exit_rules"}
+                 "exit_rules", "price_source"}
+#: A live-priced at-once entry (docs/market_recovery/DESIGN.md §10 B): {"kind": "kite_live", "at": ISO of the quote}. Such
+#: an entry is checked against TODAY's live day range (check_entry_live) instead of the last completed session's bars.
+PRICE_SOURCE_KINDS = ("kite_live",)
+LIVE_RANGE_TOLERANCE = 0.005            # ±0.5 % around the live day's low / high
 _ALERT_FIELDS = {"symbol", "condition", "level", "note"}
 _SOURCE_FIELDS = {"kind", "bucket", "signal_date"}
 
@@ -412,6 +416,52 @@ def clean_signal_at(raw: Any, now: datetime) -> Optional[str]:
     return _iso(moment)
 
 
+def clean_price_source(raw: Any, now: datetime) -> Optional[Dict[str, Any]]:
+    """{"kind": "kite_live", "at": ISO} — the entry price is a live Kite quote taken at `at`, on the IST day of the
+    trade and never after it (SIGNAL_SKEW). None when absent; DeskInputError invalid_price_source otherwise."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - {"kind", "at"} or raw.get("kind") not in PRICE_SOURCE_KINDS:
+        raise DeskInputError("invalid_price_source")
+    at = raw.get("at")
+    if not isinstance(at, str) or not 10 < len(at.strip()) <= 40:
+        raise DeskInputError("invalid_price_source")
+    try:
+        moment = datetime.fromisoformat(at.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise DeskInputError("invalid_price_source") from None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    if moment > now + SIGNAL_SKEW or moment.astimezone(IST).date() != now.astimezone(IST).date():
+        raise DeskInputError("invalid_price_source", "A live price must be a quote of today, not later than now.")
+    return {"kind": raw["kind"], "at": _iso(moment)}
+
+
+def check_entry_live(trade: Dict[str, Any], answer: Dict[str, Any]) -> Dict[str, Any]:
+    """A live-priced at-once entry (price_source kite_live) is filled when recorded at a price the market traded TODAY:
+    `answer` is services/kite_live_feed/day_quote.day_quotes([symbol]) (live in the session, the saved Kite close after
+    it). Returns {date, low, high, basis, at}; raises DeskInputError entry_unverifiable (no quote of the trade's day) or
+    entry_not_tradable (outside the day's low–high, ±LIVE_RANGE_TOLERANCE)."""
+    day = ist_date(trade["opened_at"]).isoformat()
+    q = (answer.get("quotes") or {}).get(trade["symbol"]) if isinstance(answer, dict) else None
+    if not q or answer.get("source") not in ("kite_live", "kite_close") or answer.get("day") != day:
+        why = (answer or {}).get("why") if isinstance(answer, dict) else None
+        raise DeskInputError("entry_unverifiable", f"No live Kite quote of {day} for {trade['symbol']}"
+                                                   + (f" ({why})" if why else "") + ", so a live entry cannot be checked.")
+    prices = [float(v) for v in (q.get("low"), q.get("high"), q.get("ltp"), q.get("open"))
+              if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0]
+    if not prices:
+        raise DeskInputError("entry_unverifiable", f"The live quote for {trade['symbol']} carries no price.")
+    low, high = min(prices), max(prices)
+    entry = float(trade["entry_price"])
+    if not low * (1 - LIVE_RANGE_TOLERANCE) <= entry <= high * (1 + LIVE_RANGE_TOLERANCE):
+        side = "below" if entry < low else "above"
+        raise DeskInputError("entry_not_tradable", (
+            f"The live price {_rupees(entry)} is {side} today's range ({day}: {_rupees(low)}–{_rupees(high)}), so it could "
+            f"not be filled at once."))
+    return {"date": day, "low": low, "high": high, "basis": answer["source"], "at": answer.get("as_of")}
+
+
 def clean_strategy_version(raw: Any) -> Optional[str]:
     if raw is None:
         return None
@@ -454,6 +504,9 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
     if body.get("max_hold_sessions") is not None:
         max_hold = _whole(body.get("max_hold_sessions"), 1, MAX_HOLD_SESSIONS, "invalid_max_hold")
     signal_at = clean_signal_at(body.get("signal_at"), moment)
+    price_source = clean_price_source(body.get("price_source"), moment)
+    if price_source is not None and entry_rule != "at_once":
+        raise DeskInputError("invalid_price_source", "A live price is an at-once entry.")
     strategy_version = clean_strategy_version(body.get("strategy_version"))
     rationale = clean_rationale(body.get("rationale"))
     try:
@@ -479,6 +532,7 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
         "rationale": rationale,
         "rules_version": RULES_VERSION,
         "exit_rules": exit_rules,
+        **({"price_source": price_source} if price_source else {}),
         "cost_model": dict(COST_MODEL),
         "opened_at": stamp,
         "status": "open",

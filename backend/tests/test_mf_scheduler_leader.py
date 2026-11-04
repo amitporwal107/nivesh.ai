@@ -44,7 +44,7 @@ def _start_and_read():
 def test_ls1_the_first_starter_runs_every_job(lock_path):
     running, ids, status = _start_and_read()
     assert running and sched.is_leader()
-    assert "broker_holdings_sync_daily" in ids and len(ids) == 14
+    assert "broker_holdings_sync_daily" in ids and len(ids) == 15          # + market_recovery_live_exits (DESIGN §10 D)
     assert status["running"] is True
 
 
@@ -63,7 +63,7 @@ def test_ls2_a_second_process_holding_the_lock_means_no_jobs_here(lock_path):
     # The holder exited: the kernel dropped its lock, so the next start here takes over.
     time.sleep(0.05)
     running, ids, _ = _start_and_read()
-    assert running and sched.is_leader() and len(ids) == 14
+    assert running and sched.is_leader() and len(ids) == 15          # + market_recovery_live_exits (DESIGN §10 D)
 
 
 def test_ls3_stop_releases_the_lock_for_another_process(lock_path):

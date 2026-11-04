@@ -300,7 +300,15 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
     existing = await _open_duplicate(uid, doc)
     if existing is not None:
         raise await ref.refuse(409, _duplicate_detail(doc, existing))
-    if doc.get("kind") != strat.KIND and doc["entry_rule"] == "at_once":
+    if doc.get("kind") != strat.KIND and doc["entry_rule"] == "at_once" and doc.get("price_source"):
+        # A live-priced entry (docs/market_recovery/DESIGN.md §10 B, owner 4 Nov): filled at a price the market traded
+        # TODAY, read from the live Kite quote (day_quote.day_quotes), not from the last completed session's bars.
+        from services.kite_live_feed import day_quote as _day_quote
+        try:
+            doc["entry_range_checked"] = svc.check_entry_live(doc, await _day_quote.day_quotes([doc["symbol"]]))
+        except svc.DeskInputError as exc:
+            raise await ref.refuse(422, exc.detail())
+    elif doc.get("kind") != strat.KIND and doc["entry_rule"] == "at_once":
         # The fill model (services/desk_trading.py): an at-once entry is filled when recorded, so it must be a price the
         # last completed session traded. Without this a scanner pullback level 8-11% below the market was booked as
         # filled (FEDERALBNK 316.89 against 337.20-344.80). No bars, no fill: refused rather than assumed.
