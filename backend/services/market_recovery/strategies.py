@@ -294,7 +294,7 @@ def cap_warnings(strategies: List[Dict[str, Any]], plan: Dict[str, Any], chain: 
     if not hit or top >= t1:
         return []
     return [f"Target 1 ({t1:,.2f}) is above the highest listed call ({top:,.0f}): the {' and the '.join(hit)} write the "
-            f"{top:,.0f} call, so their gains stop there."]
+            f"{top:,.0f} call, so their gains are capped there."]
 
 
 def _day_text(iso: str) -> str:

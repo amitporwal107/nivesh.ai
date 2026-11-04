@@ -288,7 +288,9 @@ def test_wording_lint_strategies():
     from tests.test_compliance_wording_lint import hits
     plan_words = re.compile(r"\b(?:entry zone|stop loss|target 1|target 2)\b", re.I)
     payload = {"strategies": S.build_options(PLAN, chain()), "index": S.build_index_hedge(PLAN, 1.6, nifty_chain(), "2026-11-24", 21, "X"),
-               "labels": S.LABEL, "best": S.BEST_WHEN, "notes": S.NOTES}
+               "labels": S.LABEL, "best": S.BEST_WHEN, "notes": S.NOTES,
+               "cap": S.cap_warnings(S.build_options(PLAN, chain(calls={k: v for k, v in CALLS.items() if k <= 110})), PLAN,
+                                     chain(calls={k: v for k, v in CALLS.items() if k <= 110}))}
 
     def strings(x, key=None):
         if isinstance(x, str):
@@ -316,5 +318,5 @@ def test_cap_warning_when_target_1_is_beyond_the_listed_calls():
     out = S.build_options(PLAN, ch)
     w = S.cap_warnings(out, PLAN, ch)
     assert w == ["Target 1 (112.00) is above the highest listed call (110): the Bull Call Spread and the Collar write the 110 call, "
-                 "so their gains stop there."]
+                 "so their gains are capped there."]
     assert S.cap_warnings(S.build_options(PLAN, chain()), PLAN, chain()) == []   # 120 is listed: no cap
