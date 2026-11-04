@@ -190,14 +190,117 @@ const HEDGE_ANSWER = (symbol: string) => ({
   warnings: [],
 });
 
+// MOCK — not real data: GET /api/market-recovery/indices (§9). Invented index levels, expiries, open interest and premiums; the
+// sentences are neutral placeholders in the server's shape. Four Nifty expiries (two weeklies, a monthly, a too-thin weekly) so
+// the per-expiry table and the setups grouped by expiry are exercised; Bank Nifty has one monthly.
+const ixOi = (pairs: Array<[number, number]>) => pairs.map(([strike, v]) => ({ strike, oi: v }));
+const ixChg = (pairs: Array<[number, number]>) => pairs.map(([strike, v]) => ({ strike, change: v }));
+const ixLeg = (action: string, instrument: string, strike: number, px: number, extra: Record<string, unknown> = {}) =>
+  ({ action, instrument, strike, lots: 1, price: px, price_basis: "close", oi: 500000, volume: 90000, flags: [], ...extra });
+const ixOk = (id: string, label: string, detail: string) => ({ id, label, pass: true, detail });
+const ixExpiry = (e: string, days: number, kind: string, liquidity: string, pcr: number, maxPain: number, lo: number, hi: number, read: string) => ({
+  expiry: e, days, kind, liquidity, volume: liquidity === "too_thin" ? 20000 : liquidity === "thin" ? 600000 : 12000000,
+  pcr, call_oi: 80000000, put_oi: Math.round(80000000 * pcr), max_pain: maxPain, atm: 24850, atm_call: 160.5, atm_put: 150.25,
+  straddle: (hi - lo) / 2, move_pct: ((hi - lo) / 2 / 24850.5) * 100, range_lo: lo, range_hi: hi, call_wall: 25000, put_wall: 24600,
+  call_oi_top: ixOi([[25000, 5500000], [25500, 4100000], [26000, 3900000]]), put_oi_top: ixOi([[24600, 6100000], [24000, 5200000], [23500, 4000000]]),
+  call_adds: ixChg([[25500, 1900000], [25200, 1500000], [25000, 1200000]]), put_adds: ixChg([[24600, 2800000], [24700, 2100000], [24500, 1700000]]),
+  call_cuts: ixChg([[24500, -400000]]), put_cuts: ixChg([[24000, -120000]]), read,
+});
+const NIFTY_BLOCK = {
+  symbol: "NIFTY", name: "Nifty 50", close: 24850.5, change: 210.25, change_pct: 0.85, open: 24700, high: 24880, low: 24650.75,
+  up_streak: 3, ret_5d: 2.1, ret_20d: 3.4,
+  technicals: {
+    ema20: 24400.1, ema50: 24300.2, ema200: 24950.3, vs_ema20_pct: 1.84, vs_ema50_pct: 2.26, vs_ema200_pct: -0.4, rsi14: 61.2, rsi14_5ago: 48.9,
+    macd: 40.5, macd_signal: -12.3, macd_hist: 52.8, macd_hist_prev: 31.0, atr14: 280.4, atr_pct: 1.13, high20: 24880, low20: 23900,
+    high52: 26100, low52: 23100, from_high52_pct: -4.79, from_low52_pct: 7.58, sessions: 640,
+  },
+  pivots: { p: 24793.75, r1: 24937.5, r2: 25024.5, r3: 25168.25, s1: 24706.75, s2: 24563, s3: 24476 },
+  futures: [
+    { expiry: "2026-11-24", close: 24880, change_pct: 0.9, oi: 13000000, oi_change: -900000, oi_change_pct: -6.5, basis: 29.5, buildup: "short_covering" },
+    { expiry: "2026-12-29", close: 25010, change_pct: 0.88, oi: 1200000, oi_change: 40000, oi_change_pct: 3.4, basis: 159.5, buildup: "long_buildup" },
+  ],
+  levels: {
+    above: [{ level: 24937.5, label: "Floor pivot R1" }, { level: 24950.3, label: "200-day average (EMA)" }, { level: 25000, label: "Call wall, 3 Nov" }],
+    below: [{ level: 24793.75, label: "Floor pivot" }, { level: 24600, label: "Put wall, 3 Nov" }, { level: 24400.1, label: "20-day average (EMA)" }],
+  },
+  expiries: [
+    ixExpiry("2026-11-03", 4, "weekly", "active", 1.21, 24700, 24540, 25161, "Fresh put writing at 24,600–24,700 under the close; the largest call open interest is at 25,000."),
+    ixExpiry("2026-11-10", 11, "weekly", "thin", 1.05, 24800, 24410, 25291, "Thin series: the at-the-money put traded about 90 contracts."),
+    ixExpiry("2026-11-24", 25, "monthly", "active", 1.34, 24500, 24228, 25473, "The heaviest put open interest sits at 24,600; calls at 24,500 are being closed."),
+    ixExpiry("2026-12-01", 32, "weekly", "too_thin", 1.18, 24600, 24100, 25601, "Too little open interest to read."),
+  ],
+  setups: [
+    { expiry: "2026-11-03", kind: "weekly", key: "bull_call_spread", label: "Bull Call Spread", when: "If it rises toward 25,000", lot_size: 65,
+      legs: [ixLeg("Buy", "Call", 24850, 160.5), ixLeg("Sell", "Call", 25000, 95.25)], net_premium: -4241.25, max_gain: 5508.75, max_loss: -4241.25,
+      reward_risk: 1.3, breakevens: [24915.25], status: "fails", why: "Reward : risk at least 1.5: 1.30 : 1",
+      checks: [ixOk("liquid", "Every leg traded on 30 Oct", "Each leg has a premium, open interest and trades."),
+               { id: "reward_risk", label: "Reward : risk at least 1.5", pass: false, detail: "1.30 : 1" }] },
+    { expiry: "2026-11-03", kind: "weekly", key: "bear_put_spread", label: "Bear Put Spread", when: "If it breaks below 24,600", lot_size: 65,
+      legs: [ixLeg("Buy", "Put", 24850, 150.25), ixLeg("Sell", "Put", 24600, 70.5)], net_premium: -5183.75, max_gain: 11066.25, max_loss: -5183.75,
+      reward_risk: 2.13, breakevens: [24770.25], status: "passes", why: null,
+      checks: [ixOk("liquid", "Every leg traded on 30 Oct", "Each leg has a premium, open interest and trades."),
+               ixOk("reward_risk", "Reward : risk at least 1.5", "2.13 : 1")] },
+    { expiry: "2026-11-10", kind: "weekly", key: "iron_condor", label: "Iron Condor", when: "If it stays 24,600–25,000", lot_size: 65,
+      legs: [ixLeg("Sell", "Put", 24600, 98.0), ixLeg("Buy", "Put", 24350, 52.0), ixLeg("Sell", "Call", 25000, 120.0), ixLeg("Buy", "Call", 25250, 61.5)],
+      net_premium: 6727.5, max_gain: 6727.5, max_loss: -9522.5, reward_risk: 0.71, breakevens: [24496.5, 25103.5], status: "passes", why: null,
+      checks: [ixOk("liquid", "Every leg traded on 30 Oct", "thin series: use limit orders"),
+               ixOk("credit", "Credit at least a third of the wider wing", "credit ₹6,728 vs wing ₹16,250")] },
+    { expiry: "2026-11-24", kind: "monthly", key: "hedge_put_spread", label: "Hedge Put Spread", when: "To protect long stocks", lot_size: 65,
+      legs: [ixLeg("Buy", "Put", 24600, 210.0), ixLeg("Sell", "Put", 24250, 120.75)], net_premium: -5801.25, max_gain: 16948.75, max_loss: -5801.25,
+      reward_risk: null, breakevens: [24510.75], status: "passes", why: null,
+      checks: [ixOk("liquid", "Every leg traded on 30 Oct", "Each leg has a premium, open interest and trades.")] },
+  ],
+  read: [
+    "Nifty 50 closed +0.85% at 24,850.50, up 3 sessions in a row.",
+    "The close is 0.4% under the 200-day average (24,950.30).",
+    "Near-month futures: short covering (price +0.90%, open interest −6.5%).",
+  ],
+};
+const BANK_BLOCK = {
+  symbol: "BANKNIFTY", name: "Bank Nifty", close: 56120.4, change: -80.6, change_pct: -0.14, open: 56300, high: 56410.2, low: 55980,
+  up_streak: 0, ret_5d: 0.9, ret_20d: -1.2,
+  technicals: { ema20: 55900.5, ema50: 56200.1, ema200: 56900.9, vs_ema20_pct: 0.39, vs_ema50_pct: -0.14, vs_ema200_pct: -1.37, rsi14: 51.4, rsi14_5ago: 44.0,
+    macd: -120.2, macd_signal: -180.4, macd_hist: 60.2, macd_hist_prev: 72.9, atr14: 700.1, atr_pct: 1.25, high20: 56800, low20: 54900,
+    high52: 61000, low52: 50100, from_high52_pct: -8.0, from_low52_pct: 12.02, sessions: 640 },
+  pivots: { p: 56170.2, r1: 56360.4, r2: 56600.6, r3: 56790.8, s1: 55930, s2: 55740, s3: 55500 },
+  futures: [{ expiry: "2026-11-24", close: 56190, change_pct: -0.12, oi: 2100000, oi_change: 30000, oi_change_pct: 1.4, basis: 69.6, buildup: "short_buildup" }],
+  levels: { above: [{ level: 56200.1, label: "50-day average (EMA)" }], below: [{ level: 56000, label: "Put wall, 24 Nov" }] },
+  expiries: [ixExpiry("2026-11-24", 25, "monthly", "active", 0.93, 56300, 54700, 57540, "Calls are stacked at 57,000; the put wall is 56,000.")],
+  setups: [
+    { expiry: "2026-11-24", kind: "monthly", key: "bull_call_spread", label: "Bull Call Spread", when: "If it rises toward 57,000", lot_size: 30,
+      legs: [ixLeg("Buy", "Call", 56100, 780.0), ixLeg("Sell", "Call", 57000, 410.5)], net_premium: -11085, max_gain: 15915, max_loss: -11085,
+      reward_risk: 1.44, breakevens: [56469.5], status: "fails", why: "Reward : risk at least 1.5: 1.44 : 1",
+      checks: [{ id: "reward_risk", label: "Reward : risk at least 1.5", pass: false, detail: "1.44 : 1" }] },
+  ],
+  read: ["Bank Nifty closed −0.14% at 56,120.40 and is under its 50- and 200-day averages."],
+};
+const INDICES_ANSWER = {
+  as_of: AS_OF, indices: [NIFTY_BLOCK, BANK_BLOCK],
+  vix: { close: 14.2, change_pct: -2.1, close_5ago: 15.0, change_5d_pct: -5.33, up_streak: 0 },
+  relative: { bank_minus_nifty_1d: -0.99, bank_minus_nifty_5d: -1.2, bank_minus_nifty_20d: -4.6 },
+  flows: { as_of: AS_OF, fii_5d: 9800.5, fii_buy_days_5: 4, days: [
+    { date: "2026-10-30", fii: 3120.4, dii: -1250.2 }, { date: "2026-10-29", fii: -820.1, dii: 1900.5 }, { date: "2026-10-28", fii: 2900.0, dii: -300.0 },
+    { date: "2026-10-27", fii: 2400.2, dii: 150.0 }, { date: "2026-10-26", fii: 2200.0, dii: -410.4 } ] },
+  together: [
+    "24,600 is the common floor: put writers added there in 3 expiries.",
+    "The 3 Nov call wall at 25,000 is the near ceiling.",
+    "The 24 Nov max pain (24,500) sits under the close.",
+  ],
+  notes: ["Open interest is in units (shares), not contracts.", "Setups are rule-based and not back-tested; for research, not advice."],
+  sources: [{ what: "Index closes", source: "NSE index closes, NIDP warehouse", as_of: AS_OF },
+            { what: "Option chains and futures", source: "NSE F&O bhavcopy via /api/fno", as_of: AS_OF }],
+  warnings: [],
+};
+
 // ── the desk with the flag and the route under test ─────────────────────────────────────────────────────────────────
 
-interface Backend { calls: number; strategies: string[] }
+interface Backend { calls: number; strategies: string[]; indices: number }
 
 async function desk(page: Page, o: {
   flag?: boolean; answer?: () => { status: number; body: unknown }; strategies?: (symbol: string) => { status: number; body: unknown };
+  indices?: () => { status: number; body: unknown };
 } = {}): Promise<Backend> {
-  const be: Backend = { calls: 0, strategies: [] };
+  const be: Backend = { calls: 0, strategies: [], indices: 0 };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => reply(r, []));
@@ -214,6 +317,12 @@ async function desk(page: Page, o: {
     const symbol = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() ?? "");
     be.strategies.push(symbol);
     const a = o.strategies ? o.strategies(symbol) : { status: 200, body: symbol === "FIXC" ? HEDGE_ANSWER(symbol) : OPTIONS_ANSWER(symbol) };
+    return reply(r, a.body, a.status);
+  });
+  // Part 2 (§9): Nifty and Bank Nifty by expiry, its own read.
+  await page.route("**/api/market-recovery/indices", (r) => {
+    be.indices += 1;
+    const a = o.indices ? o.indices() : { status: 200, body: INDICES_ANSWER };
     return reply(r, a.body, a.status);
   });
   return be;
@@ -395,6 +504,7 @@ test.describe("MOCK — not real data: Market Desk › Market Recovery", () => {
   test("TC-E5 wording: with details open, the page shows no trading-call word beyond the owner's plan labels and leg verbs", async ({ page }) => {
     await desk(page);
     await openRecovery(page);
+    await expect(page.getByTestId("mr-indices-ready")).toBeVisible(SLOW);       // part 2 (§9) is on the page too, with its setups' legs
     await page.getByTestId("mr-candidates").locator('[data-testid="mr-cand-row"][data-symbol="FIXA"]').getByTestId("mr-cand-toggle").click();
     await expect(page.locator('[data-testid="mr-cand-detail"][data-symbol="FIXA"]')).toBeVisible();
     // the strategies (Buy / Sell legs) and, in the other table, the Nifty hedge are on the page too
@@ -555,7 +665,8 @@ test.describe("MOCK — not real data: Market Desk › Market Recovery · phone 
     await expect(page.locator('[data-testid="mr-cand-detail"][data-symbol="FIXA"]')).toBeVisible();
     const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(over).toBeLessThanOrEqual(1);
-    for (const id of ["mr-regime", "mr-sectors", "mr-candidates", "mr-excluded"]) {
+    await expect(page.getByTestId("mr-indices-ready")).toBeVisible(SLOW);
+    for (const id of ["mr-regime", "mr-indices", "mr-sectors", "mr-candidates", "mr-excluded"]) {
       const b = await page.getByTestId(id).boundingBox();
       expect(b, id).not.toBeNull();
       expect(b!.x + b!.width, id).toBeLessThanOrEqual(391);
@@ -575,5 +686,122 @@ test.describe("MOCK — not real data: Market Desk › Market Recovery · phone 
     const boxes = await strats.getByTestId("mr-strat").evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), right: r.right }; }));
     for (const b of boxes) expect(b.right).toBeLessThanOrEqual(391);
     expect(new Set(boxes.map((b) => b.x)).size).toBe(1);                       // stacked: one column
+  });
+});
+
+test.describe("MOCK — not real data: Market Desk › Market Recovery · 2 · Nifty and Bank Nifty (§9)", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("TC-I9 each expiry on its own row, setups grouped by expiry with Buy / Sell legs, levels, futures and flows; Bank Nifty on its tab", async ({ page }) => {
+    const be = await desk(page);
+    await openRecovery(page);
+    const part = page.getByTestId("mr-indices");
+    await expect(part.getByRole("heading")).toHaveText("2 · Nifty and Bank Nifty · each expiry");
+    await expect(page.getByTestId("mr-indices-ready")).toBeVisible(SLOW);
+    expect(be.indices).toBe(1);
+    // the later parts are renumbered
+    await expect(page.getByTestId("mr-sectors").getByRole("heading")).toHaveText("3 · Sector leaders");
+    await expect(page.getByTestId("mr-excluded").getByRole("heading")).toHaveText("5 · Left out — possible false signals");
+    // Nifty first
+    await expect(part.getByTestId("mr-idx-tab")).toHaveText(["Nifty 50", "Bank Nifty"]);
+    const nifty = part.locator('[data-testid="mr-idx"][data-symbol="NIFTY"]');
+    await expect(nifty.getByTestId("mr-idx-snapshot")).toContainText("24,850.50");
+    await expect(nifty.getByTestId("mr-idx-change")).toHaveText("+210.25 (+0.85%)");
+    await expect(nifty.getByTestId("mr-idx-streak")).toHaveText("Up 3 sessions in a row");
+    await expect(nifty.getByTestId("mr-idx-tech")).toContainText("24,950.3");
+    await expect(nifty.getByTestId("mr-idx-tech")).toContainText("48.9 five sessions ago");
+    await expect(nifty.getByTestId("mr-idx-pivots")).toContainText("R1 24,937.5");
+    await expect(nifty.getByTestId("mr-idx-levels-above").getByTestId("mr-idx-level")).toHaveCount(3);
+    await expect(nifty.getByTestId("mr-idx-levels-above")).toContainText("200-day average (EMA)");
+    await expect(nifty.getByTestId("mr-idx-levels-below")).toContainText("Put wall, 3 Nov");
+    await expect(nifty.locator('[data-testid="mr-fut-row"][data-buildup="short_covering"]')).toContainText("Short covering");
+    await expect(nifty.locator('[data-testid="mr-fut-row"][data-buildup="short_covering"]')).toContainText("−9.0L (−6.50%)");
+    // every expiry on its own row: weeklies and the monthly apart, each with its own figures
+    const rows = nifty.getByTestId("mr-exp-row");
+    await expect(rows).toHaveCount(4);
+    const wk = nifty.locator('[data-testid="mr-exp-row"][data-expiry="2026-11-03"]');
+    const mo = nifty.locator('[data-testid="mr-exp-row"][data-expiry="2026-11-24"]');
+    await expect(wk).toHaveAttribute("data-kind", "weekly");
+    await expect(mo).toHaveAttribute("data-kind", "monthly");
+    await expect(wk.getByTestId("mr-exp-pcr")).toHaveText("1.21");
+    await expect(mo.getByTestId("mr-exp-pcr")).toHaveText("1.34");
+    await expect(wk.getByTestId("mr-exp-maxpain")).toHaveText("24,700");
+    await expect(mo.getByTestId("mr-exp-maxpain")).toHaveText("24,500");
+    await expect(wk.getByTestId("mr-exp-range")).toContainText("24,540–25,161");
+    await expect(wk.getByTestId("mr-exp-calls")).toContainText("25,000 55.0L");
+    await expect(wk.getByTestId("mr-exp-puts")).toContainText("fresh 24,600 +28.0L");
+    await expect(wk.getByTestId("mr-exp-cuts")).toContainText("Calls 24,500 −4.0L");
+    await expect(nifty.locator('[data-testid="mr-exp-row"][data-expiry="2026-11-10"]')).toContainText("Thin");
+    await expect(nifty.locator('[data-testid="mr-exp-row"][data-expiry="2026-12-01"]')).toContainText("Too thin");
+    await expect(nifty.locator('[data-testid="mr-exp-read"][data-expiry="2026-11-03"]')).toContainText("Fresh put writing at 24,600–24,700");
+    await expect(nifty.getByTestId("mr-idx-expiries")).toContainText("lakh units (shares), not contracts");
+    await expect(nifty.getByTestId("mr-idx-together")).toContainText("24,600 is the common floor");
+    // setups grouped by expiry; the too-thin expiry has none and says so
+    const groups = nifty.getByTestId("mr-setup-group");
+    await expect(groups).toHaveCount(3);
+    await expect(groups.nth(0)).toHaveAttribute("data-expiry", "2026-11-03");
+    await expect(nifty.locator('[data-testid="mr-setup-group"][data-expiry="2026-12-01"]')).toHaveCount(0);
+    await expect(nifty.getByTestId("mr-setups-skipped")).toContainText("1 Dec 2026");
+    await expect(nifty.locator('[data-testid="mr-setup-group"][data-expiry="2026-11-10"]')).toContainText("thin: use limit orders");
+    const bcs = nifty.locator('[data-testid="mr-setup"][data-key="bull_call_spread"][data-expiry="2026-11-03"]');
+    await expect(bcs.getByTestId("mr-setup-leg")).toHaveText(["Buy 1 lot · 24,850 Call @ 160.50", "Sell 1 lot · 25,000 Call @ 95.25"]);
+    await expect(bcs).toHaveAttribute("data-status", "fails");
+    await expect(bcs.getByTestId("mr-setup-why")).toHaveText("Reward : risk at least 1.5: 1.30 : 1");
+    await expect(bcs.getByTestId("mr-setup-premium")).toContainText("₹4,241.25 paid per lot");
+    const ic = nifty.locator('[data-testid="mr-setup"][data-key="iron_condor"]');
+    await expect(ic.getByTestId("mr-setup-leg")).toHaveCount(4);
+    await expect(ic.getByTestId("mr-setup-premium")).toContainText("₹6,727.50 received per lot");
+    await expect(nifty.locator('[data-testid="mr-setup"][data-key="hedge_put_spread"]').getByTestId("mr-setup-rr")).toHaveText("—");
+    // shared: VIX, relative strength, flows, the disclaimer
+    await expect(part.getByTestId("mr-idx-vix")).toContainText("14.2");
+    await expect(part.getByTestId("mr-idx-relative")).toContainText("−4.60 pp");
+    await expect(part.getByTestId("mr-flow-row")).toHaveCount(5);
+    await expect(part.getByTestId("mr-idx-flows")).toContainText("net positive on 4 of the last 5 sessions");
+    await expect(part.getByTestId("mr-idx-disclaimer")).toContainText("not investment advice");
+    // Bank Nifty: its own monthly, no "Across expiries"
+    await part.locator('[data-testid="mr-idx-tab"][data-symbol="BANKNIFTY"]').click();
+    const bank = part.locator('[data-testid="mr-idx"][data-symbol="BANKNIFTY"]');
+    await expect(bank.getByTestId("mr-exp-row")).toHaveCount(1);
+    await expect(bank.getByTestId("mr-exp-pcr")).toHaveText("0.93");
+    await expect(bank.getByTestId("mr-idx-streak")).toHaveText("Fell on the session");
+    await expect(bank.getByTestId("mr-idx-together")).toHaveCount(0);
+    await expect(bank.getByTestId("mr-setup-leg")).toHaveText(["Buy 1 lot · 56,100 Call @ 780.00", "Sell 1 lot · 57,000 Call @ 410.50"]);
+    // the part's own text, Bank Nifty open: only the leg verbs are allowed
+    const text = (await part.innerText()).split("\n").map((l) => l.trim()).filter(Boolean);
+    const found = text.flatMap((line) => { const w = hits(line); return w.length ? [{ line, words: w }] : []; });
+    expect(found).toEqual([]);
+    expect(be.indices).toBe(1);                                                // the tab switch reads nothing new
+  });
+
+  test("TC-I9 a failed index read shows the server's message inside part 2; the rest of the page stays", async ({ page }) => {
+    await desk(page, { indices: () => ({ status: 503, body: { detail: { code: "data_unavailable", message: "The Nifty option chains could not be read." } } }) });
+    await openRecovery(page);
+    const err = page.getByTestId("mr-indices").getByTestId("mr-idx-error");
+    await expect(err).toBeVisible(SLOW);
+    await expect(err).toHaveAttribute("data-code", "data_unavailable");
+    await expect(err).toContainText("The Nifty option chains could not be read.");
+    await expect(page.getByTestId("mr-sectors")).toBeVisible();
+    await expect(page.getByTestId("mr-candidates")).toBeVisible();
+  });
+});
+
+test.describe("MOCK — not real data: Market Desk › Market Recovery · 2 · Nifty and Bank Nifty · phone 390px", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("TC-I9 at 390 px part 2 stays inside the screen: its tables scroll in their own box, the setups stack", async ({ page }) => {
+    await desk(page);
+    await openRecovery(page);
+    await expect(page.getByTestId("mr-indices-ready")).toBeVisible(SLOW);
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(over).toBeLessThanOrEqual(1);
+    const b = await page.getByTestId("mr-indices").boundingBox();
+    expect(b!.x + b!.width).toBeLessThanOrEqual(391);
+    const scrolls = await page.getByTestId("mr-idx-expiries").locator(".cp-scroll").first().evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(scrolls).toBe(true);
+    const cards = await page.locator('[data-testid="mr-setup-group"][data-expiry="2026-11-03"] [data-testid="mr-setup"]')
+      .evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), right: r.right }; }));
+    expect(cards.length).toBe(2);
+    for (const c of cards) expect(c.right).toBeLessThanOrEqual(391);
+    expect(new Set(cards.map((c) => c.x)).size).toBe(1);                        // stacked: one column
   });
 });

@@ -1,15 +1,19 @@
 /**
- * Market Desk › Market Recovery (owner, 3 Nov 2026; docs/market_recovery/DESIGN.md). Four parts, the proposal's three stages:
+ * Market Desk › Market Recovery (owner, 3 Nov 2026; docs/market_recovery/DESIGN.md). Five parts, the proposal's three stages
+ * plus the index read the owner added on 4 Nov:
  *
  *   1. Recovery check      is the broad market recovering: five checks (Nifty 50 vs its 20-day average and that average's
  *                          slope, advancers, Nifty 500 breadth expanding, India VIX), the status they add up to, cap-group
  *                          participation, and 30 sessions of breadth (% of Nifty 500 above the 20- and 50-day average)
- *   2. Sector leaders      the NSE industries ranked by relative strength against Nifty 500, its 5-session change and breadth;
+ *   2. Nifty and Bank Nifty  each index's close, technicals, levels and futures build-up, then EVERY live option expiry on its
+ *                          own (weekly and monthly apart) with its positioning and setups (RecoveryIndices.tsx, DESIGN.md §9;
+ *                          its own GET /api/market-recovery/indices, so the rest of the page never waits for it)
+ *   3. Sector leaders      the NSE industries ranked by relative strength against Nifty 500, its 5-session change and breadth;
  *                          the top five are the leading sectors
- *   3. Candidates          up to 10 Nifty 500 stocks from the leading sectors, then up to 10 from outside them: score out of
+ *   4. Candidates          up to 10 Nifty 500 stocks from the leading sectors, then up to 10 from outside them: score out of
  *                          100 in five parts, recovery acceleration, setup and the plan; a row opens its detail, which also
  *                          loads the stock's strategies with downside protection (RecoveryStrategies.tsx, DESIGN.md §8)
- *   4. Left out            high scorers held back as possible false signals (dead-cat bounce, short covering, extended)
+ *   5. Left out            high scorers held back as possible false signals (dead-cat bounce, short covering, extended)
  *
  * Reads GET /api/market-recovery (market-recovery-data.ts), behind the `market_recovery` flag. Every figure and sentence is the
  * server's; this screen formats and arranges them.
@@ -27,6 +31,7 @@ import {
   recoveryProblem, useMarketRecovery,
   type AccelRow, type BreadthPoint, type Candidate, type Component, type Excluded, type MarketRecovery as Data, type Regime, type SectorRow,
 } from "./market-recovery-data";
+import { RecoveryIndices } from "./RecoveryIndices";
 import { RecoveryStrategies } from "./RecoveryStrategies";
 
 // ── formatting ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -304,7 +309,7 @@ function BreadthChart({ points }: { points: BreadthPoint[] }) {
 
 function Sectors({ sectors, leaders }: { sectors: SectorRow[]; leaders: string[] }) {
   return (
-    <Card id="sectors" title="2 · Sector leaders" aside={leaders.length ? <span data-testid="mr-leaders">Leading: {leaders.join(" · ")}</span> : null}>
+    <Card id="sectors" title="3 · Sector leaders" aside={leaders.length ? <span data-testid="mr-leaders">Leading: {leaders.join(" · ")}</span> : null}>
       {sectors.length ? (
         <Scroll minWidth={760}>
           <thead>
@@ -636,7 +641,7 @@ function Candidates({ data }: { data: Data }) {
     <>
       <Card
         id="candidates"
-        title="3 · Top recovery candidates · leading sectors"
+        title="4 · Top recovery candidates · leading sectors"
         aside={data.leaders.length ? `From ${data.leaders.join(", ")}` : null}
       >
         {data.candidates.length ? (
@@ -667,7 +672,7 @@ function Candidates({ data }: { data: Data }) {
 
 function ExcludedCard({ rows }: { rows: Excluded[] }) {
   return (
-    <Card id="excluded" title="4 · Left out — possible false signals">
+    <Card id="excluded" title="5 · Left out — possible false signals">
       {rows.length ? (
         <Scroll minWidth={620}>
           <thead>
@@ -746,6 +751,7 @@ function Ready({ data }: { data: Data }) {
       ) : (
         <EmptyBlock title="The recovery check is not available" body="The server sent no market-wide reading for this session." />
       )}
+      <RecoveryIndices />
       <Sectors sectors={data.sectors} leaders={data.leaders} />
       <Candidates data={data} />
       <ExcludedCard rows={data.excluded} />

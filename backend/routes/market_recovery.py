@@ -3,6 +3,9 @@ Nifty 500 stocks are recovering faster than the market.
 
     GET /api/market-recovery   -> the whole page (recovery check, breadth series, sectors, candidates, excluded), as of the
                                   last end-of-day session; one computation per worker per end-of-day date, reused 15 minutes
+    GET /api/market-recovery/indices
+                               -> Nifty 50 and Bank Nifty: technicals, pivots, futures build-up, levels, and the option positioning
+                                  and setups of EVERY live expiry (weekly and monthly) separately (DESIGN.md §9); cached 15 minutes
     GET /api/market-recovery/strategies/{symbol}
                                -> the five strategies with downside protection for one scored stock (DESIGN.md §8), or the
                                   Nifty put hedge for a stock without stock options; end-of-day option prices, cached 15 minutes
@@ -20,7 +23,7 @@ from fastapi import APIRouter, Depends, Path, Request
 from fastapi.responses import JSONResponse
 
 from feature_gate import require_feature
-from services.market_recovery import service, strategies
+from services.market_recovery import indices, service, strategies
 from services.market_recovery.engine import StaleData
 from services.scan_builder.data import DataUnavailable, get_data
 
@@ -63,4 +66,13 @@ async def market_recovery_strategies(request: Request,
         return _answer(503, "stale_data", e.message)
     except DataUnavailable as e:
         logger.warning("market recovery strategies: data unavailable: %s", e.message)
+        return _answer(503, "data_unavailable", e.message)
+
+
+@router.get("/indices")
+async def market_recovery_indices(request: Request):
+    try:
+        return await indices.get_service().get(request)
+    except DataUnavailable as e:
+        logger.warning("market recovery indices: data unavailable: %s", e.message)
         return _answer(503, "data_unavailable", e.message)
