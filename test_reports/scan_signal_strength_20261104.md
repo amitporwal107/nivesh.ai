@@ -96,8 +96,20 @@ intraday; check SAREGAMA today. Decisions ~14:05: ATR stop + trend exit; below 7
   (Cup & Handle, ₹571.50) → 13:05:03 (₹617.60), score 77 at 14:38 — its first mark was 10:03, not 10:49 as read from the
   300-mark feed earlier.
 
+- **TC-C1…C6 + TC-RE3** (14:54 IST, Playwright image, mocked transport): `tsc exit: 0`, `build exit: 0`, scan dashboard + scan
+  builder + screener **`75 passed (37.6s)`**. MOCK cases: default list newest activity first with counts, timeline truncation,
+  suggestions by symbol prefix and name word, keyboard pick → one company with its full timeline (strong event + plan in a plan
+  block), clear, filters / sorts with counts following the search, 403/404 hide the panel (dashboard stands), 500 → error +
+  retry, 30 at a time, barred words absent with every timeline open. TC-E2/E4/E5/RE2 moved to the new panel (the Below-70 fold
+  is replaced by its filter). Frontend fix found on real data: the "Penalties −x" part never showed because the backend sends
+  the penalty part negative.
+  **TC-RE3 REAL day answer**: `e2e/fixtures/scan-dashboard-real/day_20261104.json` — the branch's `day_view` over today's real
+  2,148 list marks and the scores the leader stores (built in the staging container at 14:51 IST, in-memory store, nothing
+  written): 939 companies, 77 at 70+; the page shows the real counts, 30 companies, finds SAREGAMA by "SAREG" and by "saregama
+  india", and its timeline equals the real marks in time order; no barred words; no page error.
+
 ## Not verified yet
 - TC-L1: after the merge and deploy, in a market session — strong signals recorded once with frozen plans by the signal loop,
   the payload over the route, browser alerts on the owner's device (needs his session token for a browser check).
 
-## Verdict: IN PROGRESS — verified up to deployment (backend 306, frontend 68 incl. a real-data replay); live check after merge
+## Verdict: IN PROGRESS — verified up to deployment (backend 312, frontend 75 incl. two real-data replays); live check after merge

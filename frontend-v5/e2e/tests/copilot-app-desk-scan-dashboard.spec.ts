@@ -5,7 +5,9 @@
  * TC-DE11 the second dashboard's tab, "Day trade" (Chartink 503347; test_reports/scan_dashboard_daytrade_20261103.md TC-11).
  * TC-DE11 (signals) … TC-DE13 the early signals: feed, row badges, browser alerts (DESIGN.md §10, 3 Nov).
  * TC-E1 … TC-E5 signal strength (DESIGN.md §11, 4 Nov; test_reports/scan_signal_strength_20261104.md): strong signals ≥ 70 with
- * the positional plan, the collapsed "Below 70" list, alerts only for strong signals, wording, older answers.
+ * the positional plan, the stocks below 70, alerts only for strong signals, wording, older answers.
+ * TC-C1 … TC-C6 signals by company (DESIGN.md §11.1, 4 Nov): every company with a signal that day, searchable by symbol and
+ * name (combobox with suggestions), each with its timeline; filters, sorts, paging; a backend without the route.
  *
  * MOCK — not real data. Every /api/scan-builder/market-dashboard answer below is hand-written to the contract: invented
  * symbols (ALPHA, BETA, GAMMA, DELTA), invented prices, invented index levels, invented day-trade widgets. Nothing here is
@@ -113,6 +115,96 @@ const SCORES_META = {
   caveat: "MOCK caveat: rule-based, not investment advice; a stop loss is a level, not a fill.",
   counts: { scored: 4, strong: 2, below: 4, not_scored: 2 }, warnings: [],
 };
+
+// MOCK — not real data: the day's signals by company (GET /signals/day, DESIGN.md §11.1). SAREGAMA's seven marks and its strong
+// signal follow the 4 Nov staging check (10:49:22 at 575.25 … 13:05:03 at 617.60; 74 at 12:47:32) but are typed here by hand;
+// every other company, mark and number is invented. Newest activity first, as the server sends them.
+type Mark = { time: string; list: string; price: number | null; direction?: string };
+const M = (time: string, list: string, price: number | null, direction = "long"): Mark => ({ time, list, price, direction });
+const DAY_LISTS: Record<string, string> = {
+  dt_52w_breakout: "52 week breakout", dt_52w_high: "52 week high", dt_short_breakouts: "Short term breakouts",
+  dt_multiyear: "Multiyear breakout", dt_delivery_volume: "Delivery % + Volume", early_movers: "Early movers",
+  dt_vol_price_breakout: "High volume and price breakout stocks", n50_gainers: "Nifty 50 Top Gainers", oi_7: "Open interest 7",
+  cup_handle: "Cup and handle", rsi_dwm: "RSI daily weekly monthly",
+};
+const company = (o: Record<string, unknown> & { symbol: string; marks: Mark[] }) => ({
+  name: "", score: null, parts: null, reasons: [], penalties: [], note: null, strong: null,
+  first_seen: `2026-11-04T${o.marks[0].time}+05:30`, last_seen: `2026-11-04T${o.marks[o.marks.length - 1].time}+05:30`, n: o.marks.length, ...o,
+});
+const DAY_STRONG_SAREGAMA = { first_strong: "2026-11-04T12:47:32+05:30", score_at: 74, entry: 614.8, stop_loss: 576.82, target_1: 690.76, target_2: 766.72,
+  risk_per_share: 37.98, rr_1: 2, rr_2: 4, atr: 18.99, sma20: 510.65, trend_exit: "A daily close below the 20-day average (₹510.65 on 2026-11-03; it rises as the trend runs)",
+  plan_ok: true, plan_note: null, rules: "scan-plan-v3" };
+const DAY_COMPANIES = [
+  company({ symbol: "ZEN", name: "Zenith Mills Limited", score: 55, parts: P(20, 15, 10, 5, 5, 0),
+    reasons: ["Above 6 of 8 daily averages", "Quality 20/30", "Size 5/15: outside Nifty 500"],
+    marks: [M("09:20:00", "early_movers", 101), M("09:45:00", "dt_short_breakouts", 102.5), M("10:05:00", "dt_multiyear", 103),
+      M("10:40:00", "cup_handle", 104.2), M("11:15:00", "dt_delivery_volume", 104.9), M("12:00:00", "rsi_dwm", 105.5),
+      M("12:30:00", "dt_52w_high", 106), M("13:10:00", "dt_52w_breakout", 106.8), M("14:02:00", "dt_vol_price_breakout", 107.25)] }),
+  company({ symbol: "SAREGAMA", name: "Saregama India Limited", score: 74, parts: P(26, 21, 20, 5, 7, -5),
+    reasons: ["Results filing 04 Nov 12:31 IST (positive): Outcome of Board Meeting", "50-day average above the 200-day", "52-week-high breakout (prior high ₹574.50)"],
+    penalties: [{ text: "26 % above its 20-day average (chasing)", points: 5 }], strong: DAY_STRONG_SAREGAMA,
+    marks: [M("10:49:22", "dt_52w_breakout", 575.25), M("10:49:22", "dt_52w_high", 575.25), M("12:47:27", "dt_short_breakouts", 614.8),
+      M("12:47:27", "dt_multiyear", 614.8), M("12:47:27", "dt_delivery_volume", 614.8), M("12:47:32", "early_movers", 614.8),
+      M("13:05:03", "dt_vol_price_breakout", 617.6)] }),
+  company({ symbol: "BETA", name: "Beta India Industries", score: 64, parts: P(20, 18, 6, 15, 5, 0),
+    reasons: ["Nifty 50", "Above 6 of 8 averages", "No filing today"], marks: [M("12:10:00", "n50_gainers", 1999.95)] }),
+  company({ symbol: "SAKUMA", name: "Sakuma Exports Limited", score: 0, parts: P(12, 10, 4, 0, 0, -35), reasons: ["Above 3 of 8 averages"],
+    penalties: [{ text: "market cap < ₹500 cr", points: 25 }, { text: "price < ₹20", points: 10 }], marks: [M("11:00:00", "dt_vol_price_breakout", 2.73)] }),
+  company({ symbol: "ALPHA", name: "Alpha Motors Limited", score: 76, parts: P(24, 22, 14, 15, 6, -5), reasons: ["Nifty 50"],
+    penalties: [{ text: "1-year volatility 74 %", points: 5 }],
+    strong: { ...DAY_STRONG_SAREGAMA, first_strong: "2026-11-04T10:05:00+05:30", score_at: 76, entry: 805, stop_loss: 781, target_1: 853, target_2: 901,
+      risk_per_share: 24, atr: 12, sma20: 770, trend_exit: "A daily close below the 20-day average (₹770.00 on 2026-11-03)" },
+    marks: [M("09:15:20", "n50_gainers", 800), M("10:30:00", "oi_7", 812.5)] }),
+  company({ symbol: "EPSILON", name: "Epsilon Steel Limited", note: "Not scored: long only — this stock is in today's lists as a falling stock",
+    marks: [M("10:12:40", "oi_7", 300, "short")] }),
+  company({ symbol: "OILIETF", name: "Oil ETF", note: "Not scored: an ETF, not a company", marks: [M("09:40:00", "dt_multiyear", 9.87)] }),
+];
+const DAY = { ok: true, day: "2026-11-04", count: 22, companies_count: 7, threshold: 70, scores_as_of: "2026-11-04T14:40:12+05:30",
+  lists: DAY_LISTS, warnings: [], companies: DAY_COMPANIES };
+const dayOk = (body: unknown = DAY) => () => ({ status: 200, body });
+
+/** A day answer grouped IN THE TEST from a dashboard answer's own `signals`, `scores` and `strong` (each signal's time = its IST
+ *  first_seen; companies newest activity first). Used where the dashboard fixture is the source of truth (TC-E5, TC-RE2). */
+function dayFrom(b: { signals?: Sig[] | null; scores?: Record<string, Record<string, unknown>> | null; strong?: Strong[] | null; signals_meta?: { day?: string } | null }) {
+  type Co = { symbol: string; name: string; score: number | null; parts: unknown; reasons: string[]; penalties: unknown[]; note: string | null;
+    strong: unknown; marks: Mark[]; iso: string[] };
+  const by = new Map<string, Co>();
+  const lists: Record<string, string> = {};
+  const ensure = (sym: string): Co => {
+    let c = by.get(sym);
+    if (!c) by.set(sym, (c = { symbol: sym, name: "", score: null, parts: null, reasons: [], penalties: [], note: null, strong: null, marks: [], iso: [] }));
+    return c;
+  };
+  for (const sg of b.signals ?? []) {
+    const c = ensure(String(sg.symbol));
+    const iso = String(sg.first_seen);
+    c.marks.push(M(iso.slice(11, 19), String(sg.widget_id), (sg.entry as number | null) ?? null, String(sg.direction ?? "long")));
+    c.iso.push(iso);
+    if (sg.widget_title) lists[String(sg.widget_id)] = String(sg.widget_title);
+  }
+  for (const [sym, sc] of Object.entries(b.scores ?? {})) {
+    const c = ensure(sym);
+    c.name = String(sc.name ?? c.name ?? "");
+    c.score = (sc.score as number | null) ?? null;
+    c.parts = sc.parts ?? null;
+    c.reasons = ((sc.reasons as string[]) ?? []).slice(0, 3);
+    c.penalties = (sc.penalties as unknown[]) ?? [];
+    c.note = (sc.note as string | null) ?? null;
+    for (const l of (sc.lists as { id: string; title: string }[]) ?? []) lists[l.id] = lists[l.id] ?? l.title;
+  }
+  for (const st of b.strong ?? []) {
+    const c = ensure(String(st.symbol));
+    c.strong = st;
+    c.name = c.name || String(st.name ?? "");
+  }
+  const companies = [...by.values()].map((c) => {
+    const iso = [...c.iso].sort();
+    return { symbol: c.symbol, name: c.name, score: c.score, parts: c.parts, reasons: c.reasons, penalties: c.penalties, note: c.note, strong: c.strong,
+      first_seen: iso[0] ?? null, last_seen: iso[iso.length - 1] ?? null, n: c.marks.length, marks: [...c.marks].sort((x, y) => x.time.localeCompare(y.time)) };
+  }).sort((x, y) => (y.last_seen ?? "").localeCompare(x.last_seen ?? "") || x.symbol.localeCompare(y.symbol));
+  return { ok: true, day: b.signals_meta?.day ?? "", count: (b.signals ?? []).length, companies_count: companies.length, threshold: 70,
+    scores_as_of: null, lists, warnings: [], companies };
+}
 
 function dashboard(o: { open?: boolean; bump?: number; warnings?: string[]; ideas?: boolean; signals?: Sig[] | false; recording?: boolean;
   strength?: boolean; strong?: Strong[]; scores?: Record<string, Record<string, unknown>>; day?: string } = {}) {
@@ -279,10 +371,14 @@ interface Backend {
   /** The `dashboard` query param of every GET /market-dashboard, in order (null = absent). */
   asked: (string | null)[];
   answer: (n: number, dash: string | null) => { status: number; body: unknown };
+  /** GET /signals/day (§11.1). Default: 404, as a backend from before the route answers — the panel stays hidden. */
+  day: (n: number) => { status: number; body: unknown };
 }
 
-async function desk(page: Page, o: { flag?: boolean; answer?: Backend["answer"] } = {}): Promise<Backend> {
-  const be: Backend = { calls: [], asked: [], answer: o.answer ?? ((_n, dash) => byDashboard(dash)) };
+const NO_DAY_ROUTE = () => ({ status: 404, body: { detail: "Not Found" } });
+
+async function desk(page: Page, o: { flag?: boolean; answer?: Backend["answer"]; day?: Backend["day"] } = {}): Promise<Backend> {
+  const be: Backend = { calls: [], asked: [], answer: o.answer ?? ((_n, dash) => byDashboard(dash)), day: o.day ?? NO_DAY_ROUTE };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => reply(r, []));
@@ -298,6 +394,10 @@ async function desk(page: Page, o: { flag?: boolean; answer?: Backend["answer"] 
       const dash = url.searchParams.get("dashboard");
       be.asked.push(dash);
       const a = be.answer(be.calls.filter((c) => c === "GET /market-dashboard").length, dash);
+      return reply(r, a.body, a.status);
+    }
+    if (p === "/signals/day" && req.method() === "GET") {
+      const a = be.day(be.calls.filter((c) => c === "GET /signals/day").length);
       return reply(r, a.body, a.status);
     }
     return reply(r, { detail: { code: "unexpected", message: `unmocked ${req.method()} ${p}` } }, 500);
@@ -811,34 +911,29 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     await expect.poll(() => params(page).get("sym"), SLOW).toBe("SAREGAMA");
   });
 
-  test("TC-E2 Below 70 is collapsed; opened it lists one row per other stock, highest score first, the not-scored with why; no plan inside", async ({ page }) => {
-    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }) });
+  test("TC-E2 the stocks below 70 live in Signals by company now: Strong signals has no fold; the Below 70 filter lists them with score, reasons and penalties, no plan", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }), day: dayOk() });
     await openDashboard(page);
-    const toggle = page.getByTestId("sd-below-toggle");
-    await expect(toggle).toContainText("Below 70 (4)");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(page.getByTestId("sd-below-list")).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const list = page.getByTestId("sd-below-list");
-    const rows = list.getByTestId("sd-below-item");
-    expect(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["BETA", "SAKUMA", "EPSILON", "OILIETF"]);
-    const beta = list.locator('[data-testid="sd-below-item"][data-symbol="BETA"]');
-    await expect(beta.getByTestId("sd-below-score")).toHaveText("64/100");
-    await expect(beta.getByTestId("sd-below-reasons")).toHaveText("Nifty 50 · Above 6 of 8 averages");     // the top 2 reasons
-    await expect(beta.getByTestId("sd-below-lists")).toHaveText("Nifty 50 Top Gainers");
-    const sakuma = list.locator('[data-testid="sd-below-item"][data-symbol="SAKUMA"]');
-    await expect(sakuma.getByTestId("sd-below-score")).toHaveText("0/100");
-    await expect(sakuma.getByTestId("sd-below-penalty")).toHaveText(["market cap < ₹500 cr −25", "price < ₹20 −10"]);
-    const eps = list.locator('[data-testid="sd-below-item"][data-symbol="EPSILON"]');
-    await expect(eps).toHaveAttribute("data-scored", "false");
-    await expect(eps.getByTestId("sd-below-score")).toHaveText("not scored");
-    await expect(eps.getByTestId("sd-below-note")).toHaveText("Long only: a falling stock is not scored");
-    await expect(list.locator('[data-testid="sd-below-item"][data-symbol="OILIETF"] [data-testid="sd-below-note"]')).toHaveText("An ETF is not scored");
-    await expect(list.locator("[data-plan-words]")).toHaveCount(0);                      // no plan below the line
-    expect(await list.innerText()).not.toMatch(/\b(Entry|Stop loss|Target)\b/);
-    await toggle.click();
-    await expect(page.getByTestId("sd-below-list")).toHaveCount(0);
+    await expect(page.getByTestId("sd-strong")).toBeVisible();
+    await expect(page.getByTestId("sd-below-toggle")).toHaveCount(0);                   // the fold that sat here is gone
+    const panel = page.getByTestId("sd-bycompany");
+    await expect(panel).toBeVisible(SLOW);
+    await panel.getByTestId("sd-bc-filter-below").click();
+    await expect(panel.getByTestId("sd-bc-filter-below")).toHaveAttribute("aria-pressed", "true");
+    const rows = panel.getByTestId("sd-bc-item");
+    expect(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["ZEN", "BETA", "SAKUMA"]);
+    const beta = panel.locator('[data-testid="sd-bc-item"][data-symbol="BETA"]');
+    await expect(beta.getByTestId("sd-bc-score")).toHaveText("64/100");
+    await expect(beta.getByTestId("sd-bc-reason")).toHaveText(["Nifty 50", "Above 6 of 8 averages", "No filing today"]);
+    const sakuma = panel.locator('[data-testid="sd-bc-item"][data-symbol="SAKUMA"]');
+    await expect(sakuma.getByTestId("sd-bc-score")).toHaveText("0/100");
+    await expect(sakuma.getByTestId("sd-bc-penalty")).toHaveText(["market cap < ₹500 cr −25", "price < ₹20 −10"]);
+    await expect(panel.getByTestId("sd-bc-list").locator("[data-plan-words]")).toHaveCount(0);   // no plan below the line
+    expect(await panel.getByTestId("sd-bc-list").innerText()).not.toMatch(/\b(Entry|Stop loss|Target)\b/);
+    await panel.getByTestId("sd-bc-filter-unscored").click();
+    expect(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["EPSILON", "OILIETF"]);
+    await expect(panel.locator('[data-testid="sd-bc-item"][data-symbol="OILIETF"] [data-testid="sd-bc-note"]')).toHaveText("Not scored: an ETF, not a company");
+    await expect(panel.locator('[data-testid="sd-bc-item"][data-symbol="EPSILON"] [data-testid="sd-bc-score"]')).toHaveText("not scored");
   });
 
   test("TC-E3 browser alerts announce only new strong signals: not what the page opened with, never a list entry below 70; grouped above 3", async ({ page }) => {
@@ -876,12 +971,13 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     expect((await notes()).some((n) => n.title.includes("ZETA"))).toBe(false);    // the list entry below 70 never alerted
   });
 
-  test("TC-E4 outside the plan blocks the page never says buy, sell, target, stop loss, picks, recommend, entry or exit — Below 70 open, tooltips included", async ({ page }) => {
-    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }) });
+  test("TC-E4 outside the plan blocks the page never says buy, sell, target, stop loss, picks, recommend, entry or exit — every company's timeline open, tooltips included", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }), day: dayOk() });
     await openDashboard(page);
     await expect(page.getByTestId("sd-strong-plan").first()).toBeVisible();
-    await page.getByTestId("sd-below-toggle").click();
-    await expect(page.getByTestId("sd-below-item").first()).toBeVisible();
+    await expect(page.getByTestId("sd-bc-item").first()).toBeVisible(SLOW);
+    for (let i = 0; i < 50 && (await page.getByTestId("sd-bc-more").count()) > 0; i++) await page.getByTestId("sd-bc-more").first().click();
+    await expect(page.getByTestId("sd-bc-more")).toHaveCount(0);
     await page.getByTestId("sd-sources").locator("summary").click();
     const panel = page.getByTestId("desk-panel-scandashboard");
     const outside = await panel.evaluate((root) => {
@@ -901,7 +997,8 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
 
   test("TC-E5 none strong yet: the panel says so (and, after the close, when they are recorded); an older answer without scores keeps the §10 feed", async ({ page }) => {
     let mode: "none" | "old" = "none";
-    await desk(page, { answer: () => ({ status: 200, body: mode === "none" ? dashboard({ strength: true, strong: [], recording: false, open: false }) : dashboard({ open: false }) }) });
+    const none = dashboard({ strength: true, strong: [], recording: false, open: false });
+    const be = await desk(page, { answer: () => ({ status: 200, body: mode === "none" ? none : dashboard({ open: false }) }), day: () => ({ status: 200, body: dayFrom(none) }) });
     await openDashboard(page);
     await expect(page.getByTestId("sd-strong-empty")).toHaveText("No stock has reached 70 today. Strong signals are recorded while the market is open.");
     await expect(page.getByTestId("sd-strong-item")).toHaveCount(0);
@@ -909,12 +1006,205 @@ test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboa
     const unrec = page.getByTestId("sd-unrecorded-item");
     expect(await unrec.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["SAREGAMA", "ALPHA"]);
     await expect(unrec.first().getByTestId("sd-unrecorded-note")).toHaveText("At or above 70 now, while no signals were being recorded (outside the session), so it carries no plan.");
-    await expect(page.getByTestId("sd-below-toggle")).toContainText("Below 70 (4)");
+    // the rest is in Signals by company (its day grouped in the test from this same answer): ALPHA and SAREGAMA at 70+, BETA and
+    // SAKUMA below, DELTA (a list mark without a score), EPSILON and OILIETF not scored
+    await expect(page.getByTestId("sd-bc-filter-high")).toHaveText("70+ (2)", SLOW);
+    await expect(page.getByTestId("sd-bc-filter-below")).toHaveText("Below 70 (2)");
+    await expect(page.getByTestId("sd-bc-filter-unscored")).toHaveText("Not scored (3)");
+    const dayCalls = be.calls.filter((c) => c === "GET /signals/day").length;
+    expect(dayCalls).toBeGreaterThan(0);
     mode = "old";
     await page.reload();
     await expect(page.getByTestId("sd-signals")).toBeVisible(SLOW);
     await expect(page.getByTestId("sd-strong")).toHaveCount(0);
     await expect(page.getByTestId("sd-score")).toHaveCount(0);
+    await expect(page.getByTestId("sd-bycompany")).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(be.calls.filter((c) => c === "GET /signals/day").length).toBe(dayCalls);   // an older answer: the day is never asked
+  });
+});
+
+test.describe("MOCK — not real data: Market Desk › Screener › Scan dashboard · signals by company (DESIGN.md §11.1)", () => {
+  const symbols = (page: Page) => page.getByTestId("sd-bc-item").evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")));
+
+  test("TC-C1 by default every company with a signal today, newest activity first, with counts, score, strong chip and a timeline (6 marks, then 'n more')", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }), day: dayOk() });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-bycompany");
+    await expect(panel).toBeVisible(SLOW);
+    await expect(panel.locator("h4")).toHaveText("Signals by company");
+    await expect(panel.getByTestId("sd-bc-head")).toHaveText("2026-11-04 · 22 signals · 7 companies · scores as of 14:40");
+    expect(await symbols(page)).toEqual(["ZEN", "SAREGAMA", "BETA", "SAKUMA", "ALPHA", "EPSILON", "OILIETF"]);
+    await expect(panel.getByTestId("sd-bc-filter-all")).toHaveText("All (7)");
+    await expect(panel.getByTestId("sd-bc-filter-all")).toHaveAttribute("aria-pressed", "true");
+    await expect(panel.getByTestId("sd-bc-filter-high")).toHaveText("70+ (2)");
+    await expect(panel.getByTestId("sd-bc-filter-below")).toHaveText("Below 70 (3)");
+    await expect(panel.getByTestId("sd-bc-filter-unscored")).toHaveText("Not scored (2)");
+    const sare = panel.locator('[data-testid="sd-bc-item"][data-symbol="SAREGAMA"]');
+    await expect(sare.getByTestId("sd-bc-name")).toHaveText("Saregama India Limited");
+    await expect(sare.getByTestId("sd-bc-score")).toHaveText("74/100");
+    await expect(sare.getByTestId("sd-bc-score")).toHaveAttribute("data-high", "true");
+    await expect(sare.getByTestId("sd-bc-strong")).toHaveText("Strong signal 12:47");
+    await expect(sare.getByTestId("sd-bc-n")).toHaveText("7 signals · 10:49–13:05");
+    await expect(sare.getByTestId("sd-bc-penalty")).toHaveText(["26 % above its 20-day average (chasing) −5"]);
+    // collapsed: the first 6 marks and the strong signal at its time; the 7th mark behind "1 more"
+    const marks = sare.getByTestId("sd-bc-mark");
+    expect(await marks.evaluateAll((els) => els.map((e) => `${e.getAttribute("data-kind")} ${e.getAttribute("data-time")}`))).toEqual([
+      "mark 10:49:22", "mark 10:49:22", "mark 12:47:27", "mark 12:47:27", "mark 12:47:27", "mark 12:47:32", "strong 12:47:32"]);
+    await expect(marks.first()).toHaveText("10:49:22 · 52 week breakout · ₹575.25");
+    await expect(sare.getByTestId("sd-bc-more")).toHaveText("1 more");
+    await sare.getByTestId("sd-bc-more").click();
+    await expect(marks).toHaveCount(8);
+    await expect(marks.last()).toHaveText("13:05:03 · High volume and price breakout stocks · ₹617.60");
+    const zen = panel.locator('[data-testid="sd-bc-item"][data-symbol="ZEN"]');
+    await expect(zen.getByTestId("sd-bc-mark")).toHaveCount(6);
+    await expect(zen.getByTestId("sd-bc-more")).toHaveText("3 more");
+    await expect(panel.locator('[data-testid="sd-bc-item"][data-symbol="BETA"] [data-testid="sd-bc-more"]')).toHaveCount(0);
+    await expect(panel.locator('[data-testid="sd-bc-item"][data-symbol="EPSILON"] [data-testid="sd-bc-mark"]')).toHaveText("10:12:40 · Open interest 7 · ₹300.00 · falling");
+    await expect(panel.locator('[data-testid="sd-bc-item"][data-symbol="BETA"] [data-testid="sd-bc-strong"]')).toHaveCount(0);
+    // the symbol opens the chart
+    await sare.getByTestId("sd-bc-sym").click();
+    await expect.poll(() => params(page).get("sym"), SLOW).toBe("SAREGAMA");
+  });
+
+  test("TC-C2 search suggests by symbol and by a word of the name; a keyboard pick shows that company alone with its whole day in time order; × restores all", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }), day: dayOk() });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-bycompany");
+    const box = panel.getByRole("combobox", { name: "Search a company by symbol or name" });
+    await expect(box).toBeVisible(SLOW);
+    await expect(box).toHaveAttribute("aria-expanded", "false");
+    await box.fill("SAR");
+    await expect(box).toHaveAttribute("aria-expanded", "true");
+    const options = panel.getByTestId("sd-bc-listbox").getByRole("option");
+    expect(await options.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["SAREGAMA"]);
+    await expect(options.first()).toContainText("SAREGAMA");
+    await expect(options.first()).toContainText("Saregama India Limited");
+    await expect(options.first()).toContainText("74");
+    expect(await symbols(page)).toEqual(["SAREGAMA"]);                               // typing filters the list as you type
+    // a word of the name, any case: "india" → Beta India Industries, Saregama India Limited (symbol order within the same rank)
+    await box.fill("india");
+    expect(await options.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["BETA", "SAREGAMA"]);
+    await box.fill("mills");
+    expect(await options.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["ZEN"]);
+    await box.fill("india");
+    await box.press("ArrowDown");
+    await box.press("ArrowDown");
+    const activeId = await box.getAttribute("aria-activedescendant");
+    expect(activeId).toBeTruthy();
+    await expect(panel.locator(`[id="${activeId}"]`)).toHaveAttribute("data-symbol", "SAREGAMA");
+    await expect(panel.locator(`[id="${activeId}"]`)).toHaveAttribute("aria-selected", "true");
+    await box.press("Enter");
+    await expect(box).toHaveValue("SAREGAMA");
+    await expect(box).toHaveAttribute("aria-expanded", "false");
+    expect(await symbols(page)).toEqual(["SAREGAMA"]);
+    await expect(panel.getByTestId("sd-bc-filter-all")).toHaveCount(0);              // one company: no filters
+    const sare = panel.locator('[data-testid="sd-bc-item"][data-symbol="SAREGAMA"]');
+    const marks = sare.getByTestId("sd-bc-mark");
+    await expect(marks).toHaveCount(8);                                               // the whole day, no "more"
+    const times = await marks.evaluateAll((els) => els.map((e) => e.getAttribute("data-time") ?? ""));
+    expect(times).toEqual([...times].sort());
+    const strong = sare.locator('[data-testid="sd-bc-mark"][data-kind="strong"]');
+    await expect(strong).toContainText("12:47:32 · reached 74 — strong signal");
+    await expect(strong.getByTestId("sd-bc-plan")).toHaveText("Entry 614.80 · Stop loss 576.82 · Target 1 690.76 · Target 2 766.72 · R:R 2 / 4");
+    await expect(strong.getByTestId("sd-bc-plan")).toHaveAttribute("title", "ATR(14) 18.99 · risk 37.98 a share · rules scan-plan-v3");
+    await expect(strong.getByTestId("sd-bc-exit")).toHaveText("Trend exit: A daily close below the 20-day average (₹510.65 on 2026-11-03; it rises as the trend runs)");
+    await panel.getByTestId("sd-bc-clear").click();
+    await expect(box).toHaveValue("");
+    expect(await symbols(page)).toEqual(["ZEN", "SAREGAMA", "BETA", "SAKUMA", "ALPHA", "EPSILON", "OILIETF"]);
+    // a search that matches nothing says so; Escape in an empty-result box clears it
+    await box.fill("tcs");
+    await expect(panel.getByTestId("sd-bc-empty")).toHaveText("No company with a signal today matches “tcs”.");
+    await box.press("Escape");
+    await expect(box).toHaveValue("");
+    await expect(page.getByTestId("sd-bc-item")).toHaveCount(7);
+  });
+
+  test("TC-C3 filters (All / 70+ / Below 70 / Not scored) and sorts (Latest / Score / A–Z)", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }), day: dayOk() });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-bycompany");
+    await expect(panel.getByTestId("sd-bc-item").first()).toBeVisible(SLOW);
+    await panel.getByTestId("sd-bc-filter-high").click();
+    expect(await symbols(page)).toEqual(["SAREGAMA", "ALPHA"]);
+    await panel.getByTestId("sd-bc-filter-below").click();
+    expect(await symbols(page)).toEqual(["ZEN", "BETA", "SAKUMA"]);
+    await panel.getByTestId("sd-bc-filter-unscored").click();
+    expect(await symbols(page)).toEqual(["EPSILON", "OILIETF"]);
+    await panel.getByTestId("sd-bc-filter-all").click();
+    await panel.getByTestId("sd-bc-sort").selectOption("score");
+    expect(await symbols(page)).toEqual(["ALPHA", "SAREGAMA", "BETA", "ZEN", "SAKUMA", "EPSILON", "OILIETF"]);
+    await panel.getByTestId("sd-bc-sort").selectOption("az");
+    expect(await symbols(page)).toEqual(["ALPHA", "BETA", "EPSILON", "OILIETF", "SAKUMA", "SAREGAMA", "ZEN"]);
+    // a search narrows the counts too
+    await panel.getByTestId("sd-bc-search").fill("india");
+    await expect(panel.getByTestId("sd-bc-filter-all")).toHaveText("All (2)");
+    await expect(panel.getByTestId("sd-bc-filter-high")).toHaveText("70+ (1)");
+    await expect(panel.getByTestId("sd-bc-filter-below")).toHaveText("Below 70 (1)");
+  });
+
+  test("TC-C4 a backend without the route (404) or with the feature off (403) shows no panel and the dashboard stands; another failure says so with a retry", async ({ page }) => {
+    let status = 404;
+    const be = await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }),
+      day: () => (status === 200 ? { status: 200, body: DAY } : { status, body: { detail: status === 403 ? { code: "feature_disabled", message: "MOCK off" } : "Not Found" } }) });
+    await openDashboard(page);
+    await expect(page.getByTestId("sd-strong")).toBeVisible();
+    await expect.poll(() => be.calls.filter((c) => c === "GET /signals/day").length, SLOW).toBeGreaterThan(0);
+    await expect(page.getByTestId("sd-bycompany")).toHaveCount(0);
+    await expect(page.locator('[data-testid^="sd-widget-"][data-status]').first()).toBeVisible();
+    status = 403;
+    await page.reload();
+    await expect(page.getByTestId("sd-strong")).toBeVisible(SLOW);
+    await expect.poll(() => be.calls.filter((c) => c === "GET /signals/day").length, SLOW).toBeGreaterThan(1);
+    await expect(page.getByTestId("sd-bycompany")).toHaveCount(0);
+    status = 500;
+    await page.reload();
+    await expect(page.getByTestId("sd-bc-error")).toBeVisible(SLOW);
+    await expect(page.getByTestId("sd-bc-error")).toContainText("could not be read just now");
+    await expect(page.getByTestId("sd-strong")).toBeVisible();
+    status = 200;
+    await page.getByTestId("sd-bc-retry").click();
+    await expect(page.getByTestId("sd-bc-item")).toHaveCount(7, SLOW);
+  });
+
+  test("TC-C5 with every company's timeline open, no barred word outside the plan blocks (tooltips included)", async ({ page }) => {
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }), day: dayOk() });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-bycompany");
+    await expect(panel.getByTestId("sd-bc-item").first()).toBeVisible(SLOW);
+    for (let i = 0; i < 50 && (await panel.getByTestId("sd-bc-more").count()) > 0; i++) await panel.getByTestId("sd-bc-more").first().click();
+    await expect(panel.getByTestId("sd-bc-more")).toHaveCount(0);
+    await panel.getByTestId("sd-bc-search").fill("a");                                       // the suggestion list open too
+    await expect(panel.getByTestId("sd-bc-listbox").getByRole("option").first()).toBeVisible();
+    const outside = await panel.evaluate((root) => {
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-plan-words]").forEach((e) => e.remove());
+      const titles = Array.from(root.querySelectorAll("[title]")).filter((e) => !e.closest("[data-plan-words]")).map((e) => e.getAttribute("title") ?? "");
+      document.body.appendChild(clone);
+      const text = clone.innerText;
+      clone.remove();
+      return { text, titles };
+    });
+    expect(outside.text).toContain("Signals by company");
+    for (const t of [outside.text, ...outside.titles]) expect(t).not.toMatch(BANNED);
+    const plans = await panel.locator("[data-plan-words]").evaluateAll((els) => els.map((e) => `${(e as HTMLElement).innerText} ${e.getAttribute("title") ?? ""}`));
+    expect(plans.length).toBe(2);                                                       // SAREGAMA's and ALPHA's strong signals
+    for (const t of plans) expect(t.replace(/\b(Entry|Stop loss|stop loss|Target 1|Target 2|Trend exit|trend exit)\b/g, "")).not.toMatch(BANNED);
+  });
+
+  test("TC-C6 30 companies at a time, then 'Show more'", async ({ page }) => {
+    const many = Array.from({ length: 45 }, (_, i) => company({ symbol: `CO${String(i).padStart(2, "0")}`, name: `Company ${i} Limited`, score: 40 + (i % 50),
+      marks: [M(`10:${String(i).padStart(2, "0")}:00`, "dt_multiyear", 100 + i)] }));
+    await desk(page, { answer: () => ({ status: 200, body: dashboard({ strength: true }) }),
+      day: dayOk({ ...DAY, count: 45, companies_count: 45, companies: many }) });
+    await openDashboard(page);
+    const panel = page.getByTestId("sd-bycompany");
+    await expect(panel.getByTestId("sd-bc-item")).toHaveCount(30, SLOW);
+    expect((await symbols(page))[0]).toBe("CO44");                                     // newest activity first
+    await expect(panel.getByTestId("sd-bc-showmore")).toHaveText("Show 15 more of 15");
+    await panel.getByTestId("sd-bc-showmore").click();
+    await expect(panel.getByTestId("sd-bc-item")).toHaveCount(45);
+    await expect(panel.getByTestId("sd-bc-showmore")).toHaveCount(0);
   });
 });
 
@@ -1178,10 +1468,13 @@ test.describe("REAL snapshot (staging, 3 Nov 2026 close) replayed: Scan dashboar
 test.describe("REAL signal strength (staging, 4 Nov 2026 14:15 IST) replayed: Scan dashboard", () => {
   const real = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/scan-dashboard-real/dashboard_20261104_scores.json"), "utf8"));
 
-  test("TC-RE2 real scores render: strong cards with plans, Below 70 folded, no page error, no barred words outside plans", async ({ page }) => {
+  test("TC-RE2 real scores render: strong cards with plans, every company in Signals by company (Below 70 filter), no page error, no barred words outside plans", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    await desk(page, { answer: () => ({ status: 200, body: real }) });
+    // The day endpoint's real answer was not captured; its answer here is grouped IN THE TEST (dayFrom) from this same fixture's
+    // real signals, scores and strong signals, so the texts on screen are the real ones.
+    const day = dayFrom(real);
+    await desk(page, { answer: () => ({ status: 200, body: real }), day: () => ({ status: 200, body: day }) });
     await openDashboard(page);
     await expect(page.getByTestId("sd-strong")).toBeVisible(SLOW);
     const strongN = real.strong.length as number;
@@ -1195,15 +1488,77 @@ test.describe("REAL signal strength (staging, 4 Nov 2026 14:15 IST) replayed: Sc
       await expect(card.getByTestId("sd-strong-plan")).toContainText("Stop loss");
       await expect(card.getByTestId("sd-strong-exit")).toContainText("20-day average");
     }
-    const toggle = page.getByTestId("sd-below-toggle");
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("sd-below-toggle")).toHaveCount(0);
+    const panel = page.getByTestId("sd-bycompany");
+    await expect(panel).toBeVisible(SLOW);
     const scored = Object.values(real.scores) as { score: number | null }[];
-    const belowN = scored.filter((s) => !(typeof s.score === "number" && s.score >= 70)).length;
-    await expect(toggle).toContainText(`(${belowN.toLocaleString("en-IN")})`);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByTestId("sd-below-item")).toHaveCount(belowN);
-    await expect(page.getByTestId("sd-below-list").locator("[data-plan-words]")).toHaveCount(0);
+    const belowN = scored.filter((s) => typeof s.score === "number" && s.score < 70).length;
+    await expect(panel.getByTestId("sd-bc-filter-all")).toHaveText(`All (${day.companies.length.toLocaleString("en-IN")})`);
+    await expect(panel.getByTestId("sd-bc-filter-below")).toHaveText(`Below 70 (${belowN.toLocaleString("en-IN")})`);
+    await panel.getByTestId("sd-bc-filter-below").click();
+    await expect(panel.getByTestId("sd-bc-item")).toHaveCount(Math.min(30, belowN));
+    await expect(panel.getByTestId("sd-bc-list").locator("[data-plan-words]")).toHaveCount(0);
+    if (sare) {
+      await panel.getByTestId("sd-bc-search").fill("SAREGAMA");
+      await panel.getByTestId("sd-bc-search").press("Enter");
+      const one = panel.locator('[data-testid="sd-bc-item"][data-symbol="SAREGAMA"]');
+      await expect(one.locator('[data-testid="sd-bc-mark"][data-kind="strong"]')).toContainText(`reached ${sare.score_at}`);
+      const times = await one.getByTestId("sd-bc-mark").evaluateAll((els) => els.map((e) => e.getAttribute("data-time") ?? ""));
+      expect(times).toEqual([...times].sort());
+      await panel.getByTestId("sd-bc-clear").click();
+    }
+    for (let i = 0; i < 50 && (await panel.getByTestId("sd-bc-more").count()) > 0; i++) await panel.getByTestId("sd-bc-more").first().click();
+    const outsidePlan = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="scan-dashboard"]') as HTMLElement;
+      const clone = root.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("[data-plan-words]").forEach((el) => el.remove());
+      return clone.innerText;
+    });
+    expect(outsidePlan).not.toMatch(BANNED);
+    expect(errors).toEqual([]);
+  });
+});
+
+// ── REAL day answer (GET /signals/day, 4 Nov 2026 14:51 IST) replayed ────────────────────────────────────────────────
+// e2e/fixtures/scan-dashboard-real/day_20261104.json is the branch backend's own day answer, built in the staging backend container
+// from today's REAL 2,148 list marks (signals.day_view over an in-memory copy of the marks and the scores the leader stores;
+// the branch's signal_strength.py on live Kite prices). The dashboard answer is the 4 Nov scores fixture above. Only the
+// transport is mocked.
+test.describe("REAL day answer (staging, 4 Nov 2026 14:51 IST) replayed: Signals by company", () => {
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/scan-dashboard-real/dashboard_20261104_scores.json"), "utf8"));
+  const day = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/scan-dashboard-real/day_20261104.json"), "utf8"));
+
+  test("TC-RE3 the real day: counts, 30 shown, search finds SAREGAMA by symbol and name, its real timeline in time order, no barred words", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    type Co = { symbol: string; name: string; score: number | null; marks: { time: string }[] };
+    const companies = day.companies as Co[];
+    expect(companies.length).toBeGreaterThan(500);
+    await desk(page, { answer: () => ({ status: 200, body: real }), day: () => ({ status: 200, body: day }) });
+    await openDashboard(page);
+    const head = page.getByTestId("sd-bc-head");
+    await expect(head).toContainText(`${(day.count as number).toLocaleString("en-IN")} signals`, SLOW);
+    await expect(head).toContainText(`${companies.length.toLocaleString("en-IN")} companies`);
+    await expect(page.getByTestId("sd-bc-item")).toHaveCount(30);
+    const high = companies.filter((c) => typeof c.score === "number" && c.score >= 70).length;
+    await expect(page.getByTestId("sd-bc-filter-high")).toContainText(String(high));
+    const sare = companies.find((c) => c.symbol === "SAREGAMA");
+    expect(sare).toBeTruthy();
+    for (const q of ["SAREG", "saregama india"]) {
+      await page.getByTestId("sd-bc-search").fill(q);
+      await expect(page.getByTestId("sd-bc-option").filter({ hasText: "SAREGAMA" })).toHaveCount(1);
+    }
+    await page.getByTestId("sd-bc-option").filter({ hasText: "SAREGAMA" }).click();
+    const card = page.getByTestId("sd-bc-item");
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAttribute("data-symbol", "SAREGAMA");
+    const more = card.getByTestId("sd-bc-more");
+    if (await more.count()) await more.first().click();
+    const times = await card.locator('[data-testid="sd-bc-mark"][data-kind="mark"]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.time));
+    expect(times).toEqual(sare!.marks.map((m) => m.time));
+    expect(times[0]).toBe(sare!.marks[0].time);
+    await page.getByTestId("sd-bc-clear").click();
+    await expect(page.getByTestId("sd-bc-item")).toHaveCount(30);
     const outsidePlan = await page.evaluate(() => {
       const root = document.querySelector('[data-testid="scan-dashboard"]') as HTMLElement;
       const clone = root.cloneNode(true) as HTMLElement;
