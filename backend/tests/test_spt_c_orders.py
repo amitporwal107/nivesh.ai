@@ -105,8 +105,11 @@ def test_c03c_open_position_in_the_symbol_rejects_a_second_entry(w):
     o = run(w.entry(qty=10))
     run(fill(w, o["_id"], quote(100.0, bid=99.9, ask=100.0, ask_qty=500)))
     assert run(w.position_of(o["_id"]))["quantity"] == 10
-    second = run(w.entry(qty=10, decision={"outcome": "allow", "reservation_id": "r-x", "approved_qty": 10}))
+    rd = run(w.reserve("user_a", "ord-second", qty=10, entry=100.0, stop=96.0, symbol="FIXA-RES"))
+    second = run(w.entry(qty=10, order_id="ord-second", decision=rd))
     assert second["state"] == C.ORD_REJECTED and second["reject_reason"] == "position_already_open"
+    assert second["reservation_state"] == "released"                    # its own reservation, given back once
+    assert len(w.ledger("user_a", "cancel_reservation")) == 1
 
 
 # ── SPT-C-04 ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -245,3 +248,23 @@ def test_c03d_reservation_must_be_this_orders(w):
     acc = run(w.account("user_a"))
     assert any(e["trade_id"] == "someone-elses-order" for e in acc["reservations"])     # untouched
     assert w.ledger("user_a", "cancel_reservation") == []
+
+
+def test_c17c_a_fill_for_a_closed_position_is_never_applied(w):
+    o = run(w.entry(qty=10))
+    run(fill(w, o["_id"], quote(100.0, bid=99.9, ask=100.0, ask_qty=1000)))
+    pos = run(w.position_of(o["_id"]))
+    ex = run(orders.create_exit_order(w.db, position_id=pos["_id"], reason="manual", now=w.now))
+    t = NOW + timedelta(seconds=1)
+    run(fill(w, ex["_id"], quote(101.0, bid=101.0, ask=101.1, bid_qty=1000, at=t), now=t))
+    closed = run(store.get_position(w.db, pos["_id"]))
+    assert closed["state"] == C.POS_CLOSED and closed["release"]["state"] == "done"
+    # a stray exit fill recorded on another order of the position (a bug elsewhere) must not close it again
+    stray = dict(run(store.get_order(w.db, ex["_id"])), _id="stray", idempotency_key="k-stray",
+                 fills=[dict(run(store.get_order(w.db, ex["_id"]))["fills"][0], fill_id="stray:1")], position_seq=0)
+    run(w.db[store.ORDERS].insert_one(stray))
+    run(positions.apply_order_fills(w.db, run(store.get_order(w.db, "stray")), now=t))
+    after = run(store.get_position(w.db, pos["_id"]))
+    assert after["release"]["state"] == "done" and after["version"] == closed["version"]
+    assert run(store.get_order(w.db, "stray"))["exception"] == "fill_after_close"
+    assert len(w.ledger("user_a", "release")) == 1

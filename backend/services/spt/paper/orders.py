@@ -140,10 +140,17 @@ def _validate_entry(order: Dict[str, Any], risk_decision: Dict[str, Any], now: d
 
 
 async def _entry_refusal(db, order: Dict[str, Any], risk_decision: Dict[str, Any], now: datetime) -> Optional[str]:
-    """The first reason this ENTRY is refused, or None: the pure checks, then the kill switch / halt / account block,
-    an open position in the symbol, and the reservation itself — it must be on the account under this order's id
-    (DESIGN §4: order_id = the reservation's trade_id). A reservation that is missing or belongs to another trade is
-    marked `not_ours` first, so the refusal never releases what this order does not hold."""
+    """The first reason this ENTRY is refused, or None. FIRST the reservation itself: it must be on the account under
+    this order's id (DESIGN §4: order_id = the reservation's trade_id); one that is missing or belongs to another trade
+    is marked `not_ours`, so no refusal below can ever release what this order does not hold. Then the pure checks, the
+    kill switch / halt / account block, and an open position in the symbol."""
+    rid = risk_decision.get("reservation_id")
+    if rid:
+        account = await db[acct.ACCOUNTS].find_one({"user_id": order["user_id"]}) or {}
+        held = [e for e in account.get("reservations") or [] if e.get("id") == rid]
+        if not held or held[0].get("trade_id") != order["_id"]:
+            await db[store.ORDERS].update_one({"_id": order["_id"]}, {"$set": {"reservation_state": "not_ours"}})
+            return "reservation_not_found" if not held else "reservation_trade_mismatch"
     why = _validate_entry(order, risk_decision, now)
     if why is not None:
         return why
@@ -153,12 +160,6 @@ async def _entry_refusal(db, order: Dict[str, Any], risk_decision: Dict[str, Any
     if await db[store.POSITIONS].find_one({"user_id": order["user_id"], "symbol": order["symbol"], "direction": "long",
                                            "is_open": True}) is not None:
         return "position_already_open"
-    rid = risk_decision.get("reservation_id")
-    account = await db[acct.ACCOUNTS].find_one({"user_id": order["user_id"]}) or {}
-    held = [e for e in account.get("reservations") or [] if e.get("id") == rid]
-    if not held or held[0].get("trade_id") != order["_id"]:
-        await db[store.ORDERS].update_one({"_id": order["_id"]}, {"$set": {"reservation_state": "not_ours"}})
-        return "reservation_not_found" if not held else "reservation_trade_mismatch"
     return None
 
 
@@ -403,26 +404,26 @@ async def sync_order(db, order_id: str, *, now: Optional[datetime] = None) -> Op
         return None
     fills = list(order.get("fills") or [])
     logged = int(order.get("logged_seq") or 0)
+    qty = int(order.get("quantity") or 0)
+    cum = 0
     for rec in fills:
+        cum += int(rec["quantity"])
         if int(rec["seq"]) <= logged:
             continue
         try:
             await db[store.FILLS].insert_one(fill_doc(order, rec))
         except DuplicateKeyError:
             pass                                             # recorded by an earlier pass
-    if fills and logged < len(fills):
-        await db[store.ORDERS].update_one({"_id": order_id}, {"$max": {"logged_seq": len(fills)}})
-    cum = 0
-    qty = int(order.get("quantity") or 0)
-    for rec in fills:
-        cum += int(rec["quantity"])
         if cum < qty:
             await _emit(db, order, "PAPER_ORDER_PARTIALLY_FILLED", f"order:{order_id}:fill:{rec['seq']}",
                         _order_payload(order, fill={k: rec.get(k) for k in ("seq", "quantity", "price", "basis",
                                                                             "depth_unknown")}, cumulative=cum), now)
-    if order.get("state") == C.ORD_FILLED:
-        await _emit(db, order, "PAPER_ORDER_FILLED", f"order:{order_id}:filled",
-                    _order_payload(order, avg_fill_price=order.get("avg_fill_price")), now)
+    if logged < len(fills):
+        if order.get("state") == C.ORD_FILLED:
+            await _emit(db, order, "PAPER_ORDER_FILLED", f"order:{order_id}:filled",
+                        _order_payload(order, avg_fill_price=order.get("avg_fill_price")), now)
+        # only after the fill documents and their events: a crash before this line redoes them (both idempotent)
+        await db[store.ORDERS].update_one({"_id": order_id}, {"$max": {"logged_seq": len(fills)}})
     if int(order.get("position_seq") or 0) < len(fills):
         from . import positions                                # positions imports this module
         await positions.apply_order_fills(db, order, now=now)

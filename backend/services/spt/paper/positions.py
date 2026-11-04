@@ -205,6 +205,12 @@ async def apply_order_fills(db, order: Dict[str, Any], *, now: Optional[datetime
         pending = [f for f in fills if f["fill_id"] not in applied]
         if not pending:
             break
+        if pos.get("state") == C.POS_CLOSED:
+            # never re-open or re-close a closed position (a second close would owe a second release): the fill stays
+            # on its order and in spt_fills, and reconciliation reports it
+            logger.error("spt paper: fill(s) of %s arrived for closed position %s; not applied", order["_id"], pos["_id"])
+            await db[store.ORDERS].update_one({"_id": order["_id"]}, {"$set": {"exception": "fill_after_close"}})
+            return pos
         rec = pending[0]
         if order.get("purpose") == "ENTRY":
             fields = entry_fill_fields(pos, rec)
