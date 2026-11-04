@@ -239,7 +239,8 @@ def _order_args(prop: Dict[str, Any], rec: Dict[str, Any]) -> Dict[str, Any]:
             "limit_price": e.get("limit_price") if e["type"] == "LIMIT" else None, "trigger_price": None,
             "time_in_force": e.get("time_in_force") or "DAY", "expires_at": e.get("expires_at"),
             "exit_plan": prop.get("exit_plan"),
-            "idempotency_key": f"spt:{prop['user_id']}:{prop['opportunity_id']}:entry", "order_id": rec["order_id"]}
+            "idempotency_key": f"spt:{prop['user_id']}:{prop['opportunity_id']}:entry", "order_id": rec["order_id"],
+            "actor_id": rec.get("actor_id")}
 
 
 async def create_order(db, prop: Dict[str, Any], now: datetime, report: Optional[Dict[str, Any]] = None
@@ -252,7 +253,7 @@ async def create_order(db, prop: Dict[str, Any], now: datetime, report: Optional
     order: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     try:
-        order = await paper_orders().create_entry_order(db, **args)
+        order = await paper_orders().create_entry_order(db, **args, now=now)
     except Exception as e:  # noqa: BLE001 — judged below: the order may still exist (a timeout after the insert)
         error = type(e).__name__
         logger.warning("spt pipeline: create_entry_order failed for proposal %s (%s)", prop["_id"], error)

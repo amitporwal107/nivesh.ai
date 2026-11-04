@@ -126,7 +126,7 @@ class FakeOrders:
         self.fail: Optional[Exception] = None
         self.write_before_fail = False
 
-    async def create_entry_order(self, db, **kw):
+    async def create_entry_order(self, db, *, now=None, **kw):
         self.calls.append(copy.deepcopy(kw))
         doc = {"_id": kw["order_id"], "order_id": kw["order_id"], "user_id": kw["user_id"], "state": C.ORD_PENDING,
                "order_type": kw["order_type"], "quantity": kw["quantity"], "filled_qty": 0,

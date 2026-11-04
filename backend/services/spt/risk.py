@@ -245,7 +245,8 @@ async def evaluate(db, *, user_id: str, proposal: Dict[str, Any], state: Dict[st
         return await _finish(db, rec, proposal, emit=emit)
     rec["risk_service_decision_id"] = out.get("decision_id")
     rec["risk_service_outcome"] = out.get("outcome")
-    rec["risk_service_decision"] = service.public(out) if how != "dry" else None   # what slice C keeps on the order
+    # what slice C keeps on the order (orders.create_entry_order reads budget, estimated_risk_rs, sector, approved_qty)
+    rec["risk_service_decision"] = {**service.public(out), "sector": out.get("sector")} if how != "dry" else None
     rec["reservation_id"] = out.get("reservation_id")
     rec["checks"] += [{**c, "source": "risk_service"} for c in out.get("checks") or []]
     rec["reasons"] = [{**r, "source": "risk_service"} for r in out.get("reasons") or []]
@@ -311,11 +312,33 @@ def _pos_fields(position: Dict[str, Any]) -> Dict[str, Any]:
             "symbol": position.get("symbol"), "direction": position.get("direction") or "long"}
 
 
+EXIT_RULE_KINDS = ("trailing", "trend_exit")
+
+
+def normalize_change(change: Dict[str, Any]) -> Dict[str, Any]:
+    """Slice C's form {kind, field, previous, new} (services/spt/paper/modify.py: kind stop_loss with new = the price or
+    None to remove it; trailing / trend_exit with new = None to turn the rule off) in the flat form judged here."""
+    kind = change.get("kind")
+    if kind == "stop_loss":
+        return {"remove_stop": True} if change.get("new") is None else {"stop_loss": change.get("new")}
+    if kind in EXIT_RULE_KINDS:
+        return {"exit_rule_off": kind} if change.get("new") is None else {"exit_rule_on": kind}
+    return change
+
+
 def classify_change(position: Dict[str, Any], change: Dict[str, Any]) -> Dict[str, Any]:
     """{risk_increasing, kind, new_qty, new_stop, add_qty, why}. Long positions (the only SPT kind tonight)."""
+    change = normalize_change(change)
     p = _pos_fields(position)
     out = {"risk_increasing": False, "kind": "neutral", "new_qty": p["qty"], "new_stop": p["stop"], "add_qty": 0,
            "add_price": None, "why": "the change does not move the stop further away or add quantity"}
+    if change.get("exit_rule_off"):
+        # The loss at the stop is unchanged, but a protective exit is removed: judged as an increase (slice C's
+        # classification), so the account's blocks apply; the per-trade and open-risk budgets are unaffected.
+        return {**out, "risk_increasing": True, "kind": "exit_rule_off",
+                "why": f"turns the {change['exit_rule_off']} exit off"}
+    if change.get("exit_rule_on"):
+        return {**out, "kind": "exit_rule_on", "why": f"turns the {change['exit_rule_on']} exit on"}
     if change.get("remove_stop"):
         return {**out, "risk_increasing": True, "kind": "remove_stop", "new_stop": None, "why": "removes the stop"}
     if "stop_loss" in change:
@@ -341,9 +364,10 @@ def classify_change(position: Dict[str, Any], change: Dict[str, Any]) -> Dict[st
 
 async def check_modification(db, *, user_id: str, position: Dict[str, Any], change: Dict[str, Any],
                              now: Optional[datetime] = None) -> Dict[str, Any]:
-    """{decision, reason_codes, explanations, decision_id, risk_increasing, kind} (module docstring). `change` is any of
-    {"stop_loss": price}, {"remove_stop": true}, {"add_quantity": n, "price": p}, {"add_quantity": -n}; anything else
-    (targets, trails, exit rules) does not increase the risk at the stop and is approved."""
+    """{decision, reason_codes, explanations, decision_id, risk_increasing, kind} (module docstring). `change` is slice
+    C's {kind: stop_loss | trailing | trend_exit, field, previous, new} (new None = remove the stop / turn the rule off),
+    or any of {"stop_loss": price}, {"remove_stop": true}, {"add_quantity": n, "price": p}, {"add_quantity": -n}.
+    Anything else (a target) does not increase the risk at the stop and is approved."""
     moment = now or desk.utcnow()
     cls = classify_change(position, change)
     p = _pos_fields(position)

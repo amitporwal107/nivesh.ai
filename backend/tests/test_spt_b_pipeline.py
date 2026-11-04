@@ -524,3 +524,42 @@ def test_spt_b_26c_an_unexpected_evaluation_error_fails_closed_on_record(world, 
     assert p["state"] == C.PROP_BLOCKED_BY_RISK and p["risk"]["reason_codes"] == ["internal_error"]
     assert report["errors"] == [{"proposal_id": p["_id"], "stage": "evaluate", "error": "RuntimeError"}]
     assert world.orders.calls == []
+
+
+# slice C's exact call (services/spt/paper/modify.py): change = {kind, field, previous, new}, position = positions.public
+C_POS = {"position_id": "pos-c", "symbol": "FIXA", "direction": "long", "quantity": 100, "avg_entry_price": 500.0,
+         "stop_loss": 480.0, "trail": {"rule": "trail-atr-v1", "k": 2}, "state": "MONITORING"}
+
+
+@pytest.mark.parametrize("change, decision, code, kind", [
+    ({"kind": "stop_loss", "field": "stop_loss", "previous": 480.0, "new": 470.0}, C.RISK_APPROVE, None, "wider_stop"),
+    ({"kind": "stop_loss", "field": "stop_loss", "previous": 480.0, "new": 400.0}, C.RISK_REJECT,
+     "per_trade_risk_exceeded", "wider_stop"),
+    ({"kind": "stop_loss", "field": "stop_loss", "previous": 480.0, "new": None}, C.RISK_REJECT, "stop_required",
+     "remove_stop"),
+    ({"kind": "trailing", "field": "trail", "previous": {"rule": "trail-atr-v1", "k": 2}, "new": None}, C.RISK_APPROVE,
+     None, "exit_rule_off"),
+    ({"kind": "trend_exit", "field": "trend_exit", "previous": {"rule": "close_below_sma20"}, "new": None},
+     C.RISK_APPROVE, None, "exit_rule_off"),
+])
+def test_spt_b_27d_slice_c_change_form(world, change, decision, code, kind):
+    out = run(risk.check_modification(world.db, user_id=U1, position=C_POS, change=change, now=NOW))
+    assert out["risk_increasing"] is True and out["kind"] == kind and out["decision"] == decision
+    assert (code in out["reason_codes"]) if code else out["reason_codes"] == []
+    assert world.decisions()[0]["correlation_id"] == "pos-c"
+
+
+def test_spt_b_27e_slice_c_exit_rule_off_is_blocked_under_the_kill_switch(world):
+    kill(world)
+    out = run(risk.check_modification(world.db, user_id=U1, position=C_POS, now=NOW,
+                                      change={"kind": "trailing", "field": "trail", "previous": {}, "new": None}))
+    assert out["decision"] == C.RISK_HALT
+
+
+def test_spt_b_18b_the_order_call_carries_the_actor_clock_and_sector(world):
+    setup(world)
+    run(pipeline.run_round(world.db, NOW))
+    [call] = world.orders.calls
+    assert call["actor_id"] == "spt_pipeline" and call["risk_decision"]["sector"] == "MOCK Sector"
+    assert call["risk_decision"]["approved_qty"] == only(world)["risk"]["approved_qty"]
+    assert call["risk_decision"]["budget"]["funding_rs"] == round(call["quantity"] * 502.0, 2)
