@@ -39,21 +39,37 @@ def _with_db(url: str, db: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def pg_pool(loop):
-    """A pool on a fresh database with the autodesk schema applied."""
+def pg_dsn(loop):
+    """DSN of a fresh database (dropped after the module)."""
     if not PG_URL:
         pytest.skip("AUTODESK_TEST_PG_URL not set (throwaway Postgres needed)")
     import asyncpg
-    from autodesk.db import create_pool_for, set_pool
-    from autodesk.db.migrate import apply_pending
-
     name = "adt_" + uuid.uuid4().hex[:12]
 
-    async def setup():
+    async def mk():
         admin = await asyncpg.connect(PG_URL)
         await admin.execute(f'CREATE DATABASE "{name}"')
         await admin.close()
-        pool = await create_pool_for(_with_db(PG_URL, name))
+
+    loop.run_until_complete(mk())
+    yield _with_db(PG_URL, name)
+
+    async def rm():
+        admin = await asyncpg.connect(PG_URL)
+        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        await admin.close()
+
+    loop.run_until_complete(rm())
+
+
+@pytest.fixture(scope="module")
+def pg_pool(loop, pg_dsn):
+    """A pool on the module's fresh database with the autodesk schema applied."""
+    from autodesk.db import create_pool_for, set_pool
+    from autodesk.db.migrate import apply_pending
+
+    async def setup():
+        pool = await create_pool_for(pg_dsn)
         await apply_pending(pool)
         return pool
 
@@ -61,11 +77,4 @@ def pg_pool(loop):
     set_pool(pool)
     yield pool
     set_pool(None)
-
-    async def teardown():
-        await pool.close()
-        admin = await asyncpg.connect(PG_URL)
-        await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
-        await admin.close()
-
-    loop.run_until_complete(teardown())
+    loop.run_until_complete(pool.close())

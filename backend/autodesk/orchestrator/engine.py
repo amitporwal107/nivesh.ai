@@ -673,3 +673,45 @@ class Orchestrator:
                                                    outcome={**(w["outcome"] or {}), "result": "EXPIRED"})
                 counts["workflows_expired"] = len(wfs)
         return counts
+
+    # ── re-run Risk & Ops on a stored plan version (POST /trade-plans/{id}/validate, POST /risk/assessments) ────────
+
+    async def reassess(self, *, tenant_id: str, trade_id: str, version: Optional[int] = None,
+                       as_of: Optional[datetime] = None) -> dict:
+        """A fresh, stored assessment of one plan version. It changes no plan or approval state."""
+        import uuid
+        async with self.pool.acquire() as c:
+            plan = await store.get_plan(c, tenant_id, trade_id, version)
+            wf = await store.get_workflow(c, tenant_id, plan["workflow_id"])
+            if wf["simulation_id"]:
+                sim = await store.get_simulation(c, tenant_id, wf["simulation_id"])
+                as_of = sim["clock_sim_time"] or as_of
+            as_of = as_of or datetime.now(timezone.utc)
+            book = await self.load_book(c, tenant_id, wf["account_id"], as_of)
+            sig = await store.get_signal(c, tenant_id, plan["signal_id"]) if plan["signal_id"] else None
+        v = plan["version"]
+        spec = self._spec(wf=wf, task_type=C.TaskType.ASSESS_RISK, as_of=as_of, entity_id=trade_id,
+                          input_refs=[f"plan://{trade_id}@{v}", f"book://{wf['account_id']}"],
+                          key=f"reassess:{uuid.uuid4().hex[:12]}")
+        inputs = {"session_date": wf["input"]["session_date"],
+                  "plan": {"trade_id": trade_id, "version": v, "body": plan["body"]},
+                  "book": book.to_json() if hasattr(book, "to_json") else _j(book),
+                  "signal": sig["body"] if sig else None}
+        override = wf["input"].get("policy_override")
+
+        async def build(_s):
+            return await self._ctx(tenant_id=tenant_id, wf=wf, as_of=as_of, inputs=inputs, policy_override=override)
+
+        def check(s, out: C.RiskAssessment, ctx):
+            return [] if (out.trade_id, out.plan_version) == (trade_id, v) else ["assessment is for another plan"]
+
+        async def persist(c, out: C.RiskAssessment, task_row):
+            await store.insert_risk_assessment(c, tenant_id=tenant_id, a=out, producer=C.AgentKey.RISK_OPS.value,
+                                               workflow_id=wf["workflow_id"])
+            return f"assessment://{out.assessment_id}"
+
+        res = await self.runner.run(spec, step="reassess", build_context=build, domain_check=check, persist=persist)
+        if not res.ok:
+            raise store.Conflict(f"risk task did not complete: {res.error}")
+        async with self.pool.acquire() as c:
+            return await store.get_risk_assessment(c, tenant_id, res.output.assessment_id)
