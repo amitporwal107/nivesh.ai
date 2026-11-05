@@ -14,7 +14,7 @@ from .base import Agent, AgentContext
 DESCRIPTOR = AgentDescriptor(
     agent_key=AgentKey.RISK_OPS, version="autodesk-risk-ops-v1", kind="DETERMINISTIC",
     task_types=[TaskType.ASSESS_RISK],
-    tools=["market.daily_bars", "market.lot_size", "market.sector", "market.sessions_between"],
+    tools=["market.daily_bars", "market.lot_size", "market.sector", "market.sessions_between", "market.futures"],
     prohibited=["weaken hard policies", "approve", "execute"])
 
 
@@ -23,7 +23,8 @@ class RiskOps(Agent):
 
     async def facts(self, plan: TradePlanBody, ctx: AgentContext) -> dict:
         m = ctx.market
-        f: dict = {"latest_session": None, "data_age_sessions": None, "adv_rs": None, "lot_size": None, "sector": None}
+        f: dict = {"latest_session": None, "data_age_sessions": None, "adv_rs": None, "adv_basis": None,
+                   "lot_size": None, "sector": None}
         latest = m.latest_session("cash")
         f["latest_session"] = latest.isoformat()
         built = (plan.provenance or {}).get("data_as_of")
@@ -36,8 +37,21 @@ class RiskOps(Agent):
             vals = [b.turnover_rs if b.turnover_rs is not None else b.close * b.volume for b in bars]
             if len(vals) >= 10:
                 f["adv_rs"] = (sum(vals) / len(vals)).quantize(Decimal("1"))
+                f["adv_basis"] = f"cash traded value, average of {len(vals)} sessions"
         except DataUnavailable:
             pass
+        if f["adv_rs"] is None and any(lg.kind.value != "EQ" for lg in plan.legs):
+            # an index (or a symbol without cash bars): the futures traded value of the latest F&O session,
+            # contracts × lot size × close, summed over expiries. One session, not an average: said so in the basis.
+            try:
+                futs = await m.futures(plan.instrument)
+                val = sum((Decimal(r.traded_volume or 0) * (r.lot_size or 0) * (r.close or 0) for r in futs),
+                          Decimal("0"))
+                if val > 0:
+                    f["adv_rs"] = val.quantize(Decimal("1"))
+                    f["adv_basis"] = f"futures traded value on {futs[0].day} (one session; no cash market)"
+            except DataUnavailable:
+                pass
         if any(lg.kind.value != "EQ" for lg in plan.legs):
             f["lot_size"] = await m.lot_size(plan.instrument)
         f["sector"] = await m.sector(plan.instrument) or (plan.market_context or {}).get("sector")
