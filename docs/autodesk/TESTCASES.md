@@ -49,8 +49,9 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 |---|---|---|---|---|
 | AD-30 | U | Bullish cash-only signal | LONG_EQUITY plan; all 19 mandatory fields; max_loss = loss at invalidation + costs (not price to zero) | PRD §6.2 |
 | AD-31 | U | Bullish F&O signal | alternatives include LONG_FUTURES, BULL_CALL_SPREAD, BULL_PUT_SPREAD; legs priced from the chain; lot size from the bhavcopy; expiry ≥ min_days_to_expiry | PRD §6.2 |
-| AD-32 | U | Chain where the needed strike did not trade | that structure is skipped with reason no_premium; no guessed premium | data fact §5 |
-| AD-33 | U | NEUTRAL index signal | IRON_CONDOR, 4 legs, loss_defined=True | PRD §6.2 |
+| AD-32 | U | Chain where a strike did not trade | that strike is never used at a carried-forward close; if no traded strike fits, the structure is skipped ("no suitable traded strikes"); no guessed premium | data fact §5 |
+| AD-33 | U | NEUTRAL index signal | IRON_CONDOR, 4 legs, loss_defined=True; shorts within one expected move, the widest pair whose credit after costs ≥ width/3 | PRD §6.2 |
+| AD-36 | U | Loss of one structure at 1..10 lots | strictly rising (sizing relies on it; works around the shared estimate's worst-point tie, see sizing._options_loss) | found 5 Nov |
 | AD-34 | U | Nothing viable | decision NO_TRADE with reasons | PRD §29.6 |
 | AD-35 | U | REVISE_STRATEGY with violation per_trade_risk | smaller size; with a non-size violation → next alternative | PRD §30.3 |
 
@@ -64,7 +65,7 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 | AD-43 | U | Naked short option leg | FAIL defined_risk (hard) | PRD §6.3 |
 | AD-44 | U | data_as_of two sessions old | FAIL inputs_fresh | PRD §14.2 |
 | AD-45 | U | SHORT_FUTURES with the default policy | FAIL strategy_allowed | PRD §10.1 |
-| AD-46 | U | Approved unexpired plans already use 2.8% open risk; new plan 0.5% | FAIL open_risk | PRD §9.3 |
+| AD-46 | U | Approved unexpired plans already use 2.8% open risk; new plan ≈0.45% / 2.995% used | REDUCE to the lots that fit / FAIL open_risk | PRD §9.3 |
 | AD-47 | U | Sector exposure incl. pending > 25% | FAIL sector | PRD §6.3 |
 | AD-48 | U | Margin incl. pending > 25% | FAIL margin_utilization | owner 27 Oct |
 | AD-49 | U | SUSPENDED account | FAIL account_active | PRD §10.4 |

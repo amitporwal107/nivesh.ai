@@ -15,6 +15,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
 from services.risk_gate import estimate as est
+from services.risk_gate import gate
 
 from ..contracts import CREDIT_STRATEGIES, Direction, InstrumentKind, LegSide, PlanLeg, StrategyType
 
@@ -72,8 +73,35 @@ def loss(legs: list[PlanLeg], *, strategy: StrategyType, direction: Direction,
         if invalidation >= lg.ref_price:
             return None, "the invalidation level must be below the plan level for a long position"
         return est.cash_risk(lg.quantity, float(lg.ref_price), float(invalidation)), None
+    if all(lg.kind in (InstrumentKind.CE, InstrumentKind.PE) for lg in legs):
+        return _options_loss(raw)
     d = "bearish" if direction == Direction.BEARISH else "bullish"
     return est.structure_risk(raw, direction=d, stop_underlying=float(invalidation) if invalidation else None)
+
+
+def _options_loss(raw: list[dict]) -> tuple[Optional[dict], Optional[str]]:
+    """est.structure_risk for an options-only structure, with the worst point chosen stably.
+
+    est._worst_point compares raw float payoffs. When the maximum loss is reached both at 0 and at a strike (an iron
+    condor, a bull call spread), float noise decides which point wins, and the round-trip costs charged at that point
+    jump: an iron condor of 65-lot legs costs ₹561 at the wing strike but ₹46,705 at 0, so 9 lots showed a loss of
+    ₹63,694 while 10 lots showed ₹19,479 (found 5 Nov; shared-code bug reported to the owner, not changed here).
+    Here payoffs are compared to the paisa and, among equal points, the strike nearest the middle of the structure is
+    used: the expiry level at which a defined-risk structure realistically ends at its maximum loss."""
+    e, why = est.structure_risk(raw, direction=None, stop_underlying=None)
+    if e is None:
+        return None, why
+    legs, _ = gate.clean_legs(raw)
+    strikes = sorted({lg["strike"] for lg in legs if lg["kind"] == "option"})
+    points = [0.0] + strikes
+    pay = {pt: round(est._payoff(legs, pt), 2) for pt in points}
+    worst = min(pay.values())
+    mid = (strikes[0] + strikes[-1]) / 2
+    at = min((pt for pt in points if pay[pt] == worst), key=lambda pt: (abs(pt - mid), pt))
+    costs = round(est._costs(legs, at, None, floor_short_at_entry=False), 2)
+    total = round(e["gross"] + costs, 2)
+    return {**e, "costs": costs, "stop_based": total, "total": total, "worst_point": at,
+            "basis": e["basis"] + "; costs at the maximum-loss strike nearest the middle of the structure"}, None
 
 
 def reward(legs: list[PlanLeg], *, direction: Direction, target: Optional[Decimal]) -> Optional[float]:

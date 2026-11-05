@@ -5,9 +5,9 @@ the existing templates (services/strategy_plan/templates.py) on the PREVIOUS ses
 the per-trade risk budget, order them, and return the first that meets its own rule as a full plan (all 19 PRD fields),
 or NO_TRADE with the reasons. A premium is never guessed: a strike side that did not trade is skipped.
 
-Order of preference (rule ta-rules-v1): the templates in CANDIDATES order for the signal's direction and segment,
-first those that meet their own rule (directional reward:risk ≥ policy minimum; credit after costs ≥ width × fraction),
-then by reward:risk. Losses use control/sizing.py, the same calculator the risk engine checks with.
+Order of preference (rule ta-rules-v1): only alternatives that meet their own rule are offered (directional
+reward:risk ≥ policy minimum; credit after costs ≥ width × fraction), in CANDIDATES order for the signal's direction and
+segment, then by reward:risk. Losses use control/sizing.py, the same calculator the risk engine checks with.
 
 REVISE_STRATEGY: size-only violations with an allowed size → the same structure at that size; otherwise the next
 alternative not yet tried; nothing left → NO_TRADE.
@@ -75,6 +75,8 @@ class Alt:
     chain_as_of: Optional[str] = None
     atm_iv: Optional[float] = None
     order: int = 0
+    rule_note: Optional[str] = None             # why it does not meet its own rule
+    max_profit_unit: Optional[Decimal] = None   # maximum profit for one lot (None = unbounded / not defined)
 
     def summary(self) -> dict:
         return {"strategy": self.strategy.value, "skip": self.skip,
@@ -82,7 +84,8 @@ class Alt:
                 "loss_rs": str(self.loss_rs) if self.loss_rs is not None else None,
                 "reward_rs": str(self.reward_rs) if self.reward_rs is not None else None,
                 "reward_risk": str(self.rr) if self.rr is not None else None,
-                "net_credit_rs": (self.credit or {}).get("net_credit_rs"), "meets_rule": self.meets_rule}
+                "net_credit_rs": (self.credit or {}).get("net_credit_rs"), "meets_rule": self.meets_rule,
+                "rule_note": self.rule_note}
 
 
 def _d(x) -> Optional[Decimal]:
@@ -193,18 +196,53 @@ def _template_legs(c: _Ctx, res: dict) -> list[PlanLeg]:
     return out
 
 
+def _measure(c: _Ctx, a: Alt) -> Alt:
+    """Loss, credit, reward and whether the alternative meets its own rule, at its current size."""
+    direction = c.sig.direction
+    a.loss, why = sizing.loss(a.legs, strategy=a.strategy, direction=direction, invalidation=c.inv)
+    if a.loss is None:
+        a.skip = f"loss cannot be estimated: {why}"
+        return a
+    a.loss_rs = sizing.rs(a.loss["total"])
+    a.credit = sizing.credit(a.legs)
+    a.rr, a.reward_rs, a.meets_rule, a.rule_note = None, None, False, None
+    if a.credit is not None:
+        net = Decimal(str(a.credit["net_credit_rs"])) - Decimal(str(a.loss["costs"]))
+        need = Decimal(str(a.credit["width_rs"])) * c.pol.credit_min_width_fraction
+        a.reward_rs = sizing.rs(net)
+        a.meets_rule = net >= need
+        if not a.meets_rule:
+            a.rule_note = (f"net credit after costs {sizing.rs(net)} is below width {a.credit['width_rs']} × "
+                           f"{c.pol.credit_min_width_fraction}")
+    else:
+        r = sizing.reward(a.legs, direction=direction, target=c.t1)
+        if r is None and a.strategy in (S.LONG_CALL, S.LONG_PUT):
+            a.meets_rule = True        # unbounded gain
+        elif r is None:
+            a.rule_note = "no level to measure the reward against"
+        elif a.loss_rs > 0:
+            a.reward_rs = sizing.rs(r)
+            a.rr = (Decimal(str(r)) / a.loss_rs).quantize(Decimal("0.01"))
+            a.meets_rule = a.rr >= c.pol.min_reward_risk
+            if not a.meets_rule:
+                a.rule_note = f"reward to loss {a.rr} is below {c.pol.min_reward_risk}"
+    if a.rr is None and a.reward_rs is not None and a.loss_rs:
+        a.rr = (a.reward_rs / a.loss_rs).quantize(Decimal("0.01"))
+    a.max_profit_rs = None if a.max_profit_unit is None else sizing.rs(a.max_profit_unit * (sizing.size_of(a.legs) or 1))
+    return a
+
+
 def _evaluate(c: _Ctx, a: Alt) -> Alt:
-    """Size to the budget, then compute loss / reward / credit and whether the alternative meets its own rule."""
+    """Size to the per-trade budget (largest size whose loss fits), then measure."""
     direction = c.sig.direction
     unit = sizing.size_of(a.legs) or 1
 
-    def loss_at(m: int) -> Optional[Decimal]:
-        e, _ = sizing.loss(sizing.scale(a.legs, m), strategy=a.strategy, direction=direction, invalidation=c.inv)
-        return sizing.rs(e["total"]) if e else None
+    def loss_at(m: int) -> tuple[Optional[Decimal], Optional[str]]:
+        e, why = sizing.loss(sizing.scale(a.legs, m), strategy=a.strategy, direction=direction, invalidation=c.inv)
+        return (sizing.rs(e["total"]) if e else None), why
 
-    one = loss_at(1)
+    one, why = loss_at(1)
     if one is None:
-        _e, why = sizing.loss(sizing.scale(a.legs, 1), strategy=a.strategy, direction=direction, invalidation=c.inv)
         a.skip = f"loss cannot be estimated: {why}"
         return a
     if one > c.budget:
@@ -215,29 +253,13 @@ def _evaluate(c: _Ctx, a: Alt) -> Alt:
     lo, hi = 1, max(1, upper)
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        if (loss_at(mid) or c.budget + 1) <= c.budget:
+        m_loss, _ = loss_at(mid)
+        if m_loss is not None and m_loss <= c.budget:
             lo = mid
         else:
             hi = mid - 1
     a.legs = sizing.scale(a.legs, lo)
-    a.loss, _ = sizing.loss(a.legs, strategy=a.strategy, direction=direction, invalidation=c.inv)
-    a.loss_rs = sizing.rs(a.loss["total"])
-    a.credit = sizing.credit(a.legs)
-    if a.credit is not None:
-        net = Decimal(str(a.credit["net_credit_rs"])) - Decimal(str(a.loss["costs"]))
-        a.meets_rule = net >= Decimal(str(a.credit["width_rs"])) * c.pol.credit_min_width_fraction
-        a.reward_rs = sizing.rs(net)
-    else:
-        r = sizing.reward(a.legs, direction=direction, target=c.t1)
-        a.reward_rs = None if r is None else sizing.rs(r)
-        if r is None and a.strategy in (S.LONG_CALL, S.LONG_PUT):
-            a.meets_rule = True        # unbounded gain
-        elif r is not None and a.loss_rs > 0:
-            a.rr = (Decimal(str(r)) / a.loss_rs).quantize(Decimal("0.01"))
-            a.meets_rule = a.rr >= c.pol.min_reward_risk
-    if a.rr is None and a.reward_rs is not None and a.loss_rs:
-        a.rr = (a.reward_rs / a.loss_rs).quantize(Decimal("0.01"))
-    return a
+    return _measure(c, a)
 
 
 def _build(c: _Ctx, s: StrategyType, order: int) -> Alt:
@@ -321,13 +343,10 @@ def _build(c: _Ctx, s: StrategyType, order: int) -> Alt:
         return a
     a.legs = _template_legs(c, res)
     a.chain_as_of = c.chain.get("as_of")
-    a.max_profit_rs = None if res.get("profit_unbounded") else _d(res.get("max_profit"))
+    a.max_profit_unit = None if res.get("profit_unbounded") else _d(res.get("max_profit"))
     a.breakevens = [_d(b) for b in res.get("breakevens") or []]
     a.loss_defined = not res.get("loss_unbounded")
-    a = _evaluate(c, a)
-    if a.max_profit_rs is not None and a.legs and sizing.size_of(a.legs) not in (None, 1):
-        a.max_profit_rs = sizing.rs(a.max_profit_rs * sizing.size_of(a.legs))
-    return a
+    return _evaluate(c, a)
 
 
 def _credit_vertical(c: _Ctx, s, calls, puts, spot, inv, exp) -> Optional[dict]:
@@ -369,7 +388,10 @@ def _credit_vertical(c: _Ctx, s, calls, puts, spot, inv, exp) -> Optional[dict]:
 
 
 def _iron_condor(c: _Ctx, calls, puts, spot, exp) -> Optional[dict]:
-    """Short strikes about one expected move from the spot (ATM implied volatility × √T), wings 1–2 strikes out."""
+    """Short strikes as far from the spot as possible, but no further than one expected move (ATM implied volatility ×
+    √T), whose credit after costs still meets the policy fraction of the width; wings 1–2 strikes out. With flat
+    volatility, shorts at a full expected move rarely collect a third of the width, so the search walks inward.
+    No pair meets the rule → the 1-expected-move condor is returned and fails its rule (it is then not offered)."""
     atm = min(calls, key=lambda k: abs(k - spot)) if calls else None
     if atm is None:
         return None
@@ -379,30 +401,29 @@ def _iron_condor(c: _Ctx, calls, puts, spot, exp) -> Optional[dict]:
         return None
     t = op.year_fraction(op.days_between(c.fno_day, c.expiry))
     em = spot * iv * math.sqrt(t)
-    sp = [k for k in puts if k <= spot - em]
-    sc = [k for k in calls if k >= spot + em]
-    if not sp or not sc:
-        return None
-    spk, sck = max(sp), min(sc)
-    best = None
-    for w in (1, 2):
-        lps = sorted([k for k in puts if k < spk], reverse=True)
-        lcs = sorted([k for k in calls if k > sck])
-        if len(lps) < w or len(lcs) < w:
-            break
-        try:
-            res = tp.iron_condor(c.chain, spot, c.lot, exp, lps[w - 1], spk, sck, lcs[w - 1],
-                                 underlying=c.sig.instrument, today=c.sd)
-        except tp.TemplateError:
-            continue
-        best = res
-        legs = _template_legs(c, res)
-        cr = sizing.credit(legs)
-        e, _ = sizing.loss(legs, strategy=S.IRON_CONDOR, direction=c.sig.direction, invalidation=None)
-        if cr and e and (Decimal(str(cr["net_credit_rs"])) - Decimal(str(e["costs"]))) >= \
-                Decimal(str(cr["width_rs"])) * c.pol.credit_min_width_fraction:
-            return res
-    return best
+    shorts_p = sorted([k for k in puts if spot - em <= k < spot], reverse=True)    # nearest first
+    shorts_c = sorted([k for k in calls if spot < k <= spot + em])
+    pairs = list(zip(shorts_p, shorts_c))
+    fallback = None
+    for spk, sck in reversed(pairs):                                             # farthest first
+        for w in (1, 2):
+            lps = sorted([k for k in puts if k < spk], reverse=True)
+            lcs = sorted([k for k in calls if k > sck])
+            if len(lps) < w or len(lcs) < w:
+                break
+            try:
+                res = tp.iron_condor(c.chain, spot, c.lot, exp, lps[w - 1], spk, sck, lcs[w - 1],
+                                     underlying=c.sig.instrument, today=c.sd)
+            except tp.TemplateError:
+                continue
+            fallback = fallback or res
+            legs = _template_legs(c, res)
+            cr = sizing.credit(legs)
+            e, _ = sizing.loss(legs, strategy=S.IRON_CONDOR, direction=c.sig.direction, invalidation=None)
+            if cr and e and (Decimal(str(cr["net_credit_rs"])) - Decimal(str(e["costs"]))) >= \
+                    Decimal(str(cr["width_rs"])) * c.pol.credit_min_width_fraction:
+                return res
+    return fallback
 
 
 def _candidates(c: _Ctx) -> list[StrategyType]:
@@ -421,8 +442,9 @@ def _candidates(c: _Ctx) -> list[StrategyType]:
 
 
 def _rank(alts: list[Alt]) -> list[Alt]:
-    ok = [a for a in alts if not a.skip]
-    return sorted(ok, key=lambda a: (not a.meets_rule, a.order, -(a.rr or Decimal("0"))))
+    """The alternatives that can be offered: built, sized, and meeting their own rule."""
+    ok = [a for a in alts if not a.skip and a.meets_rule]
+    return sorted(ok, key=lambda a: (a.order, -(a.rr or Decimal("0"))))
 
 
 def _plan(c: _Ctx, a: Alt, alts: list[Alt], tried: list[str]) -> TradePlanBody:
@@ -445,7 +467,9 @@ def _plan(c: _Ctx, a: Alt, alts: list[Alt], tried: list[str]) -> TradePlanBody:
                        Decimal("0")).quantize(Decimal("0.01"))
         greeks = Greeks(delta=tot("delta"), gamma=tot("gamma"), theta=tot("theta"), vega=tot("vega"),
                         model="sum of leg Black-76 Greeks × signed quantity (model)")
-    warnings = ["a gap through the invalidation level can lose more than the stated figure"]
+    warnings = ["built on the previous session's closing prices; the next session can open at different prices"]
+    if any(lg.kind in (InstrumentKind.EQ, InstrumentKind.FUT) for lg in a.legs):
+        warnings.append("a gap through the invalidation level can lose more than the stated figure")
     if any(lg.kind == InstrumentKind.FUT for lg in a.legs):
         warnings.append("futures: the loss is not capped by the structure, only by closing at the invalidation level")
     if cap["estimate"]:
@@ -460,8 +484,9 @@ def _plan(c: _Ctx, a: Alt, alts: list[Alt], tried: list[str]) -> TradePlanBody:
                  f"sized to the per-trade budget {sizing.rs(c.budget)} ({pol.per_trade_risk_pct}% of equity)"]
     return TradePlanBody(
         thesis=f"{sig.instrument}: {sig.direction.value.lower()} view from a "
-               f"{sig.category.value.replace('_', ' ').lower()} signal; expressed as {words} with an invalidation "
-               f"level at {sig.invalidation_price}.",
+               f"{sig.category.value.replace('_', ' ').lower()} signal; expressed as {words}"
+               + (f" with an invalidation level at {sig.invalidation_price}." if sig.invalidation_price is not None
+                  else "; the structure's maximum loss bounds the risk."),
         rationale=rationale, signal_id=sig.signal_id,
         market_context={"direction": sig.direction.value, "category": sig.category.value,
                         "signal_score": str(sig.signal_score), "sector": c.sector, "vix": str(c.vix) if c.vix else None,
@@ -532,19 +557,19 @@ class TradingAssistant(Agent):
             same = next((x for x in alts if x.strategy == prev.strategy_type and not x.skip), None)
             if set(a.violations) <= SIZE_VIOLATIONS and allowed and same is not None:
                 same.legs = sizing.scale(same.legs, int(allowed))
-                same.loss, _ = sizing.loss(same.legs, strategy=same.strategy, direction=sig.direction,
-                                           invalidation=c.inv)
-                same.loss_rs = sizing.rs(same.loss["total"])
-                chosen = same
-                tried = tried[:-1] if tried and tried[-1] == same.strategy.value else tried
-            else:
+                same = _measure(c, same)
+                if not same.skip and same.meets_rule:
+                    chosen = same
+                    tried = tried[:-1] if tried and tried[-1] == same.strategy.value else tried
+            if chosen is None:
                 rest = [x for x in _rank(alts) if x.strategy.value not in tried]
                 chosen = rest[0] if rest else None
         else:
             ranked = _rank(alts)
             chosen = ranked[0] if ranked else None
         if chosen is None:
-            reasons = [f"{x.strategy.value}: {x.skip}" for x in alts if x.skip] or ["no alternative left to try"]
+            reasons = [f"{x.strategy.value}: {x.skip or x.rule_note}" for x in alts
+                       if x.skip or not x.meets_rule] or ["no alternative left to try"]
             if task.task_type == TaskType.REVISE_STRATEGY:
                 reasons.insert(0, "every alternative was tried or cannot be built")
             out = StrategyProposal(decision="NO_TRADE", reasons=reasons, alternatives=[x.summary() for x in alts])

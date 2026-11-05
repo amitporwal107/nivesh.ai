@@ -21,8 +21,16 @@ PG_URL = os.environ.get("AUTODESK_TEST_PG_URL", "")
 
 
 def run(coro):
-    """Run a coroutine on the module's loop (the repo's tests do not use pytest-asyncio)."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    """Run a coroutine on the module's loop (the repo's tests do not use pytest-asyncio). A pure unit module that runs
+    after a DB module finds that module's loop closed: it then gets a fresh one."""
+    try:
+        lp = asyncio.get_event_loop()
+    except RuntimeError:
+        lp = None
+    if lp is None or lp.is_closed():
+        lp = asyncio.new_event_loop()
+        asyncio.set_event_loop(lp)
+    return lp.run_until_complete(coro)
 
 
 @pytest.fixture(scope="module")
