@@ -301,7 +301,8 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
   test("TC-032 Paper Trading's third sub-view opens the dashboard with sub=pnl, without the paper-trades read", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("desk-subviews").getByRole("button")).toHaveText(["Live desk", "Trade journal", "P&L dashboard"], SLOW);
+    // Scanner-to-Paper Trading added Opportunities · Analytics · Settings after the P&L dashboard (owner, 5 Nov 2026; desk-nav.ts).
+    await expect(page.getByTestId("desk-subviews").getByRole("button")).toHaveText(["Live desk", "Trade journal", "P&L dashboard", "Opportunities", "Analytics", "Settings"], SLOW);
     await page.getByTestId("desk-sub-pnl").click();
     await expect.poll(() => params(page).get("sub")).toBe("pnl");
     await expect(page.getByTestId("desk-trail")).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›P&L dashboard$/);

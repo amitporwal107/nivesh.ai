@@ -30,7 +30,9 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
     // Watchlists and the Idea scorecard are Trade Desk's (owner, 27 Oct 19:40 IST): copilot-app-desk-market-desk.spec.ts
   ],
-  risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" }],
+  risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" },
+    // Scanner-to-Paper Trading (owner, 5 Nov 2026; copilot-app-desk-spt-risk.spec.ts)
+    { key: "overview", label: "Trading overview" }, { key: "allocation", label: "Capital allocation" }, { key: "portfolio", label: "Portfolio risk" }],
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {

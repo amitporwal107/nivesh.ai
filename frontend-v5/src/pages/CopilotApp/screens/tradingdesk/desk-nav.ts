@@ -10,7 +10,9 @@
  *                                           scanner     AI Scanner      ranked · library · scorecard
  *                                           chart       Chart Analysis  live · record
  *                                           paper       Paper Trading   live · journal · pnl (P&L dashboard: the real-time paper
- *                                                                         P&L, owner 4 Nov; docs/paper_pnl_dashboard/DESIGN.md)
+ *                                                                         P&L, owner 4 Nov; docs/paper_pnl_dashboard/DESIGN.md) ·
+ *                                                                         opportunities · analytics · settings (Scanner-to-Paper
+ *                                                                         Trading screens, owner 5 Nov; docs/scanner_paper_trading)
  *                                           watchlists  Watchlists      (one page)
  *                                         Strategy Lab was removed (owner, 29 Oct: "remove strategy lab completely"); trades
  *                                         are built on the chart's paper basket now, so every lab URL opens Chart Analysis ›
@@ -22,7 +24,9 @@
  *                                         recovery (Market Recovery, owner 3 Nov; flagged market_recovery; docs/market_recovery/DESIGN.md)
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
- *   04 Risk Desk         tab=risk         limits · controls · log · hedge (flagged: Portfolio hedge)
+ *   04 Risk Desk         tab=risk         limits · controls · log · overview · allocation · portfolio (Scanner-to-Paper Trading:
+ *                                         Trading overview, Capital allocation, Portfolio risk; owner 5 Nov;
+ *                                         docs/scanner_paper_trading) · hedge (flagged: Portfolio hedge, last)
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
  *
@@ -75,8 +79,13 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "limits", label: "Exposure & limits" },
     { key: "controls", label: "Policy & runtime" },
     { key: "log", label: "Decision log" },
-    // Quick Hedge (docs/RISK_AND_HEDGE_GAP_AND_PLAN_20261031.md). Listed last so the other views keep their places; the switcher
-    // shows it only when the `portfolio_hedge` flag is on for the account (TradingDesk.tsx ViewSwitcher, HIDDEN_VIEWS).
+    // Scanner-to-Paper Trading (owner, 5 Nov 2026: "build in the current workspace"; docs/scanner_paper_trading/DESIGN.md).
+    // After the existing views so they keep their places, and before Quick Hedge, which stays last.
+    { key: "overview", label: "Trading overview" },
+    { key: "allocation", label: "Capital allocation" },
+    { key: "portfolio", label: "Portfolio risk" },
+    // Quick Hedge (docs/RISK_AND_HEDGE_GAP_AND_PLAN_20261031.md). Listed last; the switcher shows it only when the
+    // `portfolio_hedge` flag is on for the account (TradingDesk.tsx ViewSwitcher, HIDDEN_VIEWS).
     { key: "hedge", label: "Portfolio hedge" },
   ],
 };
@@ -96,7 +105,9 @@ export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
   "trade/scanner": [{ key: "ranked", label: "Ranked candidates" }, { key: "library", label: "Signal library & sources" }, { key: "scorecard", label: "Scorecard" }],
   "trade/chart": [{ key: "live", label: "Live chart" }, { key: "record", label: "Signal record" }],
   // P&L dashboard: the real-time paper P&L (owner, 4 Nov 2026: a third Paper Trading sub-view; docs/paper_pnl_dashboard/DESIGN.md)
-  "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }, { key: "pnl", label: "P&L dashboard" }],
+  "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }, { key: "pnl", label: "P&L dashboard" },
+    // Scanner-to-Paper Trading (owner, 5 Nov 2026): the opportunities with approve/reject, the analytics, the SPT settings
+    { key: "opportunities", label: "Opportunities" }, { key: "analytics", label: "Analytics" }, { key: "settings", label: "Settings" }],
   // Market Desk › Screener: the screener as it was, then the Chartink-style scans on our own data (owner, 3 Nov)
   "market/screener": [{ key: "screens", label: "Screener" }, { key: "dashboard", label: "Scan dashboard" }, { key: "builder", label: "Scan builder" }],
 };
