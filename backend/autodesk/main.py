@@ -118,13 +118,11 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
     app = FastAPI(title="Nivesh Autonomous Trading Desk API", version=APP_VERSION, lifespan=lifespan,
                   description="Separate application. Phase 1: agents, orchestrator, risk, approvals, simulator. "
                               "No orders are placed anywhere.")
-    try:
-        from middleware import BodySizeLimitMiddleware, CsrfProtectMiddleware, SecurityHeadersMiddleware
-        app.add_middleware(CsrfProtectMiddleware)
-        app.add_middleware(BodySizeLimitMiddleware)
-        app.add_middleware(SecurityHeadersMiddleware)
-    except Exception as e:  # noqa: BLE001
-        log.warning("shared middleware unavailable: %s", e)
+    # CSRF, body-size and security headers are required: an app without them must not start (fail closed).
+    from middleware import BodySizeLimitMiddleware, CsrfProtectMiddleware, SecurityHeadersMiddleware
+    app.add_middleware(CsrfProtectMiddleware)
+    app.add_middleware(BodySizeLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     try:
         from core.correlation import CorrelationMiddleware
         app.add_middleware(CorrelationMiddleware)

@@ -197,15 +197,18 @@ class PitMarketView(RecordingMixin):
         t0 = time.monotonic()
         if time.monotonic() - _sectors["at"] > SECTOR_TTL_S or not _sectors["map"]:
             m: dict[str, str] = {}
-            try:
+            try:                                   # each source on its own: one failing must not empty the other
                 for r in await self._rows("/indices/Nifty 500/constituents", {}):
                     if r.get("industry"):
                         m[r["symbol"]] = r["industry"]
-                for r in await self._rows("/reference/symbols", {}):
+            except DataUnavailable:
+                pass
+            try:
+                for r in await self._rows("/symbols", {}):
                     if r.get("symbol") and (r.get("sector") or r.get("industry")) and r["symbol"] not in m:
                         m[r["symbol"]] = r.get("sector") or r.get("industry")
             except DataUnavailable:
-                m = {}
+                pass
             if m:
                 _sectors.update(at=time.monotonic(), map=m)
         v = _sectors["map"].get(symbol)
