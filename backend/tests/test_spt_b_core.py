@@ -34,69 +34,74 @@ def price(px, **kw):
 
 
 # ── SPT-B-01..03 account config ──────────────────────────────────────────────
-def test_spt_b_01_defaults_are_off_and_the_prd_26_values():
+def test_spt_b_01_defaults_are_off_and_derive_from_the_owner_default_profile():
+    """Owner 5 Nov 2026: the defaults come from the user's risk profile (owner default 0.5 / 10 / 1.5) where SPT
+    overlaps it; the rest are the owner-approved SPT defaults (services/spt/policy.py)."""
     c = run(policy.read(FakeDB(), U1))
-    assert c["mode"] == C.MODE_OFF and c["stored"] is False and c["version"] == 0
+    assert c["mode"] == C.MODE_OFF and c["stored"] is False and c["version"] == 0 and c["overrides"] == {}
     ex = c["extras"]
-    assert ex["drawdown_ladder"] == {"reduce_at_pct": 2.0, "restrict_at_pct": 4.0, "halt_at_pct": 6.0, "reduce_factor": 0.5}
-    assert ex["max_positions"] == 10 and ex["min_rr"] == {"positional": 2.0}
+    assert ex["drawdown_ladder"] == {"reduce_at_pct": 3.33, "restrict_at_pct": 6.67, "halt_at_pct": 10.0,
+                                     "reduce_factor": 0.5}
+    assert ex["max_positions"] == 10 and ex["min_rr"] == {"positional": 1.5}
     assert ex["risk_pct"] == {"positional": 0.5, "intraday": 0.35, "fno": 0.35}
     assert ex["allocation_buckets_pct"] == {"equity_positional": 45.0, "equity_intraday": 25.0, "fno": 20.0, "reserve": 10.0}
-    assert ex["stressed_gap_pct"] == est.GAP_STRESS_PCT
-    assert set(c["defaults_source"]) == set(ex)
+    assert ex["stressed_gap_pct"] == est.GAP_STRESS_PCT and ex == c["defaults"]
+    assert set(c["defaults_source"]) == set(policy.LEAVES)
+    assert c["defaults_source"]["drawdown_ladder.halt_at_pct"] == "risk profile max_drawdown_pct"
+    assert c["defaults_source"]["max_chase_pct"] == "spt-default (owner-approved 5 Nov 2026)"
 
 
-@pytest.mark.parametrize("kw, code", [
-    ({"mode": "live"}, "invalid_mode"),
-    ({"extras": {"max_lots": 3}}, "unknown_field"),
-    ({"extras": {"max_positions": 11}}, "out_of_range"),
-    ({"extras": {"max_positions": 2.5}}, "invalid_number"),
-    ({"extras": {"allocation_buckets_pct": {"reserve": 20}}}, "buckets_must_sum_100"),
-    ({"extras": {"drawdown_ladder": {"restrict_at_pct": 1.5}}}, "ladder_not_ascending"),
-    ({"extras": {"risk_pct": {"positional": 0.75}}}, "risk_pct_above_profile"),
-    ({"extras": {"max_adv_participation_pct": 6}}, "out_of_range"),
-    ({"extras": {"stressed_gap_pct": 0.5}}, "out_of_range"),
-    ({"mode": "auto", "reason": "x" * 501}, "reason_too_long"),
-    ({}, "invalid_body"),
+@pytest.mark.parametrize("kw, code, status", [
+    ({"mode": "live"}, "invalid_mode", 422),
+    ({"extras": {"max_lots": 3}}, "unknown_field", 422),
+    ({"extras": {"max_positions": 11}}, "out_of_range", 422),
+    ({"extras": {"max_positions": 2.5}}, "invalid_number", 422),
+    ({"extras": {"allocation_buckets_pct": {"reserve": 20}}}, "buckets_must_sum_100", 422),
+    ({"extras": {"drawdown_ladder": {"restrict_at_pct": 1.5}}}, "ladder_not_ascending", 422),
+    ({"extras": {"risk_pct": {"positional": 0.75}}}, "admin_required", 403),
+    ({"extras": {"max_adv_participation_pct": 6}}, "out_of_range", 422),
+    ({"extras": {"stressed_gap_pct": 0.5}}, "out_of_range", 422),
+    ({"mode": "auto", "reason": "x" * 501}, "reason_too_long", 422),
+    ({}, "invalid_body", 422),
 ])
-def test_spt_b_02_invalid_changes_are_422_with_a_code_and_write_nothing(kw, code):
+def test_spt_b_02_invalid_changes_are_refused_with_a_code_and_write_nothing(kw, code, status):
     db = FakeDB()
     with pytest.raises(policy.ConfigError) as e:
-        run(policy.update(db, U1, actor=U1, profile_limits=rp.default_state(U1)["limits"], now=NOW, **kw))
-    assert e.value.code == code and e.value.status == 422
+        run(policy.update(db, U1, actor=U1, now=NOW, **kw))
+    assert e.value.code == code and e.value.status == status
     assert db.docs(C.ACCOUNT_CONFIG) == [] and db.docs(C.ACCOUNT_CONFIG_VERSIONS) == []
 
 
 def test_spt_b_03_every_change_is_versioned_with_who_when_old_new():
     db = FakeDB()
-    limits = rp.default_state(U1)["limits"]
-    c1 = run(policy.update(db, U1, actor="advisor-9", mode="approval", reason="opt in", profile_limits=limits, now=NOW))
+    c1 = run(policy.update(db, U1, actor="advisor-9", mode="approval", reason="opt in", now=NOW))
     assert c1["mode"] == "approval" and c1["version"] == 1 and c1["stored"]
     c2 = run(policy.update(db, U1, actor=U1, extras={"max_chase_pct": 0.5, "risk_pct": {"positional": 0.4}},
-                           expected_version=1, profile_limits=limits, now=NOW + timedelta(minutes=1)))
+                           expected_version=1, now=NOW + timedelta(minutes=1)))
     assert c2["version"] == 2 and c2["extras"]["max_chase_pct"] == 0.5 and c2["extras"]["risk_pct"]["intraday"] == 0.35
+    assert c2["overrides"] == {"max_chase_pct": 0.5, "risk_pct": {"positional": 0.4}}
     rows = sorted(db.docs(C.ACCOUNT_CONFIG_VERSIONS), key=lambda r: r["version"])
     assert [r["version"] for r in rows] == [1, 2] and all(r["status"] == "applied" for r in rows)
     assert rows[0]["actor"] == "advisor-9" and rows[0]["old"]["mode"] == "off" and rows[0]["new"]["mode"] == "approval"
     assert rows[1]["changed"] == ["max_chase_pct", "risk_pct.positional"] and rows[1]["at"] > rows[0]["at"]
+    assert rows[1]["new"]["overrides"] == c2["overrides"] and rows[1]["old"]["overrides"] == {}
     with pytest.raises(policy.ConfigError) as e:                    # a stale expected_version
-        run(policy.update(db, U1, actor=U1, mode="auto", expected_version=1, profile_limits=limits, now=NOW))
+        run(policy.update(db, U1, actor=U1, mode="auto", expected_version=1, now=NOW))
     assert e.value.code == "concurrent_change" and e.value.status == 409
     with pytest.raises(policy.ConfigError) as e:
-        run(policy.update(db, U1, actor=U1, mode="approval", profile_limits=limits, now=NOW))
+        run(policy.update(db, U1, actor=U1, mode="approval", now=NOW))
     assert e.value.code == "no_change"
-    # a mode-only change never re-judges stored extras: off always works even after the profile tightened
-    tighter = dict(limits, per_trade_risk_pct=0.25)
-    c3 = run(policy.update(db, U1, actor=U1, mode="off", profile_limits=tighter, now=NOW))
+    c3 = run(policy.update(db, U1, actor=U1, mode="off", now=NOW))   # a mode change is never a loosening
     assert c3["mode"] == "off" and c3["version"] == 3
+    tighter = dict(c3["profile"]["limits"], per_trade_risk_pct=0.25)
     assert policy.effective_risk_pct(c3, "positional", tighter)["pct"] == 0.25          # capped where used
 
 
 def test_spt_b_03b_effective_risk_is_capped_by_the_profile_and_cut_by_the_ladder():
     c = cfg()
-    eff = policy.effective_risk_pct(c, "positional", {"per_trade_risk_pct": 0.5}, policy.ladder(2.5, c))
+    eff = policy.effective_risk_pct(c, "positional", {"per_trade_risk_pct": 0.5}, policy.ladder(4.0, c))
     assert eff == {"pct": 0.25, "configured_pct": 0.5, "profile_pct": 0.5, "factor": 0.5, "capped_by_profile": False}
-    assert [policy.ladder(d, c)["band"] for d in (0.0, 1.99, 2.0, 4.0, 5.9, 6.0, None)] == \
+    assert [policy.ladder(d, c)["band"] for d in (0.0, 3.32, 3.33, 6.67, 9.99, 10.0, None)] == \
         ["normal", "normal", "reduce", "restricted", "restricted", "halt", "unknown"]
 
 

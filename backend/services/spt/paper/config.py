@@ -1,7 +1,8 @@
 """Slice C's settings, read from the environment at call time (so a restart is not needed to test a value, and tests
 can set them). Every value is clamped to a sane range; a missing or unreadable value is the default.
 
-    SPT_QUOTE_MAX_AGE_S            120    a quote older than this (by its received_at) never fills anything
+    SPT_QUOTE_MAX_AGE_S            120    a quote older than this (by its received_at) never fills anything; the admin's
+                                          spt_settings.quote_max_age_s wins over the env (services/spt/settings.py)
     SPT_NO_DEPTH_MAX_QTY_FRACTION  0.25   without displayed quantity: at most this fraction of the ORDER per round
     SPT_NO_DEPTH_SPREAD_PCT        0.05   without bid/ask: the spread allowance added to (BUY) / taken from (SELL) LTP, %
     SPT_ENTRY_MAX_DEVIATION_PCT    2.0    an ENTRY does not fill above the planned entry by more than this, %
@@ -14,8 +15,14 @@ import os
 from typing import Dict, Optional
 
 
+def _settings_env() -> Dict[str, str]:
+    """os.environ with the admin's market-wide SPT settings over it (services/spt/settings.overlay: quote_max_age_s)."""
+    from services.spt import settings
+    return settings.overlay()
+
+
 def _num(name: str, default: float, lo: float, hi: float, env: Optional[Dict[str, str]] = None) -> float:
-    raw = (env if env is not None else os.environ).get(name)
+    raw = (env if env is not None else _settings_env()).get(name)
     if raw is None or str(raw).strip() == "":
         return default
     try:

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -44,8 +43,11 @@ TEMPLATE = "cash_long_positional_v1"
 SOURCE = "spt.proposals"
 IST = fresh.IST
 SESSION_CLOSE = (15, 30)
-#: The live quote's age budget, shared with slice C's execution model (DESIGN §6: SPT_QUOTE_MAX_AGE_S).
-QUOTE_MAX_AGE_S = float(os.environ.get("SPT_QUOTE_MAX_AGE_S") or 120)
+#: The live quote's age budget, shared with slice C's execution model (DESIGN §6): the admin's spt_settings value, else
+#: env SPT_QUOTE_MAX_AGE_S, else 120 s (services/spt/settings.quote_max_age_s, read at call time).
+def quote_max_age_s() -> float:
+    from . import settings
+    return settings.quote_max_age_s()
 QUOTE_SOURCE = "Kite live quote cache (services/kite_live_feed/quote_cache.read_quotes)"
 MAX_HOLD_SESSIONS = 20
 T1_EXIT_FRACTION = 0.5
@@ -109,9 +111,11 @@ def session_close(now: datetime) -> datetime:
 
 
 # ── the live price ───────────────────────────────────────────────────────────
-def price_from_quote(row: Optional[Dict[str, Any]], now: datetime, *, max_age_s: float = QUOTE_MAX_AGE_S) -> Dict[str, Any]:
+def price_from_quote(row: Optional[Dict[str, Any]], now: datetime, *, max_age_s: Optional[float] = None) -> Dict[str, Any]:
     """{ok, price, ltp, bid, ask, basis, received_at, age_s, source, reason} from one quote-cache row. `price` is what a
-    BUY would pay now: the ask, else the LTP (basis says which). Not ok when absent, unpriced or older than max_age_s."""
+    BUY would pay now: the ask, else the LTP (basis says which). Not ok when absent, unpriced or older than max_age_s
+    (default: quote_max_age_s())."""
+    max_age_s = quote_max_age_s() if max_age_s is None else float(max_age_s)
     out = {"ok": False, "price": None, "ltp": None, "bid": None, "ask": None, "basis": None, "received_at": None,
            "age_s": None, "max_age_s": max_age_s, "source": QUOTE_SOURCE, "reason": None}
     if not row:

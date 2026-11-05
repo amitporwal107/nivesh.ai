@@ -140,6 +140,7 @@ from routes.desk_pnl import router as desk_pnl_router  # Trade Desk › Paper Tr
 # Scanner-to-Paper Trading (docs/scanner_paper_trading/DESIGN.md): signals → opportunities → proposals → risk → paper orders
 from routes.spt_signals import router as spt_signals_router    # /api/v1/scanner/signals, /api/v1/opportunities, /api/v1/analytics/scanners
 from routes.spt_accounts import router as spt_accounts_router  # /api/v1/paper/accounts (SPT mode + config, ledger)
+from routes.spt_accounts import admin_router as spt_admin_router  # /api/admin/spt/{user_id}/config, /api/admin/spt/settings
 from routes.spt_risk import router as spt_risk_router          # /api/v1/risk/*, /api/v1/allocation/*, /api/v1/proposals, approve/reject
 from routes.spt_paper import router as spt_paper_router        # /api/v1/paper/orders, /positions, /trades, /reconcile, /stream
 from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
@@ -308,6 +309,7 @@ app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk
 app.include_router(desk_pnl_router)          # /api/desk/pnl, /api/desk/pnl/stream, /api/desk/pnl/timeseries (paper P&L, read-only)
 app.include_router(spt_signals_router)       # SPT slice A: scanner signals, opportunities, scanner analytics
 app.include_router(spt_accounts_router)      # SPT slice B: paper account SPT mode/config
+app.include_router(spt_admin_router)         # SPT admin: any user's SPT config + market-wide SPT settings
 app.include_router(spt_risk_router)          # SPT slice B: sizing, risk, allocation, proposals, approve/reject
 app.include_router(spt_paper_router)         # SPT slice C: paper orders, positions, trades, reconcile, stream
 app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}

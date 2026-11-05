@@ -11,7 +11,6 @@ Windows (DESIGN.md §4 consolidation_key):
 """
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -21,9 +20,15 @@ SESSION_END = time(15, 31)
 DEFAULT_WINDOW_SESSIONS = 5
 
 
+def _settings_env() -> Dict[str, str]:
+    """os.environ with the admin's market-wide SPT settings written over it (services/spt/settings.overlay)."""
+    from services.spt import settings
+    return settings.overlay()
+
+
 def window_sessions(env: Optional[Dict[str, str]] = None) -> int:
     """SPT_POSITIONAL_WINDOW_SESSIONS (1–60), else DEFAULT_WINDOW_SESSIONS."""
-    raw = (os.environ if env is None else env).get("SPT_POSITIONAL_WINDOW_SESSIONS")
+    raw = (_settings_env() if env is None else env).get("SPT_POSITIONAL_WINDOW_SESSIONS")
     try:
         n = int(raw) if raw not in (None, "") else DEFAULT_WINDOW_SESSIONS
     except ValueError:

@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -106,7 +105,9 @@ EXPLAIN = {
 
 
 def policy(env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    env = os.environ if env is None else env
+    if env is None:
+        from services.spt import settings                 # the admin's market-wide settings over os.environ
+        env = settings.overlay()
     try:
         min_adv = float(env.get("SPT_MIN_ADV_RS") or DEFAULT_MIN_ADV_RS)
     except ValueError:

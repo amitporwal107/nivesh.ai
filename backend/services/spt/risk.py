@@ -180,9 +180,9 @@ def spt_checks(*, proposal: Dict[str, Any], state: Dict[str, Any], quantity: int
     else:
         got = proposals._dt(p.get("received_at"))
         age = (now - got).total_seconds() if got else None
-        if age is None or age > float(p.get("max_age_s") or proposals.QUOTE_MAX_AGE_S):
+        if age is None or age > float(p.get("max_age_s") or proposals.quote_max_age_s()):
             fail("price", "price_stale", C.RISK_BLOCKED, f"The live price is {age if age is None else round(age)} s old; "
-                                                         f"the budget is {p.get('max_age_s') or proposals.QUOTE_MAX_AGE_S:g} s.",
+                                                         f"the budget is {p.get('max_age_s') or proposals.quote_max_age_s():g} s.",
                  age, p.get("max_age_s"))
     done("price", f"age {p.get('age_s')} s")
     decision = None

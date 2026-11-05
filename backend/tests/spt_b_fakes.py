@@ -180,7 +180,9 @@ class World:
         monkeypatch.setattr(inputs, "instrument", mock_instrument())
         monkeypatch.setattr(events, "_indexed", False)
         from services.spt import risk as spt_risk
+        from services.spt import settings as spt_settings
         monkeypatch.setattr(spt_risk, "_ks_cache", {})
+        monkeypatch.setattr(spt_settings, "_cache", {"at": None, "stored": {}, "version": 0})
         monkeypatch.setattr(proposals, "_indexed", False)
 
         async def read_quotes(symbols):
@@ -197,7 +199,9 @@ class World:
 
     async def set_mode(self, user: str, mode: str, **extras) -> Dict[str, Any]:
         from services.spt import policy
-        return await policy.update(self.db, user, actor=user, mode=mode, extras=extras or None,
+        # MOCK admin actor: tests may loosen a value (e.g. a longer approval window); the permission model itself is
+        # tested in tests/test_spt_config.py
+        return await policy.update(self.db, user, actor=user, actor_is_admin=True, mode=mode, extras=extras or None,
                                    reason="MOCK test opt-in", now=NOW)
 
     def proposals(self, user: Optional[str] = None) -> List[Dict[str, Any]]:

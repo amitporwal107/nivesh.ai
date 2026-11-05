@@ -551,6 +551,8 @@ async def _loop() -> None:
     while True:
         now = datetime.now(timezone.utc)
         try:
+            from services.spt import settings
+            await settings.refresh(default_deps().db)      # every worker, before the leader check (settings.py)
             what = await loop_once(now)
         except asyncio.CancelledError:
             raise

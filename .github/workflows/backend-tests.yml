@@ -273,6 +273,7 @@ jobs:
           tests/test_spt_c_monitor.py
           tests/test_spt_c_orders.py
           tests/test_spt_c_routes.py
+          tests/test_spt_config.py
           tests/test_paper_reconcile.py
           tests/test_paper_trades_routes.py
           tests/test_payoff_cost_card.py

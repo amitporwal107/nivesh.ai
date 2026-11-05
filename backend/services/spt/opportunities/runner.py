@@ -54,7 +54,10 @@ def enabled(env: Optional[Dict[str, str]] = None) -> bool:
 
 
 def max_per_round(env: Optional[Dict[str, str]] = None) -> int:
-    raw = (os.environ if env is None else env).get("SPT_VALIDATE_MAX_PER_ROUND")
+    if env is None:
+        from services.spt import settings                 # the admin's market-wide settings over os.environ
+        env = settings.overlay()
+    raw = env.get("SPT_VALIDATE_MAX_PER_ROUND")
     try:
         n = int(raw) if raw not in (None, "") else val.MAX_PER_ROUND
     except ValueError:
@@ -149,7 +152,9 @@ async def _loop() -> None:
     while True:
         now = datetime.now(timezone.utc)
         try:
-            await round_once(_db(), now, outcomes=outcomes_step)
+            from services.spt import settings
+            await settings.refresh(_db())                  # every worker, before the leader check (settings.py)
+            await round_once(_db(), now, outcomes=outcomes_step, env=settings.overlay())
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — round_once never raises by design; this is the last guard, logged with its trace
