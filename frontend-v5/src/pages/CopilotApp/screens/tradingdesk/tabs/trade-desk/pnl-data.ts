@@ -231,6 +231,9 @@ export interface PnlPosition {
   exposureRs: number | null;
   /** v2: an open PAPER share trade whose stop loss / target may be changed (Modify risk). */
   editableLevels: boolean;
+  /** Where a paper row came from: "desk" (the desk's own paper trades) or "scanner" (a Scanner-to-Paper Trading position,
+   *  watched live by the paper monitor; its levels are read-only here). "broker" for LIVE rows; null from an older server. */
+  rowSource: "desk" | "scanner" | "broker" | null;
   /** v2: a change saved but not in force yet (from the next session). */
   pendingLevels: PnlPendingLevels | null;
   /** v2: why the fills list is short or empty (live: only today's fills come from the broker). */
@@ -377,6 +380,7 @@ function readPosition(v: unknown, i: number): PnlPosition | null {
     executions: arr(p.executions).map(readExecution),
     accountId: str(p.account_id), brokerPnl: num(p.broker_pnl), brokerReadAt: str(p.broker_read_at), product: str(p.product),
     exposureRs: num(p.exposure_rs), editableLevels: p.editable_levels === true, pendingLevels: readPendingLevels(p.pending_levels),
+    rowSource: p.source === "desk" || p.source === "scanner" || p.source === "broker" ? p.source : null,
     executionsNote: str(p.executions_note), contractProblem: str(p.contract_problem),
   };
 }

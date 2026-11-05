@@ -333,7 +333,8 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›AI Scanner›Ranked candidates$/);
     const SUBS: Record<string, string[]> = {
       scanner: ["Ranked candidates", "Signal library & sources", "Scorecard"], chart: ["Live chart", "Signal record"],
-      paper: ["Live desk", "Trade journal", "P&L dashboard"], watchlists: [],
+      // Scanner-to-Paper Trading (owner, 5 Nov 2026) added Opportunities · Analytics · Settings after the P&L dashboard.
+      paper: ["Live desk", "Trade journal", "P&L dashboard", "Opportunities", "Analytics", "Settings"], watchlists: [],
     };
     for (const [view, labels] of Object.entries(SUBS)) {
       await page.getByTestId(`desk-view-${view}`).click();

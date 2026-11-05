@@ -301,7 +301,8 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
   test("TC-032 Paper Trading's third sub-view opens the dashboard with sub=pnl, without the paper-trades read", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("desk-subviews").getByRole("button")).toHaveText(["Live desk", "Trade journal", "P&L dashboard"], SLOW);
+    // Scanner-to-Paper Trading added Opportunities · Analytics · Settings after the P&L dashboard (owner, 5 Nov 2026; desk-nav.ts).
+    await expect(page.getByTestId("desk-subviews").getByRole("button")).toHaveText(["Live desk", "Trade journal", "P&L dashboard", "Opportunities", "Analytics", "Settings"], SLOW);
     await page.getByTestId("desk-sub-pnl").click();
     await expect.poll(() => params(page).get("sub")).toBe("pnl");
     await expect(page.getByTestId("desk-trail")).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›P&L dashboard$/);
@@ -613,6 +614,42 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await expect(l.getByTestId("pnl-exit-note")).toHaveText("Nivesh is read-only with brokers: exit this position in your broker's app. No order has been placed.");
     await page.waitForTimeout(500);
     expect(seen.closes).toEqual(["pt-icici"]);
+    expect(seen.patches).toHaveLength(0);
+  });
+
+  test("SPT-PNL-1 a scanner paper row: tagged, levels read-only with the reason, and its exit goes to the scanner's own route", async ({ page }) => {
+    // MOCK — not real data: one Scanner-to-Paper Trading position as GET /api/desk/pnl sends it (source "scanner", 5 Nov 2026).
+    const SCAN = paper({
+      position_id: "spt-pos-1", trade_id: "spt-pos-1", instrument: "TATAPOWER", symbol: "TATAPOWER", underlying: "TATAPOWER", segment: "EQUITY", side: "LONG",
+      net_quantity: 40, avg_price: 401.5, ltp: 405.2, prev_close: 400, price_status: "LIVE", price_source: "Kite live", price_at: "2026-11-04T10:30:01+05:30",
+      price_age_seconds: 1, invested_value: 16060, unrealized_pnl: 148, gross_pnl: 148, charges_estimated: 22.4, net_pnl: 125.6, day_pnl: 208, return_pct: 0.78,
+      stop_loss: 389, target: 425, distance_to_stop_pct: 4, risk_used_pct: 0, status: "ACTIVE", exposure_rs: 16208, editable_levels: false,
+      source: "scanner", opportunity_id: "opp-1", proposal_id: "prop-1", order_id: "ord-1", spt_state: "MONITORING",
+      executions_note: "MOCK: fills recorded by the paper monitor.", executions: [ex("fill-1", "BUY", 40, 401.5)],
+    });
+    const seen = await setup(page, {
+      pnl: (q) => ({ body: snapshot(q, undefined, (s) => { if ((q.get("mode") ?? "ALL") !== "LIVE") s.positions = [...(s.positions as Row[]), clone(SCAN)]; }) }),
+    });
+    const exits: string[] = [];
+    await page.route(/\/api\/v1\/paper\/positions\/[^/]+\/exit$/, (r) => {
+      exits.push(decodeURIComponent(new URL(r.request().url()).pathname.split("/").slice(-2)[0]));
+      return json(r, { order: { _id: "ord-exit-1", order_id: "ord-exit-1", state: "PENDING", purpose: "EXIT" }, duplicate: false });
+    });
+    await page.goto(PNL);
+    await expect(row(page, "spt-pos-1").getByTestId("pnl-row-sub")).toHaveText("Scanner paper trade", SLOW);
+    await expect(row(page, "pt-icici").getByTestId("pnl-row-sub")).toHaveText("Share trade");
+    await row(page, "spt-pos-1").click();
+    const d = detail(page, "spt-pos-1");
+    await expect(d.getByTestId("pnl-modify")).toBeDisabled();
+    await expect(d.getByTestId("pnl-modify-why")).toHaveText("A scanner paper trade keeps its plan's stop and targets; the paper monitor watches them live.");
+    await d.getByTestId("pnl-exit").click();
+    await expect(d.getByTestId("pnl-exit-confirm")).toHaveAttribute("data-source", "scanner");
+    await expect(d.getByTestId("pnl-exit-confirm")).toContainText("The paper monitor sells at the live bid");
+    expect(exits).toHaveLength(0);
+    await d.getByTestId("pnl-exit-yes").click();
+    await expect(d.getByTestId("pnl-exit-done")).toContainText("Exit order placed in the paper book.");
+    expect(exits).toEqual(["spt-pos-1"]);
+    expect(seen.closes).toHaveLength(0);   // never the desk's close for a scanner position
     expect(seen.patches).toHaveLength(0);
   });
 

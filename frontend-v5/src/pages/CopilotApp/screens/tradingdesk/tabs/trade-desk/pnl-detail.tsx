@@ -12,6 +12,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Btn, LoadingBlock, fmtINR, fmtPct } from "../../../../components/ui";
 import { QueryProblem } from "../../../trading/parts";
 import { useClosePaperTrade, writeProblem } from "../../desk-trading";
+import { useSptExit } from "./spt-api";
 import type { DailyBar } from "../../indicators";
 import { AnalysisChart, type ChartLevel } from "./analysis/AnalysisChart";
 import { useLiveChart } from "./live-chart-data";
@@ -148,6 +149,29 @@ function LevelsForm({ p, onClose }: { p: PnlPosition; onClose: () => void }) {
   );
 }
 
+/** A scanner paper trade exits through its own route (the paper monitor fills at the live bid), not the desk's close. */
+function ScannerExitConfirm({ p, onClose }: { p: PnlPosition; onClose: () => void }) {
+  const exit = useSptExit();
+  return (
+    <div data-testid="pnl-exit-confirm" data-source="scanner" role="group" aria-label="Confirm the paper exit" className="flex min-w-0 flex-col"
+      style={{ gap: 8, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--amber-line)", background: "var(--amber-soft)" }}>
+      <span style={{ fontSize: 12.5, lineHeight: 1.45, color: "var(--cp-ink)" }}>
+        Exit this scanner paper trade? The paper monitor sells at the live bid during the session (outside it, at the next session's first live quote). Paper simulator only.
+      </span>
+      <div className="flex flex-wrap" style={{ gap: 8 }}>
+        <Btn variant="primary" data-testid="pnl-exit-yes" disabled={exit.isPending || exit.isSuccess} onClick={() => exit.mutate(tradeOf(p))}>
+          {exit.isSuccess ? "Exit placed" : exit.isPending ? "Working…" : "Exit at the live bid"}
+        </Btn>
+        <Btn data-testid="pnl-exit-cancel" onClick={onClose}>{exit.isSuccess ? "Done" : "Cancel"}</Btn>
+      </div>
+      {exit.isError && <span data-testid="pnl-exit-error" role="alert" style={{ fontSize: 12.5, color: "var(--cp-danger)" }}>{writeProblem(exit.error)}</span>}
+      {exit.isSuccess && <span data-testid="pnl-exit-done" role="status" style={{ fontSize: 12.5, color: "var(--mint)" }}>
+        {exit.data?.duplicate ? "An exit was already waiting for this position." : "Exit order placed in the paper book."} The paper monitor fills it at the live bid; the dashboard shows it with the next update.
+      </span>}
+    </div>
+  );
+}
+
 function ExitConfirm({ p, strategy, onClose }: { p: PnlPosition; strategy: PnlStrategy | null; onClose: () => void }) {
   const close = useClosePaperTrade();
   return (
@@ -174,7 +198,8 @@ function Actions({ p, strategy }: { p: PnlPosition; strategy: PnlStrategy | null
   const canEdit = !live && p.editableLevels;
   const why = live ? "Broker positions are read-only here."
     : p.strategyId ? "Option and futures structures keep their levels in this release."
-      : !canEdit ? "This position's levels cannot be changed here." : null;
+      : p.rowSource === "scanner" ? "A scanner paper trade keeps its plan's stop and targets; the paper monitor watches them live."
+        : !canEdit ? "This position's levels cannot be changed here." : null;
   return (
     <div data-testid="pnl-actions" className="flex min-w-0 flex-col items-start" style={{ gap: 10 }}>
       <div style={eyebrow}>Actions</div>
@@ -194,7 +219,8 @@ function Actions({ p, strategy }: { p: PnlPosition; strategy: PnlStrategy | null
       {panel === "levels" && canEdit && <LevelsForm p={p} onClose={() => setPanel("none")} />}
       {panel === "exit" && (live
         ? <span data-testid="pnl-exit-note" role="status" style={{ fontSize: 12.5, lineHeight: 1.45, color: "var(--cp-ink-2)" }}>Nivesh is read-only with brokers: exit this position in your broker's app. No order has been placed.</span>
-        : <ExitConfirm p={p} strategy={strategy} onClose={() => setPanel("none")} />)}
+        : p.rowSource === "scanner" ? <ScannerExitConfirm p={p} onClose={() => setPanel("none")} />
+          : <ExitConfirm p={p} strategy={strategy} onClose={() => setPanel("none")} />)}
       {panel === "none" && <span style={{ fontSize: 12.5, color: "var(--cp-ink-2)", lineHeight: 1.45 }}>{live ? "Read-only: no broker order can be placed from Nivesh." : "Paper simulator only."}</span>}
     </div>
   );

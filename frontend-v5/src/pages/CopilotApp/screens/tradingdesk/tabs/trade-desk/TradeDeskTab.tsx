@@ -11,6 +11,12 @@
  *   ?tab=trade&view=paper&sub=pnl       Paper Trading › P&L dashboard (owner, 4 Nov 2026): the real-time paper P&L
  *                                       (PnlDashboard.tsx, its own READ-ONLY GET /api/desk/pnl + stream; it does not wait
  *                                       for the paper-trades list below and has its own header instead of the strip)
+ *   ?tab=trade&view=paper&sub=opportunities · analytics · settings
+ *                                       Scanner-to-Paper Trading (owner, 5 Nov 2026: "plain, functional screens on real data
+ *                                       inside today's Trader workspace"; docs/scanner_paper_trading/DESIGN.md): the
+ *                                       opportunities with approve / reject (SptOpportunities.tsx), the scanner and paper
+ *                                       analytics (SptAnalytics.tsx), the SPT mode and limits (SptSettings.tsx). Each reads its
+ *                                       own /api/v1 routes (spt-api.ts), not the paper-trades list below.
  *   Strategy Lab (Build a trade, Backtest & validation) was removed on 29 Oct (owner); a trade is built on Chart Analysis'
  *   paper basket and its URLs open the chart (desk-nav.ts).
  *
@@ -30,6 +36,9 @@ import { HeaderStrip } from "./HeaderStrip";
 import { JournalPanel, type JournalTrade } from "./Journal";
 import { quiet } from "./parts";
 import PnlDashboard from "./PnlDashboard";
+import SptAnalytics from "./SptAnalytics";
+import SptOpportunities from "./SptOpportunities";
+import SptSettings from "./SptSettings";
 
 /** The journal's trade: ?trade=<id>, else the newest closed trade, else the newest open one. */
 function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
@@ -53,6 +62,14 @@ export default function TradeDeskTab({ sub, onSub }: {
     return (
       <div data-testid="td-tab" data-section="paper" data-sub="pnl" className="flex min-w-0 flex-col" style={{ gap: 18 }}>
         <PnlDashboard />
+      </div>
+    );
+  }
+  // Scanner-to-Paper Trading (owner, 5 Nov 2026): each screen reads its own /api/v1 routes, not the paper-trades list.
+  if (sub === "opportunities" || sub === "analytics" || sub === "settings") {
+    return (
+      <div data-testid="td-tab" data-section="paper" data-sub={sub} className="flex min-w-0 flex-col" style={{ gap: 18 }}>
+        {sub === "opportunities" ? <SptOpportunities onSub={(s) => onSub(s)} /> : sub === "analytics" ? <SptAnalytics /> : <SptSettings />}
       </div>
     );
   }
