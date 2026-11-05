@@ -96,6 +96,8 @@ elif $BUILD_BACKEND; then
     log "Building backend image only..."
     dc build --pull app-backend
     dc up -d --force-recreate app-backend
+    # The desk app runs from the same image and code mount: a code change needs its process restarted too.
+    dc up -d --force-recreate app-autodesk || warn "app-autodesk did not start (only /autodesk/ is affected)"
 else
     log "Building frontend images only (v2 + v5)..."
     dc build --pull app-frontend app-frontend-v5
@@ -110,6 +112,8 @@ log "Disk after build: $(df -h / | awk 'NR==2{print $4" free ("$5" used)"}')"
 if $BUILD_BACKEND; then
     log "Waiting for nivesh-staging-app-backend to report healthy..."
     wait_container_healthy nivesh-staging-app-backend 90 2
+    # Not fatal for the main app: a subshell keeps fail()'s exit to this check.
+    ( wait_container_healthy nivesh-staging-autodesk 45 2 ) || warn "nivesh-staging-autodesk is not healthy (only /autodesk/ is affected)"
 fi
 
 if $RUN_MIGRATIONS; then
