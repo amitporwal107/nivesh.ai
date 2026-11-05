@@ -13,6 +13,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import ProductTour from "@/components/marketing/ProductTour";
 import { POSTS } from "@/pages/Blog/posts";
 import { fileUrl, useEditions } from "@/pages/MarketCommentary/editions";
+import { GUIDE_DURATION_LABEL, GUIDE_LANGS, GUIDE_POSTER, type GuideLangCode, guidePagePath, guideVideoUrl, langOf } from "@/pages/UserGuide/guide-data";
 import "@/components/marketing/nvx-theme.css";
 import "./homepage.css";
 
@@ -162,6 +163,9 @@ export default function HomepagePage() {
             <Link to="/market-commentary" data-testid="home-market-commentary-link">
               Market commentary
             </Link>
+            <Link to="/user-guide" data-testid="home-user-guide-link">
+              User guide
+            </Link>
             <a onClick={() => navigate("/security")}>Security</a>
           </nav>
           <div className="nav-right">
@@ -251,6 +255,9 @@ export default function HomepagePage() {
             </div>
           </div>
         </section>
+
+        {/* the complete user guide (pages/UserGuide): one video in five languages; the chosen language sets both links */}
+        <UserGuideSection isMobile={isMobile} />
 
         {/* product tour */}
         <section className="wrap section" id="tour">
@@ -495,5 +502,68 @@ export default function HomepagePage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+/** Homepage "Complete user guide": choose a language and the Watch link and the direct video link follow it. */
+function UserGuideSection({ isMobile }: { isMobile: boolean }) {
+  const [code, setCode] = useState<GuideLangCode>("en");
+  const lang = langOf(code);
+  return (
+    <section className="wrap section" id="user-guide" data-testid="home-user-guide" style={{ paddingTop: 0 }}>
+      <div className="section-head">
+        <h2>
+          The complete user guide, <em>in your language</em>.
+        </h2>
+        <p>
+          A {GUIDE_DURATION_LABEL} guided tour: the problems traders, investors, analysts, researchers and advisors face, then every
+          screen of the trading desk, the Copilot chat, research and risk. In English, हिंदी, தமிழ், मराठी and ગુજરાતી.
+        </p>
+      </div>
+      <div
+        className="blog-card"
+        data-testid="home-user-guide-card"
+        style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.1fr) minmax(0, 1fr)", gap: 22, alignItems: "center", cursor: "default" }}
+      >
+        <Link to={guidePagePath(code)} aria-label={`Watch the user guide in ${lang.name}`} tabIndex={-1}>
+          <img
+            src={GUIDE_POSTER}
+            alt="Nivesh Copilot user guide"
+            loading="lazy"
+            style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 10, display: "block", background: "#06080F" }}
+          />
+        </Link>
+        <div style={{ minWidth: 0 }}>
+          <span className="bc-kicker">User guide · {GUIDE_DURATION_LABEL} video · 5 languages</span>
+          <h3>Choose your language</h3>
+          <div role="group" aria-label="User guide language" data-testid="home-guide-langs" className="ug-langs">
+            {GUIDE_LANGS.map((l) => (
+              <button
+                key={l.code}
+                type="button"
+                lang={l.code}
+                className="btn-ghost"
+                data-testid={`home-guide-lang-${l.code}`}
+                aria-pressed={l.code === code}
+                aria-label={`${l.label} (${l.name})`}
+                onClick={() => setCode(l.code)}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+          <p>Ideas for review, not recommendations, and not investment advice. Paper trades are simulated; brokers stay read-only.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px 18px", marginTop: 16 }}>
+            <Link to={guidePagePath(code)} className="btn-primary" data-testid="home-guide-watch" style={{ textDecoration: "none" }}>
+              Watch in {lang.label} →
+            </Link>
+            <a href={guideVideoUrl(code)} target="_blank" rel="noreferrer" className="bc-read" data-testid="home-guide-direct" style={{ marginTop: 0 }}>
+              Direct video link ↗
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

@@ -1,0 +1,344 @@
+{
+"lang": "gu",
+"video": "nivesh-copilot-da8691abbb",
+"duration": 1003,
+"sections": [
+{
+"id": "s00",
+"chapter": "Intro",
+"label": "Nivesh Copilot",
+"t": 1.4,
+"text": "ભારતમાં બજારના દરેક સહભાગી પાસે પહેલાં કરતાં વધુ ડેટા છે. મુશ્કેલ કામ છે તેને સમયસર, સચોટ અને સમજાવી શકાય તેવા નિર્ણયોમાં ફેરવવું. Nivesh Copilot આ રીતે મદદ કરે છે."
+},
+{
+"id": "s01",
+"chapter": "The problem",
+"label": "The problem",
+"t": 17.3,
+"text": "સૌથી મોટો પડકાર માર્કેટ ડેટાની અછત નથી. પડકાર છે વેરવિખેર, સતત બદલાતી માહિતી: ભાવ, open interest, filings, પરિણામો, ફંડ ફ્લો અને બ્રોકર સ્ટેટમેન્ટ, દરેક અલગ જગ્યાએ. આ બધું સમયસર, સચોટ અને સમજાવી શકાય તેવા નિર્ણયમાં ફેરવવામાં રોજ કલાકો લાગે છે, અને મોટાભાગના લોકો તેની સાથે તાલ મિલાવી શકતા નથી."
+},
+{
+"id": "s02",
+"chapter": "The problem",
+"label": "Five participants, five daily struggles",
+"t": 42.5,
+"text": "ટ્રેડર્સ પૂછે છે: બજાર તેજીમાં છે કે સપાટ? આ breakout સાચો છે? તેની પાછળ volume અને open interest છે? મારે કેટલું રિસ્ક લેવું, અને મારું કુલ open risk કેટલું છે? રોકાણકારો પૂછે છે: કઈ કંપનીઓ રિસર્ચ કરવા જેવી છે? પરિણામ ટ્રેન્ડ કરતાં સારાં હતાં કે ખરાબ? શું મારું રોકાણ એક જ સેક્ટરમાં કેન્દ્રિત છે? અને ફેરફારથી કેટલો ટેક્સ લાગશે? રિસર્ચ એનાલિસ્ટ્સ આખો દિવસ ડેટા ભેગો કરીને તેનો મેળ બેસાડવામાં, filings અને પરિણામો વાંચવામાં, હરીફ કંપનીઓની સરખામણીમાં, અને દરેક મત માટે audit trail રાખવામાં વિતાવે છે. માર્કેટ રિસર્ચર્સ રેજીમ, બજાર પહોળાઈ, sector rotation, FII, DII અને મ્યુચ્યુઅલ ફંડ ફ્લો અને options positioning પર નજર રાખે છે, અને દરેક નેરેટિવ ચકાસવા તેમને ઇતિહાસ જોઈએ છે. અને સલાહકારો અને ડિસ્ટ્રિબ્યુટર્સ એકસાથે ઘણા ક્લાયન્ટ પોર્ટફોલિયો પર નજર રાખે છે, યોગ્યતા ચકાસે છે, રિબેલેન્સ કરે છે, ટેક્સનું આયોજન કરે છે, અને દરેક ક્લાયન્ટને બજારની દરેક ચાલ સમજાવે છે."
+},
+{
+"id": "s03",
+"chapter": "The problem",
+"label": "Ten problems everyone shares",
+"t": 109.8,
+"text": "મૂળમાં, દસ સમસ્યાઓ બધાને સામાન્ય છે: વેરવિખેર માહિતી, માહિતીનો ભરાવો, કામ લાગે તેવી ઇન્ટેલિજન્સની અછત, અવિશ્વસનીય ડેટા અને સંદર્ભનો અભાવ; કોઈ ઐતિહાસિક ચકાસણી નહીં, રિસ્કનું ટુકડે-ટુકડે મૂલ્યાંકન, બધું સતત જોવાનો કોઈ રસ્તો નહીં, ડેટા ભેગો કરવામાં કલાકો વેડફાય, અને નિર્ણય કેમ લેવાયો તેનો કોઈ રેકોર્ડ નહીં."
+},
+{
+"id": "s04",
+"chapter": "The problem",
+"label": "How Nivesh answers",
+"t": 134.3,
+"text": "Nivesh એક્સચેન્જ ડેટા, બ્રોકર હોલ્ડિંગ્સ, filings અને ફંડ ફ્લોને એક જગ્યાએ લાવે છે, અને તેની ઉપર એક Copilot મૂકે છે જે પુરાવા સાથે જવાબ આપે છે. દરેક આઇડિયા સાથે તેનાં કારણો, સ્રોત અને તે કેટલા તાજા છે, તેને શું ખોટો સાબિત કરે, તમારી પોતાની risk લિમિટ સામે ચકાસણી, અને પછી શું થયું તેની journal આવે છે. ચાલો જોઈએ, ટ્રેડરથી શરૂઆત કરીએ."
+},
+{
+"id": "s05",
+"chapter": "Trader deep-dive",
+"label": "Trader mode · Smart Trading Desk",
+"t": 161.8,
+"text": "Trader mode પર સ્વિચ કરો, અને Smart Trading Desk ખૂલે છે: Market Overview, Trade Desk, Market Desk અને Risk Desk, અને દરેક સ્ક્રીનની બાજુમાં AI Copilot. અહીં બધું paper mode છે, simulated execution. બ્રોકર્સ read-only છે, અને ક્યારેય કોઈ ઓર્ડર મોકલાતો નથી.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s06",
+"chapter": "Trader deep-dive",
+"label": "01 Market Overview",
+"t": 184.0,
+"text": "બજાર તેજીમાં છે, મંદીમાં કે સપાટ? Market Overview એક નજરમાં જવાબ આપે છે: Nifty, Bank Nifty, India VIX, તમામ NSE શેરોની બજાર પહોળાઈ, અને risk service જે રેજીમથી દરેક ટ્રેડની સાઇઝ નક્કી કરે છે તે. FII અને DII કેશ ફ્લો અને આગળ તથા પાછળ રહેલા સેક્ટર તેની બાજુમાં જ છે.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s07",
+"chapter": "Trader deep-dive",
+"label": "01 Market Overview › Top AI candidates",
+"t": 207.5,
+"text": "નીચે ટોપ AI candidates છે, દસ કેશમાં અને દસ એફ એન્ડ ઓમાં, દરેક સાથે સ્કોર, બંધબેસતી સ્ટ્રેટેજી અને પૂરો પ્લાન: reference price, risk level, reward levels, સાઇઝ અને મહત્તમ નુકસાન. દરેક સમીક્ષા માટેનો આઇડિયા છે, સલાહ નથી, અને એક ક્લિકમાં તે paper trade તરીકે નોંધાય છે, પહેલાં તમારી risk લિમિટ સામે ચકાસીને.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s08",
+"chapter": "Trader deep-dive",
+"label": "Signals › Scan dashboard",
+"t": 233.5,
+"text": "હવે સિગ્નલ. Scan dashboard Niveshના પોતાના ડેટા પર Chartink જેવા સ્કેન ચલાવે છે: NSE end-of-day bars ઉપર Kite live quotes, બજાર ખુલ્લું હોય ત્યારે દર દસ સેકન્ડે રિફ્રેશ. ત્રણ dashboards અલગ-અલગ સ્ટાઇલ માટે છે: Atlas fresh, Day trade, અને Early movers, જે સામાન્ય કરતાં પાંચ ગણા વોલ્યૂમ અને ઓપનિંગ ભાવથી બે ટકા ઉપર ટ્રેડ થતા શેરોને ફ્લેગ કરે છે.",
+"app": "trader/desk?tab=market&view=screener&sub=dashboard"
+},
+{
+"id": "s09",
+"chapter": "Trader deep-dive",
+"label": "Signals › Signal strength score",
+"t": 260.2,
+"text": "રોજ સેંકડો સિગ્નલ ટ્રિગર થાય છે, એટલે દરેકને સોમાંથી signal strength score મળે છે: ક્વોલિટી ત્રીસમાંથી, ટ્રેન્ડ પચીસ, ચાલનું કારણ વીસ, સાઇઝ પંદર અને ભાગીદારી દસ. માત્ર સિત્તેર કે વધુ સ્કોરવાળા સિગ્નલ જ મજબૂત ગણાય છે. સિત્તેરથી નીચે સ્કોર અને કારણો દેખાય છે, પણ કોઈ alert કે પ્લાન નથી, અને pump-and-dump patterns પર પેનલ્ટી લાગે છે. મજબૂત સિગ્નલ તેનાં ટેક્નિકલ કારણો બતાવે છે, રિસ્કના બે અને ચાર ગણા reward સાથેનો positional પ્લાન, setup ક્યારે પૂરો થાય તે કહેતો trend નિયમ, તે જે scan યાદીઓમાં આવ્યો તે, અને બાજુમાં એક options strategy આઇડિયા.",
+"app": "trader/desk?tab=market&view=screener&sub=dashboard"
+},
+{
+"id": "s10",
+"chapter": "Trader deep-dive",
+"label": "Signals › Signals by company",
+"t": 301.8,
+"text": "Signals by company દિવસના હજારો સિગ્નલને દરેક શેર માટે એક timelineમાં ફેરવે છે, નામથી શોધી શકાય. જે શેરમાં પહેલાં breakout, પછી volume surge, પછી early-mover alert આવ્યું, તે એક જ વાર્તા તરીકે વંચાય છે, day trader અને positional trader બંને માટે.",
+"app": "trader/desk?tab=market&view=screener&sub=dashboard"
+},
+{
+"id": "s11",
+"chapter": "Trader deep-dive",
+"label": "02 Trade Desk › AI Scanner",
+"t": 321.2,
+"text": "AI Scanner સાંજના candidatesને પૂરેપૂરા રેન્ક કરે છે, દરેક કેટલા સમયથી યાદીમાં છે અને પહેલા દિવસથી તેનો પ્લાન કેવી રીતે બદલાયો તે સાથે, અને તેની signal library દરેક નિયમ સાદા શબ્દોમાં સમજાવે છે.",
+"app": "trader/desk?tab=trade&view=scanner&sub=ranked"
+},
+{
+"id": "s12",
+"chapter": "Trader deep-dive",
+"label": "02 Trade Desk › AI Scanner › Scorecard",
+"t": 336.2,
+"text": "અને તે પોતાનું જ મૂલ્યાંકન કરે છે. પહેલેથી રજિસ્ટર કરેલો અભ્યાસ તપાસે છે કે રેન્કિંગ પરિણામોને સંયોગ કરતાં સારી રીતે ક્રમમાં મૂકે છે કે નહીં, અને ચુકાદો જેવો છે તેવો પ્રકાશિત થાય છે, ભલે તે કહે કે હાલના રેન્કિંગમાં કોઈ માપી શકાય તેવી ક્ષમતા નથી. આ છે ખુલ્લી ઐતિહાસિક ચકાસણી.",
+"app": "trader/desk?tab=trade&view=scanner&sub=scorecard"
+},
+{
+"id": "s13",
+"chapter": "Trader deep-dive",
+"label": "Build your own scanner",
+"t": 358.0,
+"text": "તમારું પોતાનું scanner જોઈએ છે? Scan builder ખોલો, એફ એન્ડ ઓ શેરો પર Volume surge in an uptrend જેવા templateથી શરૂ કરો, અને ચલાવો. મેચ થતા શેર ક્ષણમાં આવી જાય છે. સેવ કરો, અને તે ફરી ચલાવવા માટે તમારું છે.",
+"app": "trader/desk?tab=market&view=screener&sub=builder"
+},
+{
+"id": "s14",
+"chapter": "Trader deep-dive",
+"label": "Screener › Save as a watchlist",
+"t": 377.2,
+"text": "Screener પણ એ જ રીતે કામ કરે છે, Momentum Breakout જેવી તૈયાર screens સાથે. એક ચલાવો, અને તેને watchlist તરીકે સેવ કરો.",
+"app": "trader/desk?tab=market&view=screener&sub=screens"
+},
+{
+"id": "s15",
+"chapter": "Trader deep-dive",
+"label": "02 Trade Desk › Watchlists",
+"t": 388.2,
+"text": "Watchlists તમે ફોલો કરો છો તે બધું એક જગ્યાએ લાવે છે: earnings score અને આંકડાની આસપાસના એફ એન્ડ ઓ build-up સાથે આ અઠવાડિયાની રિઝલ્ટવાળી કંપનીઓ, AI scannerની દૈનિક યાદી, તમારી પોતાની યાદીઓ, saved screens, price levels અને filing alerts.",
+"app": "trader/desk?tab=trade&view=watchlists"
+},
+{
+"id": "s16",
+"chapter": "Trader deep-dive",
+"label": "Charting › Chart Analysis",
+"t": 406.2,
+"text": "Chart Analysis એક શેરને live chart પર બતાવે છે, એક મિનિટથી લઈને વીકલી candles સુધી, ઉપર put-call ratio, futures open interest, max pain, implied volatility અને expiry સુધીના expected move સાથે. ચાર્ટ પર જ સિગ્નલ દોરેલા છે: long build-up, short covering, volume spikes અને breakouts, સાથે reference price, risk level અને call અને put walls.",
+"app": "trader/desk?tab=trade&view=chart&sub=live"
+},
+{
+"id": "s17",
+"chapter": "Trader deep-dive",
+"label": "F&O build-up · Option chain",
+"t": 431.8,
+"text": "તેની નીચે એફ એન્ડ ઓની તસવીર છે: દરેક strike પર open interest, તેનો ફેરફાર અને છેલ્લા ભાવ સાથે option chain, current, next અને far month માટે, અને call wall તથા put wall સાથે build-up રીડ. દરેક strike પર L અને S બટન છે, basketમાં long કે short leg ઉમેરવા માટે.",
+"app": "trader/desk?tab=trade&view=chart&sub=live"
+},
+{
+"id": "s18",
+"chapter": "Trader deep-dive",
+"label": "Multi-leg strategies · Payoff",
+"t": 452.8,
+"text": "કયું structure બંધબેસે તે નક્કી નથી? Strategies that fit શેરના હાલના સિગ્નલ માટે AIના strategy આઇડિયા બતાવે છે, મહત્તમ નફો અને risk level પરના નુકસાન સાથે. એક ઉમેરો, અથવા iron condor જેવું તૈયાર structure પસંદ કરો. Strategy panel દરેક legની કિંમત તેના Greeks સાથે ગણે છે, expiry પર અને આજનો payoff દોરે છે, મહત્તમ નફો, મહત્તમ નુકસાન અને breakeven દર્શાવે છે, અને માઇનસ દસથી પ્લસ દસ ટકા સુધીનું scenario table આપે છે. તે hedge benefit સાથે margin Zerodhaના calculatorમાંથી વાંચે છે, અને આખું basket એક ક્લિકમાં paperમાં જાય છે.",
+"app": "trader/desk?tab=trade&view=chart&sub=live"
+},
+{
+"id": "s19",
+"chapter": "Trader deep-dive",
+"label": "Paper trading › Live desk",
+"t": 493.5,
+"text": "આજના paper trades પહેલેથી live desk પર છે: એક open, અને બે તેમની reference priceની રાહ જોઈ રહ્યા છે, કેશ, capital at risk અને લિમિટ સામે open risk સાથે.",
+"app": "trader/desk?tab=trade&view=paper&sub=live"
+},
+{
+"id": "s20",
+"chapter": "Trader deep-dive",
+"label": "Paper trading › Trade journal",
+"t": 506.2,
+"text": "Journal દરેક ટ્રેડની lifecycle પગલે-પગલે નોંધે છે, requested fill સામે simulated fill, અને દરેક ચાર્જ સાથે પી એન્ડ એલ bridge: brokerage, STT, exchange fees, stamp duty, GST અને slippage.",
+"app": "trader/desk?tab=trade&view=paper&sub=journal"
+},
+{
+"id": "s21",
+"chapter": "Trader deep-dive",
+"label": "Real-time P&L · paper and broker",
+"t": 523.0,
+"text": "પી એન્ડ એલ dashboard બધું એક real-time સ્ક્રીન પર મૂકે છે: તમારું paper account અને જોડાયેલા બ્રોકર એકાઉન્ટ્સ એકસાથે, realised અને unrealised પી એન્ડ એલ, અંદાજિત ચાર્જિસ અને open positions સાથે. બ્રોકર્સ read-only છે. અહીં live book ICICI Directમાંથી આવે છે, તમે account કે segment મુજબ ફિલ્ટર કરી શકો છો, અને intraday curve બતાવે છે કે સેશન દરમિયાન કુલ પી એન્ડ એલ કેવી રીતે બદલાયો.",
+"app": "trader/desk?tab=trade&view=paper&sub=pnl"
+},
+{
+"id": "s22",
+"chapter": "Trader deep-dive",
+"label": "Market research › AI event intelligence",
+"t": 551.2,
+"text": "Market Desk એ રિસર્ચ ફ્લોર છે. Market Intelligence દરેક exchange filing વાંચે છે: પરિણામો, નવા ઓર્ડર્સ, એમ એન્ડ એ અને corporate actions, bulk અને block deals, SEBI સર્ક્યુલર, અને FII અને DII ફ્લો. ઇવેન્ટ ખોલો, અને AI તેની અસરનો સાર આપે છે. અહીં Adani Powerએ બારસો મેગાવોટથી વધુ માટે પચીસ વર્ષનો પાવર સપ્લાય કરાર ફાઇલ કર્યો છે; તેને પોઝિટિવ અને ઊંચા મહત્વનો ગણ્યો છે, સ્રોતવાળી હકીકતોથી અલગ રાખ્યો છે, અને ચકાસાયેલ નથી એમ દર્શાવ્યું છે. પછી પુરાવા એકસાથે જોડાય છે: સરેરાશ સામે ભાવ, RSI અને volumeની ટેક્નિકલ ચકાસણી, પ્રતિક્રિયા આપી શકે તેવું પહેલું સેશન, એ જ ઉદ્યોગની સંબંધિત કંપનીઓ, અને શેર આજના scanમાં છે કે નહીં.",
+"app": "trader/desk?tab=market&view=intel"
+},
+{
+"id": "s23",
+"chapter": "Trader deep-dive",
+"label": "Market research › Results, M&A, corporate actions",
+"t": 599.8,
+"text": "પરિણામો, એમ એન્ડ એ, ડિવિડન્ડ અને અન્ય corporate actions પર પણ એ જ AI વિશ્લેષણ મળે છે, અને Results week દરેક કંપનીને તેના પોતાના ઐતિહાસિક ટ્રેન્ડ સામે સ્કોર આપે છે. AI વિશ્લેષણ, ટેક્નિકલ પુષ્ટિ, એફ એન્ડ ઓ build-up અને scanner સિગ્નલને સાથે મૂકો, અને મોટી તકો ઘોંઘાટમાંથી અલગ તરી આવે છે.",
+"app": "trader/desk?tab=market&view=intel"
+},
+{
+"id": "s24",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Smart Money",
+"t": 622.5,
+"text": "Smart Money બતાવે છે કે સંસ્થાકીય રોકાણકારો પૈસા ક્યાં ખસેડી રહ્યા છે: એક મહિનાથી એક વર્ષ સુધીના FII અને DII કેશ ફ્લો, જાહેર પોર્ટફોલિયોમાંથી મ્યુચ્યુઅલ ફંડ હોલ્ડિંગના ફેરફાર, દરેક પર પુરાવાના પ્રકારનું લેબલ, અને ઇન્ડેક્સ અને શેરોમાં એફ એન્ડ ઓ build-up.",
+"app": "trader/desk?tab=market&view=smartmoney"
+},
+{
+"id": "s25",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Sector Rotation",
+"t": 641.8,
+"text": "Sector Rotation બતાવે છે કે કયા સેક્ટર આગળ છે અને કયા પાછળ, Nifty 50થી કુલ બજાર સુધી કોઈ પણ ઇન્ડેક્સ માટે heatmap તરીકે, એક દિવસ, અઠવાડિયા કે મહિના માટે.",
+"app": "trader/desk?tab=market&view=sectors"
+},
+{
+"id": "s26",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Stock Research",
+"t": 655.5,
+"text": "Stock Research એક સમયે એક શેર લે છે: સરેરાશ અને પ્લાન levels સાથે AI chart, Risk Deskનો વ્યૂ, અને તેના fundamentals અને filings એક જ પેજ પર.",
+"app": "trader/desk?tab=market&view=research"
+},
+{
+"id": "s27",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Market Recovery",
+"t": 667.2,
+"text": "Market Recovery એક જ સવાલનો જવાબ આપે છે: શું બજાર રિકવર થઈ રહ્યું છે? Nifty અને Nifty 500 પર પાંચ ચેક ચાલે છે, વધતી વીસ દિવસની સરેરાશ સામે Niftyથી લઈને, કેટલા શેર વધ્યા, ભાગીદારી કેટલી ઝડપથી વિસ્તરી રહી છે, અને India VIX ઘટી રહ્યો છે કે નહીં ત્યાં સુધી.",
+"app": "trader/desk?tab=market&view=recovery"
+},
+{
+"id": "s28",
+"chapter": "Trader deep-dive",
+"label": "Market Recovery › Indices, sectors, candidates",
+"t": 687.2,
+"text": "પછી Nifty અને Bank Nifty, દરેક expiry મુજબ: put-call ratio, max pain, straddleની implied range અને call અને put walls, વીકલી અને મંથલી expiries અલગ રાખીને. પછી આગળ રહેલા સેક્ટર, અને એ સેક્ટરોના ટોપ recovery candidates, દરેક સાથે પ્લાન અને ઘટાડા સામે રક્ષણવાળી સ્ટ્રેટેજી, અને સંભવિત false signal તરીકે બાકાત રાખેલાની યાદી.",
+"app": "trader/desk?tab=market&view=recovery"
+},
+{
+"id": "s29",
+"chapter": "Trader deep-dive",
+"label": "04 Risk Desk",
+"t": 713.5,
+"text": "મોટાભાગના ટ્રેડર્સ રિસ્કમાં જ ચૂકે છે. Risk Desk તમારી લિમિટ સામે open risk, દૈનિક નુકસાન, drawdown અને positions બતાવે છે, અને દરેક સ્ક્રીનનો દરેક paper trade એક જ risk serviceમાંથી પસાર થાય છે. Kill switch અને trading halt નવી positions તરત અટકાવી શકે છે, અને decision log દરેક મંજૂર, ઘટાડેલો કે અટકાવેલો ટ્રેડ, તેના નિયમ અને પાછળના આંકડા સાથે નોંધે છે.",
+"app": "trader/desk?tab=risk&view=limits"
+},
+{
+"id": "s30",
+"chapter": "Trader deep-dive",
+"label": "04 Risk Desk › Portfolio hedge",
+"t": 741.0,
+"text": "ઘટાડાની ચિંતા છે? Portfolio hedge તમારા સાચા હોલ્ડિંગ્સ વાંચે છે, Nifty સામે તેમનો beta અને fit માપે છે, આખા lotsમાં cover કરવાનું exposure ગણે છે, અને ત્રણ hedge વિકલ્પો આપે છે, દરેકનો ખર્ચ અને અસર સાથે.",
+"app": "trader/desk?tab=risk&view=hedge"
+},
+{
+"id": "s31",
+"chapter": "Trader deep-dive",
+"label": "My portfolio",
+"t": 758.5,
+"text": "અને My portfolio તમારી સાચી બુક છે, જોડાયેલા બ્રોકર્સ અને તમારા CAS સ્ટેટમેન્ટમાંથી read-only.",
+"app": "trader/desk?tab=portfolio"
+},
+{
+"id": "s32",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot chat",
+"t": 767.0,
+"text": "હવે મોટો ભાગ: Copilot chat. Trader modeમાં તે ટ્રેડિંગ દિવસ પર જ ખૂલે છે: Market pulse, Find opportunities, My positions, એફ એન્ડ ઓ strategies, Manage risk અને Daily review, દરેકના પોતાના સવાલો સાથે. સાદા શબ્દોમાં પૂછો, અને તે ડેસ્ક જે ડેટા બતાવે છે તેમાંથી જ જવાબ આપે છે.",
+"app": ""
+},
+{
+"id": "s33",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot › Ideas and a trading plan",
+"t": 790.0,
+"text": "Find opportunities પર ટેપ કરો અને આજના ટોપ પાંચ માગો. સેકન્ડોમાં એક ટેબલ મળે છે, દરેક આઇડિયાની reference price, risk level, reward level, reward-to-risk અને સ્કોર સાથે, અને તેનો પ્લાન બસ એક ટેપ દૂર. એક શેર માટે positional trading પ્લાન માગો, અને તે નિર્ણય આપે છે, setup ready કે waiting, પૂરી થયેલી અને ન થયેલી શરતો, અને એ level જ્યાં આઇડિયા ખોટો સાબિત થાય, આ બધું conservative, base અને optimistic reward levels સાથે ચાર્ટ પર દોરેલું.",
+"app": ""
+},
+{
+"id": "s34",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot › Paper trade and live P&L",
+"t": 823.0,
+"text": "એ જ આઇડિયા ડેસ્ક પર છે. એક ખોલો, પ્લાનના પોતાના levels પર Add paper trade ટેપ કરો, અને તે તમારા paper desk પર જાય તે પહેલાં risk service તેને ચકાસે છે. પી એન્ડ એલ dashboard પર, તમારા paper trades તમારી બ્રોકર positionsની બાજુમાં છે, real timeમાં અપડેટ થતા.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s35",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot › My positions",
+"t": 845.0,
+"text": "તમારા open trades શું કરી રહ્યા છે તે પૂછો, અને તે તમારી બ્રોકર બુક અને paper trades એકસાથે, position મુજબ વાંચે છે, વપરાયેલા ડેટા અને તે કેટલો તાજો છે તે સાથે.",
+"app": ""
+},
+{
+"id": "s36",
+"chapter": "Trader deep-dive",
+"label": "Strategy Builder",
+"t": 858.0,
+"text": "Systematic traders માટે, Strategy Builder નિયમ આધારિત સ્ટ્રેટેજીને universeથી screen અને backtest સુધી લઈ જાય છે, point-in-time ડેટા પર, જેમાં delisted શેર પણ સામેલ છે, એટલે કોઈ survivorship bias નથી.",
+"app": "trader/strategy"
+},
+{
+"id": "s37",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For investors",
+"t": 872.8,
+"text": "રોકાણકારોને લાંબા ગાળા માટે એ જ ઇન્ટેલિજન્સ મળે છે. Portfolio analysis તમારા બધા હોલ્ડિંગ્સ વાંચે છે, ફંડની અંદર સુધી જોઈને, અને સાદા શબ્દોમાં કહે છે કે સૌથી વધુ ફાળો શાનો, સૌથી વધુ નુકસાન શાનું, અને ક્યાં તમારું exposure વધારે કે ઓછું છે. Portfolio ideas વિચારવા જેવાં પગલાંની યાદી આપે છે, દરેક કેમ છે અને તેનો ટેક્સ ખર્ચ કેટલો તે સાથે, અને tax view વર્ષ પૂરું થાય તે પહેલાં harvest કરી શકાય તેવા નુકસાન શોધે છે.",
+"app": "tool/analysis"
+},
+{
+"id": "s38",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For research analysts",
+"t": 906.5,
+"text": "રિસર્ચ એનાલિસ્ટ્સ દરેક filing વિશે પૂછી શકે છે, કારણ કે Nivesh એ તે પહેલેથી વાંચી લીધાં છે, અથવા પખવાડિયાની સૌથી મોટી order wins જેવી તૈયાર કરેલી themesથી શરૂ કરી શકે છે. દરેક AI વિશ્લેષણ તેની સ્રોતવાળી હકીકતો, event IDs અને timestampsની બાજુમાં હોય છે, જે audit trail આપે છે, અને અભ્યાસો ચાલતા પહેલાં જ રજિસ્ટર થાય છે.",
+"app": "tool/research"
+},
+{
+"id": "s39",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For market researchers",
+"t": 931.5,
+"text": "માર્કેટ રિસર્ચર્સને Marketsમાં આજના બજારની ચાલ સાદા શબ્દોમાં, સેક્ટર વિશ્લેષણ, earnings tracker અને FII અને DII ફ્લો મળે છે, અને ડેસ્ક પર રેજીમ, બજાર પહોળાઈ, smart money, rotation અને recovery.",
+"app": "tool/markets"
+},
+{
+"id": "s40",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For advisors and distributors",
+"t": 946.2,
+"text": "અને સલાહકારોને મળે છે Client 360: ક્લાયન્ટના health, quality અને risk સ્કોર એક વ્યૂમાં, તેઓ ક્યાં છે અને કેમ, અને એક ક્લિકમાં Copilotમાં ક્લાયન્ટ ખોલવાની સુવિધા. Advisor mode એક client book ઉમેરે છે, જે બતાવે છે કોને ફોન કરવાની જરૂર છે, નબળું પ્રદર્શન કરનાર અને rebalancing drift.",
+"app": "advisor/client-360"
+},
+{
+"id": "s41",
+"chapter": "Close",
+"label": "From information to decisions",
+"t": 966.8,
+"text": "માર્કેટ ઇન્ફર્મેશન પ્લેટફોર્મ અને ડિસિઝન-સપોર્ટ પ્લેટફોર્મ વચ્ચે આ જ ફરક છે. દરેક જવાબ કહે છે કે શું થઈ રહ્યું છે અને કેમ, તેની પાછળના પુરાવા, બંને બાજુના પરિબળો, મુખ્ય અનિશ્ચિતતાઓ, અને તેને શું ખોટું સાબિત કરે."
+},
+{
+"id": "s42",
+"chapter": "Close",
+"label": "Nivesh Copilot",
+"t": 983.5,
+"text": "Nivesh Copilot: ટ્રેડર્સ, રોકાણકારો, એનાલિસ્ટ્સ, રિસર્ચર્સ અને સલાહકારો માટે એક જ પ્લેટફોર્મ. ફક્ત શિક્ષણ અને રિસર્ચ માટે. આ આઇડિયા છે, ભલામણો નહીં, અને રોકાણ સલાહ નથી. બ્રોકર કનેક્શન્સ read-only છે, અને બ્રોકરને ક્યારેય કંઈ મોકલાતું નથી."
+}
+]
+}

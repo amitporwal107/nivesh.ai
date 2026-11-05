@@ -809,3 +809,21 @@
     display: none;
   }
 }
+
+/* Complete user guide — language buttons (pressed = the chosen language) */
+.nvx-home .ug-langs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.nvx-home .ug-langs .btn-ghost {
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+}
+.nvx-home .ug-langs .btn-ghost[aria-pressed="true"] {
+  border-color: var(--mint);
+  background: rgba(95, 231, 166, 0.14);
+  color: var(--text);
+}
