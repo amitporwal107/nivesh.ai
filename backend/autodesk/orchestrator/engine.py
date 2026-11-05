@@ -298,6 +298,17 @@ class Orchestrator:
                 """SELECT * FROM autodesk.signals WHERE tenant_id=$1 AND workflow_id=$2 AND status='DETECTED'
                    AND signal_score >= $3 ORDER BY signal_score DESC, instrument, category""",
                 tenant_id, scan_wf["workflow_id"], Decimal(str(pol["body"]["min_signal_score"])))
+            stop = await store.entries_stopped(c, tenant_id, cycle["simulation_id"])
+            if stop:
+                await store.emit(c, C.EventType.ENTRIES_STOPPED, tenant_id=tenant_id, producer=C.ORCHESTRATOR,
+                                 account_id=cycle["account_id"], workflow_id=cycle_id,
+                                 payload={"stage": "proposals", "candidates": len(rows), "reason": stop["reason"]})
+        if stop:
+            summary = {"candidates": len(rows), "proposed": 0, "results": [],
+                       "held_back": f"STOP_NEW_ENTRIES is active ({stop['reason']})"}
+            await self._set_wf(tenant_id, cycle_id, C.WorkflowState.COMPLETED,
+                               outcome={**outcome, "proposals": summary, "result": "CYCLE_COMPLETED"})
+            return summary
         allowed = set((outcome.get("premarket") or {}).get("allowed_segments") or [])
         chosen, seen = [], set()
         for r in rows:
@@ -340,6 +351,10 @@ class Orchestrator:
     async def run_trade_proposal(self, *, tenant_id: str, cycle: dict, signal: dict, as_of: datetime,
                                  scan_task: Optional[dict] = None) -> dict:
         sd = cycle["input"]["session_date"]
+        async with self.pool.acquire() as c:
+            stop = await store.entries_stopped(c, tenant_id, cycle["simulation_id"])
+        if stop:
+            raise store.Conflict(f"new entries are stopped (STOP_NEW_ENTRIES: {stop['reason']})")
         sig_model = C.Signal.model_validate(signal["body"])
         allowed = (cycle["outcome"] or {}).get("premarket", {}).get("allowed_segments")
         override = {"session_allowed_segments": list(allowed)} if allowed is not None else None
@@ -496,7 +511,22 @@ class Orchestrator:
             return await self._set_wf(tenant_id, wf["workflow_id"], C.WorkflowState.COMPLETED, outcome={
                 "result": "RESEARCH_ONLY", "trade_id": trade_id, "plan_version": version})
 
-        # 4. approval
+        # 4. approval (held back if STOP_NEW_ENTRIES was activated while this proposal ran)
+        async with self.pool.acquire() as c:
+            stop = await store.entries_stopped(c, tenant_id, wf["simulation_id"])
+            if stop:
+                async with c.transaction():
+                    await store.set_plan_status(c, tenant_id=tenant_id, trade_id=trade_id,
+                                                status=C.PlanStatus.REJECTED)
+                    await store.emit(c, C.EventType.ENTRIES_STOPPED, tenant_id=tenant_id, producer=C.ORCHESTRATOR,
+                                     account_id=wf["account_id"], workflow_id=wf["workflow_id"],
+                                     correlation_id=trade_id,
+                                     payload={"stage": "approval", "trade_id": trade_id, "plan_version": version,
+                                              "reason": stop["reason"]})
+        if stop:
+            return await self._set_wf(tenant_id, wf["workflow_id"], C.WorkflowState.COMPLETED, outcome={
+                "result": "ENTRIES_STOPPED", "trade_id": trade_id, "plan_version": version,
+                "reason": f"STOP_NEW_ENTRIES is active ({stop['reason']})"})
         async with self.pool.acquire() as c:
             async with c.transaction():
                 await store.set_plan_status(c, tenant_id=tenant_id, trade_id=trade_id,
@@ -561,7 +591,7 @@ class Orchestrator:
     # ── a person's decision on a pending approval ───────────────────────────────────────────────────────────────
 
     async def decide(self, *, tenant_id: str, approval_id: str, decision: str, reason: str, user_id: str,
-                     now: Optional[datetime] = None) -> dict:
+                     now: Optional[datetime] = None, plan_hash: Optional[str] = None) -> dict:
         if decision not in ("APPROVE", "REJECT", "REQUEST_REVISION"):
             raise ValueError("decision must be APPROVE, REJECT or REQUEST_REVISION")
         async with self.pool.acquire() as c:
@@ -589,7 +619,13 @@ class Orchestrator:
                 account = await store.get_account(c, tenant_id, req["account_id"])
                 assessment = await store.latest_risk_assessment(c, tenant_id, req["trade_id"], req["plan_version"])
                 body = C.TradePlanBody.model_validate(plan["body"])
+                if plan_hash is not None and plan_hash != C.plan_hash(body):
+                    raise store.Conflict("the plan you reviewed is not the current version (plan hash differs)")
                 if decision == "APPROVE":
+                    stop = await store.entries_stopped(c, tenant_id, req["simulation_id"])
+                    if stop:
+                        raise store.Conflict(f"new entries are stopped (STOP_NEW_ENTRIES: {stop['reason']}); "
+                                             "lift it to approve, or reject")
                     if account["status"] != "ACTIVE":
                         raise store.Conflict(f"account is {account['status']}")
                     if assessment is None or assessment["verdict"] != C.RiskVerdict.PASS.value:

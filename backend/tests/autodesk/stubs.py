@@ -147,7 +147,7 @@ def stub_scope(*, tenant_id, account, trade_id, plan_version, plan: C.TradePlanB
                            max_lots=max(l.lots for l in plan.legs), max_notional_rs=plan.capital_required_rs,
                            max_risk_rs=plan.max_loss_rs,
                            execution_mode="SIMULATION" if account["kind"] == "SIMULATION" else "PAPER",
-                           allowed_actions=["ENTER"])
+                           allowed_actions=["ENTER"], plan_hash=C.plan_hash(plan))
 
 
 class StubMO(Agent):

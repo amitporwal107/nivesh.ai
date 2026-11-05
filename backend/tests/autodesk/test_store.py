@@ -140,7 +140,8 @@ def test_ad06_signal_dedupe(pg_pool):
 def test_ad07_approval_binding_and_single_answer(pg_pool):
     scope = C.ApprovalScope(tenant_id=T1, account_id="ACC-1", trade_id="TRD-1", plan_version=2, instrument="X",
                             strategy_type=C.StrategyType.LONG_EQUITY, max_lots=1, max_notional_rs=Decimal("1"),
-                            max_risk_rs=Decimal("1"), execution_mode="PAPER", allowed_actions=["ENTER"])
+                            max_risk_rs=Decimal("1"), execution_mode="PAPER", allowed_actions=["ENTER"],
+                            plan_hash="0" * 64)
     with pytest.raises(ValidationError):
         C.ApprovalDecision(trade_id="TRD-1", plan_version=2, account_id="ACC-1", status=C.ApprovalStatus.APPROVED,
                            decided_by="x", reasons=[])                       # no scope

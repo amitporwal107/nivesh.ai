@@ -135,3 +135,14 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 | AD-90 | U | tests/test_order_path_guard.py | passes (no order calls added) | owner rule |
 | AD-91 | U | Static scan of backend/autodesk | no reference to paper_accounts / paper_account_ledger / desk_paper_trades / risk_decisions / spt_ collections, nor risk_gate.service.enter/gather/enforce, risk_book.read, plan_sizing.size_for | D2 |
 | AD-92 | U | Agent narrative text (thesis, rationale, risk warnings, summaries, reasons) | none of: buy, sell, stop loss, SL, target, entry, exit, accumulate, book profit, upside, price target, recommend, pick (whole words, case-insensitive) | owner 3 Nov |
+
+## Additions from the owner's screen designs (5 Nov) [core]
+
+| ID | Layer | Case | Expected | Ref |
+|---|---|---|---|---|
+| AD-93 | I | Activate STOP_NEW_ENTRIES, run a desk SESSION_CYCLE | premarket + scan run, signals stored; proposals held back (`proposed: 0`, `held_back`); ENTRIES_STOPPED event | design §3, PRD §10.4 |
+| AD-94 | I | STOP_NEW_ENTRIES active, start a TRADE_PROPOSAL for a desk signal | Conflict (409 over the API); signal stays DETECTED | design §3 |
+| AD-95 | I | STOP_NEW_ENTRIES active, a person approves a pending request | Conflict; REJECT still works; after lift, APPROVE works | design §3 |
+| AD-96 | I | STOP_NEW_ENTRIES active, a simulation steps through a past session | proposals run as usual (simulations not affected) | design §10 |
+| AD-97 | I+A | Activate twice, lift once | one ACTIVATED + one LIFTED event; second press `changed: false`; GET /desk/controls and /desk/status show the state | PRD §10.4 |
+| AD-98 | U+I | Approval binding | APPROVED scope carries `plan_hash` = sha256 of the plan version body; a person's decision with a stale `plan_hash` → Conflict; GET /trade-plans/{id} returns `plan_hash` | design §05, PRD §10.3 |

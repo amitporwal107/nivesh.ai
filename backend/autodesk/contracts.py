@@ -314,6 +314,16 @@ class EventType(str, Enum):
     ACCOUNT_CREATED = "ACCOUNT_CREATED"
     ACCOUNT_MODE_CHANGED = "ACCOUNT_MODE_CHANGED"
     POLICY_VERSION_CREATED = "POLICY_VERSION_CREATED"
+    # emergency controls (PRD §10.4)
+    DESK_CONTROL_ACTIVATED = "DESK_CONTROL_ACTIVATED"
+    DESK_CONTROL_LIFTED = "DESK_CONTROL_LIFTED"
+    ENTRIES_STOPPED = "ENTRIES_STOPPED"   # a proposal / approval was held back by STOP_NEW_ENTRIES
+
+
+class DeskControl(str, Enum):
+    """Emergency controls (PRD §10.4). Phase 1 has the one that acts before any order exists. None of them cancels a
+    protective exit. Applies to the desk's real-time accounts, not to simulations of past sessions."""
+    STOP_NEW_ENTRIES = "STOP_NEW_ENTRIES"
 
 
 class EventEnvelope(_Model):
@@ -527,6 +537,15 @@ class TradePlanBody(_Model):
         return v
 
 
+def plan_hash(body: "TradePlanBody | dict") -> str:
+    """sha256 of the canonical JSON of a plan version body: what an approval is bound to (PRD §10.3)."""
+    import hashlib
+    import json
+    d = body.model_dump(mode="json") if isinstance(body, BaseModel) else TradePlanBody.model_validate(body).model_dump(
+        mode="json")
+    return hashlib.sha256(json.dumps(d, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 class TradePlanVersion(_Model):
     trade_id: str
     version: int = Field(ge=1)
@@ -580,6 +599,7 @@ class ApprovalScope(_Model):
     max_risk_rs: Decimal
     execution_mode: Literal["PAPER", "SIMULATION", "SHADOW"]
     allowed_actions: list[str]            # e.g. ["ENTER", "EXIT_AT_STOP", "EXIT_AT_TARGET", "TRAIL_TIGHTEN"]
+    plan_hash: str                        # sha256 of the approved plan version body (PRD §10.3 binding)
 
 
 class ApprovalDecision(_Model):

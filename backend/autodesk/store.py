@@ -682,3 +682,41 @@ async def list_clock_events(c: asyncpg.Connection, tenant_id: str, simulation_id
     await get_simulation(c, tenant_id, simulation_id)
     return [dict(r) for r in await c.fetch(
         "SELECT * FROM autodesk.simulation_clock_events WHERE simulation_id=$1 ORDER BY seq", simulation_id)]
+
+
+# ── emergency controls (PRD §10.4) ──────────────────────────────────────────────────────────────────────────────────
+
+async def list_desk_controls(c: asyncpg.Connection, tenant_id: str) -> list[dict]:
+    rows = {r["control"]: dict(r) for r in await c.fetch(
+        "SELECT * FROM autodesk.desk_controls WHERE tenant_id=$1", tenant_id)}
+    return [rows.get(k.value) or {"tenant_id": tenant_id, "control": k.value, "active": False, "reason": None,
+                                  "changed_by": None, "changed_at": None} for k in C.DeskControl]
+
+
+async def entries_stopped(c: asyncpg.Connection, tenant_id: str, simulation_id: Optional[str] = None) -> Optional[dict]:
+    """The active STOP_NEW_ENTRIES row, or None. Simulations of past sessions are not affected."""
+    if simulation_id:
+        return None
+    r = await c.fetchrow("""SELECT * FROM autodesk.desk_controls WHERE tenant_id=$1 AND control=$2 AND active""",
+                         tenant_id, C.DeskControl.STOP_NEW_ENTRIES.value)
+    return dict(r) if r else None
+
+
+async def set_desk_control(c: asyncpg.Connection, *, tenant_id: str, control: C.DeskControl, active: bool,
+                           reason: str, actor: str) -> dict:
+    """Activate or lift a control. Pressing it again in the same state changes nothing and records nothing."""
+    async with c.transaction():
+        await c.execute("SELECT pg_advisory_xact_lock(hashtext($1))", f"desk_control:{tenant_id}:{control.value}")
+        cur = await c.fetchrow("SELECT * FROM autodesk.desk_controls WHERE tenant_id=$1 AND control=$2",
+                               tenant_id, control.value)
+        if cur is not None and cur["active"] == active:
+            return {**dict(cur), "changed": False}
+        row = await c.fetchrow(
+            """INSERT INTO autodesk.desk_controls (tenant_id, control, active, reason, changed_by, changed_at)
+               VALUES ($1,$2,$3,$4,$5,now())
+               ON CONFLICT (tenant_id, control) DO UPDATE SET active=EXCLUDED.active, reason=EXCLUDED.reason,
+                   changed_by=EXCLUDED.changed_by, changed_at=EXCLUDED.changed_at
+               RETURNING *""", tenant_id, control.value, active, reason, actor)
+        await emit(c, C.EventType.DESK_CONTROL_ACTIVATED if active else C.EventType.DESK_CONTROL_LIFTED,
+                   tenant_id=tenant_id, producer=actor, payload={"control": control.value, "reason": reason})
+        return {**dict(row), "changed": True}

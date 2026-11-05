@@ -126,6 +126,7 @@ async def desk_status(request: Request, user: dict = Depends(current_user)):
         pending = len(await store.list_approvals(c, t, pending_only=True))
         open_wf = await c.fetchval("""SELECT count(*) FROM autodesk.workflows WHERE tenant_id=$1
                                       AND state IN ('CREATED','RUNNING','WAITING_HUMAN') AND simulation_id IS NULL""", t)
+        controls = await store.list_desk_controls(c, t)
         pm = await c.fetchrow("""SELECT session_date, outcome FROM autodesk.workflows WHERE tenant_id=$1
                                  AND kind='PREMARKET_CHECK' AND simulation_id IS NULL
                                  ORDER BY created_at DESC LIMIT 1""", t)
@@ -140,9 +141,31 @@ async def desk_status(request: Request, user: dict = Depends(current_user)):
                                                               "starting_capital_rs")} for a in accounts],
                 "agents": [{k: a[k] for k in ("agent_key", "version", "kind", "status", "last_heartbeat")}
                            for a in agents],
-                "pending_approvals": pending, "open_workflows": open_wf,
+                "pending_approvals": pending, "open_workflows": open_wf, "controls": controls,
                 "last_premarket": dict(pm) if pm else None, "market_data": data,
                 "execution": "none (Phase 1: no orders, fills or positions)"})
+
+
+class ControlIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    active: bool
+    reason: str = Field(min_length=1, max_length=300)
+
+
+@router.get("/desk/controls")
+async def list_controls(request: Request, user: dict = Depends(current_user)):
+    async with _state(request).pool.acquire() as c:
+        return out(await store.list_desk_controls(c, tenant_of(user)))
+
+
+@router.post("/desk/controls/{control}")
+async def set_control(control: C.DeskControl, body: ControlIn, request: Request, user: dict = Depends(current_user)):
+    """Emergency control (PRD §10.4). STOP_NEW_ENTRIES: no new proposal starts and nothing is approved on the desk's
+    real-time accounts until it is lifted. It never cancels a protective exit (there are no orders in Phase 1)."""
+    t = tenant_of(user)
+    async with _state(request).pool.acquire() as c:
+        return out(await store.set_desk_control(c, tenant_id=t, control=control, active=body.active,
+                                                reason=body.reason, actor=f"user:{t}"))
 
 
 # ── accounts + policies ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -375,7 +398,7 @@ async def get_plan(trade_id: str, request: Request, version: Optional[int] = Non
         plan = await store.get_plan(c, t, trade_id, version)
         risk = await store.latest_risk_assessment(c, t, trade_id, plan["version"])
         apr = await store.list_approvals(c, t, trade_id=trade_id)
-    return out({**plan, "latest_risk_assessment": risk, "approvals": apr})
+    return out({**plan, "plan_hash": C.plan_hash(plan["body"]), "latest_risk_assessment": risk, "approvals": apr})
 
 
 @router.get("/trade-plans/{trade_id}/versions")
@@ -424,6 +447,7 @@ class DecisionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: Literal["APPROVE", "REJECT", "REQUEST_REVISION"]
     reason: str = Field(default="", max_length=500)
+    plan_hash: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")  # the plan version the person reviewed
 
 
 @router.get("/approvals")
@@ -445,7 +469,7 @@ async def get_approval(approval_id: str, request: Request, user: dict = Depends(
 async def decide(approval_id: str, body: DecisionIn, request: Request, user: dict = Depends(current_user)):
     t = tenant_of(user)
     return out(await _state(request).orchestrator.decide(tenant_id=t, approval_id=approval_id, decision=body.decision,
-                                                         reason=body.reason, user_id=t))
+                                                         reason=body.reason, user_id=t, plan_hash=body.plan_hash))
 
 
 # ── simulations ─────────────────────────────────────────────────────────────────────────────────────────────────────

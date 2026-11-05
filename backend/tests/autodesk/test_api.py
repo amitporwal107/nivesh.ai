@@ -113,6 +113,7 @@ def test_ad83_ad84_desk_session_cycle(client):
     tid = plans[0]["trade_id"]
     p = client.get(f"/api/v1/trade-plans/{tid}", headers=A).json()
     assert p["latest_risk_assessment"]["verdict"] == "PASS" and p["approvals"]
+    assert len(p["plan_hash"]) == 64 and p["approvals"][0]["body"]["scope"]["plan_hash"] == p["plan_hash"]  # AD-98
     r = client.post(f"/api/v1/trade-plans/{tid}/validate", headers=A)
     assert r.status_code == 201 and r.json()["trade_id"] == tid
     assert client.post(f"/api/v1/trade-plans/{tid}/validate", headers=B).status_code == 404
@@ -178,3 +179,33 @@ def test_ad52_policy_changes(client):
     r = client.post(f"/api/v1/policies/{pid}/versions",
                     json={"changes": {"max_legs": 9}, "reason": "bad"}, headers=A)
     assert r.status_code == 422
+
+
+def test_ad93_ad94_ad97_stop_new_entries_api(client):
+    assert client.get("/api/v1/desk/controls").status_code == 401
+    [c0] = client.get("/api/v1/desk/controls", headers=B).json()
+    assert c0["control"] == "STOP_NEW_ENTRIES" and c0["active"] is False
+    assert client.post("/api/v1/desk/controls/STOP_EVERYTHING", json={"active": True, "reason": "x"},
+                       headers=B).status_code == 422
+    r1 = client.post("/api/v1/desk/controls/STOP_NEW_ENTRIES", json={"active": True, "reason": "drill"}, headers=B)
+    r2 = client.post("/api/v1/desk/controls/STOP_NEW_ENTRIES", json={"active": True, "reason": "again"}, headers=B)
+    assert r1.status_code == 200 and r1.json()["changed"] is True and r2.json()["changed"] is False
+    st = client.get("/api/v1/desk/status", headers=B).json()
+    assert st["controls"][0]["active"] is True
+    assert client.get("/api/v1/desk/status", headers=A).json()["controls"][0]["active"] is False   # per tenant
+    try:
+        acc = _account(client, headers=B)
+        cyc = client.post("/api/v1/desk/workflows", json={"kind": "SESSION_CYCLE", "account_id": acc["account_id"],
+                                                          "max_proposals": 1, "wait": True}, headers=B).json()
+        assert cyc["state"] == "COMPLETED" and cyc["outcome"]["proposals"]["proposed"] == 0, cyc
+        sig = client.get("/api/v1/signals", headers=B).json()[0]
+        r = client.post("/api/v1/desk/workflows", json={"kind": "TRADE_PROPOSAL", "signal_id": sig["signal_id"],
+                                                        "wait": True}, headers=B)
+        assert r.status_code == 409 and "stopped" in r.text
+        bad = client.post("/api/v1/approvals/APR-x/decision", json={"decision": "APPROVE", "plan_hash": "zz"},
+                          headers=B)
+        assert bad.status_code == 422
+    finally:
+        r3 = client.post("/api/v1/desk/controls/STOP_NEW_ENTRIES", json={"active": False, "reason": "done"},
+                         headers=B)
+        assert r3.json()["changed"] is True and r3.json()["active"] is False
