@@ -66,7 +66,23 @@ TRADE_FIELDS = ("_id", "user_id", "kind", "status", "symbol", "underlying", "fam
                 "exit_session", "exit_note", "realized_pnl_rs", "costs_rs", "net_pnl_rs", "sim_entry_price",
                 "entry_status", "legs", "cost_model", "observations", "held_sessions", "checked_through",
                 "reconciliation", "flags")
-ACCOUNT_FIELDS = ("user_id", "cash_rs", "blocked_rs", "starting_capital_rs", "created_at", "adjustment_keys")
+ACCOUNT_FIELDS = ("user_id", "cash_rs", "blocked_rs", "starting_capital_rs", "created_at", "adjustment_keys",
+                  "reservations")
+
+# Reservations taken for Scanner-to-Paper Trading orders (risk_gate EntryRequest.store = services/spt/constants.ORDERS)
+# belong to SPT, not to a desk trade: their funds are blocked by a live SPT order or position, and SPT's own
+# reconciliation (services/spt/paper/reconcile.py) checks them against its orders and positions. Here they count as
+# reserved (I3) and are never proposed as orphans.
+SPT_STORE = "spt_orders"
+
+
+def spt_reservations(account: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    """{trade_id: funding blocked} for the account's live SPT reservations (empty for an account without any)."""
+    out: Dict[str, float] = {}
+    for e in (account or {}).get("reservations") or []:
+        if isinstance(e, dict) and e.get("store") == SPT_STORE and e.get("trade_id"):
+            out[str(e["trade_id"])] = out.get(str(e["trade_id"]), 0.0) + _num(e.get("funding_rs"))
+    return out
 LEDGER_FIELDS = ("_id", "user_id", "at", "action", "amount_rs", "net_pnl_rs", "trade_id", "symbol", "cash_delta_rs",
                  "blocked_delta_rs", "reason_code", "run_id", "actor", "reverts", "stamp", "idempotency_key")
 
@@ -161,6 +177,8 @@ def invariants(account: Optional[Dict[str, Any]], rows: List[Dict[str, Any]], tr
     open_trades = [t for t in trades if t.get("status") == "open"]
     stamped = {e["trade_id"]: e["blocked_delta_rs"] for e in (extra or []) if e.get("stamp")}
     open_reserved = sum(_num(t.get("paper_reserved_rs")) or _num(stamped.get(t["_id"])) for t in open_trades)
+    spt_reserved = sum(spt_reservations(account).values())        # live SPT orders / positions hold these funds
+    open_reserved += spt_reserved
     unreserved = [t["_id"] for t in open_trades if not t.get("paper_reserved_rs") and t["_id"] not in stamped]
     if account is None:
         return {"account": False, "open_trades": len(open_trades), "unreserved_open_trades": unreserved, "ok": False}
@@ -175,7 +193,8 @@ def invariants(account: Optional[Dict[str, Any]], rows: List[Dict[str, Any]], tr
         "I1_cash_minus_start": _r(cash - start), "I1_ledger_cash": _r(cash_ledger),
         "I1_ok": abs((cash - start) - cash_ledger) <= TOL,
         "I2_ledger_blocked": _r(blocked_ledger), "I2_ok": abs(blocked - blocked_ledger) <= TOL,
-        "I3_open_reserved": _r(open_reserved), "I3_ok": abs(blocked - open_reserved) <= TOL,
+        "I3_open_reserved": _r(open_reserved), "I3_spt_reserved": _r(spt_reserved),
+        "I3_ok": abs(blocked - open_reserved) <= TOL,
         "I4_unreserved_open_trades": unreserved, "I4_ok": not unreserved,
         "open_trades": len(open_trades),
     }
@@ -375,9 +394,9 @@ def build_plan(accounts: List[Dict[str, Any]], ledger: List[Dict[str, Any]], tra
                         uid, t, tid, keyed(PNL_POSTED_MISMATCH, tid)[1], PNL_POSTED_MISMATCH, cash=float(net) - posted,
                         note="Owner decision 'post_difference'.")]}])
 
-    # Ledger rows for trades that are not stored.
+    # Ledger rows for trades that are not stored. A live SPT reservation (SPT_STORE) is SPT's, not an orphan.
     for (uid, tid), a in sorted(agg.items(), key=lambda kv: str(kv[0])):
-        if tid in by_id or tid is None:
+        if tid in by_id or tid is None or str(tid) in spt_reservations(by_user_account.get(uid)):
             continue
         net_reserved = a["reserved"] - a["released"] + a["adjust_blocked"]
         if net_reserved > TOL and uid in by_user_account:
