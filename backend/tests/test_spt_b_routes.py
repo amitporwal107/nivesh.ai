@@ -76,11 +76,11 @@ def test_spt_b_02_03_config_over_http(client):
     assert r.status_code == 200 and body["count"] == 1
     acc = body["accounts"][0]
     assert acc["account_id"] == U1 and acc["config"]["mode"] == "off" and acc["account"]["available_rs"] == 1_000_000.0
-    for payload, code in (({"mode": "yolo"}, "invalid_mode"), ({"extras": {"risk_pct": {"positional": 1.0}}},
-                                                                "risk_pct_above_profile"),
-                          ({"mode": "auto", "colour": "red"}, "unknown_field")):
+    for payload, status, code in (({"mode": "yolo"}, 422, "invalid_mode"),
+                                  ({"extras": {"risk_pct": {"positional": 1.0}}}, 403, "admin_required"),
+                                  ({"mode": "auto", "colour": "red"}, 422, "unknown_field")):
         r = client.put(f"/api/v1/paper/accounts/{U1}/config", json=payload, headers=A)
-        assert r.status_code == 422 and r.json()["detail"]["code"] == code
+        assert r.status_code == status and r.json()["detail"]["code"] == code
     r = client.put(f"/api/v1/paper/accounts/{U1}/config", content=b"{not json", headers=A)
     assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid_body"
     r = client.put(f"/api/v1/paper/accounts/{U1}/config",

@@ -257,3 +257,36 @@ from the new stop. An audit record is written. Answer 200: the public trade (wit
 
 `svc.public_trade` adds `level_changes`, `current_target` and `pending_levels` (the latest change not yet in force); the P&L
 positions read `stop_loss` / `target` = the levels in force, `pending_levels` = the waiting change.
+
+## Scanner (SPT) paper positions (5 Nov 2026)
+
+The paper book also holds the Scanner-to-Paper Trading positions (`services/spt/paper`, slice C's `spt_positions`):
+- **Open:** every position not CLOSED.
+- **Closed trades:** the CLOSED ones.
+- **What a scanner row is:** a cash share row in every figure: PAPER, EQUITY, priced by the same live → Kite close → end-of-day resolver.
+- **Its executions:** the position's own applied fills (`fill_ids`), from its entry order and its exit orders. Each fill is valued at its recorded traded value ÷ quantity.
+
+**Row fields** (every paper row now carries them; broker rows carry `source: "broker"`):
+- `source`: `"desk"` or `"scanner"`
+- for a scanner row: `opportunity_id`, `proposal_id`, `order_id` (the entry order, which is the reservation's `trade_id`) and `spt_state`; all four are null on desk rows
+- `editable_levels` is false on scanner rows: their levels change through `/api/v1/paper/positions/{id}/modify`
+- `executions_note` names the execution model
+
+Closed rows carry the same `source` and id fields. `summary.open_positions_by_source` = `{desk, scanner, broker}`.
+
+**Charges:**
+- Open row: the costs its fills recorded (entry and exit so far), plus slice C's estimate for selling the open quantity now. Net then equals C's own realised net plus its unrealised net from the display mark (tested).
+- Closed row: the booked total `entry_costs_rs + exit_costs_rs`. Realised = C's `realized_gross_rs`; net = `realized_net_rs`.
+
+**Reconciliation:**
+- A closed scanner trade's realised P&L is recomputed from its fills and compared with C's `realized_gross_rs`. One paisa of rounding is allowed per closing fill (a T1 + T2 close has two).
+- `risk.capital.blocked_by_source` = `{scanner, desk}`: the funding of the account's reservations whose store is `spt_orders`, and the rest. It is null when the account could not be read. `reconciliation.scanner_reserved_rs` / `scanner_reservations` give the same figures.
+- The paper-account invariants (`services/paper_reconcile`, I1–I3) hold with SPT reserve and release rows (`test_paper_pnl_spt.py` P-07).
+
+**Curve:** scanner positions are in the open book like desk share trades. The session's realised part adds their partial exits that session (`timeseries.partial_realized`).
+
+**Failures are shown, never hidden:**
+- A failed SPT read leaves them out with `scanner_error` and a `SCANNER_BOOK` alert.
+- An open position whose fills cannot be matched gets a `SCANNER_FILLS_MISSING` alert.
+
+**Exits:** scanner exits are simulated in the session by the paper monitor, not at the evening check. The alerts say so, and so does `notes.scanner`.

@@ -169,7 +169,10 @@ class FakeDb:
                      "risk_profiles": FakeCollection(), "risk_profile_audit": FakeCollection(),
                      "trade_journal": FakeCollection(), "live_authorizations": FakeCollection(),
                      # canonical TradePlans (services/strategy_plan/trade_plan.py) a paper trade may cite
-                     "trade_plans": FakeCollection()}
+                     "trade_plans": FakeCollection(),
+                     # Scanner-to-Paper Trading positions and orders, which the P&L dashboard's book also reads
+                     # (services/paper_pnl/book.py); empty unless a test adds some
+                     "spt_positions": FakeCollection(), "spt_orders": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"

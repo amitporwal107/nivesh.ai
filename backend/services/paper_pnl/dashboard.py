@@ -2,6 +2,12 @@
 
 Wording: the owner approved the standard trading words for THIS screen (4 Nov 2026): Stop loss, Target, Long / Short,
 "Near stop loss", "Target reached". Never "recommend", "pick" or "suggested" (25 Oct rule).
+
+SOURCES (5 Nov 2026): every paper row says where it came from — `source` "desk" (the desk's own paper trades), "scanner"
+(a Scanner-to-Paper Trading position, services/spt/paper; with its opportunity_id / proposal_id / order_id / spt_state) or
+"broker" (a live broker position). A scanner row is a cash share row in every figure; its charges are its fills' recorded
+costs plus the estimate for selling what is open (scanner_charges), its levels are read-only here (it is modified through
+/api/v1/paper/positions), and its exits are simulated live by the paper monitor, not at the evening check.
 """
 from __future__ import annotations
 
@@ -17,7 +23,7 @@ from services.kite_live_feed import config as cfg
 
 from . import ledger
 from . import live as live_mod
-from .book import Book, Leg, TradeItem
+from .book import SCANNER, Book, Leg, TradeItem
 from .prices import CLOSE, DELAYED, EOD, LIVE, MISSING, Quote
 
 MODE = "PAPER"
@@ -162,11 +168,25 @@ def _leg_doc(item: TradeItem, leg: Leg) -> Optional[Dict[str, Any]]:
     return next((x for x in item.public.get("legs") or [] if int(x.get("index", -1)) == leg.leg_index), None)
 
 
+def scanner_charges(item: TradeItem, price: float) -> float:
+    """A scanner (SPT) position's charges: what its fills recorded (every entry fill and every exit fill so far, slice C's
+    `entry_costs_rs` + `exit_costs_rs`) plus the estimated charges of selling the open quantity at `price` as one order
+    (slice C's own estimate, services/spt/paper/execution.exit_costs_per_share). Its gross P&L includes any partial exit's
+    realised part, so all of its charges belong against it."""
+    from services.spt.paper import execution as spt_exec
+    pub = item.public
+    qty = int(pub.get("quantity") or 0) if pub.get("status") == "open" else 0
+    est = spt_exec.exit_costs_per_share(float(price), qty, pub.get("cost_model")) * qty if qty > 0 else 0.0
+    return round(float(pub.get("entry_costs_rs") or 0.0) + float(pub.get("exit_costs_rs") or 0.0) + est, 2)
+
+
 def leg_charges(item: TradeItem, leg: Leg, price: Optional[float]) -> Optional[float]:
     """Round-trip charges of one position under the trade's own cost model, the closing side at `price`; None without a price."""
     if price is None:
         return None
     pub = item.public
+    if item.kind == "cash" and item.source == SCANNER:
+        return scanner_charges(item, price)
     if item.kind == "cash":
         fill = pub.get("sim_entry_price") or pub.get("entry_price")
         if not fill:
@@ -262,9 +282,31 @@ def _position_row(item: TradeItem, leg: Leg, pos: ledger.Position, q: Quote, tod
                         "price": e.price, "at": e.at, "kind": e.kind} for e in pos.executions],
         "account_id": PAPER_ACCOUNT_ID, "broker_pnl": None, "broker_read_at": None, "product": None,
         "exposure_rs": round(abs(qty * ltp * pos.multiplier), 2) if ltp is not None else None,
-        "editable_levels": item.kind == "cash" and item.status == "open" and pos.is_open,
-        "pending_levels": _pending_levels(pub) if item.kind == "cash" else None, "executions_note": None,
+        "editable_levels": item.kind == "cash" and item.source != SCANNER and item.status == "open" and pos.is_open,
+        "pending_levels": _pending_levels(pub) if item.kind == "cash" and item.source != SCANNER else None,
+        "executions_note": SCANNER_EXEC_NOTE if item.source == SCANNER else None,
+        **source_fields(item),
     }
+
+
+SCANNER_EXEC_NOTE = ("Scanner paper fills: simulated on live bid/ask with the displayed depth (slice C, spt-exec-v1); "
+                     "each at its traded value ÷ quantity.")
+
+
+def source_fields(item: TradeItem) -> Dict[str, Any]:
+    """Where a paper row came from: the desk, or a scanner (SPT) position with its ids."""
+    pub = item.public
+    if item.source == SCANNER:
+        return {"source": SCANNER, "opportunity_id": pub.get("opportunity_id"), "proposal_id": pub.get("proposal_id"),
+                "order_id": pub.get("order_id"), "spt_state": pub.get("spt_state")}
+    return {"source": "desk", "opportunity_id": None, "proposal_id": None, "order_id": None, "spt_state": None}
+
+
+def _exit_rule_text(item: TradeItem) -> str:
+    if item.source == SCANNER:
+        return ("This scanner paper position's stop and targets are watched live by the paper monitor, which exits at the "
+                "next usable quote; nothing on this screen closes it.")
+    return "The paper exit is decided at the evening check on today's end-of-day bar; nothing has been closed."
 
 
 def _pending_levels(pub: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -331,6 +373,10 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
             q = quotes.get(leg.position_key) or Quote(None, None, MISSING, None, None, None, None)
             rows.append(_position_row(item, leg, pos, q, today))
         if not rows:
+            if item.source == SCANNER and item.public.get("fills_missing"):
+                alerts.append(_alert("WARNING", "SCANNER_FILLS_MISSING",
+                                     f"{item.legs[0].symbol}: the scanner paper position's fills could not be read, so it is "
+                                     "left out of the totals.", position_id=item.trade_id, symbol=item.legs[0].symbol))
             continue
         positions.extend(rows)
         unreal, unknown = _sum([r["unrealized_pnl"] for r in rows])
@@ -351,8 +397,8 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
             sym = r["symbol"]
             if r["status"] == "STOP_LOSS_HIT":
                 alerts.append(_alert("CRITICAL", "STOP_LOSS_HIT",
-                                     f"{sym} is at {_money(r['ltp'])}, at or below its stop loss {_money(r['stop_loss'])}. The paper "
-                                     "exit is decided at the evening check on today's end-of-day bar; nothing has been closed.",
+                                     f"{sym} is at {_money(r['ltp'])}, at or below its stop loss {_money(r['stop_loss'])}. "
+                                     + _exit_rule_text(item),
                                      position_id=r["position_id"], symbol=sym, observed=r["ltp"], threshold=r["stop_loss"]))
             elif r["status"] == "NEAR_STOP_LOSS":
                 alerts.append(_alert("WARNING", "NEAR_STOP_LOSS",
@@ -360,8 +406,9 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
                                      position_id=r["position_id"], symbol=sym, observed=r["ltp"], threshold=r["stop_loss"]))
             elif r["status"] == "TARGET_REACHED":
                 alerts.append(_alert("INFO", "TARGET_REACHED",
-                                     f"{sym} is at {_money(r['ltp'])}, at or above its target {_money(r['target'])}. The paper exit "
-                                     "is decided at the evening check.", position_id=r["position_id"], symbol=sym,
+                                     f"{sym} is at {_money(r['ltp'])}, at or above its target {_money(r['target'])}. "
+                                     + ("The paper exit is decided at the evening check." if item.source != SCANNER
+                                        else _exit_rule_text(item)), position_id=r["position_id"], symbol=sym,
                                      observed=r["ltp"], threshold=r["target"]))
         else:
             und = underlying_ltp.get(str(pub.get("underlying") or "").upper())
@@ -407,7 +454,9 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
             alerts.append(_alert("WARNING", "EXIT_DUE",
                                  f"{rows[0]['instrument'] if item.kind == 'cash' else item.public.get('summary_text')}: the "
                                  f"{str(ex.get('exit_reason') or 'exit').replace('_', ' ')} rule fired on "
-                                 f"{ex.get('exit_session')}; the ledger records the close at its next check.",
+                                 f"{ex.get('exit_session')}; "
+                                 + ("the paper monitor exits it at the next session's first live quote." if item.source == SCANNER
+                                    else "the ledger records the close at its next check."),
                                  position_id=item.trade_id, symbol=rows[0]["symbol"]))
 
     # Closed trades: the period's list, the booked figures, and the reconciliation against the stored ledger.
@@ -421,11 +470,16 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
             continue                                       # never entered (entry not reached / cancelled): no position
         pos_map = ledger.build(item.executions)
         engine = round(sum(p.realized_pnl for p in pos_map.values()), 2)
+        # A scanner position can close over several exit fills (T1, T2, a stop); the engine rounds each closing fill's
+        # realised P&L to the paisa, so it is allowed one paisa of rounding per closing fill against C's exact total.
+        closing = sum(1 for e in item.executions if e.side < 0)
+        tol = RECON_TOLERANCE_RS * max(1, closing) if item.source == SCANNER else RECON_TOLERANCE_RS
         if stored is not None:
             checked += 1
-            if abs(engine - float(stored)) > RECON_TOLERANCE_RS:
+            if abs(engine - float(stored)) > tol + 1e-9:
                 mismatches.append({"trade_id": item.trade_id, "instrument": item.legs[0].instrument if item.kind == "cash" else pub.get("summary_text"),
-                                   "ledger_realized_pnl": stored, "engine_realized_pnl": engine, "difference": round(engine - float(stored), 2)})
+                                   "ledger_realized_pnl": stored, "engine_realized_pnl": engine, "difference": round(engine - float(stored), 2),
+                                   "source": item.source})
         day = pub.get("exit_session") or _ist_day(pub.get("closed_at"))
         if not _in_segment(item, filters) or not _in_period(day, filters):
             continue
@@ -436,7 +490,8 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
                             "instrument": item.legs[0].instrument if item.kind == "cash" else (pub.get("summary_text") or pub.get("underlying")),
                             "segment": trade_segment(item), "opened_at": pub.get("opened_at"), "closed_at": pub.get("closed_at"),
                             "exit_session": day, "exit_reason": pub.get("exit_reason"), "realized_pnl": round(realized, 2),
-                            "charges": charges, "net_pnl": net, "held_sessions": pub.get("held_sessions")})
+                            "charges": charges, "net_pnl": net, "held_sessions": pub.get("held_sessions"),
+                            **source_fields(item)})
         s = seg_row(trade_segment(item))
         s["closed_trades"] += 1
         s["realized_pnl"] = round(s["realized_pnl"] + realized, 2)
@@ -453,6 +508,8 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
     paper_day_total, _ = _sum([p["day_pnl"] for p in paper_positions])
     live_all = [r for r in (live.positions if live is not None else [])
                 if filters.segment == "ALL" or r.get("segment") == filters.segment]
+    for r in live_all:
+        r.setdefault("source", "broker")
     paper_on, live_on = filters.paper_on, filters.live_on
     sel_live = [r for r in live_all if live_on and (filters.account == "ALL" or r.get("account_id") == filters.account)]
     modes = {"PAPER": _mode_block(paper_positions, closed_rows, capital or None, True, None, realized_known=True),
@@ -520,6 +577,15 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
     # Risk: capital (what the paper account blocks is capital at risk, not exchange margin) and the profile's limits.
     cash = float(account.get("cash_rs") or 0.0)
     blocked = float(account.get("blocked_rs") or 0.0)
+    spt_reserved = account.get("spt_reserved_rs")             # the route reads it from the account's reservations
+    blocked_by_source = None
+    if spt_reserved is not None:
+        blocked_by_source = {"scanner": round(float(spt_reserved), 2), "desk": round(blocked - float(spt_reserved), 2),
+                             "basis": "scanner = the funding of the account's reservations for scanner (SPT) orders and "
+                                      "positions (store spt_orders); desk = the rest of what the account blocks"}
+    if book.spt_error:
+        alerts.append(_alert("WARNING", "SCANNER_BOOK", f"Scanner paper positions are not shown: {book.spt_error}. The capital "
+                                                        "they block is still in the blocked figure."))
     util = round(blocked / cash * 100, 2) if cash > 0 else None
     if paper_on and util is not None and util >= capital_warn_pct():
         alerts.append(_alert("WARNING", "CAPITAL", f"{util}% of the paper account's cash is blocked by open positions.",
@@ -579,6 +645,9 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
                    "the current price. Both are modelled; paper trades have no contract note.",
         "unrealized": "Open P&L = (price now − average price) × quantity, per position; a structure is the sum of its legs.",
         "capital": "Return % = net P&L ÷ the paper account's starting capital.",
+        "scanner": "Scanner rows (source \"scanner\") are Scanner-to-Paper Trading positions: filled and exited in the session on "
+                   "live bid/ask by the paper monitor, not at the evening check; charges are their fills' recorded costs; "
+                   "their levels are changed through /api/v1/paper/positions, not here.",
     }
     if live is not None:
         notes["live"] = live_mod.REALIZED_NOTE + " Broker positions are read-only here: Nivesh places no live order."
@@ -592,6 +661,8 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
             "allocated_capital": sel_capital or None, "return_pct": ret, "capital_basis": capital_basis,
             "exposure_rs": exposure_total,
             "open_positions": len({p["trade_id"] for p in positions}), "open_legs": len(positions),
+            "open_positions_by_source": {s: len({p["trade_id"] for p in positions if p.get("source") == s})
+                                         for s in ("desk", SCANNER, "broker")},
             "winning_positions": sum(1 for n in trade_nets if n is not None and n > 0),
             "losing_positions": sum(1 for n in trade_nets if n is not None and n < 0),
             "closed_trades": len(closed_sel), "pending_entries": len(pending),
@@ -602,7 +673,8 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
         "closed": closed_sel[:CLOSED_LISTED], "closed_total": len(closed_sel), "closed_partial": book.partial,
         "risk": {
             "capital": {"starting": capital or None, "cash": cash, "blocked": round(blocked, 2), "available": round(cash - blocked, 2),
-                        "utilisation_pct": util, "basis": "Capital at risk blocked by open positions, not exchange margin."},
+                        "utilisation_pct": util, "basis": "Capital at risk blocked by open positions, not exchange margin.",
+                        "blocked_by_source": blocked_by_source},
             "open_risk_rs": round(sum(open_risk), 2) if paper_on else None, "open_risk_limit_rs": open_risk_limit,
             "strategies_capital_at_risk_rs": (_sum(strat_risk)[0] if strat_risk else 0.0) if paper_on else None,
             "daily_loss_limit_rs": daily_limit, "daily_loss_used_pct": daily_used,
@@ -618,8 +690,12 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
             "daily": [{"date": d, "net_pnl": v} for d, v in sorted(daily.items())],
         },
         "reconciliation": {"checked": checked, "mismatches": mismatches,
-                           "basis": "Each closed trade's realized P&L recomputed from its fills, compared with the ledger's booked figure."},
-        "marks_error": book.marks_error,
+                           "basis": "Each closed trade's realized P&L recomputed from its fills, compared with the ledger's booked "
+                                    "figure (a scanner position: its fills against slice C's realized_gross_rs, one paisa of "
+                                    "rounding allowed per closing fill).",
+                           "scanner_reserved_rs": round(float(spt_reserved), 2) if spt_reserved is not None else None,
+                           "scanner_reservations": account.get("spt_reservations")},
+        "marks_error": book.marks_error, "scanner_error": book.spt_error,
         "notes": notes,
     }
 

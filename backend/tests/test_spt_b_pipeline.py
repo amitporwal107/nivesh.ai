@@ -90,12 +90,16 @@ def test_spt_b_19_open_risk_at_the_cap_blocks_before_any_reservation(world):
 
 
 def test_spt_b_19b_the_risk_service_vetoes_what_spt_passed(world):
-    """An admin-set profile minimum reward:risk of 5 (MOCK): SPT's own checks pass (R:R 3.5 ≥ 2), the service refuses."""
+    """An admin-set profile minimum reward:risk of 5 (MOCK). SPT's own minimum would follow it (owner 5 Nov: the
+    defaults come from the profile), so an admin override lowers SPT's to 2: SPT's checks pass (R:R 3.5 ≥ 2), and the
+    universal risk service, which applies the profile's 5 after costs, refuses — an SPT override never loosens it."""
     setup(world)
     from services import risk_profile as rp
     limits = dict(rp.NAMED[rp.OWNER_DEFAULT], min_reward_risk=5.0)
     run(world.db["risk_profiles"].insert_one({"_id": "mock-profile", "user_id": U1, "profile": "custom", "limits": limits,
                                               "version": 1, "starting_capital_rs": 1e6}))
+    assert run(policy.read(world.db, U1))["extras"]["min_rr"]["positional"] == 5.0        # the profile flows through
+    run(world.set_mode(U1, "auto", min_rr={"positional": 2.0}))                          # MOCK admin override
     run(pipeline.run_round(world.db, NOW))
     p = only(world)
     assert p["state"] == C.PROP_REJECTED and p["risk"]["decision"] == C.RISK_REJECT
@@ -145,9 +149,9 @@ def test_spt_b_21b_kill_switch_state_mapping(world):
     assert run(risk.kill_switch_state(world.db, U1, now=NOW))["state"] == "DISABLED"
     run(world.set_mode(U1, "approval"))
     assert run(risk.kill_switch_state(world.db, U1, now=NOW))["state"] == "ACTIVE"
-    peak(world, 4.5)
+    peak(world, 7.5)                                   # ladder from the owner-default profile: 3.33 / 6.67 / 10
     assert run(risk.kill_switch_state(world.db, U1, now=NOW))["state"] == "RESTRICTED"
-    peak(world, 6.5)
+    peak(world, 10.5)
     ks = run(risk.kill_switch_state(world.db, U1, now=NOW))
     assert ks["state"] == "TRIGGERED" and "RESET_PENDING" in ks["states"] and "not produced" in ks["reset_pending_note"]
 
@@ -155,7 +159,7 @@ def test_spt_b_21b_kill_switch_state_mapping(world):
 # ── SPT-B-22 the drawdown ladder ─────────────────────────────────────────────
 def test_spt_b_22_reduce_band_halves_the_risk_percentage(world):
     setup(world)
-    peak(world, 2.5)
+    peak(world, 4.0)                                   # the reduce band 3.33–6.67 (owner-default profile)
     run(pipeline.run_round(world.db, NOW))
     p = only(world)
     assert p["state"] == C.PROP_ORDER_CREATED
@@ -164,8 +168,8 @@ def test_spt_b_22_reduce_band_halves_the_risk_percentage(world):
     assert p["sizing"]["steps"][0]["after"] == desk.max_units_within_budget(2500.0, 502.0, 480.0) < full
 
 
-@pytest.mark.parametrize("dd, decision, code", [(4.5, C.RISK_BLOCKED, "drawdown_restricted"),
-                                                (6.5, C.RISK_HALT, "drawdown_halt_ladder")])
+@pytest.mark.parametrize("dd, decision, code", [(7.5, C.RISK_BLOCKED, "drawdown_restricted"),
+                                                (10.5, C.RISK_HALT, "drawdown_halt_ladder")])
 def test_spt_b_22b_restricted_and_halt_bands_refuse_new_entries(world, dd, decision, code):
     setup(world)
     peak(world, dd)
@@ -374,7 +378,7 @@ def test_spt_b_27b_kill_switch_blocks_increases_but_never_reductions_or_exits(wo
     for change in ({"stop_loss": 490.0}, {"add_quantity": -50}, {"target_2": 600.0}):
         out = run(risk.check_modification(world.db, user_id=U1, position=POS, change=change, now=NOW))
         assert out["decision"] == C.RISK_APPROVE and out["risk_increasing"] is False, change
-    peak(world, 6.5)
+    peak(world, 10.5)
     assert run(risk.check_modification(world.db, user_id=U1, position=POS, change={"stop_loss": 495.0},
                                        now=NOW))["decision"] == C.RISK_APPROVE
 

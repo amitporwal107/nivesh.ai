@@ -13,11 +13,14 @@ already in place, some needs changes and some requires addition of new changes."
 
 ## 1. Decisions taken for the build
 
-These are reversible and listed in the morning review for the owner to confirm.
+These are reversible and listed in the morning review for the owner to confirm. **Owner, 5 Nov ~06:50 IST:** "1.
+MongoDB correct … 2. Risk Limits make in configurable. The default is as per user risk profile we have already designed
+for it. And for each user make it configurable so admin can change it. … 4. Agree and make it configurable". D1 is
+confirmed; D11 and D12 record items 2 and 4.
 
 | # | Decision | Why |
 |---|---|---|
-| D1 | **MongoDB, not PostgreSQL** (PRD §16 deviation). New collections are prefixed `spt_`. | The paper ledger, risk decisions, reservations and the risk book are all in Mongo with atomic conditional updates and idempotency keys. A second system of record would split one paper account across two databases. Every store goes through a `store.py` module, so moving later touches one file per slice. |
+| D1 | **MongoDB, not PostgreSQL** (PRD §16 deviation). **Confirmed by the owner, 5 Nov ~06:50 IST.** New collections are prefixed `spt_`. | The paper ledger, risk decisions, reservations and the risk book are all in Mongo with atomic conditional updates and idempotency keys. A second system of record would split one paper account across two databases. Every store goes through a `store.py` module, so moving later touches one file per slice. |
 | D2 | **Extend, don't duplicate.** | Risk decisions go through `services/risk_gate/service.enter` with a new path `spt_entry`. Budget goes through `services/paper_account` (reserve_entry / release / cancel_reservation). The kill switch is `services/risk_controls`. Limits come from `services/risk_profile` (the owner's limits). SPT adds only what is missing. |
 | D3 | **One paper account per user** (the existing one, ₹10 lakh default) plus an SPT config doc per user. | Named multiple accounts (PRD §16.1) are a later change; `account_id` = `user_id` in the API for now. |
 | D4 | **Account mode:** `off` (default) / `tracking` / `approval` / `auto`. | PRD §26 says "user approval initially". A user opts in with `PUT /api/v1/paper/accounts/{id}/config`. Nothing is booked for anyone who has not opted in. |
@@ -27,6 +30,29 @@ These are reversible and listed in the morning review for the owner to confirm.
 | D8 | **New routes under `/api/v1/...`** (PRD §17). | The existing `/api/desk/...` routes are untouched. Streams use SSE like `/api/desk/pnl/stream`; there are no WebSockets tonight. |
 | D9 | **No UI tonight.** | The owner is designing the trading screens himself (Paper Lab hold, 27 Oct). APIs are built to PRD §19's data needs. |
 | D10 | **Standard words** (entry, stop loss, target) are allowed in these APIs. | They describe the user's own paper account, like the P&L dashboard (owner 3–4 Nov). Never "recommend", "pick" or "suggested". |
+| D11 | **SPT limits default to the user's risk profile and are configurable per user** (owner, 5 Nov ~06:50 IST, item 2). See the details below the table. | The profile is the limit design the owner already approved. SPT now follows it instead of copying the PRD §26 numbers, and the universal risk service enforces the profile whatever SPT says. |
+| D12 | **The SPT-only defaults are owner-approved and configurable** (owner, 5 Nov, item 4). See the details below the table. | Tuning values that need no deploy to change. |
+
+**D11 in detail** (`services/spt/policy.py`):
+- **Derived from the profile:**
+  - drawdown ladder: halt at the profile's `max_drawdown_pct`, restricted at ⅔ of it, reduce at ⅓ of it
+  - min R:R = the profile's `min_reward_risk`
+  - positional risk = the profile's `per_trade_risk_pct`; intraday and F&O risk = 0.7 × that
+  - for the owner-default profile this gives a ladder of 3.33 / 6.67 / 10, min R:R 1.5 and risk 0.5 / 0.35 / 0.35
+- **Storage:** `spt_account_config` stores only a user's overrides. The effective values are re-derived from the profile on every read, so a later profile change flows through. Setting an override to null resets it.
+- **Who may change what:**
+  - The account holder may change the mode and tighten any value. Loosening needs an admin (403 `admin_required`), and a reason.
+  - "Looser" is defined per field in the policy module docstring.
+  - Admins use `GET`/`PUT /api/admin/spt/{user_id}/config`.
+
+**D12 in detail:**
+- **Per user** (defaults, overridable): max chase 1%, liquidity floor ₹1 crore, 5% ADV participation, a 30-minute approval window, 5 new entries per day.
+- **Market-wide** (`services/spt/settings.py`, admin `GET`/`PUT /api/admin/spt/settings`, versioned):
+  - the QUALIFIED liquidity floor
+  - the positional window in sessions
+  - validations per round
+  - the quote age budget
+- **Precedence** for market-wide values: the stored value, then the env variable, then the default. The A, B and C loops refresh them on every round.
 
 ## 2. Layout and ownership
 

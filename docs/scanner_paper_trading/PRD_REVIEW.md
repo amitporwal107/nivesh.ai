@@ -55,7 +55,7 @@ All of this is being built overnight in three slices (`DESIGN.md`).
 
 1. **Storage: Mongo vs PostgreSQL** (PRD §16). The build uses Mongo, because the ledger, reservations and risk decisions it
    must update together already live there and staging Mongo has no multi-document transactions. Moving to Postgres
-   later touches one store module per slice. *Confirm, or ask for Postgres.*
+   later touches one store module per slice. **Owner, 5 Nov ~06:50 IST: "MongoDB correct". Confirmed (DESIGN D1).**
 2. **Signal history is being lost every day until slice A is deployed.** Redis keeps 3 days; 3 Nov is gone, and 4 Nov is
    archived to `/home/deploy/nivesh-signal-archive/` (expires from Redis ~7 Nov 09:00).
 3. **The morning Kite login drives everything real-time.** Live fills, depth, live exits and the margin calculator all
@@ -93,8 +93,15 @@ All of this is being built overnight in three slices (`DESIGN.md`).
     | drawdown halt | 6% | 10% |
     | min R:R | 2 | 1.5 |
 
-    The build keeps the `risk_profile` as the authority and adds the PRD's ladder and min R:R as SPT extras, so SPT halts
-    new entries at 6% before the profile's 10%. *Confirm.*
+    **Decided by the owner, 5 Nov ~06:50 IST:** "Risk Limits make in configurable. The default is as per user risk profile
+    we have already designed for it. And for each user make it configurable so admin can change it."
+    - **Built (DESIGN D11):** SPT's overlapping defaults now derive from each user's risk profile:
+      - the ladder halts at the profile's drawdown halt, restricts at ⅔ of it and reduces at ⅓ of it — 3.33 / 6.67 / 10 for the owner default (the PRD's 2 / 4 / 6 proportions)
+      - min R:R = the profile's 1.5
+      - risk = 0.5 / 0.35 / 0.35
+    - **Overrides:** they are stored per user. The account holder may tighten, and only an admin may loosen.
+    - **Admin routes:** `GET`/`PUT /api/admin/spt/{user_id}/config`.
+    - **The SPT-only defaults** (max chase 1%, liquidity floor ₹1 crore, 5% ADV participation, 30-minute approval window, 5 new entries a day) are owner-approved and configurable: "Agree and make it configurable" (DESIGN D12).
 11. **Approval vs auto.** PRD §26 says approval initially, so every user starts in mode `off` and opts in. Auto mode books
     paper trades unattended; this PRD now allows that (Mode B), unlike the 27 Oct DCARE PRD §16.
 12. **Four paper paths will coexist:** the manual desk, the AI trader, Market Recovery, and SPT. *Plan to converge them*:

@@ -14,7 +14,7 @@ made up; no staging data in any fixture). Status column is filled in at the end 
 | DB-4 | **min R:R (config `min_rr.positional`, PRD §26 1:2) is measured to TARGET 2 at the actual entry**, on prices (no costs). R:R to T1 is reported too. | scan-plan-v3 puts T1 at exactly 2R from the PLAN entry, so a 2.0 minimum to T1 would refuse every entry even 1 paisa above the plan entry, making `max_chase_pct` meaningless. T2 is also the target the risk service measures (`target_price` = T2, which then applies the profile's 1.5 after costs). |
 | DB-5 | **Drawdown ladder bands:** below `reduce_at` normal; `reduce_at`–`restrict_at` the SPT risk % × `reduce_factor`; `restrict_at`–`halt_at` RESTRICTED = new entries BLOCKED; ≥ `halt_at` HALT_ACCOUNT. Exits and risk-reducing changes are never refused. | PRD §9.7 names the bands but not what "restricted" allows; refusing new risk while not halting the account is the conservative reading. |
 | DB-6 | **Kill-switch state `RESET_PENDING` is not produced.** | `risk_controls` has no reset-request record: clearing is one admin action. The mapping (in `risk.kill_switch_state`) says so instead of inventing a state. |
-| DB-7 | **New policy defaults not in the PRD** (owner to confirm): `max_chase_pct` 1.0 %, `min_adv_rs` ₹1 crore, `max_adv_participation_pct` 5 % (= the governor's gov-v1 `max_adv_pct`), `approval_expiry_minutes` 30, `max_positions` ≤ 10 (the risk service's own cap), `max_new_per_day` 5. | The PRD gives none of these; each is a named, versioned config value a user can tighten. |
+| DB-7 | **New policy defaults not in the PRD** — **owner-approved and made configurable, 5 Nov ~06:50 IST (DESIGN D12; see SPT-CFG below)**; originally listed for the owner to confirm: `max_chase_pct` 1.0 %, `min_adv_rs` ₹1 crore, `max_adv_participation_pct` 5 % (= the governor's gov-v1 `max_adv_pct`), `approval_expiry_minutes` 30, `max_positions` ≤ 10 (the risk service's own cap), `max_new_per_day` 5. | The PRD gives none of these; each is a named, versioned config value a user can tighten. |
 | DB-8 | **B's equity = risk_book equity + the P&L of SPT positions not yet in paper cash** (`allocation.spt_pnl`, reading slice C's `spt_positions`: `realized_net_rs` + `mark.unrealized_net_rs`). B's drawdown ladder and day / week loss use it. A position held from BEFORE the period counts only its loss since entry (a gain is never used to offset a loss), because no start-of-period mark is stored for SPT positions. An open position with no mark (more than 300 s after its fill) or a stale mark makes equity unknown → entries blocked. | risk_book reads desk trades and the journal only (integrator note 5, 5 Nov). `risk_book.py` is not edited, so **the universal risk service still measures its limits on desk-only equity**; B's checks on the adjusted figures can only add refusals. The 300 s grace stops slice C cancelling the rest of a partly filled entry before its first mark. |
 | DB-9 | **A REJECTED order from slice C ends the proposal ORDER_CREATED** with `order_rejected: true` and `order.state` REJECTED. B does not release the reservation again (C already gave it back). | The state machine has no other exit from READY_FOR_ORDER, and one order per (user, opportunity) is the rule (PRD §18 rule 6). C's idempotency key would return the same rejected order to any retry anyway. |
 | DB-10 | **`PipelineError` is an `HTTPException`** (detail `{code, message, ...}`). | Slice C's `POST /api/v1/paper/orders` (ENTRY) calls `place_entry_order` and does not catch its errors, so a refusal must still be a 4xx, not a 500. |
@@ -107,3 +107,22 @@ the package attribute once B's real module has been imported. Fix (C's tests): a
 **Not verified:**
 - No staging run: no writes to staging were allowed, and the integrator owns the staging step.
 - The real-Mongo reservation suite (`tests/test_risk_reservation_mongo.py`, 5 tests) is skipped: it needs `RISK_MONGO_URL`.
+
+## Owner decisions of 5 Nov 2026 ~06:50 IST: SPT config (SPT-CFG)
+
+Built in the integration worktree, `feat/spt-integration`. Tests are in `backend/tests/test_spt_config.py`; the B suites were updated
+for the new defaults. Owner: "Risk Limits make in configurable. The default is as per user risk profile … for each user
+make it configurable so admin can change it" · "Agree and make it configurable".
+
+| Id | Case | Expected |
+|---|---|---|
+| SPT-CFG-01 | Defaults derived from the owner-default profile | ladder 3.33 / 6.67 / 10 (reduce factor 0.5), min R:R 1.5, risk 0.5 / 0.35 / 0.35; the rest are owner-approved SPT defaults; `defaults_source` names each one |
+| SPT-CFG-02 | A profile change flows through | profile 0.3 / 9 / 2.0 → risk 0.3 / 0.21 / 0.21, ladder 3 / 6 / 9, min R:R 2.0; overrides kept; only `overrides` stored |
+| SPT-CFG-03 | Overrides persist; null resets | an override is kept across reads; null removes it (back to the default); nothing to remove → `no_change` |
+| SPT-CFG-04 | The holder tightens | 11 tightening / neutral changes accepted, no `loosened` |
+| SPT-CFG-05 | Loosening needs an admin | 8 loosening changes → 403 `admin_required` with the `loosened` paths; an admin without a reason → 422; an admin with a reason → applied, version row `actor_is_admin`, `loosened`, `reason` |
+| SPT-CFG-06 | Removing an override is judged by its fallback | removing max_positions 6 → default 10 is a loosening (403); an admin may |
+| SPT-CFG-07 | An admin risk % above the profile | accepted with a warning; capped at the profile where it is used |
+| SPT-CFG-08 | Routes | admin routes 401 without a session, 403 for a non-admin; user tightens / 403 on a loosening / admin loosens with a reason / an admin on their own account may loosen; the admin GET shows effective, overrides, defaults, profile, versions |
+| SPT-CFG-09 | Market-wide settings | validation codes; stored > env > default; null resets to env; version rows; 409 on a stale version; the overlay feeds A (floor, window, per-round), B and C (quote age); the routes |
+| SPT-CFG-10 | A qualifies against the settings floor | the same MOCK stock (≈ ₹10 crore a day) qualifies under ₹1 crore and is REJECTED `liquidity_too_low` under a ₹50 crore settings floor |

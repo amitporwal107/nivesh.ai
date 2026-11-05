@@ -131,7 +131,7 @@ def test_spt_b_41_kill_switch_state_carries_the_keys_slice_c_reads(world):
 def test_spt_b_41b_the_ladder_and_period_losses_block_entries(world):
     run(world.set_mode(U1, "auto"))
     run(acct.ensure(world.db, U1))
-    for dd, state in ((4.5, "RESTRICTED"), (6.5, "TRIGGERED"), (2.5, "ACTIVE")):
+    for dd, state in ((7.5, "RESTRICTED"), (10.5, "TRIGGERED"), (4.0, "ACTIVE")):       # ladder 3.33 / 6.67 / 10
         world.account(U1)["equity_peak_rs"] = round(1_000_000.0 / (1 - dd / 100.0), 2)
         ks = run(risk.kill_switch_state(world.db, U1, now=NOW))
         assert ks["state"] == state and ks["entries_blocked"] is (state != "ACTIVE"), dd
@@ -153,7 +153,7 @@ def test_spt_b_42_an_open_spt_loss_today_counts_in_equity_and_the_daily_loss(wor
     s = run(allocation.account_state(world.db, U1, now=NOW))
     assert s["book_equity_rs"] == 1_000_000.0 and s["equity_rs"] == 970_000.0
     assert s["day_pnl_rs"] == -30_000.0 and s["day_start_equity_rs"] == 1_000_000.0
-    assert s["drawdown_pct"] == 3.0 and s["ladder"]["band"] == "reduce"
+    assert s["drawdown_pct"] == 3.0 and s["ladder"]["band"] == "normal"                 # reduce starts at 3.33
     ks = run(risk.kill_switch_state(world.db, U1, now=NOW, state=s))
     assert ks["state"] == "RESTRICTED" and ks["entries_blocked"] and "daily_loss_halt" in [r["code"] for r in ks["reasons"]]
 

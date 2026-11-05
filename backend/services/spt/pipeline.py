@@ -44,7 +44,7 @@ from services import desk_trading as desk
 from services.risk_gate import inputs
 from services.risk_gate import service
 
-from . import allocation, constants as C, events, policy, proposals, risk, sizing
+from . import allocation, constants as C, events, policy, proposals, risk, settings, sizing
 
 logger = logging.getLogger(__name__)
 
@@ -440,14 +440,15 @@ async def loop_once(now: datetime, *, db=None, store: Any = None, me: str = _ME)
     """One round when in the session and holding the leader lock. True if it ran."""
     if not in_session(now):
         return False
+    if db is None:
+        from deps import db as app_db
+        db = app_db
+    await settings.refresh(db)                             # every worker, before the leader check (settings.py)
     if store is None:
         from services.scan_builder import signals as sb
         store = sb.get_store()
     if not await store.lead(LEADER_KEY, me, LEADER_TTL_S, time.time()):
         return False
-    if db is None:
-        from deps import db as app_db
-        db = app_db
     await run_round(db, now)
     return True
 
@@ -572,6 +573,7 @@ async def approve(db, *, user_id: str, opportunity_id: str, now: datetime) -> Di
     ALWAYS re-runs sizing, allocation and the risk service with a reservation (`_revalidate`; WF §11.2; TESTCASES
     DB-1), then creates the paper order through `place`. A failed re-validation expires the proposal (APPROVAL_EXPIRED)
     and raises PipelineError 409; no approval can override a hard limit (WF §10.4)."""
+    await settings.refresh(db)
     prop = await proposals.for_opportunity(db, user_id, opportunity_id)
     if prop is None:
         raise PipelineError("proposal_not_found", "You have no proposal for this opportunity.", status=404)
@@ -628,6 +630,7 @@ async def place_entry_order(db, *, user_id: str, proposal_id: str, actor_id: str
     Raises PipelineError (an HTTPException): 404 proposal_not_found, 409 invalid_state / entry_no_longer_valid /
     risk_refused / spt_mode_not_trading (approval_expired via approve), 503 order_not_created."""
     moment = now or desk.utcnow()
+    await settings.refresh(db)
     prop = await proposals.get(db, proposal_id, user_id=user_id)
     if prop is None:
         raise PipelineError("proposal_not_found", "You have no such proposal.", status=404)
@@ -696,6 +699,7 @@ async def reject(db, *, user_id: str, opportunity_id: str, reason: Any, now: dat
 # ── reads for the routes (no writes, except risk_book raising the equity peak as it always does) ──
 async def recommendations(db, user_id: str, now: datetime) -> Dict[str, Any]:
     """The QUALIFIED opportunities ranked for this account with the size and risk they would get now. Writes nothing."""
+    await settings.refresh(db)
     config = await policy.read(db, user_id)
     qualified = await opportunity_store().list_by_state(db, [C.OPP_QUALIFIED])
     symbols = sorted({str(o.get("symbol") or "").upper() for o in qualified if o.get("symbol")})
@@ -771,6 +775,7 @@ async def validate_trade(db, user_id: str, body: Dict[str, Any], now: datetime) 
     """POST /risk/validate-trade: sizing, allocation and the risk checks as a DRY RUN — nothing recorded, nothing
     reserved, no proposal. `body`: {opportunity_id} (its plan at the live price), or {symbol, entry, stop_loss,
     target, quantity?} (a manual long cash entry, judged at the live price's freshness)."""
+    await settings.refresh(db)
     config = await policy.read(db, user_id)
     opp = None
     if body.get("opportunity_id"):
