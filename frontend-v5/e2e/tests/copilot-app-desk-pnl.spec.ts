@@ -1,11 +1,24 @@
 /**
- * One-screen Copilot app (/v5/app) — Trade Desk › Paper Trading › P&L dashboard, v2: the owner's "Real-Time PnL Dashboard"
- * design of 4 Nov 2026 afternoon (docs/paper_pnl_dashboard/DESIGN.md "v2"; test cases V2-19 … V2-26 in
- * test_reports/paper_pnl_dashboard_v2_TESTCASES.md, and the v1 cases TC-032 … TC-039 that still apply).
+ * One-screen Copilot app (/v5/app) — Trade Desk › Paper Trading › 05 Real-time P&L (Paper Trading v2, the owner's design of
+ * 5 Nov 2026, docs/scanner_paper_trading/UI_DESIGN_V2.md §2.05 and §5). Reworked from the P&L dashboard v2 spec: the
+ * dashboard was replaced, so every behaviour it guarded that still exists is tested here on the new view (paper/Pnl.tsx);
+ * the detail of a row (pnl-detail.tsx) is the same component, so its cases are unchanged.
  *
- * Every /api/* answer below is an inline MOCK — not real data — in the shape DESIGN.md gives for GET /api/desk/pnl (v2: mode,
+ * Kept (re-pointed): the sub-view and its URL (the old Live desk URL lands here), the read-only snapshot route (no
+ * paper-trades read), Paper / Live reaching the route and the curve, the row detail (breakdown, fills, chart levels, journal at
+ * entry, the trade curve), Modify risk, Simulate exit (desk close; the whole structure; the scanner route), Live read-only,
+ * stream → polling with stale answers dropped and the stream path, a missing price never 0, a failing route and a contract
+ * error, Live unavailable, the closed trades' period, the waiting entries, the route's notes, 390 px without a sideways scroll.
+ * Dropped with the old layout (the design has none of them): the header's title / feed pill / account pills / IST clock and
+ * Pause-Resume (V2-24), the account and segment selects and the search (V2-20 part), the hero's label and gross line, the
+ * Paper and Live mode cards, the 11-column table's Status / Risk-used columns and the sort chips, the risk monitor, the
+ * supervisor and the footer (V2-19 part), CSV export (TC-036), the by-segment strip and the analytics block (TC-034 part;
+ * analytics is 06 Strategy analytics now), and "no buy / sell anywhere" (the design's F&O cards label their legs BUY / SELL).
+ *
+ * Every /api/* answer below is an inline MOCK — not real data — in the shape DESIGN.md gives for GET /api/desk/pnl (mode,
  * account, accounts, modes, LIVE rows), its stream, /timeseries (with mode and trade), /journal/{id}, the levels PATCH and the
- * paper close. Symbols, prices and P&L are made up. Mocked APIs, production build.
+ * paper close, plus GET /api/v1/paper/fno-structures (UI_DESIGN_V2 §7). Symbols, prices and P&L are made up. Mocked APIs,
+ * production build.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
@@ -77,6 +90,14 @@ const STRATEGY = {
   strategy_id: "st-1", name: "Bull call spread", summary: "Bull call spread 25000/25200 · 25 Nov · 1 lot", opened_at: "2026-11-02T04:00:00+00:00", risk_note: null, underlying: "NIFTY", direction: "bullish", status: "OPEN", legs: ["st-1:0", "st-1:1"],
   underlying_ltp: 25890, stop_underlying: 25400, target_underlying: 26300, entry_net_premium: -6375, current_value: 7650, unrealized_pnl: 1275,
   charges_estimated: 100, net_pnl: 1175, capital_at_risk: 6375, complete: true,
+};
+// MOCK — not real data: GET /api/v1/paper/fno-structures (UI_DESIGN_V2 §7), the one structure above
+const FNO = {
+  structures: [{ id: "st-1", name: "Bull call spread", underlying: "NIFTY", underlying_ltp: 25890, expiry: "2026-11-25", days_to_expiry: 21, lots: 1, lot_size: 75, status: "filled", hedged: true,
+    max_loss_rs: 6375, max_profit_rs: 8625, profit_unbounded: false, breakevens: [25085], net: { delta: 21.4, gamma: 0.0012, theta_rs_day: -310.5, vega_rs_pt: 420 }, margin_rs: 6375, pnl_rs: 1275,
+    legs: [{ side: "BUY", contract: "NIFTY 25 Nov 25000 CE", entry: 180, ltp: 222, filled_qty: 75, qty: 75, pnl_rs: 3150, pending: false },
+      { side: "SELL", contract: "NIFTY 25 Nov 25200 CE", entry: 95, ltp: 120, filled_qty: 75, qty: 75, pnl_rs: -1875, pending: false }], scenarios: [], notes: [] }],
+  totals: { margin_rs: 6375, max_loss_rs: 6375, net: { delta: 21.4, gamma: 0.0012, theta_rs_day: -310.5, vega_rs_pt: 420 } }, limits: {}, basis: "MOCK", notes: [],
 };
 const CLOSED = { trade_id: "pt-axis", instrument: "AXISBANK", segment: "EQUITY", closed_at: "2026-11-03T15:30:00+00:00", exit_session: "2026-11-03",
   exit_reason: "stop", realized_pnl: -3200, charges: 160.1, net_pnl: -3360.1 };
@@ -259,6 +280,7 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
     return json(r, { detail: "journal_not_available" }, 404);
   });
   await page.route("**/api/desk/live-chart/*", (r) => json(r, LIVE_CHART(decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string))));
+  await page.route(/\/api\/v1\/paper\/fno-structures(\?|$)/, (r) => json(r, FNO));
   return seen;
 }
 
@@ -293,164 +315,106 @@ async function shot(page: Page, name: string) {
   });
   await page.setViewportSize({ width: vp.width, height: Math.min(h + 200, 14_000) });
   await page.waitForTimeout(400);
-  await page.getByTestId("pnl-dashboard").screenshot({ path: path.join(SHOTS, name) });
+  await page.getByTestId("pv2-pnl").screenshot({ path: path.join(SHOTS, name) });
   await page.setViewportSize(vp);
 }
 
-test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () => {
-  test("TC-032 Paper Trading's third sub-view opens the dashboard with sub=pnl, without the paper-trades read", async ({ page }) => {
+const toLive = async (page: Page) => {
+  await page.getByTestId("pv2-pnl-mode-live").click();
+  await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-mode", "LIVE", SLOW);
+};
+/** A structure's detail opens from its F&O card ("Details · Simulate exit"): legs are not table rows in the new view. */
+const openStructure = async (page: Page, id: string) => {
+  await page.locator(`[data-testid="pv2-fno-card"][data-id="${id}"]`).getByTestId("pv2-fno-details").click(SLOW);
+};
+
+test.describe("MOCK — not real data: Paper Trading › 05 Real-time P&L (reworked from the P&L dashboard v2 spec)", () => {
+  test("TC-032 the 05 chip opens Real-time P&L with sub=pnl; the old Live desk URL lands there; no paper-trades read", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    // Scanner-to-Paper Trading added Opportunities · Analytics · Settings after the P&L dashboard (owner, 5 Nov 2026; desk-nav.ts).
-    await expect(page.getByTestId("desk-subviews").getByRole("button")).toHaveText(["Live desk", "Trade journal", "P&L dashboard", "Opportunities", "Analytics", "Settings"], SLOW);
+    await expect.poll(() => params(page).get("sub"), SLOW).toBe("pnl");
+    await expect(page.getByTestId("pv2-pnl")).toBeVisible(SLOW);
+    await page.getByTestId("desk-sub-overview").click();
+    await expect.poll(() => params(page).get("sub")).toBe("overview");
     await page.getByTestId("desk-sub-pnl").click();
     await expect.poll(() => params(page).get("sub")).toBe("pnl");
-    await expect(page.getByTestId("desk-trail")).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›P&L dashboard$/);
-    await expect(page.getByTestId("pnl-dashboard")).toBeVisible(SLOW);
-    await expect(page.getByTestId("td-header")).toHaveCount(0);
+    await expect(page.getByTestId("desk-trail")).toContainText("Real-time P&L");
+    await expect(page.getByTestId("pv2-pnl")).toBeVisible(SLOW);
     const before = seen.listGets;
     await page.goto(PNL);
-    await expect(page.getByTestId("pnl-hero")).toBeVisible(SLOW);
+    await expect(page.getByTestId("pv2-pnl-total")).toHaveText("−₹254.73", SLOW);
     await page.waitForTimeout(1_000);
     expect(seen.listGets).toBe(before);
   });
 
-  test("V2-19 the page in the design's order: header, filters, hero + KPIs, mode cards, chart, positions, risk + supervisor, footer, folded extras", async ({ page }) => {
+  test("V2-19 the view in the design's order with the snapshot's figures; the table's columns line up; no sideways scroll", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
-    await expect(page.getByTestId("pnl-hero")).toBeVisible(SLOW);
-    const ids = ["pnl-header", "pnl-filters", "pnl-hero", "pnl-mode-cards", "pnl-chart", "pnl-positions", "pnl-risk", "pnl-footer", "pnl-more"];
+    await expect(page.getByTestId("pv2-pnl-total")).toHaveText("−₹254.73", SLOW);
+    await expect(page.getByTestId("pv2-pnl-return")).toContainText("of equity");
+    expect(seen.pnlQueries[0].get("mode")).toBe("PAPER");
+    const ids = ["pv2-pnl-head", "pv2-pnl-kpis", "pv2-pnl-curve", "pnl-positions", "pv2-pnl-fno", "pnl-closed"];
+    await expect(page.getByTestId("pv2-fno-card")).toHaveCount(1, SLOW);
     const tops = await page.evaluate((list) => list.map((id) => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).getBoundingClientRect().top), ids);
     for (let i = 1; i < tops.length; i++) expect(tops[i], `${ids[i]} after ${ids[i - 1]}`).toBeGreaterThan(tops[i - 1]);
-    // The risk monitor and the supervisor side by side on a desktop.
-    const [rTop, sTop] = await page.evaluate(() => ["pnl-risk", "pnl-supervisor"].map((id) => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).getBoundingClientRect().top));
-    expect(Math.abs(rTop - sTop)).toBeLessThan(2);
-    // Header: title, feed, one pill per account with its state, the IST clock, Pause.
-    await expect(page.getByTestId("pnl-title")).toHaveText("Trading Desk");
-    await expect(page.getByTestId("pnl-subtitle")).toHaveText("Overview · Real-time P&L");
-    await expect(page.getByTestId("pnl-feed")).toHaveAttribute("data-feed", "live");
-    await expect(page.getByTestId("pnl-account-pill")).toHaveCount(3);
-    await expect(page.locator('[data-testid="pnl-account-pill"][data-id="ic-1"]')).toHaveAttribute("data-state", "SIGN_IN");
-    await expect(page.locator('[data-testid="pnl-account-pill"][data-id="ic-1"]')).toContainText("SIGN IN");
-    await expect(page.locator('[data-testid="pnl-account-pill"][data-id="zr-1"]')).toContainText("OK");
-    await expect(page.getByTestId("pnl-clock")).toHaveText(/^\d{2}:\d{2}:\d{2} IST$/);
-    await expect(page.getByTestId("pnl-pause")).toHaveText("Pause");
-    // Hero: consolidated (paper + live) net after charges, gross − charges, the selection's notes.
-    await expect(page.getByTestId("pnl-hero-label")).toHaveText("Consolidated net P&L · after estimated charges");
-    await expect(page.getByTestId("pnl-hero-net")).toHaveText("+₹4,450.27");
-    await expect(page.getByTestId("pnl-hero-gross")).toContainText("Gross +₹4,945.57 − est. charges ₹495.30");
-    await expect(page.getByTestId("pnl-account-note")).toContainText("ICICI Direct: MOCK: Session expired");
+    // The curve and P&L by strategy side by side on a desktop.
+    const [cTop, sTop] = await page.evaluate(() => ["pv2-pnl-curve", "pv2-pnl-strategies"].map((id) => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).getBoundingClientRect().top));
+    expect(Math.abs(cTop - sTop)).toBeLessThan(2);
+    // The stale-price note stays: two rows are priced from a quote that is not current.
     await expect(page.getByTestId("pnl-stale-positions")).toContainText("2 positions are priced from a quote that is not current");
-    await expect(page.getByTestId("pnl-kpi-unrealized-value")).toHaveText("+₹4,945.57");
-    await expect(page.getByTestId("pnl-kpi-positions-value")).toHaveText("5");
-    await expect(page.getByTestId("pnl-kpi-positions-sub")).toContainText("3 winning · 3 losing · 6 rows with legs · 1 waiting to open");
-    // Mode cards from `modes`, both always shown.
-    const paperCard = page.locator('[data-testid="pnl-mode-card"][data-mode="PAPER"]');
-    const liveCard = page.locator('[data-testid="pnl-mode-card"][data-mode="LIVE"]');
-    await expect(paperCard.getByTestId("pnl-mode-net")).toHaveText("−₹254.73");
-    await expect(paperCard.getByTestId("pnl-mode-meta")).toHaveText("3 positions · ₹1,00,00,000 allocated");
-    await expect(liveCard.getByTestId("pnl-mode-net")).toHaveText("+₹4,705.00");
-    await expect(liveCard.getByTestId("pnl-mode-meta")).toHaveText("2 positions · capital not read");
-    // Chart: the selected mode goes to the route; HIGH / LOW; partial; the end dot.
-    await expect(page.getByTestId("pnl-chart-plot")).toHaveAttribute("data-points", "6");
-    await expect(page.getByTestId("pnl-chart-hi")).toHaveText("+₹4,504.70");
-    await expect(page.getByTestId("pnl-chart-lo")).toHaveText("−₹995.30");
-    await expect(page.getByTestId("pnl-chart-partial")).toContainText("NIFTY 25 Nov 25200 CE: MOCK: no candles");
-    expect(seen.tsQueries.some((q) => q.get("mode") === "ALL" && !q.get("trade"))).toBe(true);
-    // Table: one row per share position and per leg (no strategy total rows), paper and live, the design's columns.
-    await expect(page.getByTestId("pnl-row")).toHaveCount(6);
-    await expect(page.getByRole("columnheader")).toHaveText(["Mode · Account", "Instrument", "Side · Qty", "Avg", "LTP", "Unrealized", "Realized", "Net P&L", "SL / Target", "Risk used", "Status"]);
-    await expect(row(page, "pt-icici").getByTestId("pnl-row-net")).toHaveText("+₹599.95");
-    await expect(row(page, "pt-icici").getByTestId("pnl-row-levels")).toHaveText("1,374.90 / 1,489.83");
-    await expect(row(page, "pt-icici").getByTestId("pnl-row-side")).toHaveText("LONG 35");
-    await expect(row(page, "st-1:1").getByTestId("pnl-row-sub")).toHaveText("Bull call spread");
-    await expect(row(page, "st-1:1").getByTestId("pnl-row-side")).toHaveText("SHORT 75");
-    await expect(row(page, "zr-1:INFY").getByTestId("pnl-row-mode")).toHaveText("LIVE");
-    await expect(row(page, "zr-1:INFY").getByTestId("pnl-row-realized")).toHaveText("—");
-    await expect(row(page, "zr-1:INFY").getByTestId("pnl-row-levels")).toHaveText("— / —");
-    await expect(row(page, "pt-cof").getByTestId("pnl-status")).toHaveText("Stop loss hit");
-    await expect(row(page, "pt-cof").getByTestId("pnl-row-risk")).toHaveText("100%");
-    await expect(row(page, "pt-cof").getByTestId("pnl-row-pending")).toHaveText("new 1,850.00 / 2,222.61");
-    await expect(row(page, "st-1:1").getByTestId("pnl-status")).toHaveText("Stale · 1140 min");
-    // Sorted by net P&L, high to low, by default.
-    await expect(page.getByTestId("pnl-row").first()).toHaveAttribute("data-id", "zr-1:INFY");
-    // Risk monitor and the supervisor.
-    await expect(page.getByTestId("pnl-meter")).toHaveCount(4);
-    await expect(page.locator('[data-testid="pnl-meter"][data-key="at-risk"]').getByTestId("pnl-meter-value")).toHaveText("1");
-    await expect(page.locator('[data-testid="pnl-meter"][data-key="daily-loss"]').getByTestId("pnl-meter-value")).toHaveText("12%");
-    await expect(page.getByTestId("pnl-alert")).toHaveCount(3);
-    await expect(page.getByTestId("pnl-alert").first()).toHaveAttribute("data-severity", "CRITICAL");
-    await expect(page.getByTestId("pnl-supervisor-headline")).toHaveText("COFORGE is losing ₹1,995 and has used 100% of its risk budget.");
-    await expect(page.getByTestId("pnl-supervisor")).toContainText("Rule-based reading of the figures above. No order has been placed or modified.");
-    await expect(page.getByTestId("pnl-supervisor-review")).toContainText("Points to review");
-    await expect(page.getByTestId("pnl-footer")).not.toContainText(/illustrative|simulated data/i);
+    // Curve: the paper book's mode goes to the route; HIGH / LOW; the partial note names the missing leg.
+    await expect(page.getByTestId("pv2-pnl-curve-plot")).toHaveAttribute("data-points", "6");
+    await expect(page.getByTestId("pv2-pnl-curve")).toContainText("HIGH +₹4,504.70 · LOW −₹995.30");
+    await expect(page.getByTestId("pv2-pnl-curve-partial")).toContainText("MOCK: no candles for NIFTY 25 Nov 25200 CE yet");
+    expect(seen.tsQueries.some((q) => q.get("mode") === "PAPER" && !q.get("trade"))).toBe(true);
+    // P&L by strategy: the desk's share trades together, the spread as one row.
+    await expect(page.locator('[data-testid="pv2-pnl-strategy-row"][data-key="Desk share trades"]')).toContainText("−₹1,429.73");
+    await expect(page.locator('[data-testid="pv2-pnl-strategy-row"][data-key="fno"]')).toContainText("+₹1,175.00");
+    // Table: share positions only (the spread's legs are its card), the design's columns, levels and the pending change.
+    await expect(page.getByTestId("pnl-row")).toHaveCount(2);
+    await expect(page.getByTestId("pnl-table").getByRole("columnheader")).toHaveText(["Instrument", "Avg entry", "LTP", "Qty", "Stop → Target", "Position in plan", "R", "Unrealized"]);
+    await expect(row(page, "pt-icici").getByTestId("pnl-row-levels")).toHaveText("1,374.90 → 1,489.83");
+    await expect(row(page, "pt-icici").getByTestId("pv2-pnl-row-qty")).toHaveText("35");
+    await expect(row(page, "pt-cof").getByTestId("pnl-row-pending")).toHaveText("new 1,850.00 → 2,222.61");
+    await expect(row(page, "pt-cof").getByTestId("pv2-pnl-plan")).toHaveAttribute("data-pos", "0.000");
+    await expect(row(page, "pt-cof").getByTestId("pv2-pnl-row-r")).toHaveText("−1.05R");
+    await expect(row(page, "pt-cof").getByTestId("pnl-price-badge")).toHaveAttribute("data-status", "DELAYED");
+    await expect(page.getByTestId("pnl-pending")).toHaveText(/HDFCBANK · Break above ₹1,655.00/);
     await shot(page, "pnl-v2-desktop.png");
-    // Every row's columns line up with the header (each row is its own grid; a wide badge must not widen its track).
+    // Every row's columns line up with the header (each row is its own grid).
     const widths = () => page.getByTestId("pnl-table").evaluate((el) => Array.from(el.querySelectorAll('[role="row"]'))
       .map((r) => Array.from((r as HTMLElement).children).map((c) => Math.round((c as HTMLElement).getBoundingClientRect().width)).join(",")));
     expect(new Set(await widths()).size).toBe(1);
-    // The page never scrolls sideways. The table fits its card from 960 px of room (1280 px: 972; 1920 px: 1,076); at 1440 px
-    // the app's right rail leaves about 728, and the table scrolls inside its card.
     const overflow = () => page.getByTestId("pnl-table").evaluate((el) => el.scrollWidth - el.clientWidth);
     await noSideScroll(page);
-    expect(await overflow()).toBeLessThanOrEqual(1);
     await page.setViewportSize({ width: 1440, height: 900 });
     await noSideScroll(page);
     await page.setViewportSize({ width: 1920, height: 1080 });
     await expect.poll(overflow).toBeLessThanOrEqual(1);
     expect(new Set(await widths()).size).toBe(1);
-    const text = await page.getByTestId("pnl-dashboard").innerText();
-    expect(text).not.toMatch(BANNED);
-    expect(text).not.toMatch(/\b(buy|sell)\b/i);
+    expect(await page.getByTestId("pv2-pnl").innerText()).not.toMatch(BANNED);
   });
 
-  test("V2-20 mode, account and segment go to the route; search filters the table only", async ({ page }) => {
+  test("V2-20 the Paper / Live switch goes to the route and to the curve; Live is the broker book with no return", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
-    await expect(page.getByTestId("pnl-row")).toHaveCount(6, SLOW);
-    expect(seen.pnlQueries[0].get("mode")).toBe("ALL");
+    await expect(page.getByTestId("pnl-row")).toHaveCount(2, SLOW);
+    expect(seen.pnlQueries[0].get("mode")).toBe("PAPER");
     expect(seen.pnlQueries[0].get("account")).toBe("ALL");
-    // Search: rows only; the hero keeps the selection's total.
-    await page.getByTestId("pnl-search").fill("infy");
-    await expect(page.getByTestId("pnl-row")).toHaveCount(1);
-    await expect(page.getByTestId("pnl-row-count")).toHaveText("1 shown");
-    await expect(page.getByTestId("pnl-hero-net")).toHaveText("+₹4,450.27");
-    await expect(page.getByTestId("pnl-shown")).toContainText("Shown: 1 of 6 rows · net +₹8,220.00");
-    await page.getByTestId("pnl-search").fill("");
-    // Live.
-    await page.getByTestId("pnl-mode-live").click();
+    await expect(page.getByTestId("pv2-pnl-mode-paper")).toHaveAttribute("aria-pressed", "true");
+    await toLive(page);
     await expect.poll(() => seen.pnlQueries.some((q) => q.get("mode") === "LIVE")).toBe(true);
-    await expect(page.getByTestId("pnl-mode-live")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("pv2-pnl-mode-live")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("pnl-row")).toHaveCount(2);
-    await expect(page.getByTestId("pnl-hero-label")).toHaveText("Live net P&L · after estimated charges");
-    await expect(page.getByTestId("pnl-hero-net")).toHaveText("+₹4,705.00");
-    await expect(page.getByTestId("pnl-hero-return")).toContainText("Return not computed: MOCK: broker capital is not read");
-    await expect(page.getByTestId("pnl-kpi-realized-sub")).toContainText("Brokers do not split their realised P&L");
-    await expect(page.locator('[data-testid="pnl-mode-card"][data-mode="LIVE"]')).toHaveAttribute("data-selected", "true");
+    await expect(page.getByTestId("pv2-pnl-total")).toHaveText("+₹4,705.00");
+    await expect(page.getByTestId("pv2-pnl-return")).toHaveText("return not computed: MOCK: broker capital is not read, so no return is computed");
+    await expect(page.getByTestId("pv2-pnl-kpi-realized-sub")).toContainText("Brokers do not split their realised P&L");
+    await expect(page.getByTestId("pnl-account-note")).toContainText("ICICI Direct: MOCK: Session expired: sign in to ICICI Direct again.");
     await expect.poll(() => seen.tsQueries.some((q) => q.get("mode") === "LIVE")).toBe(true);
-    // The account list follows the mode: live accounts only.
-    await expect(page.getByTestId("pnl-account").locator("option")).toHaveText(["All accounts", "Zerodha · LIVE", "ICICI Direct · LIVE"]);
-    await page.getByTestId("pnl-account").selectOption("zr-1");
-    await expect.poll(() => seen.pnlQueries.some((q) => q.get("account") === "zr-1")).toBe(true);
-    await expect(page.getByTestId("pnl-hero-label")).toHaveText("Live · Zerodha net P&L · after estimated charges");
-    await expect(page.getByTestId("pnl-account-note")).toHaveCount(0);
-    // Paper: an account of the other mode is dropped.
-    await page.getByTestId("pnl-mode-paper").click();
-    await expect.poll(() => seen.pnlQueries.some((q) => q.get("mode") === "PAPER" && q.get("account") === "ALL")).toBe(true);
-    await expect(page.getByTestId("pnl-row")).toHaveCount(4);
-    await expect(page.getByTestId("pnl-hero-net")).toHaveText("−₹254.73");
-    // Segment.
-    await page.getByTestId("pnl-segment-select").selectOption("OPTIONS");
-    await expect.poll(() => seen.pnlQueries.some((q) => q.get("segment") === "OPTIONS")).toBe(true);
+    await page.getByTestId("pv2-pnl-mode-paper").click();
+    await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-mode", "PAPER", SLOW);
     await expect(page.getByTestId("pnl-row")).toHaveCount(2);
-    // Sort chips: return % puts the long call leg first; exposure the futures-less paper ICICI.
-    await page.getByTestId("pnl-segment-select").selectOption("ALL");
-    await expect(page.getByTestId("pnl-row")).toHaveCount(4);
-    await page.getByTestId("pnl-sort-ret").click();
-    await expect(page.getByTestId("pnl-sort-ret")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("pnl-row").first()).toHaveAttribute("data-id", "st-1:0");
-    await page.getByTestId("pnl-sort-exp").click();
-    await expect(page.getByTestId("pnl-row").first()).toHaveAttribute("data-id", "pt-icici");
+    await expect(page.getByTestId("pv2-pnl-total")).toHaveText("−₹254.73");
   });
 
   test("V2-21 a paper share row opens to breakdown, fills, actions, the candle chart with its levels, the journal and the trade P&L", async ({ page }) => {
@@ -464,16 +428,13 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await expect(d.getByTestId("pnl-feed-note")).toContainText("checked on end-of-day bars at the evening check");
     await expect(d.getByTestId("pnl-modify")).toBeEnabled();
     await expect(d.getByTestId("pnl-exit")).toHaveText("Simulate exit");
-    // The chart: Chart Analysis' chart on the stock's 15-minute bars, with TARGET 1 / ENTRY / STOP / LTP.
     await expect(d.getByTestId("ca-chart")).toBeVisible(SLOW);
     await expect(d.locator('[data-testid="ca-level"]')).toHaveCount(3);
     await expect(d.getByTestId("ca-level-tag")).toHaveText(["ENTRY 1,413", "STOP 1,375", "LTP 1,432"]);
-    // A level too far from the candles is not drawn (Chart Analysis' rule); the line under the chart still names it.
     await expect(d.locator('[data-testid="pnl-chart-level"][data-key="target"]')).toHaveAttribute("data-off", "true");
     await expect(d.getByTestId("pnl-trade-chart-levels")).toHaveText("TARGET 1 1,489.83 (outside these sessions' range, not drawn) · ENTRY 1,413.21 · STOP 1,374.90 · LTP 1,431.50");
     await expect(d.getByTestId("pnl-chart-pill")).toHaveText("LIVE");
     await expect(d.getByTestId("pnl-chart-ohlc")).toContainText("C 1,430.00");
-    // The journal: the scan signal on the signal day.
     await expect(d.getByTestId("pnl-journal-score")).toHaveText("82/100");
     await expect(d.getByTestId("pnl-journal-parts")).toHaveText("Quality 24/30 · Trend 16/25 · Reason 14/20 · Size 10/15 · Participation 6/10 · Penalties −5");
     await expect(d.getByTestId("pnl-journal-chip")).toHaveCount(3);
@@ -483,14 +444,12 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await expect(d.getByTestId("pnl-journal-lists")).toHaveText("In the day's lists: MOCK Breakout");
     await expect(d.getByTestId("pnl-journal-trade")).toContainText("Entered 28 Oct");
     expect(seen.journals).toContain("pt-icici");
-    // The trade's curve since entry, net of charges.
     await expect(d.getByTestId("pnl-trade-curve")).toHaveAttribute("data-since-entry", "true");
     await expect(d.getByTestId("pnl-trade-curve-span")).toContainText("Net of est. charges · since entry");
     await expect(d.getByTestId("pnl-trade-curve-now")).toHaveText("+₹599.95");
     expect(seen.tsQueries.some((q) => q.get("trade") === "pt-icici" && q.get("interval") === "15m")).toBe(true);
     await shot(page, "pnl-v2-desktop-expanded.png");
     await expect(d).not.toContainText(BANNED);
-    // Another row closes this one.
     await row(page, "pt-cof").click();
     await expect(detail(page, "pt-icici")).toHaveCount(0);
     const c = detail(page, "pt-cof");
@@ -499,9 +458,11 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await expect(c.getByTestId("pnl-feed-note")).toContainText("Last known price from 10:21:40: this P&L is not current.");
   });
 
-  test("V2-21b a live row is read-only: no levels, no journal, the broker's own figure, today's fills note; a structure leg charts the underlying", async ({ page }) => {
+  test("V2-21b a live row is read-only: no levels, no journal, the broker's own figure, today's fills note; a structure charts the underlying", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
+    await expect(page.getByTestId("pnl-row")).toHaveCount(2, SLOW);
+    await toLive(page);
     await row(page, "zr-1:INFY").click(SLOW);
     const d = detail(page, "zr-1:INFY");
     await expect(d.getByTestId("pnl-broker-pnl")).toContainText("Broker's own P&L · +₹9,900.00 at 10:29 (includes its realised part)");
@@ -515,8 +476,10 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await expect(d.getByTestId("pnl-trade-curve-notes")).toHaveText("MOCK: today's session only.");
     expect(seen.tsQueries.some((q) => q.get("trade") === "zr-1:INFY")).toBe(true);
     expect(seen.journals).not.toContain("zr-1:INFY");
-    // A structure leg: the underlying chart with the structure's levels, its total, levels not editable.
-    await row(page, "st-1:0").click();
+    // A structure (paper): its card's Details opens the same detail, with the structure's levels on the underlying.
+    await page.getByTestId("pv2-pnl-mode-paper").click();
+    await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-mode", "PAPER", SLOW);
+    await openStructure(page, "st-1");
     const l = detail(page, "st-1:0");
     await expect(l.getByTestId("pnl-structure-net")).toContainText("Bull call spread 25000/25200 · 25 Nov · 1 lot · net +₹1,175.00 (all legs)");
     await expect(l.getByTestId("pnl-modify-why")).toHaveText("Option and futures structures keep their levels in this release.");
@@ -524,18 +487,18 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     expect(seen.tsQueries.some((q) => q.get("trade") === "st-1")).toBe(true);
   });
 
-  test("V2-21c a live row on the broker's last read is stale and keeps its contract problem; a contract expiring today says so", async ({ page }) => {
+  test("V2-21c a live row on the broker's last read is stale and keeps its contract problem in the detail", async ({ page }) => {
     await setup(page, {
       pnl: (q) => ({ body: snapshot(q, 1762232401000, (s) => {
         const rows = s.positions as Row[];
-        Object.assign(rows.find((r) => r.position_id === "zr-1:INFY")!, { price_status: "DELAYED", price_source: "Broker's last price on its read",
-          price_at: "2026-11-04T10:29:30+05:30", price_age_seconds: 31, contract_problem: "MOCK: Lot size not found in the contract master." });
-        Object.assign(rows.find((r) => r.position_id === "zr-1:NIFTY25NOVFUT")!, { status: "EXPIRES_TODAY" });
+        const infy = rows.find((r) => r.position_id === "zr-1:INFY");
+        if (infy) Object.assign(infy, { price_status: "DELAYED", price_source: "Broker's last price on its read", price_at: "2026-11-04T10:29:30+05:30", price_age_seconds: 31,
+          contract_problem: "MOCK: Lot size not found in the contract master." });
       }) }),
     });
     await page.goto(PNL);
-    await expect(row(page, "zr-1:INFY").getByTestId("pnl-status")).toHaveText("Stale · 31s", SLOW);
-    await expect(row(page, "zr-1:NIFTY25NOVFUT").getByTestId("pnl-status")).toHaveText("Expires today");
+    await toLive(page);
+    await expect(row(page, "zr-1:INFY").getByTestId("pnl-price-badge")).toHaveAttribute("data-status", "DELAYED", SLOW);
     await row(page, "zr-1:INFY").click();
     await expect(detail(page, "zr-1:INFY").getByTestId("pnl-feed-note")).toContainText(
       "MOCK: Lot size not found in the contract master. Last known price from 10:29:30 (Broker's last price on its read): this P&L is not current. Read from Zerodha at 10:29. Nivesh places no order.");
@@ -555,7 +518,6 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     const f = d.getByTestId("pnl-levels-form");
     await expect(f.getByTestId("pnl-levels-stop")).toHaveValue("1374.9");
     await expect(f.getByTestId("pnl-levels-rule")).toContainText("In force from the next session; today's bar is still checked against the current levels at the evening check.");
-    // Nothing changed: not sent.
     await f.getByTestId("pnl-levels-save").click();
     await expect(f.getByTestId("pnl-levels-error")).toHaveText("Those are the levels already in force.");
     expect(seen.patches).toHaveLength(0);
@@ -568,30 +530,26 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     expect(seen.patches[0].body).not.toHaveProperty("target_price");
     const key1 = seen.patches[0].key;
     expect(key1).toBeTruthy();
-    // A second save: a new key; the 422 {code, message} in words.
     await f.getByTestId("pnl-levels-stop").fill("1420");
     await f.getByTestId("pnl-levels-save").click();
     await expect(f.getByTestId("pnl-levels-error")).toHaveText("The stop loss must be below the last end-of-day close.");
     expect(seen.patches[1].key).toBeTruthy();
     expect(seen.patches[1].key).not.toBe(key1);
-    // The same body again (a retry) keeps its key; a plain-string code is said in words too.
     await f.getByTestId("pnl-levels-save").click();
     await expect(f.getByTestId("pnl-levels-error")).toHaveText("This trade is already closed.");
     expect(seen.patches[2].key).toBe(seen.patches[1].key);
-    // A changed body gets a new key.
     await f.getByTestId("pnl-levels-target").fill("1600");
     await f.getByTestId("pnl-levels-save").click();
     await expect.poll(() => seen.patches.length).toBe(4);
     expect(seen.patches[3].key).not.toBe(seen.patches[2].key);
     expect(seen.patches[3].body).toEqual({ stop_price: 1420, target_price: 1600, note: "MOCK note" });
-    // The screen checks stop < target before sending.
     await f.getByTestId("pnl-levels-stop").fill("1700");
     await f.getByTestId("pnl-levels-save").click();
     await expect(f.getByTestId("pnl-levels-error")).toHaveText("The stop loss must be below the target.");
     expect(seen.patches).toHaveLength(4);
   });
 
-  test("V2-23 Simulate exit asks first, then closes through the paper close; Initiate exit on a live row places nothing", async ({ page }) => {
+  test("V2-23 Simulate exit asks first, then closes through the paper close (a structure: all its legs); Initiate exit on a live row places nothing", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
     await row(page, "pt-icici").click(SLOW);
@@ -602,12 +560,11 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await d.getByTestId("pnl-exit-yes").click();
     await expect(d.getByTestId("pnl-exit-done")).toBeVisible();
     expect(seen.closes).toEqual(["pt-icici"]);
-    // A structure leg closes the whole structure.
-    await row(page, "st-1:1").click();
-    await detail(page, "st-1:1").getByTestId("pnl-exit").click();
-    await expect(detail(page, "st-1:1").getByTestId("pnl-exit-confirm")).toContainText("This closes the whole structure, all its legs.");
-    // Live: read-only.
-    await row(page, "zr-1:NIFTY25NOVFUT").click();
+    await openStructure(page, "st-1");
+    await detail(page, "st-1:0").getByTestId("pnl-exit").click();
+    await expect(detail(page, "st-1:0").getByTestId("pnl-exit-confirm")).toContainText("This closes the whole structure, all its legs.");
+    await toLive(page);
+    await row(page, "zr-1:NIFTY25NOVFUT").click(SLOW);
     const l = detail(page, "zr-1:NIFTY25NOVFUT");
     await expect(l.getByTestId("pnl-exit")).toHaveText("Initiate exit");
     await l.getByTestId("pnl-exit").click();
@@ -636,8 +593,8 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
       return json(r, { order: { _id: "ord-exit-1", order_id: "ord-exit-1", state: "PENDING", purpose: "EXIT" }, duplicate: false });
     });
     await page.goto(PNL);
-    await expect(row(page, "spt-pos-1").getByTestId("pnl-row-sub")).toHaveText("Scanner paper trade", SLOW);
-    await expect(row(page, "pt-icici").getByTestId("pnl-row-sub")).toHaveText("Share trade");
+    await expect(row(page, "spt-pos-1").getByTestId("pv2-pnl-row-setup")).toHaveText("Scanner · LONG", SLOW);
+    await expect(row(page, "pt-icici").getByTestId("pv2-pnl-row-setup")).toHaveText("Desk · LONG");
     await row(page, "spt-pos-1").click();
     const d = detail(page, "spt-pos-1");
     await expect(d.getByTestId("pnl-modify")).toBeDisabled();
@@ -653,36 +610,14 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     expect(seen.patches).toHaveLength(0);
   });
 
-  test("V2-24 Pause stops the updates and Resume restarts them; the feed pill says so", async ({ page }) => {
-    let ltp = 1431.5, seq = 1762232401000;
-    const seen = await setup(page, { pnl: (q) => ({ body: snapshot(q, seq, (s) => { (s.positions as Row[]).find((r) => r.position_id === "pt-icici")!.ltp = ltp; }) }) });
-    await page.goto(PNL);
-    await expect(row(page, "pt-icici").getByTestId("pnl-ltp")).toHaveText("1,431.50", SLOW);
-    await expect(page.getByTestId("pnl-connection")).toHaveAttribute("data-state", "polling");
-    await page.getByTestId("pnl-pause").click();
-    await expect(page.getByTestId("pnl-pause")).toHaveText("Resume");
-    await expect(page.getByTestId("pnl-pause")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("pnl-connection")).toHaveAttribute("data-state", "paused");
-    await expect(page.getByTestId("pnl-feed")).toHaveText("Feed paused");
-    await expect(page.getByTestId("pnl-paused-note")).toBeVisible();
-    const polls = seen.pnlQueries.length;
-    ltp = 1440; seq += 3000;
-    await page.waitForTimeout(4_500);
-    expect(seen.pnlQueries.length).toBe(polls);
-    await expect(row(page, "pt-icici").getByTestId("pnl-ltp")).toHaveText("1,431.50");
-    await page.getByTestId("pnl-pause").click();
-    await expect(page.getByTestId("pnl-pause")).toHaveText("Pause");
-    await expect(row(page, "pt-icici").getByTestId("pnl-ltp")).toHaveText("1,440.00", { timeout: 10_000 });
-    await expect(page.getByTestId("pnl-feed")).toHaveAttribute("data-feed", "live");
-  });
-
   test("TC-037 the stream fails → polling; a newer snapshot updates, an older one is dropped; the stream path delivers too", async ({ page }) => {
     let ltp = 1431.5, seq = 1762232401000;
     const seen = await setup(page, { pnl: (q) => ({ body: snapshot(q, seq, (s) => { (s.positions as Row[]).find((r) => r.position_id === "pt-icici")!.ltp = ltp; }) }) });
     await page.goto(PNL);
     const icici = row(page, "pt-icici");
     await expect(icici.getByTestId("pnl-ltp")).toHaveText("1,431.50", SLOW);
-    await expect(page.getByTestId("pnl-connection")).toHaveText("Polling every 3 s");
+    await expect(page.getByTestId("pv2-pnl-stream")).toHaveText("Polling · every 3 s");
+    await expect(page.getByTestId("pv2-pnl-stream")).toHaveAttribute("data-state", "polling");
     expect(seen.streamHits).toBeGreaterThan(0);
     ltp = 1440; seq += 3000;
     await expect(icici.getByTestId("pnl-ltp")).toHaveText("1,440.00", { timeout: 10_000 });
@@ -691,48 +626,27 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await expect.poll(() => seen.pnlQueries.length, { timeout: 10_000 }).toBeGreaterThan(polls + 1);
     await expect(icici.getByTestId("pnl-ltp")).toHaveText("1,440.00");
     const p2 = await page.context().newPage();
-    const seen2 = await setup(p2, { stream: { body: snapshot(new URLSearchParams("segment=ALL&period=TODAY&mode=ALL&account=ALL"), 1762232409000) } });
+    const seen2 = await setup(p2, { stream: { body: snapshot(new URLSearchParams("segment=ALL&period=TODAY&mode=PAPER&account=ALL"), 1762232409000) } });
     await p2.goto(PNL);
-    await expect(p2.getByTestId("pnl-hero-net")).toHaveText("+₹4,450.27", SLOW);
-    await expect(p2.getByTestId("pnl-connection")).toHaveAttribute("data-transport", "sse");
+    await expect(p2.getByTestId("pv2-pnl-total")).toHaveText("−₹254.73", SLOW);
+    await expect(p2.getByTestId("pv2-pnl-stream")).toHaveAttribute("data-transport", "sse");
     expect(seen2.streamHits).toBeGreaterThan(0);
     expect(seen2.pnlQueries.length).toBe(0);
     await p2.close();
   });
 
-  test("TC-036 CSV export: one line per shown row (paper and live), never a structure total; follows the search", async ({ page }) => {
-    await setup(page);
-    await page.goto(PNL);
-    await expect(page.getByTestId("pnl-row")).toHaveCount(6, SLOW);
-    const read = async () => {
-      const [dl] = await Promise.all([page.waitForEvent("download"), page.getByTestId("pnl-export").click()]);
-      expect(dl.suggestedFilename()).toBe("pnl-positions-2026-11-04.csv");
-      return fs.readFileSync((await dl.path()) as string, "utf-8").trim().split("\n");
-    };
-    const all = await read();
-    expect(all[0]).toMatch(/^mode,account,instrument,strategy,segment,side,net_quantity,avg_price,ltp,price_status/);
-    expect(all[0]).toMatch(/,risk_used_pct,exposure_rs,broker_pnl,account_id$/);
-    expect(all).toHaveLength(7);
-    expect(all.find((l) => l.includes("zr-1:INFY"))).toMatch(/^LIVE,Zerodha,INFY,/);
-    expect(all.filter((l) => l.includes("Bull call spread"))).toHaveLength(2);
-    await page.getByTestId("pnl-search").fill("NIFTY");
-    expect(await read()).toHaveLength(4);
-  });
-
-  test("V2-25 390 px: the same order, position cards that open to the same detail, no sideways scroll", async ({ page }) => {
+  test("V2-25 390 px: the table scrolls inside its card, a row opens its detail below it, no sideways page scroll", async ({ page }) => {
     await setup(page, { phone: true });
     await page.goto(PNL);
-    await expect(page.getByTestId("pnl-dashboard")).toHaveAttribute("data-narrow", "true", SLOW);
-    await expect(page.getByTestId("pnl-table")).toHaveCount(0);
-    await expect(page.getByTestId("pnl-card")).toHaveCount(6);
-    const ids = ["pnl-header", "pnl-filters", "pnl-hero", "pnl-mode-cards", "pnl-chart", "pnl-positions", "pnl-risk", "pnl-supervisor", "pnl-footer", "pnl-more"];
-    const tops = await page.evaluate((list) => list.map((id) => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).getBoundingClientRect().top), ids);
-    for (let i = 1; i < tops.length; i++) expect(tops[i], `${ids[i]} after ${ids[i - 1]}`).toBeGreaterThan(tops[i - 1]);
-    const card = page.locator('[data-testid="pnl-card"][data-id="pt-icici"]');
-    await card.getByTestId("pnl-expand").click();
-    await expect(card.getByTestId("pnl-row-detail")).toBeVisible();
-    await expect(card.getByTestId("pnl-journal-score")).toHaveText("82/100", SLOW);
-    await expect(card.getByTestId("ca-chart")).toBeVisible();
+    await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-narrow", "true", SLOW);
+    const t = page.getByTestId("pnl-table");
+    await expect(t).toBeVisible();
+    expect(await t.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0);
+    await row(page, "pt-icici").click();
+    const below = page.getByTestId("pv2-pnl-detail-below");
+    await expect(below.getByTestId("pnl-row-detail")).toBeVisible();
+    await expect(below.getByTestId("pnl-journal-score")).toHaveText("82/100", SLOW);
+    await expect(below.getByTestId("ca-chart")).toBeVisible();
     await noSideScroll(page);
     await shot(page, "pnl-v2-390.png");
   });
@@ -749,21 +663,20 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     });
     await page.goto(PNL);
     await expect(page.getByTestId("pnl-error")).toBeVisible(SLOW);
-    await expect(page.getByTestId("pnl-hero")).toHaveCount(0);
-    await expect(page.getByTestId("pnl-connection")).toHaveAttribute("data-state", "error");
+    await expect(page.getByTestId("pv2-pnl-kpis")).toHaveCount(0);
+    await expect(page.getByTestId("pv2-pnl-total")).toHaveText("—");
+    await expect(page.getByTestId("pv2-pnl-stream")).toHaveAttribute("data-state", "error");
     fail = false;
     await page.getByTestId("pnl-error").getByRole("button").first().click();
-    await expect(page.getByTestId("pnl-hero")).toBeVisible(SLOW);
+    await expect(page.getByTestId("pv2-pnl-kpis")).toBeVisible(SLOW);
     const icici = row(page, "pt-icici");
     await expect(icici.getByTestId("pnl-price-badge")).toHaveText("NO PRICE");
     await expect(icici.getByTestId("pnl-ltp")).toHaveText("—");
-    await expect(icici.getByTestId("pnl-row-net")).toHaveText("—");
-    await expect(icici.getByTestId("pnl-status")).toHaveText("No price");
+    await expect(icici.getByTestId("pv2-pnl-row-unrealized")).toHaveText("—");
     await expect(page.getByTestId("pnl-incomplete")).toContainText("1 open position has no price");
-    await expect(page.getByTestId("pnl-shown")).toContainText("net —");
   });
 
-  test("V2-26 Live unavailable (every session expired): the Live card and the hero say why; contract error is a problem", async ({ page }) => {
+  test("V2-26 Live unavailable (every session expired): the view says why; a contract error is a problem", async ({ page }) => {
     await setup(page, {
       pnl: (q) => ({ body: snapshot(q, 1762232401000, (s) => {
         s.positions = (s.positions as Row[]).filter((r) => r.mode === "PAPER");
@@ -773,12 +686,9 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
       }) }),
     });
     await page.goto(PNL);
-    const liveCard = page.locator('[data-testid="pnl-mode-card"][data-mode="LIVE"]');
-    await expect(liveCard).toHaveAttribute("data-available", "false", SLOW);
-    await expect(liveCard.getByTestId("pnl-mode-note")).toHaveText("MOCK: No broker account could be read: Zerodha session expired; ICICI Direct session expired.");
-    await expect(liveCard.getByTestId("pnl-mode-net")).toHaveText("—");
-    await page.getByTestId("pnl-mode-live").click();
+    await toLive(page);
     await expect(page.getByTestId("pnl-positions-empty")).toBeVisible();
+    await expect(page.getByTestId("pv2-pnl-live-note")).toHaveText("MOCK: No broker account could be read: Zerodha session expired; ICICI Direct session expired.");
     await expect(page.getByTestId("pnl-account-note")).toContainText("Zerodha: MOCK: Session expired: sign in to Zerodha again.");
     await expect(page.getByTestId("pnl-account-note")).toContainText("Its positions are not in this total.");
     const p2 = await page.context().newPage();
@@ -789,21 +699,18 @@ test.describe("MOCK — not real data: Paper Trading › P&L dashboard v2", () =
     await p2.close();
   });
 
-  test("TC-034 the folded section: the period goes to the route; closed trades, analytics, waiting entries, by segment", async ({ page }) => {
+  test("TC-034 Closed trades: the period goes to the route; the closed rows, the realized KPI net of costs, waiting entries, the route's notes", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
-    await expect(page.getByTestId("pnl-more")).toBeVisible(SLOW);
-    await expect(page.getByTestId("pnl-closed")).toBeHidden();
-    await page.getByTestId("pnl-more-toggle").click();
-    await expect(page.getByTestId("pnl-closed-empty")).toBeVisible();
+    await expect(page.getByTestId("pnl-closed")).toBeVisible(SLOW);
+    await expect(page.getByTestId("pnl-closed-empty")).toHaveText("No paper trade closed today.");
     await expect(page.getByTestId("pnl-pending")).toHaveText(/HDFCBANK · Break above ₹1,655.00/);
-    await expect(page.getByTestId("pnl-segment").first()).toBeVisible();
     await page.getByTestId("pnl-period-1w").click();
     await expect.poll(() => seen.pnlQueries.some((q) => q.get("period") === "1W")).toBe(true);
     await expect(page.getByTestId("pnl-closed-row")).toHaveCount(1);
     await expect(page.getByTestId("pnl-closed-net")).toHaveText("−₹3,360.10");
-    await expect(page.getByTestId("pnl-an-avgloss")).toHaveText("−₹3,360.10");
-    await expect(page.getByTestId("pnl-kpi-realized-value")).toHaveText("−₹3,200.00");
+    await expect(page.getByTestId("pv2-pnl-kpi-realized-value")).toHaveText("−₹3,360.10");
+    await expect(page.getByTestId("pv2-pnl-kpi-realized-sub")).toHaveText("1 closed this week · net of costs");
     await expect(page.getByTestId("pnl-notes")).toContainText("MOCK: charges are the desk cost card's.");
   });
 });

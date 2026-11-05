@@ -1,0 +1,24 @@
+# Paper Trading v2 — real-body render (SPT_REAL_DIR), 5 Nov 2026
+# set A: scratchpad/pv2-real-bodies (staging check bodies, test user pv2chk_t1, branch code) + real /api/risk/policy|status (deployed, test user)
+BUILD_EXIT=0
+  ✓  3 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:143:3 › SPT screens on real staging bodies › REAL-3 the account card shows the real mode and starting capital (1.5s)
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:128:3 › SPT screens on real staging bodies › REAL-2 06 Strategy analytics renders the real bodies (3.0s)
+  ✓  2 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:106:3 › SPT screens on real staging bodies › REAL-1 02 Scanner opportunities lists the real opportunities (3.7s)
+  ✓  4 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:155:3 › SPT screens on real staging bodies › REAL-4 01 Overview shows the real paper equity (2.4s)
+  ✓  5 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:173:3 › SPT screens on real staging bodies › REAL-5 03 Capital allocation renders on the real bodies (builder B's view) (2.3s)
+  ✓  6 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:182:3 › SPT screens on real staging bodies › REAL-6 04 Portfolio risk renders on the real bodies (builder B's view) (2.4s)
+  ✓  7 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:195:3 › SPT screens on real staging bodies › REAL-7 05 Real-time P&L renders the real /api/desk/pnl body; every symbol shown comes from it (2.5s)
+  7 passed (7.4s)
+PW_EXIT=0
+
+# set B: set A with desk_pnl + proposals from the 09:20 INT-7 live run (deployed code, test user spt_int7_t1)
+BUILD_EXIT=0
+  ✓  2 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:143:3 › SPT screens on real staging bodies › REAL-3 the account card shows the real mode and starting capital (1.7s)
+  ✓  3 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:128:3 › SPT screens on real staging bodies › REAL-2 06 Strategy analytics renders the real bodies (3.3s)
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:106:3 › SPT screens on real staging bodies › REAL-1 02 Scanner opportunities lists the real opportunities (4.1s)
+  ✓  4 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:155:3 › SPT screens on real staging bodies › REAL-4 01 Overview shows the real paper equity (2.5s)
+  ✓  5 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:173:3 › SPT screens on real staging bodies › REAL-5 03 Capital allocation renders on the real bodies (builder B's view) (2.3s)
+  ✓  6 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:182:3 › SPT screens on real staging bodies › REAL-6 04 Portfolio risk renders on the real bodies (builder B's view) (2.3s)
+  ✓  7 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:195:3 › SPT screens on real staging bodies › REAL-7 05 Real-time P&L renders the real /api/desk/pnl body; every symbol shown comes from it (2.4s)
+  7 passed (7.8s)
+PW_EXIT=0

@@ -7,6 +7,12 @@
  * (backend/routes/spt_risk.py, spt_accounts.py, spt_paper.py, spt_signals.py). Account ids, symbols, sectors, reasons and
  * numbers are INVENTED. Expected text is worked out here from the payloads, not copied from the screen. Production build,
  * every /api mocked — see pw.copilot-app.config.ts.
+ *
+ * RETIRED (Paper Trading v2, owner 5 Nov 2026; docs/scanner_paper_trading/UI_DESIGN_V2.md §1): the three Risk Desk views are
+ * no longer routed — ?tab=risk&view=overview | allocation | portfolio open Trade Desk › Paper Trading › overview | allocation |
+ * risk (desk-nav.ts RISK_TO_PAPER); the components stay in the tree unrouted. Their cases (SPT-UI-R-01 … R-22) are kept below
+ * under test.describe.skip; the replacements are tested in copilot-app-desk-paper-v2-a.spec.ts (01 Overview) and builder B's
+ * specs (03 Capital allocation, 04 Portfolio risk). SPT-UI-R-RETIRED proves the redirects and that the old views are gone.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
@@ -255,7 +261,25 @@ async function bannedWords(page: Page): Promise<string[]> {
 
 // ── the tests ────────────────────────────────────────────────────────────
 
-test.describe("MOCK — not real data: Risk Desk · Scanner-to-Paper Trading views", () => {
+test.describe("MOCK — not real data: the Risk Desk SPT views moved to Paper Trading v2", () => {
+  test("SPT-UI-R-RETIRED the old Risk Desk URLs open Paper Trading v2; the Risk Desk no longer lists them", async ({ page }) => {
+    await spt(page);
+    for (const [url, sub] of [[OVERVIEW, "overview"], [ALLOCATION, "allocation"], [PORTFOLIO, "risk"]]) {
+      await page.goto(url);
+      await expect.poll(() => new URL(page.url()).searchParams.get("tab"), url).toBe("trade");
+      await expect.poll(() => new URL(page.url()).searchParams.get("view"), url).toBe("paper");
+      await expect.poll(() => new URL(page.url()).searchParams.get("sub"), url).toBe(sub);
+      await expect(page.getByTestId("td-tab"), url).toHaveAttribute("data-sub", sub, SLOW);
+      for (const old of ["spt-overview-view", "spt-allocation-view", "spt-portfolio-view"]) await expect(page.getByTestId(old), `${url}: ${old}`).toHaveCount(0);
+    }
+    await page.goto(`${DESK}?tab=risk&view=limits`);
+    await expect(page.getByTestId("desk-view-limits")).toBeVisible(SLOW);
+    for (const gone of ["overview", "allocation", "portfolio"]) await expect(page.getByTestId(`desk-view-${gone}`)).toHaveCount(0);
+  });
+});
+
+// RETIRED with Paper Trading v2 (see the header): kept for the record, not run.
+test.describe.skip("MOCK — not real data: Risk Desk · Scanner-to-Paper Trading views", () => {
   test("SPT-UI-R-20 the switcher lists the three views; each opens from the URL with one h1 and the paper-only line", async ({ page }) => {
     await spt(page);
     await page.goto(OVERVIEW);
@@ -627,7 +651,7 @@ test.describe("MOCK — not real data: Risk Desk · Scanner-to-Paper Trading vie
   });
 });
 
-test.describe("MOCK — not real data: Risk Desk SPT views · phone 390px", () => {
+test.describe.skip("MOCK — not real data: Risk Desk SPT views · phone 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("SPT-UI-R-19 no sideways scroll on the three views, with long reasons, as cards", async ({ page }) => {
@@ -656,8 +680,8 @@ test.describe("MOCK — not real data: Risk Desk SPT views · phone 390px", () =
   });
 });
 
-// Opt-in screenshots for a visual check (SPT_SHOTS=<dir>); skipped in a normal run. MOCK — not real data.
-test.describe("MOCK — not real data: Risk Desk SPT views · screenshots", () => {
+// Opt-in screenshots for a visual check (SPT_SHOTS=<dir>); RETIRED with the views (Paper Trading v2). MOCK — not real data.
+test.describe.skip("MOCK — not real data: Risk Desk SPT views · screenshots", () => {
   const SHOTS = process.env.SPT_SHOTS || "";
   test.skip(!SHOTS, "set SPT_SHOTS to a directory to capture");
   for (const [w, h, tag] of [[1280, 3400, "desktop"], [390, 7600, "phone"]] as const) {   // tall: the desk scrolls inside an element

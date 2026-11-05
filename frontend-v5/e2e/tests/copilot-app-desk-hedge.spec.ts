@@ -72,9 +72,8 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
     await page.goto(LIMITS);
     await expect(page.getByTestId("desk-view-hedge")).toBeVisible(SLOW);             // the switcher has rendered (evaluateAll does not wait)
     const keys = await page.getByTestId("desk-views").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    // Scanner-to-Paper Trading added three views (owner, 5 Nov); hedge stays last.
-    expect(keys).toEqual(["desk-view-limits", "desk-view-controls", "desk-view-log", "desk-view-overview", "desk-view-allocation",
-      "desk-view-portfolio", "desk-view-hedge"]);
+    // The Scanner-to-Paper Trading views were here for a day and moved to Trade Desk › Paper Trading v2 (owner, 5 Nov); hedge stays last.
+    expect(keys).toEqual(["desk-view-limits", "desk-view-controls", "desk-view-log", "desk-view-hedge"]);
     await expect(page.getByTestId("desk-view-hedge")).toHaveText("Portfolio hedge");
     await page.getByTestId("desk-view-hedge").click();
     await expect(page).toHaveURL(/[?&]view=hedge(&|$)/);

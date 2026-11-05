@@ -213,7 +213,9 @@ test.describe("Decision cards — the surfaces", () => {
 
   // UI-5 (the Strategy Builder's candidate card) went with Strategy Lab (owner, 29 Oct).
 
-  test("UI-6 the paper-trade record shows the plan it records, read by id, with its lifecycle status", async ({ page }) => {
+  // RETIRED with the Trade journal drawer (Paper Trading v2, owner 5 Nov 2026: the Live desk and journal are replaced; their URLs
+  // open Real-time P&L, builder B). The plan-by-id card on a paper trade's record has no v2 place yet: flagged to the integrator.
+  test.skip("UI-6 the paper-trade record shows the plan it records, read by id, with its lifecycle status", async ({ page }) => {
     const allowed = CARD.cash.allowed.trade_plan_response;
     const trade = { id: "t-plan", symbol: SYM, status: "open", quantity: CARD.cash.body.quantity, entry_price: CASH.entry.price, stop_price: CASH.stop.price,
       target_price: 1280, entry_rule: "at_once", opened_at: "2026-10-20T05:00:00+00:00", plan_ref: { plan_id: CASH.plan_id }, state: "POSITION_OPEN" };

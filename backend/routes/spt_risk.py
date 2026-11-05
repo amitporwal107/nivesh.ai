@@ -10,7 +10,9 @@ exposures and a stress test, ranked allocation, the caller's proposals, and the 
                                                      planned / stressed risk, daily / weekly loss used, drawdown and the
                                                      ladder, the kill-switch state, limits and utilisation
     GET  /api/v1/risk/exposures/{account_id}         exposure by sector, instrument and category (bucket)
-    GET  /api/v1/risk/stress-test/{account_id}       deterministic scenarios on the open SPT entries (P1)
+    GET  /api/v1/risk/stress-test/{account_id}       deterministic scenarios on the open SPT entries (P1), then the named
+                                                     Paper Trading v2 scenarios on the wider paper book
+                                                     (services/spt/stress_named.py)
     GET  /api/v1/allocation/recommendations/{account_id}   QUALIFIED opportunities ranked for this account with the size
                                                      and risk each would get now; writes nothing
     POST /api/v1/allocation/recalculate/{account_id} re-run sizing + allocation on the caller's AWAITING proposals
@@ -149,8 +151,14 @@ async def risk_account(account_id: str, request: Request) -> Dict[str, Any]:
         "utilisation": {"positions": {"open": state.get("positions_open"), "max": state.get("max_positions")},
                         "new_today": {"count": state.get("new_today"), "max": state.get("max_new_per_day")},
                         "buckets": {k: {"used_rs": (state.get("bucket_used_rs") or {}).get(k),
-                                        "cap_rs": (state.get("bucket_cap_rs") or {}).get(k)}
+                                        "cap_rs": (state.get("bucket_cap_rs") or {}).get(k),
+                                        # open risk in the bucket, on open_risk.rs's basis (allocation.open_risk_rows)
+                                        "risk_rs": (state.get("bucket_risk_rs") or {}).get(k)}
                                     for k in allocation.CATEGORIES},
+                        "bucket_risk_unknown": state.get("bucket_risk_unknown"),
+                        "bucket_risk_basis": "risk_rs = the open-risk rows in the bucket (reservations: the risk "
+                                             "service's estimate; positions with no reservation: risk_book's estimate), the "
+                                             "basis of open_risk.rs; used_rs counts SPT reservations only",
                         "exposure_rs": state.get("exposure_rs"), "exposure_pct_of_equity": _pct(state.get("exposure_rs"), eq)},
         "mode": (state.get("config") or {}).get("mode"),
     }
@@ -201,6 +209,11 @@ async def stress_test(account_id: str, request: Request) -> Dict[str, Any]:
     rows = await risk.open_spt_book(db, uid, state)
     gap = float(state["config"]["extras"]["stressed_gap_pct"])
     out = risk.stress(rows, gap_pct=gap)
+    # Paper Trading v2 (UI_DESIGN_V2 §2.04): the named scenarios, on the wider paper book, after the three above
+    from services.spt import stress_named
+    extra = await stress_named.gather(request, db, uid, state, rows, now=desk.utcnow())
+    out["scenarios"] = list(out["scenarios"]) + extra["scenarios"]
+    out["named"] = {k: v for k, v in extra.items() if k != "scenarios"}
     return {"account_id": uid, "as_of": state["as_of"], "equity_rs": state.get("equity_rs"), **out}
 
 

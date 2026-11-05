@@ -20,6 +20,11 @@ books it); charges are the fills' recorded costs (dashboard.leg_charges). The bo
 comes from the same bars read as the desk's share trades. Unlike desk trades, SPT fills and exits happen in the session on
 live quotes (slice C's monitor); nothing here applies or writes them. A failed SPT read leaves them out and says so
 (`Book.spt_error`), never silently.
+
+SETUP TYPE OF A SCANNER POSITION (Paper Trading v2 "P&L by strategy"): an SPT position stores no setup field, so its
+opportunity's stored `category` (spt_opportunities.category, slice A: breakout / reversal / momentum / …) is read — ONE
+query for all of the user's positions per book build (`_spt_setup_types`), kept on the item as `setup_type`. A missing
+opportunity, or a failed read (logged), leaves it null; it is never inferred.
 """
 from __future__ import annotations
 
@@ -41,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 BOOK_TTL_S = 300.0
 #: Slice C's stores (services/spt/constants.POSITIONS / ORDERS); read only here.
-SPT_POSITIONS, SPT_ORDERS = "spt_positions", "spt_orders"
+SPT_POSITIONS, SPT_ORDERS, SPT_OPPORTUNITIES = "spt_positions", "spt_orders", "spt_opportunities"
 SPT_CLOSED_STATE = "CLOSED"
 SPT_MAX_POSITIONS = 2000
 SPT_LOOKBACK_DAYS = 10
@@ -193,7 +198,7 @@ def _ist_date(stamp: Any) -> Optional[str]:
 
 
 def spt_item(pos: Dict[str, Any], fills: List[Tuple[Dict[str, Any], int]],
-             bars: Optional[List[Dict[str, Any]]] = None) -> TradeItem:
+             bars: Optional[List[Dict[str, Any]]] = None, setup_type: Optional[str] = None) -> TradeItem:
     """A scanner (SPT) paper position as one cash position (see the module docstring). `fills` = (fill record, side) of the
     position's entry order (+1) and exit orders (-1); only the fills the position applied (`fill_ids`) are used."""
     pid, sym = str(pos["_id"]), str(pos.get("symbol") or "").upper()
@@ -242,6 +247,8 @@ def spt_item(pos: Dict[str, Any], fills: List[Tuple[Dict[str, Any], int]],
         # A dict, like a desk trade's own `source` (the journal reads it): where this position came from.
         "source": {"kind": SCANNER, **ids}, **ids,
         "spt_position_id": pid, "spt_state": pos.get("state"), "r_multiple": (pos.get("outcome") or {}).get("r_multiple"),
+        # the opportunity's stored category (module docstring, SETUP TYPE); None when it could not be read
+        "setup_type": setup_type,
         # an open position whose fills could not be matched is shown as missing, never as flat (dashboard alert)
         "fills_missing": bool(is_open and not execs),
     }
@@ -275,6 +282,20 @@ async def _spt_docs(db, uid: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, 
     return open_, closed, fills
 
 
+async def _spt_setup_types(db, docs: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """{opportunity id: its stored `category`} for these positions: one read. {} when it fails (logged)."""
+    ids = sorted({str(d["opportunity_id"]) for d in docs if d.get("opportunity_id")})
+    if not ids:
+        return {}
+    try:
+        rows = await db[SPT_OPPORTUNITIES].find({"_id": {"$in": ids}}).to_list(len(ids))
+    except Exception as e:  # noqa: BLE001 — the positions still show; their setup type is null
+        logger.warning("paper_pnl: the scanner opportunities could not be read for setup types (%s)", type(e).__name__)
+        return {}
+    return {str(r["_id"]): (r.get("category") if isinstance(r.get("category"), str) and r.get("category").strip() else None)
+            for r in rows}
+
+
 async def _fingerprint(db, uid: str) -> str:
     rows = await db[svc.TRADES].find({"user_id": uid}, {"_id": 1, "status": 1, "updated_at": 1, "closed_at": 1}) \
         .to_list(svc.MAX_OPEN_TRADES * 2 + svc.MAX_CLOSED_LISTED + 1)
@@ -298,6 +319,7 @@ async def _build(db, uid: str) -> Book:
     except Exception as e:  # noqa: BLE001 — left out and said so (Book.spt_error), never silently
         logger.warning("paper_pnl: the scanner (SPT) positions of a user could not be read (%s)", type(e).__name__)
         spt_open, spt_closed, spt_fills, spt_error = [], [], {}, f"the scanner paper positions could not be read ({type(e).__name__})"
+    setups = await _spt_setup_types(db, spt_open + spt_closed)
     for d in spt_open:                                      # their end-of-day marks: the same bars read
         sym, opened = str(d.get("symbol") or "").upper(), _ist_date(d.get("opened_at"))
         if sym and opened:
@@ -319,7 +341,8 @@ async def _build(db, uid: str) -> Book:
         pub = strat.public_strategy_trade(doc, sim, s_errors.get(doc["_id"]))
         book.open.append(strategy_item(pub, pending_exit=(sim or {}).get("exit")))
     for doc in spt_open:
-        book.open.append(spt_item(doc, spt_fills.get(str(doc["_id"])) or [], bars.get(str(doc.get("symbol") or "").upper())))
+        book.open.append(spt_item(doc, spt_fills.get(str(doc["_id"])) or [], bars.get(str(doc.get("symbol") or "").upper()),
+                                  setup_type=setups.get(str(doc.get("opportunity_id") or ""))))
 
     closed = await db[svc.TRADES].find({"user_id": uid, "status": "closed"}).sort("closed_at", -1).to_list(svc.MAX_CLOSED_LISTED + 1)
     book.partial = len(closed) > svc.MAX_CLOSED_LISTED
@@ -330,7 +353,8 @@ async def _build(db, uid: str) -> Book:
             book.closed.append(cash_item(svc.public_trade(doc)))
     book.partial = book.partial or len(spt_closed) > svc.MAX_CLOSED_LISTED
     for doc in spt_closed[: svc.MAX_CLOSED_LISTED]:
-        book.closed.append(spt_item(doc, spt_fills.get(str(doc["_id"])) or []))
+        book.closed.append(spt_item(doc, spt_fills.get(str(doc["_id"])) or [],
+                                    setup_type=setups.get(str(doc.get("opportunity_id") or ""))))
     book.marks_error = svc.marks_error({**errors, **s_errors}, len(starts) + len(strat_open))
     return book
 

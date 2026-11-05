@@ -261,9 +261,11 @@ def plan_change(current: Dict[str, float], *, changes: Optional[Dict[str, Any]] 
 
 async def set_limits(db, user_id: str, *, reason: Any, actor: str, actor_is_admin: bool,
                      changes: Optional[Dict[str, Any]] = None, profile: Optional[str] = None,
-                     now: Optional[datetime] = None) -> Dict[str, Any]:
+                     now: Optional[datetime] = None, expected_version: Optional[int] = None) -> Dict[str, Any]:
     """Change the account's limits. Returns the new public profile. Raises ProfileError: invalid_input,
-    admin_required (a loosening by a non-admin), no_change, or concurrent_change (another change landed first)."""
+    admin_required (a loosening by a non-admin), no_change, or concurrent_change (another change landed first, or the
+    stored version is not `expected_version` when one is given — the combined Paper Trading policy write,
+    services/spt/policy_view.py, passes the version it validated against)."""
     from services import risk_controls as rc            # the reason rule is the controls' own
 
     try:
@@ -272,6 +274,9 @@ async def set_limits(db, user_id: str, *, reason: Any, actor: str, actor_is_admi
         raise ProfileError("invalid_input", str(e)) from e
     doc = await db[PROFILES].find_one({"user_id": user_id})
     before = public(doc, user_id)
+    if expected_version is not None and int(expected_version) != before["version"]:
+        raise ProfileError("concurrent_change", f"the profile is at version {before['version']}, not {expected_version}; "
+                                                "reload and retry")
     after = plan_change(before["limits"], changes=changes, profile=profile)
     changed = {f: {"before": before["limits"][f], "after": after[f]} for f in FIELDS if after[f] != before["limits"][f]}
     if not changed:

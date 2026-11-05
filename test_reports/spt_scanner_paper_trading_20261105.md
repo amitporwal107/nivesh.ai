@@ -23,7 +23,7 @@
 | INT-4 | The order-path guard: no SPT function is named like an OMS order method (`cancel_order` → `cancel_paper_order`) | PASS (`test_order_path_guard.py`) |
 | INT-5 | `server.py` wires 4 routers and 3 leader-locked loops; all routes answer under `/api/v1` | PASS (staging harness below) |
 | INT-6 | Staging, outside the session: backfill, validation on real data, the pipeline refuses without a fresh price, every route's auth/ownership, reads write nothing, restore | PASS (below) |
-| INT-7 | Staging, in the session: proposal → risk reservation → order → fill on live quotes → exit → release → reconcile, with test users | **PENDING** (needs the market open and the morning Kite login) |
+| INT-7 | Staging, in the session: proposal → risk reservation → order → fill on live quotes → exit → release → reconcile, with test users | **PASS** (5 Nov 09:20–09:23 IST, deployed code, below) |
 
 ## Unit tests (real output)
 
@@ -106,18 +106,144 @@ AFTER RESTORE {… all 0} | equal to before: True
 harness read the top level of the response instead of its `opportunity` key. The harness is fixed for the in-session
 run; the route was correct.
 
+## Staging in-session run, INT-7 (5 Nov 09:20–09:23 IST, real output)
+
+- **Code:** the DEPLOYED staging backend (#485 + #486 merged; the harness asserts every module is under `/app/backend`, no overlay).
+- **Data:** two synthetic test users `spt_int7_t1_<ts>` / `spt_int7_t2_<ts>` only. The deployed B and C loops did the work; the
+  harness only switched the test users on through the routes and read the results. Kite feed `live`, 1,098 instruments.
+- **Harness:** `scratchpad/spt_int7.py` run by `scratchpad/int7_run.sh` (`docker exec -e LIVE=1 … python /tmp/spt_int7.py`).
+
+Selected lines, verbatim (long lines cut at 260 characters):
+
+```
+# INT-7 live run, started 2026-11-05 09:20:20 IST
+feed: live open regular_session 1098 2026-11-05T03:50:06.804804+00:00
+deployed code: config v2 = True | LIVE = True | now 2026-11-05T03:50:28.460565+00:00
+BEFORE (test users) {"spt_account_config": 0, "spt_account_config_versions": 0, "spt_proposals": 0, "spt_orders": 0, "spt_fills": 0, "spt_positions": 0, "spt_events": 0, "paper_accounts": 0, "paper_account_ledger": 0, "risk_decisions": 0, "risk_profiles": 0, "
+market-wide (info only, not touched) {"spt_signal_events": 3924, "spt_opportunities": 1207, "spt_signal_outcomes": 0}
+QUALIFIED opportunities at start: 119
+R1 no session /api/v1/scanner/signals → 401
+R1 no session /api/v1/opportunities → 401
+R1 no session /api/v1/paper/accounts → 401
+R1 no session /api/v1/proposals → 401
+R1 no session /api/v1/paper/orders → 401
+R2 opportunities QUALIFIED → 200 119 items
+R3 PUT another user's config → 403 {"detail":{"code":"not_your_account","message":"You can only use your own paper account."}}
+R3 PUT bad mode → 422 {"detail":{"code":"invalid_mode","message":"mode must be one of off, tracking, approval, auto","field":"mode"}}
+A1 non-admin GET admin settings → 403
+A1 non-admin GET admin user config → 403
+A2 user loosens max_new_per_day 5→10 → 403 {"detail":{"code":"admin_required","message":"Only an admin can loosen an SPT limit (max_new_per_day). You can tighten any limit yourself.","loosened":["max_new_per_day"]}}
+A2 user tightens →3 → 200 {'max_new_per_day': 3}
+A2 user resets (null) → 403 {"detail":{"code":"admin_required","message":"Only an admin can loosen an SPT limit (max_new_per_day). You can tighten any limit yourself.","loosened":["max_new_per_day"]}}
+A4 admin loosens T1 max_chase_pct →2 → 200 2.0
+R4 /api/v1/risk/account/<T2> → 403 {"detail":{"code":"not_your_account","message":"You can only use your own paper account."}}
+R4 validate-trade (dry run) → 200 {"dry_run":true,"writes":"none: no risk_decisions row, no reservation, no proposal","symbol":"DABUR","entry":{"type":"MARKET","price":394.5,"basis":"live ask","chase_bound":404.808,"plan_entry":400.8,"limit_price":null,"time_i
+R4 ENTRY without an approved proposal → 422 {"detail":{"code":"entry_requires_approved_proposal","message":"A paper entry is created only from your own proposal that has passed the risk checks and is read
+L1 T1 mode=auto → 200
+L1 T2 mode=approval → 200
+  waited 20 s for a deployed B round after opt-in
+  waited 0 s for a second deployed B round
+L1 deployed B round → {"at": "2026-11-05T03:51:17.475604+00:00", "users": 3, "qualified": 119, "proposals": 0, "refused": 0, "orders": 0, "orders_rejected": 0, "awaiting_approval": 0, "expired_approvals": 0, "skipped": {"price_unavailable": 63}, "errors": []} 
+L1 proposals T1 → 200 50 | [('ANTHEM', 'BLOCKED_BY_RISK', 'BLOCKED', 80, []), ('LTM', 'BLOCKED_BY_RISK', 'BLOCKED', 14, []), ('INFY', 'BLOCKED_BY_RISK', 'BLOCKED', 51, []), ('PVRINOX', 'BLOCKED_BY_RISK', 'BLOCKED', 43, []), ('INDUSTOWER', 'BLOCKED_BY_RISK', 'B
+L1 proposals T2 → 200 50 | [('ANTHEM', 'BLOCKED_BY_RISK', 'BLOCKED', 80, []), ('LTM', 'BLOCKED_BY_RISK', 'BLOCKED', 14, []), ('INFY', 'BLOCKED_BY_RISK', 'BLOCKED', 51, []), ('PVRINOX', 'BLOCKED_BY_RISK', 'BLOCKED', 43, []), ('INDUSTOWER', 'BLOCKED_BY_RISK', 'B
+L2 T2 approve ZYDUSLIFE → 200 {"proposal":{"template":"cash_long_positional_v1","symbol":"ZYDUSLIFE","exchange":"NSE","direction":"long","horizon":"positional","instrument":"cash","opportunity":{"opportunity_id":"dc369778-5e84-4f28-863a-69785e21924b","state_at
+  waited 0 s for a fill by the deployed C loop
+L3 orders T1 → [('ZYDUSLIFE', 'ENTRY', 'MARKET', 'FILLED', 81, 81, 1178.2246, None), ('SAREGAMA', 'ENTRY', 'LIMIT', 'PENDING', 108, 0, None, 628.75), ('BOSCHLTD', 'ENTRY', 'LIMIT', 'PENDING', 1, 0, None, 50650.0)]
+L3 positions T1 → [('ZYDUSLIFE', 'MONITORING', 81, 1178.2245, None)]
+L3 fill T1 ZYDUSLIFE BUY 2 @ 1179.79 ref 1179.2 basis top_of_book depth_unknown False quote_age_s 0.9 | fill at 2026-11-05T03:51:22.633824+00:00 quote at None
+L3 fill T1 ZYDUSLIFE BUY 14 @ 1179.09 ref 1178.5 basis top_of_book depth_unknown False quote_age_s 0.3 | fill at 2026-11-05T03:51:07.562833+00:00 quote at None
+L3 fill T1 ZYDUSLIFE BUY 65 @ 1177.99 ref 1177.4 basis top_of_book depth_unknown False quote_age_s 1.0 | fill at 2026-11-05T03:50:52.504695+00:00 quote at None
+L3 orders T2 → [('ZYDUSLIFE', 'ENTRY', 'MARKET', 'PARTIALLY_FILLED', 80, 26, 1179.7477, None)]
+L3 positions T2 → [('ZYDUSLIFE', 'MONITORING', 26, 1179.7477, None)]
+L3 fill T2 ZYDUSLIFE BUY 15 @ 1179.79 ref 1179.2 basis top_of_book depth_unknown False quote_age_s 0.5 | fill at 2026-11-05T03:51:52.739476+00:00 quote at None
+L3 fill T2 ZYDUSLIFE BUY 11 @ 1179.69 ref 1179.1 basis top_of_book depth_unknown False quote_age_s 1.4 | fill at 2026-11-05T03:51:37.678916+00:00 quote at None
+P pnl_paper → 200 positions 1 scanner rows 1 by_source {'desk': 0, 'scanner': 1, 'broker': 0} mismatches 0
+P pnl_all → 200 positions 1 scanner rows 1 by_source {'desk': 0, 'scanner': 1, 'broker': 0} mismatches 0
+L4 exit ZYDUSLIFE → 200 {"order":{"_id":"2b73cad4-2d59-4990-a3cc-10594c5a92f4","user_id":"spt_int7_t1_1793850628","account_id":"spt_int7_t1_1793850628","proposal_id":"dd766ddb-13cc-4a75-9d8a-59fee9f6de5a","opportunity_id":"dc369778-5e84-4f28-863a-69785e21924b"
+  waited 45 s for the exit fill + close
+L4 position after exit → 200 CLOSED 0 net -131.27 release done
+L4 account blocked_rs 213956.8 → 118554.99999999999 | cash_rs 1000000.0 → 999868.73 | reservations 3 → 2
+L4 trades → 200 [('ZYDUSLIFE', -131.27, 'manual', 'done')]
+L5 reconcile T1 → 200 {"version":"spt-reconcile-v1","at":"2026-11-05T03:52:40.728749+00:00","ok":true,"user_id":"spt_int7_t1_1793850628","counts":{"orders":4,"fills":6,"positions":1,"mismatches":0,"by_code":{}},"mismatches":[]}
+L5 reconcile T2 → 200 {"version":"spt-reconcile-v1","at":"2026-11-05T03:52:40.732997+00:00","ok":true,"user_id":"spt_int7_t2_1793850628","counts":{"orders":1,"fills":3,"positions":1,"mismatches":0,"by_code":{}},"mismatches":[]}
+RESTORE mode off T1 → 200
+RESTORE cancel SAREGAMA ENTRY → 200
+RESTORE cancel BOSCHLTD ENTRY → 200
+RESTORE mode off T2 → 200
+RESTORE spt_settings put back ( 0 docs ); harness version rows removed: 1
+RESTORE settings equal to snapshot: True
+RESTORE purge pass 0 removed 1277
+RESTORE purge pass 1 removed 0
+RESTORE purge pass 2 removed 0
+AFTER RESTORE (test users) {"spt_account_config": 0, "spt_account_config_versions": 0, "spt_proposals": 0, "spt_orders": 0, "spt_fills": 0, "spt_positions": 0, "spt_events": 0, "paper_accounts": 0, "paper_account_ledger": 0, "risk_decisions": 0, "risk_profiles
+Opportunities QUALIFIED at start that changed state during the run (market facts, not reverted): 0 {}
+EXIT=0
+# finished 09:23:22 IST
+```
+
+**What this shows**
+- L1: the deployed B loop picked up both test users within 20 s and proposed against the 119 QUALIFIED opportunities.
+- L2/L3: T2's approval became a MARKET order; T1 (auto) got orders without asking. The deployed C loop filled them on
+  live top-of-book quotes (quote age 0.3–1.4 s), in slices, including a partial fill (T2: 26 of 80).
+- L4: a manual exit closed T1's ZYDUSLIFE position (net −₹131.27 after costs), released its reservation and moved
+  cash 10,00,000 → 9,99,868.73.
+- L5: reconcile `ok: true`, 0 mismatches for both users. The P&L dashboard showed the scanner row (`by_source scanner 1`).
+- Restore: every test-user document removed (1,277), 0 left after two more passes, settings equal to the snapshot,
+  **`equal to before: True`**; no QUALIFIED opportunity changed state during the run.
+
+**Observations (not failures)**
+- 63 of the 119 QUALIFIED opportunities were skipped as `price_unavailable` in that B round: their symbols are not in
+  the Kite live-feed universe (1,098 instruments), so no proposal is made for them.
+- 49 of T1's 50 proposals were `BLOCKED_BY_RISK` with reason `max_new_per_day`. The harness had tightened T1's cap to 3
+  (A2) and a user's reset back to the default (5) is a loosening, so it needs an admin (403, by design). T1 got exactly
+  3 orders.
+- The deployed C state doc has no `round`/`counts` keys (L3 line shows null); the fills prove the loop ran.
+
+### The deployed SPT screens (PR #488) on these live bodies (Playwright, real bodies, no mocks for SPT routes)
+
+First run, the spec as merged (verbatim):
+```
+  ✘  1 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:99:3 › SPT screens on real staging bodies › REAL-3 Settings shows the real config (mode and limits) (1.5s)
+  ✘  3 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:76:3 › SPT screens on real staging bodies › REAL-1 Opportunities lists the real opportunities (1.8s)
+    ../out/results/copilot-app-desk-spt-real--cd165-ists-the-real-opportunities-copilot-app/test-failed-1.png
+    ../out/results/copilot-app-desk-spt-real--9e44a-eal-config-mode-and-limits--copilot-app/test-failed-1.png
+  2 failed
+  4 passed (6.6s)
+PW_EXIT=1
+```
+Both failures were the spec's safe-mode assumptions, not the screens: REAL-1's symbol set left out the proposals body
+(ROLEXRINGS is a proposal whose opportunity is outside the first 200; the screen lists proposals too), and REAL-3
+expected mode `off` from `accounts.json`, saved after the switch to auto, while the Settings screen reads
+`account_t1.json` (mode off; the screen showed "Off · current"). With both checks reading the body the screen
+reads (scratch copy of the spec; the fix goes into the Paper Trading v2 branch's spec):
+```
+BUILD_EXIT=0
+  ✓  3 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:91:3 › SPT screens on real staging bodies › REAL-2 Analytics renders the real outcome body (3.4s)
+  ✓  2 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:99:3 › SPT screens on real staging bodies › REAL-3 Settings shows the real config (mode and limits) (3.4s)
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:76:3 › SPT screens on real staging bodies › REAL-1 Opportunities lists the real opportunities (4.9s)
+  ✓  4 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:110:3 › SPT screens on real staging bodies › REAL-4 Trading overview shows the real paper equity (2.8s)
+  ✓  5 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:120:3 › SPT screens on real staging bodies › REAL-5 Capital allocation ranks the real opportunities (2.8s)
+  ✓  6 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:130:3 › SPT screens on real staging bodies › REAL-6 Portfolio risk renders the real (empty) book (2.2s)
+  6 passed (8.4s)
+PW_EXIT=0
+```
+Screenshots: `scratchpad/pw-real-live3/shots/real-{opportunities,analytics,settings,overview,allocation,portfolio}.png` (session scratchpad, not committed: they hold staging data).
+
 ## Playwright
 
-No frontend code is changed by SPT: the release is APIs only, because the owner is designing the screens. The session's
-earlier frontend edits (Exit watch, PR #483) were verified with Playwright: 54 passed plus a 2-test real render, in
-`test_reports/exit_watch_20261104_2145.md` (Verdict PASS).
+- **PR #488 (the first SPT screens), mocked bodies:** `TSC_EXIT=0`, `BUILD_EXIT=0`, `188 passed, 2 skipped` (5 Nov, before merge;
+  `test_reports` of PR #488).
+- **PR #488 on real staging bodies:** the 07:35 safe-mode bodies `6 passed`; the INT-7 live bodies `6 passed` with the two
+  body-driven checks (above).
+- **Exit watch (PR #483):** `test_reports/exit_watch_20261104_2145.md` (Verdict PASS).
 
 ## Not verified yet
 
-- **INT-7**, the in-session chain on live quotes: proposal → reservation → order → fill → exit → release → reconcile.
-  The harness `LIVE=1` mode is ready, to run after 09:15 IST on 5 Nov. It needs the morning Kite login.
-- **Real-Mongo concurrency** (the 5 skipped tests).
-- **The scan-loop hook and the three loops running inside the deployed app.** Before a merge and deploy they only run in
-  the harness.
+- **Real-Mongo concurrency** (the 5 skipped tests): two loop replicas racing on one document. Staging runs one
+  leader-locked replica, so it did not arise here.
+- **A full trading day** of the loops (targets/stops hit by the monitor on their own, end-of-day jobs). INT-7 proved
+  one manual exit, not an automatic one.
 
-## Verdict: PENDING (INT-7 in-session run)
+Release 1 as merged (#485, #486, #488) works end to end on staging during market hours, with the gaps above stated.
+
+## Verdict: PASS

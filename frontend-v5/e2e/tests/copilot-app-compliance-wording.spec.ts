@@ -117,7 +117,12 @@ const PLACES = [
   "tab=overview",
   "tab=trade&view=scanner&sub=ranked", "tab=trade&view=scanner&sub=library", "tab=trade&view=scanner&sub=scorecard",
   "tab=trade&view=chart&sub=live&sym=FIXBRK", "tab=trade&view=chart&sub=record&sym=FIXBRK",
-  "tab=trade&view=paper&sub=live", "tab=trade&view=paper&sub=journal", "tab=trade&view=watchlists",
+  // Paper Trading v2 (owner, 5 Nov 2026): 01 Overview and 06 Strategy analytics carry no plan words, so they get the full lint.
+  // 02 Scanner opportunities, 03 Capital allocation, 04 Portfolio risk and 05 Real-time P&L use the standard plan words the owner
+  // allowed on these paper screens (Entry, Stop, T1, T2, "Approve paper trade", "Reject", "Add to watchlist";
+  // UI_DESIGN_V2.md "Wording"), so their specs lint them for recommend / pick / suggest (copilot-app-desk-paper-v2-a.spec.ts
+  // PV2-A-60, builder B's specs). The old sub=live / sub=journal redirect to 05 Real-time P&L.
+  "tab=trade&view=paper&sub=overview", "tab=trade&view=paper&sub=analytics", "tab=trade&view=watchlists",
   "tab=market&view=intel", "tab=market&view=smartmoney", "tab=market&view=sectors", "tab=market&view=research",
   "tab=risk&view=limits", "tab=risk&view=controls", "tab=risk&view=log", "tab=risk&view=hedge",
   "tab=portfolio",

@@ -7,6 +7,13 @@
  * spt_risk.py, spt_accounts.py with the 5 Nov config, spt_paper.py; services/spt/policy.py public(), settings.py public(),
  * outcomes/analytics.py). Symbols, prices, ids and figures are made up. Mocked APIs, production build: these cases prove the
  * screens render and send the right requests, NOT that the backend answers these shapes.
+ *
+ * RETIRED (Paper Trading v2, owner 5 Nov 2026: "We need to completely replace the current paper trading dashboard";
+ * docs/scanner_paper_trading/UI_DESIGN_V2.md): these three screens (SptOpportunities, SptAnalytics, SptSettings) are no longer
+ * routed — sub=opportunities and sub=analytics open the v2 views, sub=settings opens 03 Capital allocation, and the mode moved to
+ * the account card. Their cases (SPT-UI-P-01 … P-27) are kept below under test.describe.skip so the record stays readable; the
+ * replacements are tested in copilot-app-desk-paper-v2-a.spec.ts (PV2-A-*) and builder B's specs. SPT-UI-P-RETIRED proves the
+ * old URLs land on the v2 views and the old screens are gone.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
@@ -228,7 +235,23 @@ async function noSideScroll(page: Page) {
   expect(o.scroll, o.wide).toBeLessThanOrEqual(1);
 }
 
-test.describe("MOCK — not real data: Paper Trading › Scanner-to-Paper Trading screens", () => {
+test.describe("MOCK — not real data: Paper Trading v2 replaced the Scanner-to-Paper Trading screens", () => {
+  test("SPT-UI-P-RETIRED the old sub-views open their v2 places; the old screens are not drawn", async ({ page }) => {
+    await setup(page);
+    for (const [from, to, root] of [["opportunities", "opportunities", "pv2-opps"], ["analytics", "analytics", "pv2-analytics"], ["settings", "allocation", "pv2-shell"]]) {
+      await page.goto(at(from));
+      await expect.poll(() => params(page).get("sub"), from).toBe(to);
+      await expect(page.getByTestId(root), from).toBeVisible(SLOW);
+      for (const old of ["spt-opps", "spt-analytics", "spt-settings", "spt-mode-banner"]) await expect(page.getByTestId(old), `${from}: ${old}`).toHaveCount(0);
+    }
+    // The mode is changed from the account card now (the old Settings screen is gone).
+    await page.getByTestId("pv2-mode-pill").click();
+    await expect(page.getByTestId("pv2-mode-chooser")).toBeVisible();
+  });
+});
+
+// RETIRED with Paper Trading v2 (see the header): kept for the record, not run.
+test.describe.skip("MOCK — not real data: Paper Trading › Scanner-to-Paper Trading screens", () => {
   test("SPT-UI-P-01 Paper Trading has the three new sub-views, each with its screen", async ({ page }) => {
     await setup(page);
     await page.goto(at("live"));

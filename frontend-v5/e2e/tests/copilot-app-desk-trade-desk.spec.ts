@@ -7,6 +7,13 @@
  * `contract-decision-card.json`, which backend/tests/test_decision_card_contract.py rebuilds from the real routes (cash:
  * MOCK — not real data, the RELIANCE-like world of backend/tests/test_strategy_plan.py). Everything else below is an inline
  * MOCK — not real data — in the real route's shape (the source is named beside each). Mocked APIs, production build.
+ *
+ * RETIRED (Paper Trading v2, owner 5 Nov 2026: "We need to completely replace the current paper trading dashboard";
+ * docs/scanner_paper_trading/UI_DESIGN_V2.md): the Live desk, the Trade journal and their header strip are no longer routed —
+ * their URLs open 05 Real-time P&L (desk-nav.ts PAPER_OLD_SUBS) and the components stay in the tree unrouted. The cases
+ * that drove those screens (TD-4, TD-6, TD-8 … TD-23, TD-34, TD-35, TD-37 … TD-42) are declared with test.skip so the
+ * record stays readable; Paper Trading v2 is covered by copilot-app-desk-paper-v2-a.spec.ts (navigation, shell, Overview,
+ * Scanner opportunities, Strategy analytics) and builder B's copilot-app-desk-pnl*.spec.ts (Real-time P&L, closed trades).
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
@@ -22,7 +29,8 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 
 const DESK = "/v5/app/trader/desk";
 /** The owner's workbench places (PLAN.md "1-REVISED"): the TD cases' old view names, and where they are now. */
-const PLACE: Record<string, string> = { open: "paper&sub=live", closed: "paper&sub=journal" };   // Strategy Lab (new, backtest) was removed, owner 29 Oct
+// Strategy Lab (new, backtest) was removed, owner 29 Oct. Since Paper Trading v2 (5 Nov) these URLs redirect to sub=pnl.
+const PLACE: Record<string, string> = { open: "paper&sub=live", closed: "paper&sub=journal" };
 const TD = (view: string, extra = "") => `${DESK}?tab=trade&view=${PLACE[view] ?? view}${extra}`;
 const CASH_PLAN = CARD.cash.trade_plan_response.plan;
 const SLOW = { timeout: 15_000 };
@@ -250,29 +258,16 @@ async function noSideScroll(page: Page) {
 // ── header strip ─────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · header strip", () => {
-  test("TD-1 / TD-2 / TD-3 / TD-5 the Live desk's account, open-risk chip and exit line; the paper/real line on Paper Trading", async ({ page }) => {
+  test("TD-5 the paper/real line on Paper Trading (TD-1 / TD-2 / TD-3, the Live desk's header strip, retired with Paper Trading v2)", async ({ page }) => {
     await setup(page);
-    for (const view of ["closed"]) {
+    for (const view of ["open", "closed"]) {
       await page.goto(TD(view));
+      await expect.poll(() => params(page).get("sub"), view).toBe("pnl");
       await expect(page.getByTestId("desk-paper-real-line"), view).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio", SLOW);
-    }
-    for (const view of ["open"]) {
-      await page.goto(TD(view));
-      const h = page.getByTestId("td-header");
-      await expect(h, view).toBeVisible(SLOW);
-      await expect(page.getByTestId("td-acct-cash")).toHaveText(rs0(ACCOUNT.cash_rs));
-      await expect(page.getByTestId("td-acct-blocked")).toHaveText(rs0(ACCOUNT.blocked_rs));
-      await expect(page.getByTestId("td-acct-equity")).toHaveText(rs0(PROFILE.live.equity.equity_rs));
-      await expect(page.getByTestId("td-acct-start")).toContainText(`Starting capital ${rs0(ACCOUNT.starting_capital_rs)}, a simulation default`);
-      await expect(page.getByTestId("td-open-risk")).toHaveText("Open risk 1.2% of 3%");
-      await expect(page.getByTestId("td-open-risk")).toHaveAttribute("data-pct", (12000 / PROFILE.live.equity.equity_rs * 100).toFixed(2));
-      await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "ok");
-      await expect(page.getByTestId("td-exit-job")).toContainText("Paper trades checked after the 26 Oct close");
-      await expect(page.getByTestId("desk-paper-real-line")).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio");
     }
   });
 
-  test("TD-4 the exit check missed, late, or its status unreadable", async ({ page }) => {
+  test.skip("TD-4 the exit check missed, late, or its status unreadable", async ({ page }) => {
     await setup(page, { exit: { status: 200, body: EXIT_MISSED } });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "missed", SLOW);
@@ -289,7 +284,7 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
     await expect(page.getByTestId("td-exit-job")).toContainText("unavailable");
   });
 
-  test("TD-42 the paper account's corrections: the count in force, and the list on request (none: nothing shown)", async ({ page }) => {
+  test.skip("TD-42 the paper account's corrections: the count in force, and the list on request (none: nothing shown)", async ({ page }) => {
     // GET /api/desk/paper-account/corrections, in the shape of the staging answer of 27 Oct (ids shortened; MOCK symbols)
     const corrections = { count: 2, truncated: false, append_only: true, note: "Corrections are added to the ledger, never edited or deleted.",
       counts: { in_force: 2, excluded: 1, voided: 1, reverted: 0, by_reason_code: {} },
@@ -310,7 +305,7 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
     await expect(page.getByTestId("td-corrections")).toHaveCount(0);
   });
 
-  test("TD-6 equity unknown: said with the reason, never ₹0", async ({ page }) => {
+  test.skip("TD-6 equity unknown: said with the reason, never ₹0", async ({ page }) => {
     await setup(page, { profile: PROFILE_UNKNOWN });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-acct-equity")).toHaveText("Unknown", SLOW);
@@ -333,8 +328,8 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›AI Scanner›Ranked candidates$/);
     const SUBS: Record<string, string[]> = {
       scanner: ["Ranked candidates", "Signal library & sources", "Scorecard"], chart: ["Live chart", "Signal record"],
-      // Scanner-to-Paper Trading (owner, 5 Nov 2026) added Opportunities · Analytics · Settings after the P&L dashboard.
-      paper: ["Live desk", "Trade journal", "P&L dashboard", "Opportunities", "Analytics", "Settings"], watchlists: [],
+      // Paper Trading v2 (owner, 5 Nov 2026): his six views, each number small and mono before its label.
+      paper: ["01Overview", "02Scanner opportunities", "03Capital allocation", "04Portfolio risk", "05Real-time P&L", "06Strategy analytics"], watchlists: [],
     };
     for (const [view, labels] of Object.entries(SUBS)) {
       await page.getByTestId(`desk-view-${view}`).click();
@@ -347,17 +342,18 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
       await expect(page.getByTestId("desk-subviews").getByRole("button").first()).toHaveAttribute("aria-pressed", "true");
     }
     await page.getByTestId("desk-view-paper").click();
-    await page.getByTestId("desk-sub-journal").click();
-    await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›Trade journal$/);
-    await expect(page.getByTestId("td-view-journal")).toBeVisible(SLOW);
+    await page.getByTestId("desk-sub-analytics").click();
+    await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›Strategy analytics$/);
+    await expect(page.getByTestId("pv2-analytics")).toBeVisible(SLOW);
     await trail.getByTestId("desk-trail-view").click();
-    await expect.poll(() => params(page).get("sub")).toBe("live");
+    await expect.poll(() => params(page).get("sub")).toBe("overview");
   });
 
   test("NV-3 / NV-4 old URLs land in their sections; Watchlists moved from Market Desk", async ({ page }) => {
     await setup(page);
     const cases: Array<[string, string, string | null, Record<string, string>?]> = [
-      ["?tab=trade&view=paper", "paper", "live"], ["?tab=trade&view=open", "paper", "live"], ["?tab=trade&view=closed", "paper", "journal"],
+      // Paper Trading v2 (owner, 5 Nov): Overview by default; the Live desk and the Trade journal became Real-time P&L.
+      ["?tab=trade&view=paper", "paper", "overview"], ["?tab=trade&view=open", "paper", "pnl"], ["?tab=trade&view=closed", "paper", "pnl"],
       // Strategy Lab was removed (owner, 29 Oct): every lab URL opens Chart Analysis › Live chart with its stock.
       ["?tab=trade&view=new", "chart", "live"], ["?tab=trade&view=lab&sub=backtest", "chart", "live"],
       ["?tab=fno&lab=strategies&lab_sym=NIFTY", "chart", "live", { sym: "NIFTY" }],
@@ -375,7 +371,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["Market Intelligence", "Smart Money", "Sector Rotation", "Stock Research", "Screener"]);
   });
 
-  test("TD-8 / TD-9 pending entries with rule and validity; open positions with state, net P/L and plan id", async ({ page }) => {
+  test.skip("TD-8 / TD-9 pending entries with rule and validity; open positions with state, net P/L and plan id", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-open-lead")).toHaveText("2 cash positions and 1 F&O structure open, 1 opening pending.", SLOW);
@@ -393,7 +389,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(pos).toContainText("net of trading costs, before income tax");
   });
 
-  test("TD-10 the F&O structure: every leg, payoff-v2 figures from the stored legs, Greeks unavailable, days to expiry", async ({ page }) => {
+  test.skip("TD-10 the F&O structure: every leg, payoff-v2 figures from the stored legs, Greeks unavailable, days to expiry", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(TD("open"));
     const card = page.getByTestId("td-structure");
@@ -426,7 +422,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
       .toEqual(LEGS.map((l) => ["option", l.side, 1, 75, l.entry_price, l.strike, l.option_type, EXPIRY]));
   });
 
-  test("TD-11 roll on the F&O row: the preview, and a refused roll in the route's words", async ({ page }) => {
+  test.skip("TD-11 roll on the F&O row: the preview, and a refused roll in the route's words", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-structure").getByTestId("td-roll-open").click(SLOW);
@@ -434,7 +430,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(page.getByTestId("td-roll-refused")).toContainText("Cannot roll: The 27 Oct F&O bhavcopy is published after 22:15 IST");
   });
 
-  test("TD-12 a trade without a mark says so; the list says prices could not all be read", async ({ page }) => {
+  test.skip("TD-12 a trade without a mark says so; the list says prices could not all be read", async ({ page }) => {
     await setup(page, { bookExtra: { marks_error: "prices_partially_unavailable" } });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-marks-error")).toContainText("Some end-of-day prices could not be read", SLOW);
@@ -443,7 +439,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(row.getByTestId("td-open-net")).toHaveText("—");
   });
 
-  test("TD-13 no trades: the empty state links to Market Overview and Chart Analysis", async ({ page }) => {
+  test.skip("TD-13 no trades: the empty state links to Market Overview and Chart Analysis", async ({ page }) => {
     await setup(page, { trades: [] });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-open-empty")).toBeVisible(SLOW);
@@ -458,7 +454,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
 // ── the journal drawer ───────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => {
-  test("TD-14 / TD-15 / TD-16 / TD-17 / TD-18 / NV-5 a row opens Trade journal: timeline, fills, the desk-cost-v2 bridge, stop history", async ({ page }) => {
+  test.skip("TD-14 / TD-15 / TD-16 / TD-17 / TD-18 / NV-5 a row opens Trade journal: timeline, fills, the desk-cost-v2 bridge, stop history", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
@@ -493,7 +489,7 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await expect(page.getByRole("region", { name: "Trade journal · INFY" })).toBeVisible();
   });
 
-  test("TD-19 exit flags: both touched → stop assumed; gap through the stop → filled at the open; no AMBIGUOUS", async ({ page }) => {
+  test.skip("TD-19 exit flags: both touched → stop assumed; gap through the stop → filled at the open; no AMBIGUOUS", async ({ page }) => {
     await setup(page);
     await page.goto(TD("closed"));
     await page.getByTestId("td-closed").getByRole("row").filter({ hasText: "AXISBANK" }).click(SLOW);
@@ -505,7 +501,7 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the risk level: filled at the open. ${GAP}`);
   });
 
-  test("TD-20 the journal links to Chart Analysis › Live chart and to the plan's decision card", async ({ page }) => {
+  test.skip("TD-20 the journal links to Chart Analysis › Live chart and to the plan's decision card", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
@@ -519,7 +515,7 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     expect(params(page).get("sym")).toBe("INFY");
   });
 
-  test("TD-21 the F&O journal: legs, payoff figures, events and roll", async ({ page }) => {
+  test.skip("TD-21 the F&O journal: legs, payoff figures, events and roll", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-structure-journal").click(SLOW);
@@ -535,7 +531,7 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
 // ── Closed & journal ─────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · Closed & journal", () => {
-  test("TD-22 / TD-23 closed trades with exit reason, net before tax; the summary; a row opens the drawer", async ({ page }) => {
+  test.skip("TD-22 / TD-23 closed trades with exit reason, net before tax; the summary; a row opens the drawer", async ({ page }) => {
     await setup(page);
     await page.goto(TD("closed"));
     await expect(page.getByTestId("td-closed-rows")).toHaveText("2", SLOW);
@@ -558,7 +554,7 @@ test.describe("MOCK — not real data: Trade Desk · Closed & journal", () => {
 // ── PaperDesk's behaviours, on the Trade Desk (its old mount is replaced by this tab) ──────────────────
 
 test.describe("MOCK — not real data: Trade Desk · close, errors, records", () => {
-  test("TD-37 Close asks first; Cancel sends nothing; Yes posts {} to …/{id}/close and the list is read again", async ({ page }) => {
+  test.skip("TD-37 Close asks first; Cancel sends nothing; Yes posts {} to …/{id}/close and the list is read again", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
@@ -578,7 +574,7 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
     await expect(page.getByTestId("td-journal-close")).toHaveText("Cancel paper trade");
   });
 
-  test("TD-38 a refused close keeps the server's words, and the confirmation stays usable", async ({ page }) => {
+  test.skip("TD-38 a refused close keeps the server's words, and the confirmation stays usable", async ({ page }) => {
     const seen = await setup(page, { close: { status: 409, body: { detail: "trade_already_closed" } } });
     await page.goto(TD("open"));
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
@@ -589,7 +585,7 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
     await expect(page.getByTestId("td-journal-close-yes")).toBeEnabled();
   });
 
-  test("TD-39 the list fails (502) or is not enabled (403): said, never an empty book", async ({ page }) => {
+  test.skip("TD-39 the list fails (502) or is not enabled (403): said, never an empty book", async ({ page }) => {
     await setup(page, { list: { status: 502, body: { detail: "upstream_unavailable" } } });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-trades-error").getByRole("alert")).toContainText("Your paper trades didn’t load", { timeout: 20_000 });
@@ -600,7 +596,7 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
     await expect(page.getByTestId("td-trades-error")).toContainText("Your paper trades is not enabled for this account", SLOW);
   });
 
-  test("TD-40 a strategy row without its legs or signal is a loud contract error, not a dropped trade", async ({ page }) => {
+  test.skip("TD-40 a strategy row without its legs or signal is a loud contract error, not a dropped trade", async ({ page }) => {
     const broken = { ...CONDOR, legs: [] };
     await setup(page, { trades: [OPEN, broken] });
     await page.goto(TD("open"));
@@ -608,7 +604,7 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
     await expect(page.getByTestId("td-positions")).toHaveCount(0);
   });
 
-  test("TD-41 a flat-cost trade's bridge shows brokerage and slippage only; research exit rules and an unknown exit reason are shown as sent", async ({ page }) => {
+  test.skip("TD-41 a flat-cost trade's bridge shows brokerage and slippage only; research exit rules and an unknown exit reason are shown as sent", async ({ page }) => {
     const flat = cash({ id: "pt-flat", symbol: "FLATCO", status: "closed", state: "CLOSED", exit_price: 104, exit_reason: "weird_exit", exit_session: "2026-10-24", closed_at: "2026-10-24T15:30:00+00:00",
       realized_pnl_rs: 40, gross_pnl_rs: 40, costs_rs: 41.04, net_pnl_rs: -1.04, last_close: null, unrealized_pnl_rs: null,
       cost_model: { name: "flat", version: "desk-flat-v1", slippage_pct_per_side: 0.05, brokerage_rs_per_side: 20 },
@@ -697,7 +693,7 @@ test.describe("MOCK — not real data: Trade Desk · AI Scanner and Chart Analys
 // ── data, layout, wording ────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", () => {
-  test("TD-34 one GET /api/desk/paper-trades per load, across sections and sub-views", async ({ page }) => {
+  test.skip("TD-34 one GET /api/desk/paper-trades per load, across sections and sub-views", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-structure")).toHaveCount(1, SLOW);
@@ -713,7 +709,7 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     expect(seen.listGets).toBe(1);
   });
 
-  test("TD-35 390 px: no sideways page scroll on any sub-view or the journal; the leg table scrolls in its own box", async ({ page }) => {
+  test.skip("TD-35 390 px: no sideways page scroll on any sub-view or the journal; the leg table scrolls in its own box", async ({ page }) => {
     await setup(page, { phone: true });
     for (const [view, root] of [["open", "td-view-open"], ["closed", "td-view-journal"]]) {
       await page.goto(TD(view));
@@ -731,17 +727,12 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     await noSideScroll(page);
   });
 
-  test("TD-36 wording: ideas, paper; no pick, recommend or suggest in the tab's own words", async ({ page }) => {
+  test("TD-36 wording: no pick, recommend or suggest in Paper Trading's chips and shell, or the Watchlists switcher (the Live desk's own words retired with it)", async ({ page }) => {
     await setup(page);
-    await page.goto(TD("open"));
-    await expect(page.getByTestId("td-structure")).toHaveCount(1, SLOW);
-    expect(wordingOf(await page.getByTestId("td-tab").innerText())).not.toMatch(BANNED);
-    await expect(page.getByTestId("td-rules-note")).toContainText("nothing is sent to a broker");
-    await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click();
-    expect(wordingOf(await page.getByTestId("td-journal").innerText())).not.toMatch(BANNED);
-    await page.goto(TD("closed"));
-    await expect(page.getByTestId("td-view-closed")).toBeVisible(SLOW);
-    expect(wordingOf(await page.getByTestId("td-tab").innerText())).not.toMatch(BANNED);
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible(SLOW);
+    expect(wordingOf(await page.getByTestId("desk-subviews").innerText())).not.toMatch(BANNED);
+    expect(wordingOf(await page.getByTestId("pv2-shell").innerText())).not.toMatch(BANNED);
     await page.goto(`${DESK}?tab=trade&view=watchlists&wl=all`);
     await expect(page.getByTestId("desk-views")).toBeVisible(SLOW);
     expect(wordingOf(await page.getByTestId("desk-views").innerText())).not.toMatch(BANNED);

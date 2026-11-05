@@ -172,7 +172,9 @@ class FakeDb:
                      "trade_plans": FakeCollection(),
                      # Scanner-to-Paper Trading positions and orders, which the P&L dashboard's book also reads
                      # (services/paper_pnl/book.py); empty unless a test adds some
-                     "spt_positions": FakeCollection(), "spt_orders": FakeCollection()}
+                     "spt_positions": FakeCollection(), "spt_orders": FakeCollection(),
+                     # … and the opportunities it reads each scanner position's stored setup type from (Paper Trading v2)
+                     "spt_opportunities": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"
