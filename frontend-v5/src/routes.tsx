@@ -21,6 +21,7 @@ import DisclosurePage from "./pages/Disclosure";
 import BlogIndexPage from "./pages/Blog";
 import BlogArticlePage from "./pages/Blog/Article";
 import MarketCommentaryPage from "./pages/MarketCommentary";
+import UserGuidePage from "./pages/UserGuide";
 import WebinarPage from "./pages/Webinar";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
@@ -91,6 +92,7 @@ export function AppRoutes() {
       {/* Nightly Closing Bell video (tools/closing_bell) — public, latest edition + archive by date. */}
       <Route path="/market-commentary" element={<MarketCommentaryPage />} />
       <Route path="/market-commentary/:date" element={<MarketCommentaryPage />} />
+      <Route path="/user-guide" element={<UserGuidePage />} />
       {/* Webinar landing + registration — public, no auth: visitors arrive
           cold from social posts and must not hit the login gate. */}
       <Route path="/webinar" element={<WebinarPage />} />

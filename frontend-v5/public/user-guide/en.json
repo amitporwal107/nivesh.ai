@@ -1,0 +1,344 @@
+{
+"lang": "en",
+"video": "nivesh-copilot-da8691abbb",
+"duration": 1003,
+"sections": [
+{
+"id": "s00",
+"chapter": "Intro",
+"label": "Nivesh Copilot",
+"t": 1.4,
+"text": "Every market participant in India has more data than ever. The hard part is turning it into timely, accurate decisions you can explain. This is how Nivesh Copilot helps."
+},
+{
+"id": "s01",
+"chapter": "The problem",
+"label": "The problem",
+"t": 17.3,
+"text": "The biggest challenge is not a lack of market data. It is fragmented, constantly changing information: prices, open interest, filings, results, fund flows and broker statements, each in a different place. Turning all of that into a timely, accurate and explainable decision takes hours every day, and most people simply cannot keep up."
+},
+{
+"id": "s02",
+"chapter": "The problem",
+"label": "Five participants, five daily struggles",
+"t": 42.5,
+"text": "Traders ask: is the market bullish or sideways, is this breakout genuine, are volume and open interest behind it, how much should I risk, and what is my total open risk? Investors ask: which companies are worth researching, were the results better or worse than the trend, am I concentrated in one sector, and what does a change cost in tax? Research analysts spend the day collecting and reconciling data, reading filings and results, comparing peers, and keeping an audit trail for every view. Market researchers track the regime, breadth, sector rotation, FII, DII and mutual-fund flows and options positioning, and need history to test every narrative. And advisors and distributors watch many client portfolios at once, check suitability, rebalance, plan tax, and explain every market move to every client."
+},
+{
+"id": "s03",
+"chapter": "The problem",
+"label": "Ten problems everyone shares",
+"t": 109.8,
+"text": "Underneath, ten problems are common to all of them: fragmented information, information overload, too little actionable intelligence, unreliable data and missing context; no historical validation, risk judged in pieces, no way to watch everything continuously, hours lost collecting data, and no record of why a decision was made."
+},
+{
+"id": "s04",
+"chapter": "The problem",
+"label": "How Nivesh answers",
+"t": 134.3,
+"text": "Nivesh brings exchange data, broker holdings, filings and fund flows into one place, and puts one Copilot on top that answers with its evidence. Every idea comes with its reasons, its sources and how fresh they are, what would prove it wrong, a check against your own risk limits, and a journal of what happened next. Let's see it, starting with the trader."
+},
+{
+"id": "s05",
+"chapter": "Trader deep-dive",
+"label": "Trader mode · Smart Trading Desk",
+"t": 161.8,
+"text": "Switch to Trader mode, and the Smart Trading Desk opens: Market Overview, Trade Desk, Market Desk and Risk Desk, with the AI Copilot docked beside every screen. Everything here is paper mode, simulated execution. Brokers are read-only, and no order is ever sent.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s06",
+"chapter": "Trader deep-dive",
+"label": "01 Market Overview",
+"t": 184.0,
+"text": "Is the market bullish, bearish or sideways? Market Overview answers in one read: Nifty, Bank Nifty, India VIX, breadth across every NSE stock, and the regime the risk service sizes every trade with. FII and DII cash flows and the leading and lagging sectors sit right beside it.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s07",
+"chapter": "Trader deep-dive",
+"label": "01 Market Overview › Top AI candidates",
+"t": 207.5,
+"text": "Below are the top AI candidates, ten in cash and ten in F&O, each with a score, the strategy that fits it, and a complete plan: a reference price, a risk level, reward levels, a size and the maximum loss. Each one is an idea to review, not advice, and one click records it as a paper trade, checked against your risk limits first.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s08",
+"chapter": "Trader deep-dive",
+"label": "Signals › Scan dashboard",
+"t": 233.5,
+"text": "Now, signals. The scan dashboard runs Chartink-style scans on Nivesh's own data: Kite live quotes over NSE end-of-day bars, refreshed every ten seconds while the market is open. Three dashboards cover different styles: Atlas fresh, Day trade, and Early movers, which flags stocks trading at five times their usual volume and two percent over the open.",
+"app": "trader/desk?tab=market&view=screener&sub=dashboard"
+},
+{
+"id": "s09",
+"chapter": "Trader deep-dive",
+"label": "Signals › Signal strength score",
+"t": 260.2,
+"text": "Hundreds of signals fire every day, so each one gets a signal strength score out of a hundred: quality out of thirty, trend twenty-five, the reason for the move twenty, size fifteen and participation ten. Only signals at seventy or more count as strong. Below seventy, the score and the reasons still show, but there is no alert and no plan, and pump-and-dump patterns carry a penalty. A strong signal shows its technical reasons, a positional plan with reward at two and four times the risk, a trend rule that says when the setup is over, the scan lists it appeared in, and an options strategy idea beside it.",
+"app": "trader/desk?tab=market&view=screener&sub=dashboard"
+},
+{
+"id": "s10",
+"chapter": "Trader deep-dive",
+"label": "Signals › Signals by company",
+"t": 301.8,
+"text": "Signals by company turns the day's thousands of signals into one timeline per stock, searchable by name. A stock that fired a breakout, then a volume surge, then an early-mover alert reads as one story, for the day trader and the positional trader alike.",
+"app": "trader/desk?tab=market&view=screener&sub=dashboard"
+},
+{
+"id": "s11",
+"chapter": "Trader deep-dive",
+"label": "02 Trade Desk › AI Scanner",
+"t": 321.2,
+"text": "The AI Scanner ranks the evening's candidates in full, with how long each one has stayed on the list and how its plan has moved since day one, and its signal library spells out every rule in plain words.",
+"app": "trader/desk?tab=trade&view=scanner&sub=ranked"
+},
+{
+"id": "s12",
+"chapter": "Trader deep-dive",
+"label": "02 Trade Desk › AI Scanner › Scorecard",
+"t": 336.2,
+"text": "And it grades itself. A pre-registered study tests whether the ranking orders outcomes better than chance, and the verdict is published as it is, even when it says the current ranking shows no measurable skill. That is historical validation, in the open.",
+"app": "trader/desk?tab=trade&view=scanner&sub=scorecard"
+},
+{
+"id": "s13",
+"chapter": "Trader deep-dive",
+"label": "Build your own scanner",
+"t": 358.0,
+"text": "Want your own scanner? Open the scan builder, start from a template such as Volume surge in an uptrend, on F&O stocks, and run it. The matches come back in a moment. Save it, and it is yours to run again.",
+"app": "trader/desk?tab=market&view=screener&sub=builder"
+},
+{
+"id": "s14",
+"chapter": "Trader deep-dive",
+"label": "Screener › Save as a watchlist",
+"t": 377.2,
+"text": "The Screener works the same way, with ready-made screens such as Momentum Breakout. Run one, and save it as a watchlist.",
+"app": "trader/desk?tab=market&view=screener&sub=screens"
+},
+{
+"id": "s15",
+"chapter": "Trader deep-dive",
+"label": "02 Trade Desk › Watchlists",
+"t": 388.2,
+"text": "Watchlists gather everything you follow: this week's results names with an earnings score and the F&O build-up around the numbers, the AI scanner's daily list, your own lists, saved screens, price levels and filing alerts.",
+"app": "trader/desk?tab=trade&view=watchlists"
+},
+{
+"id": "s16",
+"chapter": "Trader deep-dive",
+"label": "Charting › Chart Analysis",
+"t": 406.2,
+"text": "Chart Analysis puts one stock on a live chart, from one-minute to weekly candles, with the put-call ratio, futures open interest, max pain, implied volatility and the expected move to expiry above it. Signals are drawn right on the chart: long build-up, short covering, volume spikes and breakouts, with the reference price, the risk level and the call and put walls.",
+"app": "trader/desk?tab=trade&view=chart&sub=live"
+},
+{
+"id": "s17",
+"chapter": "Trader deep-dive",
+"label": "F&O build-up · Option chain",
+"t": 431.8,
+"text": "Below it is the F&O picture: the option chain with open interest, its change and the last price at every strike, for the current, next and far month, and a build-up read with the call wall and the put wall. Every strike has L and S buttons, to add a long or a short leg to the basket.",
+"app": "trader/desk?tab=trade&view=chart&sub=live"
+},
+{
+"id": "s18",
+"chapter": "Trader deep-dive",
+"label": "Multi-leg strategies · Payoff",
+"t": 452.8,
+"text": "Not sure which structure fits? Strategies that fit lists the AI's strategy ideas for the stock's current signal, with the maximum profit and the loss at the risk level. Add one, or choose a ready-made structure such as an iron condor. The strategy panel prices every leg with its Greeks, draws the payoff at expiry and today, marks the maximum profit, maximum loss and breakeven, and lays out a scenario table from minus ten to plus ten percent. It reads the margin from Zerodha's calculator, with the hedge benefit, and the whole basket goes to paper in one click.",
+"app": "trader/desk?tab=trade&view=chart&sub=live"
+},
+{
+"id": "s19",
+"chapter": "Trader deep-dive",
+"label": "Paper trading › Live desk",
+"t": 493.5,
+"text": "Today's paper trades are already on the live desk: one open, and two waiting for their reference price, with cash, capital at risk, and open risk against its limit.",
+"app": "trader/desk?tab=trade&view=paper&sub=live"
+},
+{
+"id": "s20",
+"chapter": "Trader deep-dive",
+"label": "Paper trading › Trade journal",
+"t": 506.2,
+"text": "The journal records each trade's lifecycle step by step, the requested fill against the simulated fill, and a P&L bridge with every charge: brokerage, STT, exchange fees, stamp duty, GST and slippage.",
+"app": "trader/desk?tab=trade&view=paper&sub=journal"
+},
+{
+"id": "s21",
+"chapter": "Trader deep-dive",
+"label": "Real-time P&L · paper and broker",
+"t": 523.0,
+"text": "The P&L dashboard puts it all on one real-time screen: your paper account and your connected broker accounts together, with realised and unrealised P&L, estimated charges and open positions. Brokers are read-only. Here the live book comes from ICICI Direct, you can filter by account or segment, and the intraday curve shows how the combined P&L moved through the session.",
+"app": "trader/desk?tab=trade&view=paper&sub=pnl"
+},
+{
+"id": "s22",
+"chapter": "Trader deep-dive",
+"label": "Market research › AI event intelligence",
+"t": 551.2,
+"text": "Market Desk is the research floor. Market Intelligence reads every exchange filing: results, new orders, M&A and corporate actions, bulk and block deals, SEBI circulars, and FII and DII flows. Open an event, and the AI summarises its impact. Here, Adani Power filed a twenty-five-year power supply agreement for over twelve hundred megawatts, read as positive and of high importance, kept apart from the sourced facts and marked not verified. Then the evidence is clubbed together: a technical check of price against its averages, RSI and volume, the first session that can react, related companies in the same industry, and whether the stock is on today's scan.",
+"app": "trader/desk?tab=market&view=intel"
+},
+{
+"id": "s23",
+"chapter": "Trader deep-dive",
+"label": "Market research › Results, M&A, corporate actions",
+"t": 599.8,
+"text": "Results, M&A, dividends and other corporate actions get the same AI read, and results week scores each company against its own historical trend. Put an AI read, a technical confirmation, the F&O build-up and a scanner signal together, and the bigger opportunities stand out from the noise.",
+"app": "trader/desk?tab=market&view=intel"
+},
+{
+"id": "s24",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Smart Money",
+"t": 622.5,
+"text": "Smart Money shows where institutions are moving money: FII and DII cash flows from one month to a year, mutual-fund holding changes from disclosed portfolios, each labelled by the kind of evidence it is, and the F&O build-up across indices and stocks.",
+"app": "trader/desk?tab=market&view=smartmoney"
+},
+{
+"id": "s25",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Sector Rotation",
+"t": 641.8,
+"text": "Sector Rotation shows which sectors lead and which lag, as a heatmap for any index from the Nifty 50 to the total market, over a day, a week or a month.",
+"app": "trader/desk?tab=market&view=sectors"
+},
+{
+"id": "s26",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Stock Research",
+"t": 655.5,
+"text": "Stock Research takes one stock at a time: an AI chart with its averages and plan levels, the risk desk's view, and its fundamentals and filings on one page.",
+"app": "trader/desk?tab=market&view=research"
+},
+{
+"id": "s27",
+"chapter": "Trader deep-dive",
+"label": "03 Market Desk › Market Recovery",
+"t": 667.2,
+"text": "Market Recovery answers one question: is the market recovering? Five checks run on the Nifty and the Nifty 500, from the Nifty against a rising twenty-day average, to how many stocks rose, how fast participation is widening, and whether India VIX is falling.",
+"app": "trader/desk?tab=market&view=recovery"
+},
+{
+"id": "s28",
+"chapter": "Trader deep-dive",
+"label": "Market Recovery › Indices, sectors, candidates",
+"t": 687.2,
+"text": "Then the Nifty and Bank Nifty, expiry by expiry: the put-call ratio, max pain, the straddle's implied range and the call and put walls, with weekly and monthly expiries kept apart. The sector leaders follow, then the top recovery candidates in those sectors, each with a plan and strategies with protection against a fall, and a list of what was left out as a possible false signal.",
+"app": "trader/desk?tab=market&view=recovery"
+},
+{
+"id": "s29",
+"chapter": "Trader deep-dive",
+"label": "04 Risk Desk",
+"t": 713.5,
+"text": "Risk is where most traders slip. The Risk Desk shows open risk, daily loss, drawdown and positions against your limits, and every paper trade from every screen passes through the same risk service. A kill switch and a trading halt can stop new positions at once, and the decision log records every allowed, reduced or blocked trade, with the rule and the numbers behind it.",
+"app": "trader/desk?tab=risk&view=limits"
+},
+{
+"id": "s30",
+"chapter": "Trader deep-dive",
+"label": "04 Risk Desk › Portfolio hedge",
+"t": 741.0,
+"text": "Worried about a fall? Portfolio hedge reads your real holdings, measures their beta and fit to the Nifty, works out the exposure to cover in whole lots, and lays out three hedge choices with what each would cost and do.",
+"app": "trader/desk?tab=risk&view=hedge"
+},
+{
+"id": "s31",
+"chapter": "Trader deep-dive",
+"label": "My portfolio",
+"t": 758.5,
+"text": "And My portfolio is your real book, read-only from your connected brokers and your CAS statement.",
+"app": "trader/desk?tab=portfolio"
+},
+{
+"id": "s32",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot chat",
+"t": 767.0,
+"text": "Now the bigger piece: the Copilot chat. In Trader mode it opens on the trading day itself: Market pulse, Find opportunities, My positions, F&O strategies, Manage risk and Daily review, each with its own set of questions. Ask in plain words, and it answers from the same data the desk shows.",
+"app": ""
+},
+{
+"id": "s33",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot › Ideas and a trading plan",
+"t": 790.0,
+"text": "Tap Find opportunities and ask for today's top five. In seconds you get a table with each idea's reference price, risk level, reward level, reward-to-risk and score, with its plan one tap away. Ask for a positional trading plan for one stock, and it returns a decision, setup ready or waiting, the conditions met and not met, and the level where the idea would be proven wrong, drawn on the chart with conservative, base and optimistic reward levels.",
+"app": ""
+},
+{
+"id": "s34",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot › Paper trade and live P&L",
+"t": 823.0,
+"text": "The same ideas sit on the desk. Open one, tap Add paper trade at the plan's own levels, and the risk service checks it before it goes on your paper desk. On the P&L dashboard, your paper trades sit next to your broker positions, updating in real time.",
+"app": "trader/desk?tab=overview"
+},
+{
+"id": "s35",
+"chapter": "Trader deep-dive",
+"label": "AI Copilot › My positions",
+"t": 845.0,
+"text": "Ask what your open trades are doing, and it reads your broker book and your paper trades together, position by position, with the data it used and how fresh it is.",
+"app": ""
+},
+{
+"id": "s36",
+"chapter": "Trader deep-dive",
+"label": "Strategy Builder",
+"t": 858.0,
+"text": "For systematic traders, the Strategy Builder takes a rules-based strategy from universe to screen to backtest, on point-in-time data that includes delisted stocks, so there is no survivorship bias.",
+"app": "trader/strategy"
+},
+{
+"id": "s37",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For investors",
+"t": 872.8,
+"text": "Investors get the same intelligence for the long term. Portfolio analysis reads all your holdings, with funds looked through, and says in plain words what has added the most, what has cost the most, and where you are over- or under-exposed. Portfolio ideas lists the steps worth considering, each with why it is there and what it costs in tax, and the tax view finds losses you can harvest before the year ends.",
+"app": "tool/analysis"
+},
+{
+"id": "s38",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For research analysts",
+"t": 906.5,
+"text": "Research analysts can ask across every filing, because Nivesh has already read them, or start from curated themes such as the biggest order wins of the fortnight. Every AI read sits beside its sourced facts, event IDs and timestamps, which gives an audit trail, and studies are pre-registered before they run.",
+"app": "tool/research"
+},
+{
+"id": "s39",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For market researchers",
+"t": 931.5,
+"text": "Market researchers get today's tape in plain words, sector analysis, the earnings tracker and FII and DII flows in Markets, with regime, breadth, smart money, rotation and recovery on the desk.",
+"app": "tool/markets"
+},
+{
+"id": "s40",
+"chapter": "Investors, analysts, researchers, advisors",
+"label": "For advisors and distributors",
+"t": 946.2,
+"text": "And advisors get Client 360: a client's health, quality and risk scores in one view, where they stand and why, and one click to open the client in the Copilot. Advisor mode adds a client book that flags who needs a call, underperformers and rebalancing drift.",
+"app": "advisor/client-360"
+},
+{
+"id": "s41",
+"chapter": "Close",
+"label": "From information to decisions",
+"t": 966.8,
+"text": "That is the difference between a market information platform and a decision-support platform. Every answer says what is happening and why, the evidence behind it, the factors on both sides, the key uncertainties, and what would prove it wrong."
+},
+{
+"id": "s42",
+"chapter": "Close",
+"label": "Nivesh Copilot",
+"t": 983.5,
+"text": "Nivesh Copilot: one platform for traders, investors, analysts, researchers and advisors. For education and research only. These are ideas, not recommendations, and not investment advice. Broker connections are read-only, and nothing is ever sent to a broker."
+}
+]
+}
