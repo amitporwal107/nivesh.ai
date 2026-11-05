@@ -194,9 +194,10 @@ Live broker execution is out of scope (owner rule: brokers read-only).
 
 ## 9. Words
 
-API field names follow the PRD (entry, stop, targets). Generated narrative text (thesis, rationale, task summaries)
-uses neutral words — "plan level", "invalidation level", "exit level", "long/short leg" — and never "buy", "sell",
-"stop loss", "target", "recommend", "pick" (owner rule 3 Nov). AD-92 lints agent outputs. The owner allowed the standard
+API field names follow the PRD (entry, stop, targets). Generated narrative text (thesis, rationale, risk warnings,
+task summaries, reasons) uses neutral words — "plan level", "invalidation level", "upper level", "long/short leg",
+"open / close the position" — and never: buy, sell, stop loss, SL, target, entry, exit, accumulate, book profit,
+upside, price target, recommend, pick (owner rule 3 Nov). AD-92 lints agent outputs. The owner allowed the standard
 words on the paper-trading screens; whether this app's screens may use them is an open question (§10, Q5).
 
 ## 10. Open decisions for the owner (PRD §26 and new)

@@ -107,7 +107,7 @@ TASK_TRANSITIONS: dict[TaskState, set[TaskState]] = {
     TaskState.CREATED: {TaskState.ASSIGNED, TaskState.CANCELLED},
     TaskState.ASSIGNED: {TaskState.ACCEPTED, TaskState.REJECTED, TaskState.ESCALATED, TaskState.TIMED_OUT,
                          TaskState.CANCELLED},
-    TaskState.ACCEPTED: {TaskState.RUNNING, TaskState.CANCELLED},
+    TaskState.ACCEPTED: {TaskState.RUNNING, TaskState.CANCELLED, TaskState.RETRY_PENDING},
     TaskState.RUNNING: {TaskState.RESULT_READY, TaskState.BLOCKED, TaskState.TIMED_OUT, TaskState.FAILED,
                         TaskState.RETRY_PENDING, TaskState.ESCALATED, TaskState.CANCELLED},
     TaskState.RESULT_READY: {TaskState.VALIDATED, TaskState.FAILED, TaskState.RETRY_PENDING},

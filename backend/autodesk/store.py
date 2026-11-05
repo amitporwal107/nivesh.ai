@@ -334,8 +334,16 @@ async def list_tasks(c: asyncpg.Connection, tenant_id: str, *, workflow_id: Opti
 
 async def record_handoff(c: asyncpg.Connection, *, tenant_id: str, workflow_id: str, simulation_id: Optional[str],
                          from_task: dict, to_task: dict, entity_id: Optional[str]) -> str:
-    if from_task["workflow_id"] != workflow_id or to_task["workflow_id"] != workflow_id:
-        raise Conflict("a handoff must stay inside one workflow")
+    """A handoff links two tasks of the same workflow, or of workflows in the same session cycle (same correlation id:
+    the AI Trader's scan task hands each signal to a trade-proposal workflow)."""
+    if to_task["workflow_id"] != workflow_id:
+        raise Conflict("the receiving task must belong to the handoff's workflow")
+    if from_task["workflow_id"] != workflow_id:
+        corr = await c.fetch("SELECT workflow_id, correlation_id FROM autodesk.workflows WHERE workflow_id = ANY($1::text[])"
+                             " AND tenant_id=$2", [from_task["workflow_id"], workflow_id], tenant_id)
+        ids = {r["correlation_id"] for r in corr}
+        if len(corr) != 2 or len(ids) != 1:
+            raise Conflict("a handoff must stay inside one workflow or one session cycle")
     hid = C.new_id("HND")
     await c.execute(
         """INSERT INTO autodesk.agent_handoffs (handoff_id, workflow_id, simulation_id, tenant_id, from_task_id,
@@ -564,7 +572,8 @@ _APPROVAL_EVENT = {
 
 
 async def insert_approval(c: asyncpg.Connection, *, tenant_id: str, d: C.ApprovalDecision, producer: str,
-                          workflow_id: Optional[str], supersedes_id: Optional[str] = None) -> dict:
+                          workflow_id: Optional[str], supersedes_id: Optional[str] = None,
+                          event_type: Optional[C.EventType] = None) -> dict:
     try:
         await c.execute(
             """INSERT INTO autodesk.approvals (approval_id, tenant_id, trade_id, plan_version, account_id, simulation_id,
@@ -574,7 +583,7 @@ async def insert_approval(c: asyncpg.Connection, *, tenant_id: str, d: C.Approva
             d.decided_by, d.model_dump(mode="json"), d.risk_assessment_id, supersedes_id, d.expires_at)
     except asyncpg.UniqueViolationError as e:
         raise Conflict("this approval request has already been answered") from e
-    await emit(c, _APPROVAL_EVENT[d.status], tenant_id=tenant_id, producer=producer, account_id=d.account_id,
+    await emit(c, event_type or _APPROVAL_EVENT[d.status], tenant_id=tenant_id, producer=producer, account_id=d.account_id,
                simulation_id=d.simulation_id, workflow_id=workflow_id, correlation_id=d.trade_id,
                payload={"approval_id": d.approval_id, "trade_id": d.trade_id, "plan_version": d.plan_version,
                         "status": d.status.value, "decided_by": d.decided_by, "reasons": d.reasons,

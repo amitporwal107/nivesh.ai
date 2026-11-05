@@ -100,7 +100,7 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 | AD-65 | I | Start the same SESSION_CYCLE twice (same idempotency key) | one workflow | PRD §7 |
 | AD-66 | I+A | WAITING_HUMAN → approve → plan APPROVED; answer twice → 409; reject → plan REJECTED | as stated | PRD §15.7 |
 | AD-67 | I | Middle Office asked to review a FAIL plan | REJECTED; plan never APPROVED | PRD §11.4 |
-| AD-68 | I | A task left RUNNING by a crash; service restarts | recovery moves it to RETRY_PENDING / ESCALATED; workflow resumable | PRD §8.8 |
+| AD-68 | I | A task left ASSIGNED / ACCEPTED / RUNNING by a crash; service restarts | recovery fails closed: task → ESCALATED ("interrupted by restart"), its workflow → FAILED, plan never approved; the account can start a new cycle. Resuming mid-workflow is Phase 3 | PRD §8.8, §20.2 |
 
 ## Simulator [core]
 
@@ -134,4 +134,4 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 |---|---|---|---|---|
 | AD-90 | U | tests/test_order_path_guard.py | passes (no order calls added) | owner rule |
 | AD-91 | U | Static scan of backend/autodesk | no reference to paper_accounts / paper_account_ledger / desk_paper_trades / risk_decisions / spt_ collections, nor risk_gate.service.enter/gather/enforce, risk_book.read, plan_sizing.size_for | D2 |
-| AD-92 | U | Agent narrative text (thesis, rationale, summaries) | none of: buy, sell, stop loss, target, recommend, pick, accumulate, book profit | owner 3 Nov |
+| AD-92 | U | Agent narrative text (thesis, rationale, risk warnings, summaries, reasons) | none of: buy, sell, stop loss, SL, target, entry, exit, accumulate, book profit, upside, price target, recommend, pick (whole words, case-insensitive) | owner 3 Nov |

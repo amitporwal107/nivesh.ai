@@ -7,6 +7,21 @@ agent replayable — the same inputs and versions give the same output (PRD §29
 Inputs: the orchestrator resolves the task's input_refs ("signal://…", "plan://TRD-…@2", "assessment://…",
 "book://ACC-…") into `ctx.inputs` before the agent runs, so an agent reads only what its task references (shared
 context is not shared memory, PRD §29.4).
+
+ctx.inputs per task type (JSON-mode dicts, i.e. Decimals as strings, dates ISO):
+  PREMARKET_HEALTH_CHECK  {"session_date": "YYYY-MM-DD", "db_ok": bool}
+  SCAN_MARKET             {"session_date", "universe": "FNO"|"NIFTY50"|…, "symbols": [..]|None, "min_score": "50"}
+  GENERATE_STRATEGY       {"session_date", "signal": Signal}
+  REVISE_STRATEGY         {"session_date", "signal": Signal, "plan": {"trade_id","version","body": TradePlanBody},
+                           "assessment": RiskAssessment, "revision": 1|2}
+  ASSESS_RISK             {"session_date", "plan": {"trade_id","version","body"}, "book": control.book.Book (json),
+                           "signal": Signal|None}
+  REVIEW_FOR_APPROVAL     {"session_date", "plan": {"trade_id","version","body"}, "assessment": RiskAssessment|None,
+                           "signal": Signal|None}
+ctx.policy = {"policy_id", "version", "body": PolicyBody}; ctx.account = the autodesk.accounts row; ctx.as_of = the
+instant the agent acts at (sim clock in a simulation). A plan's validity ends at the session close (15:30 IST) of
+session_date; signals expire then too. Execution mode for a scope: account kind SIMULATION → "SIMULATION",
+PAPER → "PAPER", SHADOW → "SHADOW".
 """
 from __future__ import annotations
 
