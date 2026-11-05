@@ -3,6 +3,7 @@
 AUTODESK_PG_URL         Postgres for the `autodesk` schema. Falls back to POSTGRES_URL (the app Postgres on staging).
 AUTODESK_AUTO_MIGRATE   "1" (default) applies autodesk/db/migrations on start.
 AUTODESK_TASK_DEADLINE  default per-task deadline in seconds (30).
+AUTODESK_SCAN_DEADLINE  deadline of the market scan task in seconds (600): a full F&O universe is ~450 data reads.
 AUTODESK_LLM_ENABLED    "0" (default): agents run their deterministic paths only; no LLM call is made.
 AUTODESK_SCHEDULER      "0" (default): no real-time session cycle is started by the service itself.
 """
@@ -23,6 +24,7 @@ class Settings:
     task_deadline_s: float
     llm_enabled: bool
     scheduler_enabled: bool
+    scan_deadline_s: float = 600.0
 
 
 def load() -> Settings:
@@ -33,4 +35,5 @@ def load() -> Settings:
         task_deadline_s=float(os.environ.get("AUTODESK_TASK_DEADLINE", "30")),
         llm_enabled=_flag("AUTODESK_LLM_ENABLED", "0"),
         scheduler_enabled=_flag("AUTODESK_SCHEDULER", "0"),
+        scan_deadline_s=float(os.environ.get("AUTODESK_SCAN_DEADLINE", "600")),
     )

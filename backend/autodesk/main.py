@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import FastAPI
@@ -86,8 +86,16 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
             log.warning("secret hydrate failed: %s", e)
         from .db import close_pool, open_pool
         from .db.migrate import apply_pending
+        from .market import calendar
         from .market.calendar import next_session_for, sessions_between
         from .market.pit import PitMarketView
+
+        today = datetime.now(timezone.utc).date()
+        try:   # the point-in-time view answers latest_session from these lists without a network call
+            loaded = await calendar.load_years(range(2024, today.year + 2))
+            log.info("autodesk calendar: %s", loaded)
+        except Exception as e:  # noqa: BLE001 — reads then fail with DataUnavailable; /health shows it
+            log.warning("autodesk calendar load failed: %s", e)
 
         pool = await open_pool(settings.pg_url)
         if settings.auto_migrate:

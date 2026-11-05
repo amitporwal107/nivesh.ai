@@ -112,7 +112,12 @@ async def health(request: Request):
         return JSONResponse({"status": "degraded", "db": False, "error": type(e).__name__}, status_code=503)
     return {"status": "ok", "app": APP_NAME, "version": APP_VERSION, "db": db, "migrations": migs,
             "agents": {k.value: a.descriptor.version for k, a in st.orchestrator.agents.items()},
-            "execution": "none (Phase 1: no orders)"}
+            "calendar_years": _calendar_years(), "execution": "none (Phase 1: no orders)"}
+
+
+def _calendar_years() -> list[int]:
+    from ..market import calendar
+    return calendar.loaded_years()
 
 
 @router.get("/desk/status")

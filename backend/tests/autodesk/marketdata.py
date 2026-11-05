@@ -26,7 +26,7 @@ CAPITAL = Decimal("10000000")               # ₹1.00 Cr, as in the owner's desi
 
 
 def _sessions() -> list[date]:
-    d, out = date(2026, 9, 28), []
+    d, out = date(2026, 6, 1), []
     while d <= SD:
         if d.weekday() < 5:
             out.append(d)

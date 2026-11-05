@@ -82,3 +82,15 @@ def test_ad92_generated_text_has_no_advice_words():
         texts += d.reasons
     bad = sorted({f"{m.group(0)!r} in: {t}" for t in texts for m in ADVICE.finditer(t)})
     assert len(texts) > 80 and bad == [], bad
+
+
+def test_production_agents_are_the_real_ones():
+    from autodesk.agents.registry import default_agents
+    from autodesk.market.pit import PitMarketView
+    agents = default_agents()
+    assert set(agents) == set(C.AgentKey)
+    for key, a in agents.items():
+        d = a.descriptor
+        assert d.agent_key == key and d.version.startswith("autodesk-") and d.kind == "DETERMINISTIC"
+        for tool in a.market_tools():
+            assert callable(getattr(PitMarketView, tool, None)), f"{key.value} lists unknown tool {tool}"

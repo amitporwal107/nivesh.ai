@@ -57,6 +57,7 @@ class Orchestrator:
         self._load_book = load_book
         self._scope_builder = scope_builder
         self.task_deadline_s = task_deadline_s
+        self.scan_deadline_s = max(task_deadline_s, float(getattr(settings, "scan_deadline_s", 600.0) or 600.0))
 
     # ── wiring helpers ──────────────────────────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ class Orchestrator:
         return C.TaskSpec(workflow_id=wf["workflow_id"], simulation_id=wf["simulation_id"], tenant_id=wf["tenant_id"],
                           account_id=wf["account_id"], to_agent=C.TASK_OWNER[task_type], task_type=task_type,
                           entity_id=entity_id, input_refs=input_refs or [], constraints=constraints or {},
-                          required_output_schema=C.TASK_OUTPUT_SCHEMA[task_type], deadline_s=self.task_deadline_s,
+                          required_output_schema=C.TASK_OUTPUT_SCHEMA[task_type],
+                          deadline_s=self.scan_deadline_s if task_type == C.TaskType.SCAN_MARKET else self.task_deadline_s,
                           sim_time=as_of if wf["simulation_id"] else None,
                           idempotency_key=f"{wf['workflow_id']}:{key}")
 
