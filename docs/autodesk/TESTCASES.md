@@ -198,3 +198,20 @@ in docs/autodesk/ui_testcases/ — each written before that screen's code.
 | AD-UI-91 | E | Container nginx: /autodesk → 301 /autodesk/; /autodesk/x/y → index.html; /autodesk/assets/* immutable | as stated (throwaway nginx container on the built image layout) |
 | AD-UI-92 | E | Edge nginx: /autodesk/api/v1/health still reaches the desk API; /autodesk/ reaches the frontend container; /v5/ unchanged | `nginx -t` passes on the real files; routing test in a throwaway nginx |
 | AD-UI-93 | S | After merge + deploy: https://staging.niveshcopilot.com/autodesk/ | 200, the desk app's index.html |
+
+### Simulation studio — frame [ui] (5 Nov, from the owner's design pack, before the code)
+
+Design: docs/autodesk/design/prototype/studio/ (Simulation Studio.dc.html + SimDay / SimSetup / SimScenarios / SimRuns /
+SimTrace). A page of its own at /autodesk/studio, beside the desk. Per-view cases: docs/autodesk/ui_testcases/studio-*.md
+(Trading day AD-UI-110.., New simulation 120.., Scenario library 130.., Run history 140.., Agent trace 150..).
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-UI-100 | E | Open /autodesk/studio signed in | studio header (mark, "Simulation studio", "Nivesh · trading desk simulator"), indigo pill "Simulated · isolated · no broker route", five tabs in the design's order with Trading day active, Dark/Light switch, "Trading desk ›" link to /autodesk/; no desk sidebar |
+| AD-UI-101 | E | Click each tab | URL /studio, /studio/new, /studio/scenarios, /studio/runs, /studio/trace; that tab active (indigo); its view renders |
+| AD-UI-102 | E | /autodesk/studio/runs?sim=SIM-1, then click another tab | the `sim` parameter is kept on every tab |
+| AD-UI-103 | E | GET /simulations answers 401 | the sign-in screen, no studio data |
+| AD-UI-104 | E | Light / Dark switch | data-theme changes; the choice is shared with the desk and kept after reload |
+| AD-UI-105 | E | Deep link /autodesk/studio/trace and reload; unknown /autodesk/studio/x | the trace view renders after reload; the unknown path goes to Trading day |
+| AD-UI-106 | E | Phone 390×844 | header wraps, tabs reachable, no horizontal overflow |
+| AD-UI-107 | E | Desk routes after the change | /autodesk/ and /autodesk/simulator still render inside the desk shell |
