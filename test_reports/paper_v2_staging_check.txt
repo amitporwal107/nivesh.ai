@@ -1,0 +1,72 @@
+# Paper Trading v2 — staging check, 5 Nov 2026 09:31 IST (scratchpad/pv2_check.py)
+# code: feat/paper-trading-v2 @ 41435f86 as an overlay copy of the deployed /app/backend, in its own python process inside nivesh-staging-app-backend (the server untouched; the copy deleted afterwards)
+# data: synthetic test users pv2chk_t1_<ts> / pv2chk_t2_<ts> only
+code: branch overlay /tmp/pv2be_1793851262 | now 2026-11-05T04:01:08.929141+00:00
+leftovers of earlier runs removed: 0
+BEFORE (test users) {"spt_account_config": 0, "spt_account_config_versions": 0, "spt_proposals": 0, "spt_orders": 0, "spt_fills": 0, "spt_positions": 0, "spt_events": 0, "paper_accounts": 0, "paper_account_ledger": 0, "risk_decisions": 0, "risk_profiles": 0, "risk_profile_audit": 0, "risk_controls": 0, "risk_control_audit": 0}
+PASS V1 no session /api/v1/paper/overview → 401 401
+PASS V1 no session /api/v1/paper/accounts/<T1>/policy → 401 401
+PASS V1 no session /api/v1/risk/correlation/<T1> → 401 401
+PASS V1 no session /api/v1/analytics/account/<T1> → 401 401
+PASS V1 no session /api/v1/paper/fno-structures → 401 401
+PASS V1 no session /api/admin/spt/<T1>/policy → 401 401
+PASS V2 GET /api/v1/paper/overview → 200 
+PASS V2 GET /api/v1/paper/accounts/<T1>/policy → 200 
+PASS V2 GET /api/v1/risk/correlation/<T1> → 200 
+PASS V2 GET /api/v1/analytics/account/<T1> → 200 
+PASS V2 GET /api/v1/paper/fno-structures → 200 
+PASS V2 GET /api/v1/risk/stress-test/<T1> → 200 
+PASS V2 GET /api/v1/risk/account/<T1> → 200 
+PASS V2 GET /api/v1/risk/exposures/<T1> → 200 
+PASS V2 GET /api/v1/allocation/recommendations/<T1> → 200 
+PASS V2 GET /api/v1/paper/accounts → 200 
+PASS V2 GET /api/v1/paper/accounts/<T1> → 200 
+PASS V2 GET /api/v1/proposals → 200 
+PASS V2 GET /api/v1/analytics/scanners → 200 
+PASS V2 GET /api/v1/paper/trades → 200 
+PASS V2 GET /api/v1/paper/orders → 200 
+PASS V2 GET /api/v1/paper/positions → 200 
+PASS V2 GET /api/desk/pnl → 200 
+PASS V2 GET /api/desk/pnl/timeseries → 200 
+PASS V2 GET opportunities QUALIFIED → 200 122 rows
+PASS V2 GET opportunities all → 200 200 rows
+   overview keys: ['account_id', 'as_of', 'basis', 'headline', 'kpis', 'notes', 'pipeline', 'status', 'warnings']
+   overview status: {"feed_state": "live", "feed_mode": "live", "last_tick_age_s": 1.2, "session": "open", "kill_switch": {"state": "DISABLED", "entries_blocked": false, "text": "The SPT mode is off for this account: nothing is proposed or ordered.", "code": null, "reason": null}, "policy_version": 0, "mode": "off"}
+   overview kpis: {"equity_rs": 1000000.0, "start_equity_rs": 1000000.0, "day_pnl_rs": 0.0, "day_loss_limit_pct": 2.0, "day_loss_used_pct": 0.0, "deployed_rs": 0.0, "deployed_pct": 0.0, "cash_rs": 1000000.0, "open_risk_pct": 0.0, "open_risk_limit_pct": 3.0, "drawdown_pct": 0.0, "drawdown_warn_pct": 3.33, "positions_open": 0, "positions_max": 10, "orders_pending": 0}
+   risk_account utilisation.buckets: {"equity_positional": {"used_rs": 0.0, "cap_rs": 450000.0, "risk_rs": 0.0}, "equity_intraday": {"used_rs": 0.0, "cap_rs": 250000.0, "risk_rs": 0.0}, "fno": {"used_rs": 0.0, "cap_rs": 200000.0, "risk_rs": 0.0}}
+   desk_pnl positions: 0 | fno structures: 0 | correlation symbols: []
+   stress-test keys: ['account_id', 'as_of', 'basis', 'equity_rs', 'named', 'positions', 'scenarios', 'totals', 'unpriced', 'version']
+PASS V3 policy per_trade_risk_pct default 0.5 0.5
+PASS V3 policy fno_max_loss_pct = 0.7 × per-trade = 0.35 0.35
+PASS V3 policy margin_util_pct 70 70.0
+   policy fields: {'per_trade_risk_pct': 0.5, 'max_open_risk_pct': 3.0, 'daily_loss_pct': 2.0, 'weekly_loss_pct': 4.0, 'restrict_at_pct': 6.67, 'halt_at_pct': 10.0, 'max_position_pct': 10.0, 'max_sector_pct': 25.0, 'margin_util_pct': 70.0, 'fno_max_loss_pct': 0.35, 'bucket_positional_pct': 45.0, 'bucket_intraday_pct': 25.0, 'bucket_fno_pct': 20.0, 'max_positions': 10} | version 0 | reserve 10.0
+PASS V4 T1 reads /api/v1/paper/accounts/<T2>/policy → 403 403
+PASS V4 T1 reads /api/v1/risk/correlation/<T2> → 403 403
+PASS V4 T1 reads /api/v1/analytics/account/<T2> → 403 403
+PASS V4 T1 writes T2's policy → 403 403
+risk_profile: pv2chk_t1_1793851268 changed ['per_trade_risk_pct'] for pv2chk_t1_1793851268 (Paper Trading › policy panel (no reason entered))
+policy_view: pv2chk_t1_1793851268 changed ['per_trade_risk_pct', 'fno_max_loss_pct'] for pv2chk_t1_1793851268
+PASS V5 tighten per_trade 0.5→0.4 → 200 
+PASS V5 derived fno_max_loss follows → 0.28 0.28
+PASS V5 version rose 0 → 1
+PASS V5 stale expected_version → 409 {"detail":{"code":"version_conflict","field":null,"message":"The policy is at version 1, not 0; reload and redo the change.","current_version":1}}
+PASS V5 loosen per_trade 0.4→0.6 → 403 admin_required {"detail":{"code":"admin_required","field":null,"message":"Only an admin can loosen a limit (Risk per trade, F&O max loss per strategy). You can tighten any limit yourself.","loosened":["per_trade_risk_pct","fno_max_loss_pct"]}}
+PASS V5 out of range → 422 {"detail":{"code":"out_of_range","field":"max_positions","message":"Max open positions must be between 1 and 10"}}
+PASS V5 unknown key → 422 {"detail":{"code":"unknown_field","field":"no_such","message":"unknown policy field 'no_such'; one of per_trade_risk_pct, max_open_risk_pct, daily_loss_pct, weekly_loss_pct, restrict_at_pct, halt_at_p
+PASS V5 refused writes changed nothing (version still v1) 1
+PASS V6 non-admin GET admin policy → 403 403
+PASS V6 admin GET T1 policy → 200 
+PASS V6 admin PUT without reason → 422 {"detail":{"code":"reason_required","field":"reason","message":"A reason is required for this change."}}
+risk_profile: pv2chk_t2_1793851268 changed ['per_trade_risk_pct'] for pv2chk_t1_1793851268 (pv2 staging check (test user))
+policy_view: pv2chk_t2_1793851268 (admin) changed ['per_trade_risk_pct', 'fno_max_loss_pct'] for pv2chk_t1_1793851268
+PASS V6 admin loosens T1 per_trade 0.4→0.6 → 200 0.6
+risk_profile: pv2chk_t2_1793851268 changed ['per_trade_risk_pct'] for pv2chk_t1_1793851268 (pv2 staging check reset)
+policy_view: pv2chk_t2_1793851268 (admin) changed ['per_trade_risk_pct', 'fno_max_loss_pct'] for pv2chk_t1_1793851268
+PASS V6 admin resets to default → 200, 0.5 {"account_id":"pv2chk_t1_1793851268","version":3,"version_basis":"risk profile version + SPT config version (each rises by one per change, so the sum names one state of the account's policy)","saved_a
+PASS V7 correlation ?with=<bad> → 422 422
+PASS V7 stress-test carries the named scenarios {"unpriced": [], "version": "spt-stress-named-v1", "book": {"share_rows": 0, "fno_structures": 0, "share_value_rs": 0}}
+test-user documents removed: 4
+AFTER (test users) {"spt_account_config": 0, "spt_account_config_versions": 0, "spt_proposals": 0, "spt_orders": 0, "spt_fills": 0, "spt_positions": 0, "spt_events": 0, "paper_accounts": 0, "paper_account_ledger": 0, "risk_decisions": 0, "risk_profiles": 0, "risk_profile_audit": 0, "risk_controls": 0, "risk_control_audit": 0}
+equal to before: True
+RESULT: PASS
+EXIT=0

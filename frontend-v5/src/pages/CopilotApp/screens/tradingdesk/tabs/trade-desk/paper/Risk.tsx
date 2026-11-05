@@ -76,6 +76,8 @@ export function riskSynthesis(rows: LimitFig[], accountRead: boolean): Synthesis
   if (breached.length) {
     return [{ hi: `${breached.length} limit${breached.length === 1 ? "" : "s"} breached: `, tone: "danger" }, `${breached.map((r) => r.name).join(", ")}.`];
   }
+  // Nothing in use (an empty book): no limit is "nearest to a breach".
+  if (known.every((r) => (r.used as number) <= 0)) return ["Within every limit: nothing is in use yet."];
   const nearest = known.reduce((b, r) => ((r.used as number) / (r.limit as number) > (b.used as number) / (b.limit as number) ? r : b));
   return ["Within every limit, with ", { hi: phraseOf(nearest) }, " the nearest to a breach."];
 }

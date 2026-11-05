@@ -641,6 +641,18 @@ test.describe("MOCK — not real data: Paper Trading v2 · 02 Scanner opportunit
     await expect(page.getByTestId("pv2-watchlist")).toBeDisabled();
   });
 
+  test("PV2-A-38b a watchlists body of the wrong shape says so in plain words, never the validator's raw dump", async ({ page }) => {
+    await setup(page);
+    await page.unroute(/\/api\/watchlists(\?|$)/);
+    // MOCK — not real data: a body missing every field the watchlists read needs
+    await page.route(/\/api\/watchlists(\?|$)/, (r) => json(r, {}));
+    await page.goto(at("opportunities"));
+    await row(page, "opp-5").click();
+    const err = page.getByTestId("pv2-watchlist-lists-error");
+    await expect(err).toContainText("Your watchlists could not be read (unexpected response shape (lists, limits, starter_pending)).", SLOW);
+    await expect(err).not.toContainText("invalid_type");
+  });
+
   test("PV2-A-39 Approve is disabled (opacity .35) for BLOCKED, WATCHLIST, TRACKED and after an action", async ({ page }) => {
     await setup(page);
     await page.goto(at("opportunities"));

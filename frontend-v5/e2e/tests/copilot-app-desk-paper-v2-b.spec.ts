@@ -691,7 +691,7 @@ test.describe("MOCK — not real data: Paper Trading v2 › Capital allocation, 
     await expect(page.getByTestId("pv2-pnl")).toBeVisible(SLOW);
     await expect(page.getByTestId("pv2-pnl-eyebrow")).toHaveText("Real-time paper P&L");
     await expect(page.getByTestId("pv2-pnl-total")).toHaveText("+₹3,900.55", SLOW);
-    await expect(page.getByTestId("pv2-pnl-return")).toHaveText("+0.04% of equity");
+    await expect(page.getByTestId("pv2-pnl-return")).toHaveText("+0.04% of equity · net of estimated charges");
     await expect(page.getByTestId("pv2-pnl-stream")).toHaveText("Polling · every 3 s");
     await expect(page.getByTestId("pv2-pnl-stream")).toHaveAttribute("data-state", "polling");
     expect(seen.pnlQueries[0].get("mode")).toBe("PAPER");

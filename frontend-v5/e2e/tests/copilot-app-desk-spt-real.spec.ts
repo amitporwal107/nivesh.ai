@@ -73,6 +73,13 @@ test.describe("SPT screens on real staging bodies", () => {
     await optional(/\/api\/v1\/paper\/fno-structures(\?|$)/, "paper_fno_structures");
     await optional(/\/api\/desk\/pnl(\?|$)/, "desk_pnl");
     await optional(/\/api\/desk\/pnl\/timeseries(\?|$)/, "desk_pnl_timeseries");
+    // The F&O structure caps card (04 Portfolio risk) reads the existing FNO-RISK-V1 routes; without a saved body the
+    // mock helper's catch-all would answer {} and the card would rightly report a bad shape.
+    await optional(/\/api\/risk\/policy(\?|$)/, "risk_policy");
+    await optional(/\/api\/risk\/status(\?|$)/, "risk_status");
+    // Watchlists are not saved: a first GET for a new user creates its starter list (a write outside the test-user purge),
+    // so the route answers as "not part of this check" and REAL-1 allows only that one notice.
+    await page.route(/\/api\/watchlists(\?|$)/, (r) => json(r, { detail: "not part of this check" }, 404));
     if (!fs.existsSync(path.join(DIR, "admin_settings.json"))) {
       // The deployed backend has no admin SPT routes yet (they come with PR #486): answer as FastAPI does.
       await page.route(/\/api\/admin\/spt\//, (r) => json(r, { detail: "Not Found" }, 404));
@@ -102,6 +109,8 @@ test.describe("SPT screens on real staging bodies", () => {
     await page.goto(`${DESK}?tab=trade&view=paper&sub=opportunities`);
     await expect(page.getByTestId("pv2-opps")).toBeVisible(SLOW);
     const rows = page.getByTestId("pv2-opp-row");
+    // Wait for the list to settle (rows or the empty state) before choosing which to check.
+    await expect(rows.first().or(page.getByTestId("pv2-opps-empty"))).toBeVisible(SLOW);
     if (await rows.count()) {
       const shown = await page.getByTestId("pv2-opp-symbol").allTextContents();
       expect(shown.filter((x) => !symbols.has(x.trim())), "every symbol on screen comes from the bodies").toEqual([]);
@@ -110,7 +119,7 @@ test.describe("SPT screens on real staging bodies", () => {
     } else {
       await expect(page.getByTestId("pv2-opps-empty")).toBeVisible();
     }
-    await noErrorBlocks(page, "desk-panel-trade", has("paper_overview") ? [] : ["pv2-ov-error"]);
+    await noErrorBlocks(page, "desk-panel-trade", ["pv2-watchlist-lists-error", ...(has("paper_overview") ? [] : ["pv2-ov-error"])]);
     await page.waitForTimeout(500);
     await shot(page, "real-v2-opportunities");
     expect(errors).toEqual([]);
@@ -165,7 +174,7 @@ test.describe("SPT screens on real staging bodies", () => {
     const errors = await real(page);
     await page.goto(`${DESK}?tab=trade&view=paper&sub=allocation`);
     await expect(page.getByTestId("td-tab")).toHaveAttribute("data-sub", "allocation", SLOW);
-    await page.waitForTimeout(2000);
+    await noErrorBlocks(page, "desk-panel-trade");
     await shot(page, "real-v2-allocation");
     expect(errors).toEqual([]);
   });
@@ -174,8 +183,26 @@ test.describe("SPT screens on real staging bodies", () => {
     const errors = await real(page);
     await page.goto(`${DESK}?tab=trade&view=paper&sub=risk`);
     await expect(page.getByTestId("td-tab")).toHaveAttribute("data-sub", "risk", SLOW);
-    await page.waitForTimeout(2000);
+    await noErrorBlocks(page, "desk-panel-trade");
+    const ra = body("risk_account");
+    const emptyBook = Number(ra.open_risk?.rs ?? -1) === 0 && Number(ra.utilisation?.positions?.open ?? -1) === 0
+      && !(body("risk_exposures").by_instrument || []).length && has("paper_fno_structures") && !(body("paper_fno_structures").structures || []).length;
+    if (emptyBook) await expect(page.getByTestId("pv2-rk-head-synthesis")).toHaveText("Within every limit: nothing is in use yet.");
     await shot(page, "real-v2-risk");
+    expect(errors).toEqual([]);
+  });
+
+  test("REAL-7 05 Real-time P&L renders the real /api/desk/pnl body; every symbol shown comes from it", async ({ page }) => {
+    test.skip(!has("desk_pnl"), "no desk_pnl body saved");
+    const errors = await real(page);
+    const pnl = body("desk_pnl");
+    const syms = new Set(((pnl.positions || []) as Raw[]).map((r) => String(r.symbol)));
+    await page.goto(`${DESK}?tab=trade&view=paper&sub=pnl`);
+    await expect(page.getByTestId("td-tab")).toHaveAttribute("data-sub", "pnl", SLOW);
+    await noErrorBlocks(page, "desk-panel-trade");
+    const panel = await page.getByTestId("desk-panel-trade").innerText();
+    for (const s of syms) expect(panel, `position ${s} from the body is on screen`).toContain(s);
+    await shot(page, "real-v2-pnl");
     expect(errors).toEqual([]);
   });
 });

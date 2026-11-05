@@ -60,7 +60,9 @@ function Header({ d, book, setBook, connection, transport, ticks, narrow }: {
 }) {
   const s = d?.summary ?? null;
   const w = streamWords(connection, ticks, d?.market.session === "open");
-  const ret = s == null ? DASH : s.returnPct != null && s.allocatedCapital ? `${sgnPct(s.returnPct, 2)} of equity` : `return not computed: ${s.capitalBasis ?? "no capital figure for this book"}`;
+  // The paper total is net of estimated charges while the Unrealized tile is gross: say so beside the total.
+  const netNote = book === "PAPER" ? " · net of estimated charges" : "";
+  const ret = s == null ? DASH : s.returnPct != null && s.allocatedCapital ? `${sgnPct(s.returnPct, 2)} of equity${netNote}` : `return not computed: ${s.capitalBasis ?? "no capital figure for this book"}${netNote}`;
   return (
     <header data-testid="pv2-pnl-head" className="flex min-w-0 flex-wrap items-end justify-between" style={{ gap: "12px 18px" }}>
       <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>

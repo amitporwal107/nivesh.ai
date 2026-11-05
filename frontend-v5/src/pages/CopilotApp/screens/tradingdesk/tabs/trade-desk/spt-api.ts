@@ -395,6 +395,12 @@ export function sptProblem(e: unknown): SptProblem {
     const message = str(o.message) ?? (typeof d === "string" ? d : null) ?? (e.kind === "network" ? "The network request failed." : e.kind === "timeout" ? "The request took too long." : e.detail ?? e.message ?? `HTTP ${e.status ?? "error"}`);
     return { status: e.status ?? null, code, message, field: str(o.field), loosened: strs(o.loosened), reasonCodes: strs(o.reason_codes) };
   }
+  if (e instanceof Error && e.name === "ZodError") {
+    // A body that failed the shape check: name the fields, never show the validator's raw dump to the user.
+    const issues = (e as Error & { issues?: Array<{ path?: unknown[] }> }).issues ?? [];
+    const fields = [...new Set(issues.map((i) => (i.path ?? []).join(".")).filter(Boolean))].slice(0, 3);
+    return { status: null, code: "unexpected_shape", message: `unexpected response shape${fields.length ? ` (${fields.join(", ")})` : ""}`, field: null, loosened: [], reasonCodes: [] };
+  }
   return { status: null, code: null, message: e instanceof Error && e.message ? e.message : "The request failed.", field: null, loosened: [], reasonCodes: [] };
 }
 

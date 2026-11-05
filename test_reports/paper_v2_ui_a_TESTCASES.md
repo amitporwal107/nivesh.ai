@@ -68,6 +68,7 @@ the right requests; they do NOT prove the backend answers these shapes (the inte
 | PV2-A-36 | Conditional | A CONDITIONAL proposal awaiting approval reads "Arm conditional order" |
 | PV2-A-37 | Reject | "Reject" asks for a one-line reason; empty sends nothing; with a reason POSTs `/reject {reason}`; the pill reads "USER REJECTED" |
 | PV2-A-38 | Add to watchlist | POSTs `/api/watchlists/{first list id}/symbols {symbol}`; the pill reads "WATCHLISTED"; with no list it says to make one in Watchlists |
+| PV2-A-38b | Watchlists body of the wrong shape (added at integration, 5 Nov) | the notice reads "Your watchlists could not be read (unexpected response shape (lists, limits, starter_pending))." — never the validator's raw dump |
 | PV2-A-39 | Disabled states | Approve is disabled (opacity .35) for BLOCKED, WATCHLIST, TRACKED and after an action; a BLOCKED item shows "The risk engine has the final say. User approval cannot override a hard limit."; others "Approval expires if price leaves the entry range, data goes stale or policy changes." |
 | PV2-A-40 | Empty / error | No opportunities and no proposals → says none yet and why; a failing read → the problem with Retry |
 
