@@ -17,6 +17,10 @@ Endpoints (under /api/desk, scoped to the signed-in user; 401 without a session;
     POST /pnl/exits/seen  {} or {"ids": [...]}: marks the user's own exit alerts seen. The ONE write on this router; it
                           touches nothing but the caller's exit_alerts documents.
 
+Scanner (5 Nov 2026): the paper book also holds the Scanner-to-Paper Trading positions (services/spt/paper), tagged
+`source: "scanner"` with their opportunity / proposal / order ids, in the positions, closed trades, totals, reconciliation
+and the curve; `risk.capital.blocked_by_source` splits the blocked capital between the desk and the scanner.
+
 v2 (owner, 4 Nov 2026 afternoon): `mode=ALL|PAPER|LIVE` and `account=ALL|paper|<broker account id>` on /pnl and /pnl/stream.
 Live = the user's broker NET positions, read-only (services/paper_pnl/live.py: the Open positions workspace's read, cached 60 s;
 no order call). The paper trades are read without applying exits (services/paper_pnl/book.py); prices follow the live -> Kite
@@ -38,6 +42,7 @@ from fastapi.responses import StreamingResponse
 
 from deps import db, get_current_user
 from services import paper_account as acct
+from services import paper_reconcile
 from services import risk_profile
 from services.paper_pnl import book as book_mod
 from services.exit_watch import service as exit_watch
@@ -109,13 +114,26 @@ def live_view(bb: live.BrokerBook, lives: List[live.LiveLeg], quotes: Dict[str, 
     return live.LiveView(positions=rows, accounts=accts, note=live.unavailable_note(bb, accts), legs=lives)
 
 
+async def scanner_reserved(uid: str) -> Dict[str, Any]:
+    """{spt_reserved_rs, spt_reservations}: the funding the paper account holds for scanner (SPT) orders and positions
+    (its reservations whose store is spt_orders; services/paper_reconcile.spt_reservations), so the dashboard can show
+    what of the blocked capital is the scanner's. None when the account cannot be read (the split is then not shown)."""
+    try:
+        doc = await db[acct.ACCOUNTS].find_one({"user_id": uid})
+    except Exception as e:  # noqa: BLE001 — the blocked total still shows; only its split is left out
+        logger.warning("desk_pnl: paper account unreadable for the scanner split (%s)", type(e).__name__)
+        return {"spt_reserved_rs": None, "spt_reservations": None}
+    res = paper_reconcile.spt_reservations(doc)
+    return {"spt_reserved_rs": round(sum(res.values()), 2), "spt_reservations": len(res)}
+
+
 async def snapshot(request: Request, uid: str, filters: dashboard.Filters) -> Dict[str, Any]:
     """One dashboard body for the user. Read-only."""
     now = datetime.now(timezone.utc)
     book, lives, bb, quotes, market = await _price_all(request, uid, now)
     unders = {str(i.public.get("underlying") or "").upper() for i in book.open if i.kind == "strategy"}
     underlying_ltp = await prices.underlying_prices(unders, now=now) if unders else {}
-    account = await acct.read(db, uid)
+    account = {**await acct.read(db, uid), **await scanner_reserved(uid)}
     try:
         limits = (await risk_profile.read(db, uid)).get("limits")
     except Exception as e:  # noqa: BLE001 — the limits are context here; the dashboard still answers without them

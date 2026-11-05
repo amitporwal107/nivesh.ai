@@ -232,7 +232,23 @@ async def _series(lines: List[Dict[str, Any]], iv: str, kname: str, *, sessions:
 
 
 BASIS = ("Kite intraday candles (raw prices), each candle's close; a candle an instrument did not trade in carries its last close "
-         "forward. The book is today's open positions; charges are today's estimate for closing them, held constant. Display only.")
+         "forward. The book is today's open positions (the desk's paper trades and the scanner's SPT positions alike); "
+         "realised = trades closed that session plus the scanner positions' partial exits that session; charges are today's "
+         "estimate for closing them, held constant. Display only.")
+
+
+def partial_realized(item: Any, day: str) -> float:
+    """The realised P&L of an open position's closing executions on IST `day` (a scanner position's T1 partial exit),
+    replayed through the same weighted-average ledger in the same order as ledger.build."""
+    out = 0.0
+    pos = ledger.Position(key=item.trade_id)
+    ordered = [e for _, e in sorted(enumerate(item.executions), key=lambda p: (p[1].at or "", p[0]))]
+    for ex in ordered:
+        before = pos.realized_pnl
+        ledger.apply(pos, ex)
+        if ex.side < 0 and (_ist_iso(ex.at) or "")[:10] == day:
+            out += pos.realized_pnl - before
+    return round(out, 2)
 
 
 async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval: str, *, charges_estimated: float,
@@ -266,6 +282,9 @@ async def build(uid: str, book: Book, quotes: Dict[str, prices.Quote], interval:
         for item in book.closed:
             if (item.public.get("exit_session") or "") == day and item.public.get("realized_pnl_rs") is not None:
                 realized += float(item.public["realized_pnl_rs"])
+        for item in book.open:
+            if getattr(item, "source", "desk") == "scanner" and item.entered:
+                realized += partial_realized(item, day)
     out = curve(series, books, realized=round(realized, 2), charges=charges_estimated, day=day)
     out.update({"date": day, "interval": interval, "is_today": day == today, "session_open": session_open,
                 "as_of": now.isoformat(), "notes": notes, "mode": mode, "basis": BASIS})

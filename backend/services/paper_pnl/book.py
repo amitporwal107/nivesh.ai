@@ -10,6 +10,16 @@ an exit price, a leg's exit mark or a cost figure on this dashboard is the numbe
 
 Cache: the end-of-day part (bars, simulations) changes once a day, so it is kept per user for BOOK_TTL_S, and rebuilt at once
 when the user's trades change (a fingerprint of ids, status and updated_at is read on every call, one small query).
+
+SCANNER (SPT) POSITIONS (Scanner-to-Paper Trading, slice C: services/spt/paper/positions.py) are in the same book as cash
+share trades (`source` "scanner" on the item; "desk" for the desk's own): every `spt_positions` document not CLOSED is open,
+the CLOSED ones are closed trades. Their executions are the position's OWN applied fills (`fill_ids`), read from its entry
+order and its exit orders (`spt_orders.fills`), each at its recorded traded value ÷ quantity (slippage in the price, as C
+books it); charges are the fills' recorded costs (dashboard.leg_charges). The booked realised P&L of a closed one is C's
+`realized_gross_rs` (exit proceeds − entry cost) and `realized_net_rs` (net of every fill's charges). Their end-of-day mark
+comes from the same bars read as the desk's share trades. Unlike desk trades, SPT fills and exits happen in the session on
+live quotes (slice C's monitor); nothing here applies or writes them. A failed SPT read leaves them out and says so
+(`Book.spt_error`), never silently.
 """
 from __future__ import annotations
 
@@ -18,17 +28,24 @@ import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from services import desk_strategy_trades as strat
 from services import desk_trading as svc
+from services.kite_live_feed import config as kcfg
 
 from .ledger import Execution
 
 logger = logging.getLogger(__name__)
 
 BOOK_TTL_S = 300.0
+#: Slice C's stores (services/spt/constants.POSITIONS / ORDERS); read only here.
+SPT_POSITIONS, SPT_ORDERS = "spt_positions", "spt_orders"
+SPT_CLOSED_STATE = "CLOSED"
+SPT_MAX_POSITIONS = 2000
+SPT_LOOKBACK_DAYS = 10
+DESK, SCANNER = "desk", "scanner"
 ENTERED = ("assumed", "reached")
 SEGMENT_OF_LEG = {"future": "FUTURES", "option": "OPTIONS", "cash": "EQUITY"}
 
@@ -69,6 +86,7 @@ class TradeItem:
     entered: bool
     pending_exit: Optional[Dict[str, Any]] = None   # an exit the EOD bars show that the ledger has not written yet
     entry_session: Optional[str] = None
+    source: str = DESK                              # desk | scanner (an SPT paper position, slice C)
 
 
 @dataclass
@@ -78,6 +96,7 @@ class Book:
     partial: bool = False
     marks_error: Optional[str] = None
     built_at: float = 0.0
+    spt_error: Optional[str] = None                 # the scanner positions could not be read: they are left out, said so
 
 
 def _num(v: Any) -> Optional[float]:
@@ -162,10 +181,109 @@ def strategy_item(pub: Dict[str, Any], pending_exit: Optional[Dict[str, Any]] = 
                      pending_exit=pending_exit, entry_session=_day(pub.get("opened_at")))
 
 
+def _ist_date(stamp: Any) -> Optional[str]:
+    """The IST day of an ISO stamp (a naive stamp is IST, as slice C reads them)."""
+    if not stamp:
+        return None
+    try:
+        d = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return _day(stamp)
+    return (d if d.tzinfo else d.replace(tzinfo=kcfg.IST)).astimezone(kcfg.IST).date().isoformat()
+
+
+def spt_item(pos: Dict[str, Any], fills: List[Tuple[Dict[str, Any], int]],
+             bars: Optional[List[Dict[str, Any]]] = None) -> TradeItem:
+    """A scanner (SPT) paper position as one cash position (see the module docstring). `fills` = (fill record, side) of the
+    position's entry order (+1) and exit orders (-1); only the fills the position applied (`fill_ids`) are used."""
+    pid, sym = str(pos["_id"]), str(pos.get("symbol") or "").upper()
+    is_open = pos.get("state") != SPT_CLOSED_STATE
+    applied = set(pos.get("fill_ids") or [])
+    execs: List[Execution] = []
+    for rec, side in sorted(fills, key=lambda fs: (str(fs[0].get("at") or ""), int(fs[0].get("seq") or 0))):
+        fid = rec.get("fill_id")
+        q, value = _num(rec.get("quantity")), _num(rec.get("value_rs"))
+        price = (value / q) if (q and value is not None) else _num(rec.get("price"))
+        if fid not in applied or not q or q <= 0 or price is None:
+            continue
+        execs.append(Execution(str(fid), pid, side, q, price, at=rec.get("at"), kind="fill" if side > 0 else "exit"))
+    stop = _num(pos.get("stop_loss"))
+    target = _num(pos.get("target_2") if pos.get("t1_done") else pos.get("target_1"))
+    entry_costs, exit_costs = _num(pos.get("entry_costs_rs")) or 0.0, _num(pos.get("exit_costs_rs")) or 0.0
+    exit_qty = _num(pos.get("exit_qty")) or 0.0
+    exit_avg = round(_num(pos.get("exit_value_rs")) / exit_qty, 4) if exit_qty and _num(pos.get("exit_value_rs")) is not None else None
+    pend = pos.get("pending_exit") if isinstance(pos.get("pending_exit"), dict) else None
+    pending = {"exit_reason": pend.get("reason"), "exit_session": pend.get("day"), "scanner": True} if pend else None
+    mark = svc.last_close(bars or []) if is_open else None
+    prev = None
+    if bars and is_open:
+        closes = [b for b in bars if b.get("close") is not None]
+        if len(closes) >= 2:
+            prev = _num(closes[-2]["close"])
+    ids = {"opportunity_id": pos.get("opportunity_id"), "proposal_id": pos.get("proposal_id"),
+           "order_id": pos.get("entry_order_id")}
+    pub: Dict[str, Any] = {
+        "id": pid, "kind": "cash", "symbol": sym, "status": "open" if is_open else "closed",
+        "quantity": int(_num(pos.get("quantity")) or 0) if is_open else int(_num(pos.get("entry_qty")) or 0),
+        "entry_price": _num(pos.get("avg_entry_price")), "sim_entry_price": _num(pos.get("avg_entry_price")),
+        "entry_status": "assumed", "entry_rule": "scanner", "entry_session": _ist_date(pos.get("opened_at")),
+        "stop_price": stop, "current_stop": stop, "target_price": target, "current_target": target,
+        "initial_stop": _num(pos.get("initial_stop")), "target_1": _num(pos.get("target_1")),
+        "target_2": _num(pos.get("target_2")), "t1_done": bool(pos.get("t1_done")),
+        "opened_at": pos.get("opened_at"), "closed_at": pos.get("closed_at"),
+        "exit_price": exit_avg, "exit_session": _ist_date(pos.get("closed_at")), "exit_reason": pos.get("exit_reason"),
+        "realized_pnl_rs": _num(pos.get("realized_gross_rs")) if not is_open else None,
+        "costs_rs": round(entry_costs + exit_costs, 2) if not is_open else None,
+        "net_pnl_rs": _num(pos.get("realized_net_rs")) if not is_open else None,
+        "held_sessions": pos.get("sessions_held"), "entry_qty": _num(pos.get("entry_qty")), "exit_qty": exit_qty,
+        "entry_costs_rs": entry_costs, "exit_costs_rs": exit_costs, "cost_model": pos.get("cost_model"),
+        "last_close": _num(mark["close"]) if mark else None,
+        "last_close_date": _day(mark["date"]) if mark else None,
+        # A dict, like a desk trade's own `source` (the journal reads it): where this position came from.
+        "source": {"kind": SCANNER, **ids}, **ids,
+        "spt_position_id": pid, "spt_state": pos.get("state"), "r_multiple": (pos.get("outcome") or {}).get("r_multiple"),
+        # an open position whose fills could not be matched is shown as missing, never as flat (dashboard alert)
+        "fills_missing": bool(is_open and not execs),
+    }
+    leg = Leg(position_key=pid, trade_id=pid, leg_index=None, segment="EQUITY", symbol=sym, instrument=sym, kind="cash",
+              eod_mark=pub["last_close"] if is_open else exit_avg,
+              eod_date=pub["last_close_date"] if is_open else pub["exit_session"], eod_basis="close", prev_eod=prev)
+    return TradeItem(trade_id=pid, kind="cash", status=pub["status"], public=pub, legs=[leg], executions=execs,
+                     entered=True, pending_exit=pending, entry_session=pub["entry_session"], source=SCANNER)
+
+
+async def _spt_docs(db, uid: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, List[Tuple[Dict[str, Any], int]]]]:
+    """(open SPT positions, closed ones newest first, {position id: [(fill, side)]}) of the user."""
+    docs = await db[SPT_POSITIONS].find({"user_id": uid}).to_list(SPT_MAX_POSITIONS)
+    open_ = [d for d in docs if d.get("state") != SPT_CLOSED_STATE]
+    closed = sorted((d for d in docs if d.get("state") == SPT_CLOSED_STATE), key=lambda d: str(d.get("closed_at") or ""),
+                    reverse=True)
+    fills: Dict[str, List[Tuple[Dict[str, Any], int]]] = {}
+    if docs:
+        entry = {d.get("entry_order_id"): str(d["_id"]) for d in docs if d.get("entry_order_id")}
+        pids = [str(d["_id"]) for d in docs]
+        orders = await db[SPT_ORDERS].find({"user_id": uid, "$or": [{"_id": {"$in": list(entry)}},
+                                                                    {"position_id": {"$in": pids}, "purpose": "EXIT"}]}) \
+            .to_list(SPT_MAX_POSITIONS * 4)
+        for o in orders:
+            if o.get("purpose") == "EXIT":
+                pid, side = o.get("position_id"), -1
+            else:
+                pid, side = entry.get(o.get("_id")), 1
+            if pid:
+                fills.setdefault(str(pid), []).extend((dict(f), side) for f in o.get("fills") or [])
+    return open_, closed, fills
+
+
 async def _fingerprint(db, uid: str) -> str:
     rows = await db[svc.TRADES].find({"user_id": uid}, {"_id": 1, "status": 1, "updated_at": 1, "closed_at": 1}) \
         .to_list(svc.MAX_OPEN_TRADES * 2 + svc.MAX_CLOSED_LISTED + 1)
     text = "|".join(sorted(f"{r['_id']}:{r.get('status')}:{r.get('updated_at')}:{r.get('closed_at')}" for r in rows))
+    try:
+        spt = await db[SPT_POSITIONS].find({"user_id": uid}).to_list(SPT_MAX_POSITIONS)
+        text += "|spt|" + "|".join(sorted(f"{r['_id']}:{r.get('state')}:{r.get('version')}:{r.get('updated_at')}" for r in spt))
+    except Exception as e:  # noqa: BLE001 — the build reports it (Book.spt_error); the fingerprint just changes each time
+        text += f"|spt-unreadable:{type(e).__name__}:{time.monotonic()}"
     return hashlib.sha1(text.encode()).hexdigest()
 
 
@@ -174,11 +292,23 @@ async def _build(db, uid: str) -> Book:
     cash_open = [d for d in all_open if d.get("kind") != strat.KIND]
     strat_open = [d for d in all_open if d.get("kind") == strat.KIND]
     starts = svc.fetch_starts(cash_open, "opened_at")
+    spt_error = None
+    try:
+        spt_open, spt_closed, spt_fills = await _spt_docs(db, uid)
+    except Exception as e:  # noqa: BLE001 — left out and said so (Book.spt_error), never silently
+        logger.warning("paper_pnl: the scanner (SPT) positions of a user could not be read (%s)", type(e).__name__)
+        spt_open, spt_closed, spt_fills, spt_error = [], [], {}, f"the scanner paper positions could not be read ({type(e).__name__})"
+    for d in spt_open:                                      # their end-of-day marks: the same bars read
+        sym, opened = str(d.get("symbol") or "").upper(), _ist_date(d.get("opened_at"))
+        if sym and opened:
+            start = date.fromisoformat(opened) - timedelta(days=SPT_LOOKBACK_DAYS)
+            if sym not in starts or start < starts[sym]:
+                starts[sym] = start
     bars, errors = await svc.fetch_bars_many(starts) if starts else ({}, {})
     _, counts = await svc.apply_trade_exits(db, cash_open, bars, persist=False)
     _, sims, s_errors = await strat.apply_exits(db, strat_open, persist=False) if strat_open else ([], {}, {})
 
-    book = Book(built_at=time.monotonic())
+    book = Book(built_at=time.monotonic(), spt_error=spt_error)
     for doc in cash_open:
         sim = counts["paths"].get(doc["_id"])
         mark, mark_error = svc.mark_for(doc["symbol"], bars, errors)
@@ -188,6 +318,8 @@ async def _build(db, uid: str) -> Book:
         sim = sims.get(doc["_id"])
         pub = strat.public_strategy_trade(doc, sim, s_errors.get(doc["_id"]))
         book.open.append(strategy_item(pub, pending_exit=(sim or {}).get("exit")))
+    for doc in spt_open:
+        book.open.append(spt_item(doc, spt_fills.get(str(doc["_id"])) or [], bars.get(str(doc.get("symbol") or "").upper())))
 
     closed = await db[svc.TRADES].find({"user_id": uid, "status": "closed"}).sort("closed_at", -1).to_list(svc.MAX_CLOSED_LISTED + 1)
     book.partial = len(closed) > svc.MAX_CLOSED_LISTED
@@ -196,6 +328,9 @@ async def _build(db, uid: str) -> Book:
             book.closed.append(strategy_item(strat.public_strategy_trade(doc)))
         else:
             book.closed.append(cash_item(svc.public_trade(doc)))
+    book.partial = book.partial or len(spt_closed) > svc.MAX_CLOSED_LISTED
+    for doc in spt_closed[: svc.MAX_CLOSED_LISTED]:
+        book.closed.append(spt_item(doc, spt_fills.get(str(doc["_id"])) or []))
     book.marks_error = svc.marks_error({**errors, **s_errors}, len(starts) + len(strat_open))
     return book
 
