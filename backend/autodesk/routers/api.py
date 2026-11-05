@@ -17,6 +17,7 @@ from .. import APP_NAME, APP_VERSION
 from .. import contracts as C
 from .. import store
 from ..accounts import ensure_default_policy, open_account
+from ..scoring import registry as scoring_registry
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1")
@@ -265,6 +266,13 @@ async def new_policy_version(policy_id: str, body: PolicyChangeIn, request: Requ
 
 
 # ── agents + workflows + events ─────────────────────────────────────────────────────────────────────────────────────
+
+@router.get("/scoring/versions")
+async def scoring_versions(user: dict = Depends(current_user)):
+    """Scoring versions: which one selects signals (v1), which run in shadow, which are off (scoring/registry.py)."""
+    tenant_of(user)
+    return {"active": scoring_registry.active_version(), "versions": scoring_registry.describe()}
+
 
 @router.get("/agents")
 async def list_agents(request: Request, user: dict = Depends(current_user)):

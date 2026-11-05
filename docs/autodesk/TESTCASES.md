@@ -215,3 +215,27 @@ SimTrace). A page of its own at /autodesk/studio, beside the desk. Per-view case
 | AD-UI-105 | E | Deep link /autodesk/studio/trace and reload; unknown /autodesk/studio/x | the trace view renders after reload; the unknown path goes to Trading day |
 | AD-UI-106 | E | Phone 390×844 | header wraps, tabs reachable, no horizontal overflow |
 | AD-UI-107 | E | Desk routes after the change | /autodesk/ and /autodesk/simulator still render inside the desk shell |
+
+## Scoring v2 — versioned signal hierarchy [core] (5 Nov, before the code)
+
+Owner 5 Nov: build the revised hierarchy as a versioned, configurable scoring framework; keep v1 live; v2 in shadow; bearish
+signals only as risk / exit warnings; horizon-aware (positional on, swing and intraday off); explainable; walk-forward
+validation before promotion. Spec: docs/signal_intelligence/SIGNAL_TIER_HIERARCHY.md §11.
+
+| ID | Layer | Case | Expected | Ref |
+|---|---|---|---|---|
+| AD-SC-01 | U | Versions registry | v1 ACTIVE, v2-positional SHADOW, v3-intraday DISABLED; v2 dimension maxima 45/30/15/10 sum to 100 | §11 |
+| AD-SC-02 | U | Only v1 may be active | asking for another active version raises; nothing promotes without a code change | §11 |
+| AD-SC-03 | U | Relative-strength breakout | fires when stock ÷ Nifty closes above its prior 250-session maximum; not with < 251 aligned sessions ("insufficient history") | §11 |
+| AD-SC-04 | U | Higher highs + higher lows / lower highs + lower lows | zig-zag uptrend → HH-HL state; downtrend → LH-LL warning; swing points used only 2 bars after they form | §11 |
+| AD-SC-05 | U | No look-ahead | score at bar t from the full series equals the score from the series cut at t (sampled t, random walks) | §8 |
+| AD-SC-06 | U | Overlap rule | when HH-HL is the primary signal, the trend dimension does not score HH-HL again; RS dimension halves when the RS breakout is primary | §11 |
+| AD-SC-07 | U | Bearish signals | never give an entry tier; listed as warnings; a bullish candidate with a bearish warning loses 10 | §11 |
+| AD-SC-08 | U | No chasing penalty; RSI 75–80 positive | a stock 4 ATR above EMA20 is not penalised; RSI 77 earns the top momentum points | §10 |
+| AD-SC-09 | U | Volume is not rewarded beyond 1.5× | 10× and 1.6× volume earn the same volume points | §10 |
+| AD-SC-10 | U | Bands and attribution | score → Exceptional / Strong / Developing / Weak / Avoid; every point carries a dimension, weight and reason | §1 |
+| AD-SC-11 | I | AI Trader with shadow scoring | v1 `signal_score` and breakdown identical with shadow on and off; each signal carries `shadow_scores[v2-positional]` | §11 |
+| AD-SC-12 | I | Scan report | `shadow` block lists v2 candidates (including stocks v1 did not signal) without publishing them; v1 signals unchanged | §11 |
+| AD-SC-13 | A | GET /api/v1/scoring/versions | 401 signed out; lists versions, status, weights, horizon, validation state | §11 |
+| AD-SC-14 | U | Old signal bodies | a stored signal without `shadow_scores` still parses | §11 |
+| AD-SC-15 | S | Walk-forward shadow check (study data) | v2 bands sort 20-session excess returns in the test period (Oct 2025 – Nov 2026), reported before any promotion | §8 |

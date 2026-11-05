@@ -209,3 +209,18 @@ def test_ad93_ad94_ad97_stop_new_entries_api(client):
         r3 = client.post("/api/v1/desk/controls/STOP_NEW_ENTRIES", json={"active": False, "reason": "done"},
                          headers=B)
         assert r3.json()["changed"] is True and r3.json()["active"] is False
+
+
+def test_adsc13_scoring_versions(client):
+    """AD-SC-13: which scoring version selects, which shadow (scoring/registry.py)."""
+    assert client.get("/api/v1/scoring/versions").status_code == 401
+    r = client.get("/api/v1/scoring/versions", headers=A)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["active"] == "v1"
+    by = {v["version"]: v for v in body["versions"]}
+    assert by["v1"]["selects_signals"] and not by["v2-positional"]["selects_signals"]
+    assert by["v3-intraday"]["status"] == "DISABLED"
+    assert set(by["v2-positional"]["weights"]) == {"signal_quality", "trend_confirmation", "relative_strength",
+                                                   "supporting_evidence"}
+
