@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">02 · Agent command centre</span><span class="nv-pill nv-pill-indigo">Desk Orchestrator · deterministic</span><span class="nv-pill">5 agents · 9 instances</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">Four agents are working normally. <em style="color:var(--amber)">Tech Support</em> is degraded on a late BSE feed.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Agents discover, plan and explain. Deterministic services validate, reserve capital and execute. Every handoff is a structured message with a correlation ID; free-form text is never authoritative.</p>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:6px 16px;font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;color:var(--ink-3)">
+    <sc-for list="{{ legend }}" as="lg" hint-placeholder-count="7"><span style="display:inline-flex;align-items:center;gap:6px"><span class="nv-dot" style="background:{{ lg.c }}"></span>{{ lg.t }} <span style="color:var(--ink)">{{ lg.n }}</span></span></sc-for>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ cardMin }},1fr));gap:12px">
+    <sc-for list="{{ agents }}" as="a" hint-placeholder-count="5">
+      <div onClick="{{ a.pick }}" style="cursor:pointer;display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid {{ a.border }};background:var(--bg-1);box-shadow:var(--shadow-card);transition:all .15s ease" style-hover="border-color:var(--line-3)">
+        <div style="display:flex;align-items:center;gap:8px"><span class="nv-pill" style="color:{{ a.c }};border-color:{{ a.line }};background:{{ a.soft }}"><span class="nv-dot" style="background:{{ a.c }}"></span>{{ a.st }}</span><span style="flex:1"></span><span class="nv-num" style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">♥ {{ a.hb }}</span></div>
+        <div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--display);font-size:24px;line-height:1.05">{{ a.n }}</span><span class="nv-eyebrow" style="font-size:9.5px">{{ a.role }}</span></div>
+        <span style="font-size:13.5px;line-height:1.45;color:var(--ink-2)">{{ a.task }}</span>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-3)">QUEUE</span><span class="nv-num" style="font-family:var(--display);font-size:22px;line-height:1">{{ a.q }}</span></div>
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-3)">LAST SUCCESS</span><span class="nv-num" style="font-size:12.5px">{{ a.last }}</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;padding-top:10px;border-top:1px solid var(--line)"><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-3)">RECENT DECISIONS</span><sc-for list="{{ a.dec }}" as="d" hint-placeholder-count="3"><span style="font-size:12px;line-height:1.45;color:var(--ink-2)"><span class="nv-num" style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ d.t }}</span> {{ d.x }}</span></sc-for></div>
+        <span style="font-size:11.5px;color:{{ a.errC }}">{{ a.err }}</span>
+      </div>
+    </sc-for>
+  </section>
+
+  <section style="display:grid;grid-template-columns:{{ detailCols }};gap:16px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:14px;padding:{{ pad }};border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">Decision trace · {{ s.n }}</span><span class="nv-pill">{{ s.ref }}</span></div>
+      <span style="font-family:var(--display);font-size:26px;line-height:1.15">{{ s.title }}</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:1px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--line)">
+        <sc-for list="{{ s.trace }}" as="t" hint-placeholder-count="10"><div style="display:flex;flex-direction:column;gap:4px;padding:11px 14px;background:var(--bg-1)"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)">{{ t.k }}</span><span style="font-size:13px;line-height:1.45;color:{{ t.c }}">{{ t.v }}</span></div></sc-for>
+      </div>
+      <span style="font-size:11.5px;color:var(--ink-3)">A concise decision record with structured evidence and policy checks. Hidden model reasoning is neither stored nor shown.</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Permissions and tool access</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ s.allow }}" as="pm" hint-placeholder-count="3"><span class="nv-pill nv-pill-mint" style="font-size:9.5px">✓ {{ pm }}</span></sc-for><sc-for list="{{ s.deny }}" as="pm" hint-placeholder-count="2"><span class="nv-pill" style="font-size:9.5px;color:var(--ink-3)">× {{ pm }}</span></sc-for></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Model and config</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--ink-2)">{{ s.model }}</span>
+        <span class="nv-eyebrow" style="padding-top:8px">Human escalation</span><span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ s.esc }}</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <span class="nv-eyebrow">Workflows in flight · 13-step trade proposal workflow</span>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <sc-for list="{{ flows }}" as="f" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:{{ flowCols }};gap:8px 16px;align-items:center;padding:12px 18px;border-top:1px solid {{ f.line }}">
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:13.5px;font-weight:500">{{ f.n }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ f.id }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:3px"><sc-for list="{{ f.steps }}" as="st" hint-placeholder-count="13"><span title="{{ st.t }}" style="height:8px;border-radius:2px;background:{{ st.c }}"></span></sc-for></div>
+          <span style="font-size:12px;line-height:1.4;color:{{ f.c }}">{{ f.at }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1600},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 'A3' };
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state;
+    const T = { BUSY: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], IDLE: ['var(--ink-2)', 'var(--line-2)', 'transparent'], DEGRADED: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'] };
+    const A = [
+      { id: 'A1', n: 'AI Trader', role: 'Opportunity hunter', st: 'BUSY', hb: '2s', task: 'Scanning the F&O universe · 187 of 212 symbols', q: '14', last: '11:41:40 · SIG-10267', dec: [['11:41', 'Published SIG-10267 SBIN · 52 · watch only'], ['11:20', 'Published SIG-10266 ICICIBANK · 58'], ['11:05', 'Suppressed a duplicate RELIANCE breakout']], err: '0 errors · 1 retry (option chain timeout 10:31)',
+        ref: 'SIG-10266', title: 'Published ICICIBANK unusual call activity', trace: [['Requesting', 'Desk Orchestrator · scheduled scan 11:20'], ['Receiving', 'Trading Assistant'], ['Input references', 'ICICIBANK chain 11:19:48 · OI history · quote feed'], ['Structured output', 'SIGNAL · BULLISH · score 58 · entry 1,418–1,425 · invalid 1,402'], ['Evidence', '1,440 CE OI +38 L in 40 min · IV +2.1 pts'], ['Tool calls', 'get_option_chain 0.8s · get_oi_history 0.4s · score_signal'], ['Validation', 'Schema ✓ · freshness ✓ · duplicate check ✓', 'mint'], ['Time · retries', '2.1 s · 0'], ['Handoff', 'Trading Assistant · PLN-2045 requested'], ['Decision', 'Published, above the 55 threshold', 'mint']],
+        allow: ['Read market data', 'Read option chains', 'Publish signals'], deny: ['Create plans', 'Place orders'], model: 'signal-v1.4 · rules-v3.2 · prompt th-07', esc: 'None. Signals are inputs to planning, never instructions to trade.' },
+      { id: 'A2', n: 'Trading Assistant', role: 'Strategist and trader interface', st: 'BUSY', hb: '3s', task: 'Building PLN-2045 v1 · ICICIBANK 1,440 CE activity', q: '3', last: '11:35:44 · PLN-2041 v2', dec: [['11:35', 'PLN-2041 v2 · short strike to 24200, under the sizing cap'], ['11:28', 'PLN-2038 v1 · RELIANCE 330 shares'], ['11:09', 'AMD-0092 · roll Bank Nifty spread to 29 Dec']], err: '0 errors · 0 retries',
+        ref: 'PLN-2041 v2', title: 'Revised the Nifty spread after a risk warning', trace: [['Requesting', 'Risk Guardian · RSK-5521 WARN'], ['Receiving', 'Risk Guardian'], ['Input references', 'PLN-2041 v1 · RSK-5521 · chain 11:35:20'], ['Structured output', 'PLAN v2 · bull call spread 24000/24200 · 2 lots · debit 84.05'], ['Evidence', 'Max loss ₹10,927 within the ₹12,500 cap · short strike inside ±343'], ['Tool calls', 'get_option_chain · price_strategy · backtest_lookup (n 186)'], ['Validation', 'Schema ✓ · 19 mandatory plan fields ✓', 'mint'], ['Time · retries', '6.4 s · 0'], ['Handoff', 'Risk Guardian · RSK-5530'], ['Decision', 'Submitted for risk validation', 'mint']],
+        allow: ['Create and version plans', 'Read chains and Greeks', 'Run backtests'], deny: ['Approve', 'Place orders', 'Change limits'], model: 'strategist-v2.1 · LLM gateway · prompt sa-12', esc: 'Plans with undefined or unlimited loss always go to a human, whatever the mode.' },
+      { id: 'A3', n: 'Risk Guardian', role: 'Risk and operations', st: 'BUSY', hb: '1s', task: 'Stress-testing AMD-0092 · Bank Nifty roll to 29 Dec', q: '2', last: '11:41:52 · RSK-5531', dec: [['11:38', 'RSK-5530 PASS with 1 warning · PLN-2041 v2'], ['11:30', 'RSK-5529 PASS · RELIANCE'], ['10:24', 'RSK-5521 WARN · v1 over the sizing cap']], err: '0 errors · 0 retries',
+        ref: 'RSK-5530', title: 'Passed the Nifty spread with one warning', trace: [['Requesting', 'Trading Assistant · PLN-2041 v2'], ['Receiving', 'Middle Office Supervisor'], ['Input references', 'PLN-2041 v2 · ZX4821 portfolio 11:38 · policy P-LIVE-v3'], ['Structured output', 'RISK REPORT · max loss ₹10,927 · open risk 0.42% → 0.85%'], ['Evidence', 'Stress: Nifty −1% −₹6,980 · IV −2 −₹310 · one session −₹1,240'], ['Tool calls', 'portfolio_risk 4.3 · stress_scenarios · margin_estimate'], ['Validation', '11 checks pass · 1 warning (expiry ≤ 2 sessions)', 'amber'], ['Time · retries', '1.9 s · 0'], ['Handoff', 'Middle Office · authorization'], ['Decision', 'PASS', 'mint']],
+        allow: ['Read portfolio and limits', 'Block proposals', 'Trigger risk-reducing policy'], deny: ['Approve', 'Widen limits', 'Place entries'], model: 'risk-engine 4.3 (deterministic) · narrative rg-05', esc: 'Hard-limit breaches go to the Middle Office and the account owner. No agent can override a hard limit.' },
+      { id: 'A4', n: 'Middle Office', role: 'Independent controller', st: 'IDLE', hb: '2s', task: 'Waiting on you · 3 approvals routed', q: '3', last: '11:38:40 · APR-3107', dec: [['11:38', 'APR-3107 → needs human (live entry)'], ['11:31', 'APR-3106 → needs human (notional)'], ['10:21', 'APR-3100 → needs revision (stop too wide)']], err: '0 errors · 0 retries',
+        ref: 'APR-3107', title: 'Routed the Nifty spread to the account owner', trace: [['Requesting', 'Risk Guardian · RSK-5530 PASS'], ['Receiving', 'Account owner · amit.p'], ['Input references', 'PLN-2041 v2 · RSK-5530 · P-LIVE-v3 · RSV-7733'], ['Structured output', 'NEEDS_HUMAN_APPROVAL · binds plan hash 9f3c…a21e'], ['Evidence', 'Live entry · assisted mode · authority not delegated'], ['Tool calls', 'policy_eval 7 · reserve_capital · bind_approval'], ['Validation', 'Account, mode, strategy and expiry checked', 'mint'], ['Time · retries', '0.4 s · 0'], ['Handoff', 'Approval queue · expires 12:10:00'], ['Decision', 'Routed to you', 'amber']],
+        allow: ['Approve within delegated paper authority', 'Reject and suspend', 'Bind approvals'], deny: ['Place orders', 'Approve live entries', 'Edit policy'], model: 'mo-policy 7 (deterministic) · reviewer mo-03', esc: 'Live entries, holding extensions and notional above ₹4.00 L go to the account owner.' },
+      { id: 'A5', n: 'Tech Support', role: 'Infrastructure guardian', st: 'DEGRADED', hb: '2s', task: 'Watching BSE announcements · lag 4m 10s', q: '1', last: '11:22:30 · failover', dec: [['11:22', 'Blocked entries on 3 symbols with pending filings'], ['11:18', 'Opened INC-0311 · BSE feed lag'], ['09:16', 'Recovered Kite WebSocket in 34 s']], err: '2 errors · 5 retries · BSE poll timeouts',
+        ref: 'INC-0311', title: 'Contained a late BSE announcements feed', trace: [['Requesting', 'Feed monitor · lag above 120 s'], ['Receiving', 'Desk Orchestrator · Risk Guardian'], ['Input references', 'BSE feed offsets · NSE overlap map · open positions'], ['Structured output', 'DATA_STALE · 3 symbols · entries blocked'], ['Evidence', 'Last BSE item 11:18:02 · NSE feed current'], ['Tool calls', 'feed_health · failover_overlap · notify_ops'], ['Validation', 'No open position affected', 'mint'], ['Time · retries', '4.8 s · 5'], ['Handoff', 'Ops admin paged 11:28'], ['Decision', 'Degraded; protective controls unchanged', 'amber']],
+        allow: ['Restart non-trading processes', 'Fail over data feeds', 'Open incidents'], deny: ['Create orders', 'Alter policies', 'Disable protective controls'], model: 'ops-runbooks 2.6', esc: 'Unresolved after 10 minutes → operations administrator. Paged at 11:28.' },
+    ];
+    const sel = A.find(a => a.id === s.sel) || A[2];
+    const C = { mint: 'var(--mint)', amber: 'var(--amber)' };
+    const STEPS = ['Signal', 'Proposal', 'Risk report', 'Revision', 'Authorization', 'Capital reservation', 'Execution intent', 'Orders and fills', 'Active position', 'Risk events', 'Position action', 'Reconciliation', 'Journal'];
+    const F = [['ICICIBANK 1,440 CE plan', 'WF-88430 · PLN-2045', 1, 'Step 2 · Strategist drafting', 'var(--mint)'], ['Bank Nifty spread roll', 'WF-88427 · AMD-0092', 4, 'Step 5 · waiting on you', 'var(--amber)'], ['Nifty bull call spread', 'WF-88425 · PLN-2041 v2', 4, 'Step 5 · waiting on you', 'var(--amber)'], ['RELIANCE long', 'WF-88424 · PLN-2038', 4, 'Step 5 · waiting on you', 'var(--amber)'], ['DLF long', 'WF-88419 · TRD-1191', 7, 'Step 8 · 200 of 600 still working', 'var(--indigo)'], ['BEL long', 'WF-88412 · TRD-1192', 10, 'Step 11 · managing the position', 'var(--mint)']];
+    return {
+      h1: m ? '30px' : '44px', cardMin: m ? '100%' : '230px', detailCols: m ? 'minmax(0,1fr)' : 'minmax(0,1.6fr) minmax(260px,1fr)', pad: m ? '18px 16px' : '20px 22px', flowCols: m ? 'minmax(0,1fr)' : 'minmax(180px,240px) minmax(0,1fr) 220px',
+      legend: [['IDLE', '1', 'var(--ink-2)'], ['BUSY', '3', 'var(--mint)'], ['SCALING', '0', 'var(--indigo)'], ['DEGRADED', '1', 'var(--amber)'], ['MAINTENANCE', '0', 'var(--ink-4)'], ['QUARANTINED', '0', 'var(--rose)'], ['OFFLINE', '0', 'var(--danger)']].map(([t, n, c]) => ({ t, n, c })),
+      agents: A.map(a => ({ ...a, c: T[a.st][0], line: T[a.st][1], soft: T[a.st][2], border: a.id === sel.id ? 'var(--line-3)' : 'var(--line)', errC: a.err.startsWith('0 errors') ? 'var(--ink-3)' : 'var(--amber)', dec: a.dec.map(([t, x]) => ({ t, x })), pick: () => this.setState({ sel: a.id }) })),
+      s: { n: sel.n, ref: sel.ref, title: sel.title, trace: sel.trace.map(([k, v, c]) => ({ k, v, c: c ? C[c] : 'var(--ink)' })), allow: sel.allow, deny: sel.deny, model: sel.model, esc: sel.esc },
+      flows: F.map(([n, id, at, label, c], i) => ({ n, id, at: label, c, line: i ? 'var(--line)' : 'transparent', steps: STEPS.map((t, k) => ({ t, c: k < at ? 'var(--mint-line)' : k === at ? c : 'var(--bg-3)' })) })),
+    };
+  }
+}
+</script>
+</body>
+</html>

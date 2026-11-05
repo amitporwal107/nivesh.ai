@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:24px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">06 · Active trade management</span><span class="nv-pill nv-pill-indigo">TLM · event-driven</span><span class="nv-pill">{{ countLabel }}</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">{{ headA }} ICICIBANK is the one <em style="color:var(--danger)">near its stop</em>.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:680px">The Trade Lifecycle Manager runs each position against its approved plan. It can tighten stops and book targets; it cannot widen a stop, add quantity or extend a holding without a new approval.</p>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
+      <span class="nv-eyebrow">All positions · stop to target 2</span>
+      <div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2)"><sc-for list="{{ filters }}" as="f" hint-placeholder-count="3"><button onClick="{{ f.go }}" style="cursor:pointer;border:0;padding:6px 14px;border-radius:999px;background:{{ f.bg }};color:{{ f.color }};font-family:var(--mono);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase">{{ f.t }}</button></sc-for></div>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+      <sc-for list="{{ ladder }}" as="r" hint-placeholder-count="7">
+        <div onClick="{{ r.pick }}" style="cursor:pointer;display:grid;grid-template-columns:{{ ladderCols }};gap:8px 16px;align-items:center;padding:13px 18px;border-top:1px solid {{ r.line }};background:{{ r.bg }};transition:all .15s ease" style-hover="background:var(--bg-2)">
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <div style="display:flex;gap:8px;align-items:center"><span style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sym }}</span><span class="nv-pill" style="padding:1px 7px;font-size:9px;color:{{ r.mc }};border-color:{{ r.ml }}">{{ r.mode }}</span></div>
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.04em;color:var(--ink-3)">{{ r.id }} · {{ r.state }}</span>
+          </div>
+          <div style="position:relative;height:26px;grid-column:{{ barCol }}">
+            <div style="position:absolute;left:0;right:0;top:12px;height:3px;border-radius:2px;background:linear-gradient(90deg,var(--danger-soft),var(--bg-3) 30%,var(--mint-soft))"></div>
+            <span style="position:absolute;left:0;top:6px;width:2px;height:15px;background:var(--danger)"></span>
+            <span style="position:absolute;left:{{ r.avgL }};top:7px;width:1px;height:13px;background:var(--ink-3)"></span>
+            <span style="position:absolute;left:{{ r.t1L }};top:7px;width:1px;height:13px;background:var(--mint-line)"></span>
+            <span style="position:absolute;right:0;top:6px;width:2px;height:15px;background:var(--mint)"></span>
+            <span style="position:absolute;left:{{ r.ltpL }};top:7px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:{{ r.c }};box-shadow:0 0 0 4px {{ r.soft }}"></span>
+          </div>
+          <span class="nv-num" style="font-family:var(--mono);font-size:12.5px;text-align:right;color:{{ r.c }}">{{ r.pnl }}</span>
+          <span class="nv-num" style="font-family:var(--mono);font-size:11.5px;text-align:right;color:var(--ink-2)">{{ r.r }}</span>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 18px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)"><span style="color:var(--danger)">▏STOP</span><span>▏AVG FILL</span><span style="color:var(--mint)">▏T1 · T2▕</span><span>● LTP</span><span>R = MULTIPLE OF INITIAL RISK</span></div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:16px;padding:{{ cardPad }};border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card)">
+    <div style="display:flex;flex-wrap:wrap;gap:12px 20px;justify-content:space-between;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:0;flex:1 1 320px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span style="font-family:var(--mono);font-size:11.5px;color:var(--ink-2)">{{ t.id }} · {{ t.plan }}</span><span class="nv-pill" style="color:{{ t.mc }};border-color:{{ t.ml }}">{{ t.modeLong }}</span><span class="nv-pill" style="color:{{ t.sc }};border-color:{{ t.sl }};background:{{ t.sbg }}">{{ t.stateRaw }}</span></div>
+        <h2 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h2 }};line-height:1.1;letter-spacing:-0.015em">{{ t.inst }}</h2>
+        <span style="font-size:13.5px;color:var(--ink-3)">{{ t.strat }}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="nv-num" style="font-family:var(--display);font-size:42px;line-height:1;color:{{ t.c }}">{{ t.pnl }}</span><span class="nv-eyebrow" style="font-size:9px">Unrealized · {{ t.r }}</span></div>
+    </div>
+
+    <div style="display:flex;gap:4px;overflow-x:auto;padding-bottom:2px">
+      <sc-for list="{{ t.steps }}" as="st" hint-placeholder-count="8">
+        <div style="flex:1 0 84px;display:flex;flex-direction:column;gap:6px">
+          <span style="height:3px;border-radius:2px;background:{{ st.bar }}"></span>
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.06em;text-transform:uppercase;line-height:1.3;color:{{ st.c }}">{{ st.t }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="position:relative;height:{{ chartH }};margin-right:{{ chartMr }}">
+        <svg viewBox="0 0 600 220" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible">
+          <sc-for list="{{ t.hlines }}" as="h" hint-placeholder-count="4"><line x1="0" x2="600" y1="{{ h.y }}" y2="{{ h.y }}" stroke="{{ h.c }}" stroke-width="1" stroke-dasharray="{{ h.dash }}" vector-effect="non-scaling-stroke"></line></sc-for>
+          <polyline points="{{ t.stopPts }}" fill="none" stroke="var(--danger)" stroke-width="1.6" vector-effect="non-scaling-stroke"></polyline>
+          <polyline points="{{ t.pricePts }}" fill="none" stroke="var(--ink-2)" stroke-width="1.8" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+        <sc-for list="{{ t.labels }}" as="l" hint-placeholder-count="5"><span class="nv-num" style="position:absolute;right:{{ labelRight }};top:{{ l.top }};transform:translateY(-50%);padding:2px 6px;border-radius:6px;background:var(--bg-1);border:1px solid {{ l.line }};font-family:var(--mono);font-size:9.5px;letter-spacing:0.04em;color:{{ l.c }};white-space:nowrap">{{ l.t }}</span></sc-for>
+        <sc-for list="{{ t.marks }}" as="k" hint-placeholder-count="2">
+          <span style="position:absolute;left:{{ k.left }};top:{{ k.top }};width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:{{ k.radius }};transform:{{ k.rot }};background:{{ k.bg }};border:2px solid {{ k.c }}"></span>
+          <span style="position:absolute;left:{{ k.left }};top:{{ k.top }};transform:translate(-50%,10px);font-family:var(--mono);font-size:9px;letter-spacing:0.04em;color:{{ k.c }};white-space:nowrap">{{ k.t }}</span>
+        </sc-for>
+        <span style="position:absolute;right:-5px;top:{{ t.ltpTop }};width:10px;height:10px;margin-top:-5px;border-radius:50%;background:{{ t.c }};box-shadow:0 0 0 4px {{ t.soft }}"></span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;font-family:var(--mono);font-size:10px;color:var(--ink-3)"><span>{{ t.t0 }}</span><span>● ACTUAL FILL · ◇ TRIGGER PRICE · STOP LINE STEPS WHEN TRAILED</span><span>{{ t.t1 }}</span></div>
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;border:1px solid {{ t.al }};background:{{ t.abg }}">
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:{{ t.ac }};padding-top:2px;flex:none">NEXT ACTION</span>
+      <span style="flex:1;font-size:13.5px;line-height:1.5;color:var(--ink)">{{ t.action }}</span>
+      <sc-if value="{{ t.hasLink }}" hint-placeholder-val="{{ false }}"><span onClick="{{ t.link }}" style="cursor:pointer;font-size:13px;color:var(--mint);white-space:nowrap">{{ t.linkT }}</span></sc-if>
+    </div>
+
+    <sc-if value="{{ t.hasLegs }}" hint-placeholder-val="{{ false }}">
+      <div style="border:1px solid var(--line);border-radius:12px;overflow:hidden">
+        <div style="overflow-x:auto"><div style="min-width:520px">
+          <div style="display:grid;grid-template-columns:60px minmax(0,2fr) repeat(3,minmax(0,1fr));gap:10px;padding:9px 14px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3);background:var(--bg-2)"><span>Side</span><span>Leg</span><span style="text-align:right">Avg</span><span style="text-align:right">LTP</span><span style="text-align:right">P&amp;L</span></div>
+          <sc-for list="{{ t.legs }}" as="lg" hint-placeholder-count="2"><div style="display:grid;grid-template-columns:60px minmax(0,2fr) repeat(3,minmax(0,1fr));gap:10px;padding:10px 14px;border-top:1px solid var(--line);font-size:13px"><span style="font-family:var(--mono);font-size:11px;color:{{ lg.sc }}">{{ lg.side }}</span><span>{{ lg.n }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ lg.avg }}</span><span class="nv-num" style="text-align:right">{{ lg.ltp }}</span><span class="nv-num" style="text-align:right;color:{{ lg.pc }}">{{ lg.pnl }}</span></div></sc-for>
+        </div></div>
+      </div>
+    </sc-if>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ kvMin }},1fr));gap:1px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--line)">
+      <sc-for list="{{ t.kv }}" as="kv" hint-placeholder-count="14">
+        <div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;background:var(--bg-1)"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)">{{ kv.k }}</span><span class="nv-num" style="font-size:13.5px;line-height:1.4">{{ kv.v }}</span></div>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;flex-direction:column">
+      <span class="nv-eyebrow" style="padding-bottom:8px">Event timeline</span>
+      <sc-for list="{{ t.events }}" as="e" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:70px 14px minmax(0,1fr);gap:10px;align-items:start;padding:7px 0">
+          <span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);padding-top:1px">{{ e.t }}</span>
+          <span style="width:9px;height:9px;margin-top:4px;border-radius:50%;background:{{ e.c }}"></span>
+          <div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:13px;line-height:1.45">{{ e.x }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ e.who }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1700},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;focus&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;decided&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;Record&lt;string,string&gt;&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { sel: null, filter: 'ALL' };
+  componentDidUpdate(pp) { if (this.props.focus && this.props.focus !== pp.focus) this.setState({ sel: this.props.focus }); }
+  trades(live) {
+    const E = (t, who, x) => ({ t, who, x });
+    const T = [
+      { id: 'TRD-1192', plan: 'PLN-2033 v1', sym: 'BEL', inst: 'BEL · NSE cash', strat: 'Long equity · breakout · 900 shares', mode: 'PAPER', acct: 'Paper · Desk A', avg: 441.85, ltp: 448.9, stops: [[0, 432]], t1: 456, t2: 468, pnl: 6345, step: 3, raw: 'ACTIVE_POSITION', r: '+0.72R', n: 22, seed: 11, a: 441.2, vol: 1.3, fills: [[1, 441.85, 'BUY 900']], trig: [], t0: '09:55', tEnd: '11:40',
+        kv: [['Entry · avg fill', '441.85 · 1 fill'], ['Current price', '448.90 · LIVE 0.8s'], ['Filled · remaining', '900 of 900 · 0'], ['Open orders', 'SL 432.00 · 900 · paper engine'], ['Stop · targets', '432.00 · 456 / 468'], ['Trailing stop', 'Armed at 452.00 (+1R), not active'], ['Realized · unrealized', '— · +₹6,345'], ['Remaining risk', '₹15,210'], ['Capital · margin', '₹3,97,665 blocked · cash'], ['Volume context', 'Delivery 62%, 2.1× the 20-day average'], ['Last risk evaluation', '11:30:00 · RSK-5528 · within plan'], ['Approval', 'APR-3101 · auto · P-PAPER-v7']],
+        action: 'Hold. Target 1 at 456.00 is 1.6% away; the trailing stop arms at 452.00.', tone: 'mint',
+        events: [E('09:52:10', 'AI TRADER', 'SIG-10255 · breakout · score 71'), E('09:58:31', 'STRATEGIST', 'PLN-2033 v1 · 900 shares · limit 442.50'), E('10:01:12', 'RISK GUARDIAN', 'RSK-5512 PASS'), E('10:04:12', 'MIDDLE OFFICE', 'APR-3101 APPROVED within delegated authority'), E('10:04:20', 'EXECUTION GATEWAY', 'ORDER_SUBMITTED · buy 900 limit 442.50'), E('10:04:31', 'PAPER ENGINE', 'FILLED 900 @ 441.85'), E('10:04:31', 'TLM', 'ACTIVE_POSITION · stop 432.00 placed')] },
+      { id: 'TRD-1189', plan: 'PLN-2030 v1', sym: 'HDFCBANK FUT', inst: 'HDFCBANK · NOV FUT', strat: 'Long future · long buildup · 1 lot (550)', mode: 'PAPER', acct: 'Paper · Desk A', avg: 1004.2, ltp: 1012.6, stops: [[0, 984], [18, 991]], t1: 1030, t2: 1045, pnl: 4620, step: 4, raw: 'RISK_MANAGEMENT', r: '+0.42R', n: 20, seed: 7, a: 1004.6, vol: 2.4, fills: [[0, 1004.2, 'BUY 550']], trig: [], t0: '4 Nov 14:15', tEnd: '5 Nov 11:40',
+        kv: [['Entry · avg fill', '1,004.20 · 1 fill'], ['Current price', '1,012.60 · LIVE 0.8s'], ['Filled · remaining', '550 of 550 · 0'], ['Open orders', 'SL-M 991.00 · 550'], ['Stop · targets', '991.00 · 1,030 / 1,045'], ['Trailing stop', 'Active · 1.5 × ATR(14) · raised 11:41:52'], ['Realized · unrealized', '— · +₹4,620'], ['Remaining risk', '₹11,880'], ['Capital · margin', '₹5,56,930 notional · ₹1,02,400 margin'], ['Greeks · OI', 'Δ +550 · OI +4.1%, long buildup'], ['Last risk evaluation', '11:41:52 · RSK-5531 · within plan'], ['Approval', 'APR-3093 · auto · P-PAPER-v7']],
+        action: 'Hold. The trailing stop moves up with each +0.5R; a stop-out now costs ₹7,260.', tone: 'mint',
+        events: [E('4 Nov 14:08', 'MIDDLE OFFICE', 'APR-3093 APPROVED · auto'), E('4 Nov 14:10', 'PAPER ENGINE', 'FILLED 550 @ 1,004.20'), E('4 Nov 14:10', 'TLM', 'ACTIVE_POSITION · SL-M 984.00'), E('11:05:40', 'TLM', 'RISK_MANAGEMENT · trailing armed at +1R'), E('11:41:52', 'TLM', 'Stop raised 984 → 991 under TRAIL-ATR-v2 · 550 unchanged')] },
+      { id: 'TRD-1187', plan: 'PLN-2029 v2', sym: 'BANKNIFTY PE SPREAD', inst: 'BANKNIFTY 23 NOV 55000 / 54500 PE', strat: 'Bear put spread · 3 lots (90) · chart shows spread value', mode: 'PAPER', acct: 'Paper · Desk A', avg: 168.4, ltp: 131.1, stops: [[0, 84.2]], t1: 260, t2: 340, pnl: -3357, step: 4, raw: 'RISK_MANAGEMENT', r: '−0.44R', n: 24, seed: 5, a: 168.4, vol: 5, fills: [[0, 168.4, 'DEBIT 168.40']], trig: [], t0: '30 Oct', tEnd: '5 Nov 11:40',
+        legs: [['BUY', '3 × 55000 PE · 23 Nov', '401.20', '309.60', '−₹8,244', 'var(--danger)'], ['SELL', '3 × 54500 PE · 23 Nov', '232.80', '178.50', '+₹4,887', 'var(--mint)']],
+        kv: [['Entry · net debit', '168.40 · ₹15,156 paid'], ['Current value', '131.10 · chain 22s old'], ['Filled · remaining', '90 of 90 per leg · 0'], ['Open orders', 'None · exits are rule-based'], ['Stop · targets', 'Spread 84.20 · 260 / 340'], ['Trailing stop', 'Not used for this plan'], ['Realized · unrealized', '— · −₹3,357'], ['Remaining risk', '₹11,799 (premium left)'], ['Greeks (position)', 'Δ −17.1 · Θ −₹410/day · ν +₹960/pt'], ['OI context', '55,000 PE OI −6.2% today · PCR 1.18'], ['Last risk evaluation', '11:12:05 · RSK-5527 · within plan'], ['Approval', 'APR-3088 · auto · amendment APR-3104 open']],
+        action: 'Review the roll. AMD-0092 keeps strikes and size and moves expiry to 29 Dec; it needs you because it extends the holding.', tone: 'indigo', link: ['approvals', 'APR-3104', 'Open APR-3104 ›'],
+        events: [E('30 Oct 13:22', 'PAPER ENGINE', 'FILLED both legs · net debit 168.40'), E('30 Oct 13:22', 'TLM', 'ACTIVE_POSITION · spread stop 84.20'), E('3 Nov 15:40', 'RISK GUARDIAN', 'Thesis check · Bank Nifty +1.1% since entry'), E('10:55:00', 'TLM', 'RISK_MANAGEMENT · no exit rule fired'), E('11:09:52', 'STRATEGIST', 'AMD-0092 proposed · roll to 29 Dec'), E('11:12:30', 'MIDDLE OFFICE', 'APR-3104 routed to you')] },
+      { id: 'TRD-1183', plan: 'PLN-2026 v1', sym: 'LT', inst: 'LT · NSE cash', strat: 'Long equity · trend · 60 of 120 left', mode: 'PAPER', acct: 'Paper · Desk A', avg: 3912, ltp: 3968, stops: [[0, 3868], [19, 3912]], t1: 3970, t2: 4020, pnl: 3360, step: 5, raw: 'PARTIAL_EXIT', r: '+1.27R', n: 24, seed: 3, a: 3910, vol: 6, pin: [[19, 3970.6]], fills: [[2, 3912, 'BUY 120'], [19, 3968.5, 'SELL 60 @ 3,968.50']], trig: [[19, 3970, 'T1 3,970']], t0: '4 Nov 09:45', tEnd: '5 Nov 11:40',
+        kv: [['Entry · avg fill', '3,912.00 · 1 fill'], ['Current price', '3,968.00 · LIVE 0.8s'], ['Filled · remaining', '120 bought · 60 sold · 60 open'], ['Open orders', 'SL 3,912 · 60 · T2 sell 60 @ 4,020'], ['Stop · targets', '3,912 (breakeven) · T1 done / 4,020'], ['Trailing stop', 'Stop moved to breakeven at T1'], ['Realized · unrealized', '+₹3,390 · +₹3,360'], ['Remaining risk', '₹3,360 of open profit'], ['Capital · margin', '₹2,34,720 blocked · cash'], ['T1 fill vs trigger', 'Trigger 3,970.00 · fill 3,968.50'], ['Last risk evaluation', '11:14:03 · RSK-5525 · within plan'], ['Approval', 'APR-3090 · auto · P-PAPER-v7']],
+        action: 'Hold the second half for T2 at 4,020; the stop now sits at breakeven.', tone: 'mint',
+        events: [E('4 Nov 09:46', 'PAPER ENGINE', 'FILLED 120 @ 3,912.00'), E('4 Nov 09:46', 'TLM', 'ACTIVE_POSITION · stop 3,868'), E('11:14:01', 'TLM', 'T1 3,970.00 triggered'), E('11:14:03', 'PAPER ENGINE', 'FILLED sell 60 @ 3,968.50 · slippage −1.50'), E('11:14:03', 'TLM', 'PARTIAL_EXIT · stop → 3,912 under EXIT-T1-50')] },
+      { id: 'TRD-1191', plan: 'PLN-2036 v1', sym: 'DLF', inst: 'DLF · NSE cash', strat: 'Long equity · pullback · 400 of 600 filled', mode: 'PAPER', acct: 'Paper · Desk A', avg: 738.25, ltp: 741.1, stops: [[0, 726]], t1: 762, t2: 780, pnl: 1140, step: 2, stepLabel: 'Partially filled', raw: 'PARTIALLY_FILLED', r: '+0.23R', n: 14, seed: 19, a: 739.6, vol: 1.1, fills: [[2, 738.25, 'BUY 400']], trig: [], extra: [[739, 'LIMIT 739 · 200 LEFT', 'var(--indigo)']], t0: '10:55', tEnd: '11:40',
+        kv: [['Entry · avg fill', '738.25 · 3 fills'], ['Current price', '741.10 · LIVE 0.8s'], ['Filled · remaining', '400 of 600 · 200 working'], ['Open orders', 'BUY 200 @ 739.00 limit · TTL 15:20'], ['Stop · targets', '726.00 · 762 / 780'], ['Trailing stop', 'Off until fully filled'], ['Realized · unrealized', '— · +₹1,140'], ['Remaining risk', '₹6,040 · +₹2,600 if the rest fills'], ['Capital · margin', '₹2,95,300 blocked · ₹1,47,800 reserved'], ['Volume context', 'Pullback to 20-day average on 0.8× volume'], ['Last risk evaluation', '10:58:41 · recalculated on partial fill'], ['Approval', 'APR-3098 · auto · P-PAPER-v7']],
+        action: 'Working. 200 shares rest at 739.00 until 15:20, then the remainder is cancelled under ENTRY-TTL-v1.', tone: 'indigo',
+        events: [E('10:52:14', 'MIDDLE OFFICE', 'APR-3098 APPROVED · auto'), E('10:52:20', 'EXECUTION GATEWAY', 'ORDER_SUBMITTED · buy 600 limit 739.00'), E('10:58:41', 'PAPER ENGINE', 'PARTIALLY_FILLED 400 @ 738.25 avg'), E('10:58:41', 'TLM', 'Stop 726 placed for the 400 filled')] },
+      { id: 'TRD-1180', plan: 'PLN-2022 v1', sym: 'ICICIBANK', inst: 'ICICIBANK · NSE cash', strat: 'Long equity · 200 shares · Zerodha', mode: 'LIVE', acct: 'Zerodha · ZX4821', avg: 1428.5, ltp: 1419.2, stops: [[0, 1402]], t1: 1460, t2: 1485, pnl: -1860, step: 3, raw: 'ACTIVE_POSITION', r: '−0.35R', n: 18, seed: 23, a: 1428, vol: 2.8, fills: [[0, 1428.5, 'BUY 200']], trig: [], t0: '09:48', tEnd: '11:40',
+        kv: [['Entry · avg fill', '1,428.50 · broker shows 1,428.55'], ['Current price', '1,419.20 · LIVE 0.8s'], ['Filled · remaining', '200 of 200 · 0'], ['Open orders', 'SL-M 1,402 · 200 · resting at Zerodha'], ['Stop · targets', '1,402.00 · 1,460 / 1,485'], ['Trailing stop', 'Arms at +1R (1,455.00)'], ['Realized · unrealized', '— · −₹1,860'], ['Remaining risk', '₹3,440'], ['Capital · funds', '₹2,85,700 used of ₹25.0 L'], ['Reconciliation', '₹0.05 avg difference · contract note awaited'], ['Last risk evaluation', '11:40:00 · RSK-5529 · near stop'], ['Approval', 'APR-3096 · amit.p · 09:47']],
+        action: 'No action due. The stop rests at the broker as SL-M 1,402 and fires without the agents; price is 1.2% above it.', tone: 'danger',
+        events: [E('09:47:02', 'YOU', 'APR-3096 APPROVED · assisted live'), E('09:47:05', 'EXECUTION GATEWAY', 'ORDER_SUBMITTED to Zerodha · limit 1,429'), E('09:47:09', 'ZERODHA', 'FILLED 200 @ 1,428.55 (broker) · ledger 1,428.50'), E('09:47:10', 'TLM', 'SL-M 1,402 placed at broker · confirmed'), E('11:40:00', 'RISK GUARDIAN', 'Near stop · 1.2% · within plan')] },
+      { id: 'TRD-1181', plan: 'PLN-2023 v1', sym: 'SUNPHARMA', inst: 'SUNPHARMA · NSE cash', strat: 'Long equity · 150 shares · Zerodha', mode: 'LIVE', acct: 'Zerodha · ZX4821', avg: 1702, ltp: 1718.6, stops: [[0, 1672]], t1: 1745, t2: 1770, pnl: 2490, step: 3, raw: 'ACTIVE_POSITION', r: '+0.55R', n: 18, seed: 29, a: 1702.5, vol: 3.5, fills: [[0, 1702, 'BUY 150']], trig: [], t0: '10:12', tEnd: '11:40',
+        kv: [['Entry · avg fill', '1,702.00 · 1 fill'], ['Current price', '1,718.60 · LIVE 0.8s'], ['Filled · remaining', '150 of 150 · 0'], ['Open orders', 'SL-M 1,672 · 150 · resting at Zerodha'], ['Stop · targets', '1,672.00 · 1,745 / 1,770'], ['Trailing stop', 'Arms at +1R (1,732.00)'], ['Realized · unrealized', '— · +₹2,490'], ['Remaining risk', '₹6,990'], ['Capital · funds', '₹2,55,300 used of ₹25.0 L'], ['Reconciliation', 'Matched with broker at 11:40'], ['Last risk evaluation', '11:40:00 · within plan'], ['Approval', 'APR-3097 · amit.p · 10:11']],
+        action: 'Hold. Nothing has changed since entry; the next check runs on the next price event.', tone: 'mint',
+        events: [E('10:11:40', 'YOU', 'APR-3097 APPROVED · assisted live'), E('10:11:44', 'ZERODHA', 'FILLED 150 @ 1,702.00'), E('10:11:45', 'TLM', 'SL-M 1,672 placed at broker')] },
+    ];
+    if (live) T.push({ id: 'TRD-1195', plan: 'PLN-2041 v2', sym: 'NIFTY CE SPREAD', inst: 'NIFTY 09 NOV 24000 / 24200 CE', strat: 'Bull call spread · 2 lots (130) · chart shows Nifty spot', mode: 'LIVE', acct: 'Zerodha · ZX4821', avg: 23995, ltp: 24012.35, stops: [[0, 23786]], t1: 24200, t2: 24350, pnl: 0, pnlT: '₹0', step: 1, raw: 'ORDER_SUBMITTED', r: '0.00R', n: 12, seed: 31, a: 23995, vol: 9, fills: [], trig: [], extra: [[24084.05, 'BREAKEVEN 24,084', 'var(--indigo)']], t0: '11:20', tEnd: '11:42',
+      kv: [['Entry · avg fill', 'Limit net debit 84.05 · no fills'], ['Current spot', '24,012.35 · LIVE 0.8s'], ['Filled · remaining', '0 of 130 per leg'], ['Open orders', 'Spread order working at Zerodha'], ['Invalidation · targets', 'Nifty 23,786 · 24,200 / 24,350'], ['Exit rules', 'Spread 160 / 190 · stop 42 · 9 Nov 15:00'], ['Realized · unrealized', '— · —'], ['Max loss', '₹10,927'], ['Capital · funds', 'RSV-7733 ₹10,927 reserved'], ['Approval binding', 'PLN-2041 v2 · 130 max · expires 12:10'], ['Last risk evaluation', '11:38:10 · RSK-5530'], ['Approval', 'APR-3107 · amit.p']],
+      action: 'Waiting for fills. A submitted order is not a position; TLM activates only on confirmed fills.', tone: 'indigo',
+      events: [E('11:38:40', 'MIDDLE OFFICE', 'APR-3107 routed to you'), E('Now', 'YOU', 'APR-3107 APPROVED'), E('Now', 'EXECUTION GATEWAY', 'ORDER_SUBMITTED to Zerodha · net debit 84.05')] });
+    return T;
+  }
+  bridge(seed, n, a, b, vol) {
+    let x = seed * 7919 + 13;
+    const r = () => { x = (x * 16807) % 2147483647; return x / 2147483647 - 0.5; };
+    const w = [0];
+    for (let i = 1; i < n; i++) w.push(w[i - 1] + r());
+    const end = w[n - 1];
+    return w.map((v, i) => a + ((b - a) * i) / (n - 1) + (v - (end * i) / (n - 1)) * vol);
+  }
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state, d = p.decided || {};
+    const live = String(d['APR-3107'] || '').startsWith('APPROVED');
+    const all = this.trades(live);
+    const shown = all.filter(t => s.filter === 'ALL' || t.mode === s.filter);
+    const selId = s.sel && all.find(t => t.id === s.sel) ? s.sel : (p.focus && all.find(t => t.id === p.focus) ? p.focus : 'TRD-1189');
+    const fmt = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + '₹' + Math.abs(v).toLocaleString('en-IN');
+    const tone = (v) => v > 0 ? ['var(--mint)', 'var(--mint-soft)'] : v < 0 ? ['var(--danger)', 'var(--danger-soft)'] : ['var(--ink-2)', 'var(--bg-3)'];
+    const MT = { PAPER: ['var(--indigo)', 'var(--indigo-line)'], LIVE: ['var(--mint)', 'var(--mint-line)'] };
+    const pct = (v, lo, hi) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100)).toFixed(1) + '%';
+    const ladder = shown.map((t, i) => {
+      const lo = t.stops[0][1], hi = t.t2, [c, soft] = tone(t.pnl);
+      return { id: t.id, sym: t.sym, mode: t.mode, mc: MT[t.mode][0], ml: MT[t.mode][1], state: t.raw, avgL: pct(t.avg, lo, hi), t1L: pct(t.t1, lo, hi), ltpL: pct(t.ltp, lo, hi), c, soft, pnl: t.pnlT || fmt(t.pnl), r: t.r, line: i ? 'var(--line)' : 'transparent', bg: t.id === selId ? 'var(--bg-2)' : 'transparent', pick: () => this.setState({ sel: t.id }) };
+    });
+    const t = all.find(x => x.id === selId);
+    const series = this.bridge(t.seed, t.n, t.a, t.ltp, t.vol);
+    (t.pin || []).forEach(([i, v]) => { series[i] = v; });
+    const levels = [...series, ...t.stops.map(z => z[1]), t.t1, t.t2, t.avg, ...(t.extra || []).map(z => z[0])];
+    let lo = Math.min(...levels), hi = Math.max(...levels);
+    const padv = (hi - lo) * 0.08; lo -= padv; hi += padv;
+    const Y = (v) => 220 - ((v - lo) / (hi - lo)) * 220, X = (i) => (i / (t.n - 1)) * 600;
+    const topP = (v) => ((1 - (v - lo) / (hi - lo)) * 100).toFixed(1) + '%';
+    const pricePts = series.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const sp = [];
+    t.stops.forEach(([i, v], k) => { const nx = k + 1 < t.stops.length ? t.stops[k + 1][0] : t.n - 1; sp.push(`${X(i).toFixed(1)},${Y(v).toFixed(1)}`, `${X(nx).toFixed(1)},${Y(v).toFixed(1)}`); });
+    const lastStop = t.stops[t.stops.length - 1][1];
+    const hlines = [[t.t1, 'var(--mint-line)', '5 4'], [t.t2, 'var(--mint)', '5 4'], [t.avg, 'var(--ink-4)', '2 4'], ...(t.extra || []).map(([v, , c]) => [v, c, '6 3'])].map(([v, c, dash]) => ({ y: Y(v).toFixed(1), c, dash }));
+    const nf = (v) => v.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    const labels = [[lastStop, `STOP ${nf(lastStop)}`, 'var(--danger)', 'var(--danger-line)'], [t.t1, `T1 ${nf(t.t1)}`, 'var(--mint)', 'var(--mint-line)'], [t.t2, `T2 ${nf(t.t2)}`, 'var(--mint)', 'var(--mint-line)'], ...(t.extra || []).map(([v, l, c]) => [v, l, c, 'var(--indigo-line)'])].map(([v, tt, c, line]) => ({ top: topP(v), t: tt, c, line }));
+    const marks = [...t.fills.map(([i, v, l]) => ({ left: ((i / (t.n - 1)) * 100).toFixed(1) + '%', top: topP(v), t: l, c: 'var(--ink)', bg: 'var(--ink)', radius: '50%', rot: 'none' })), ...t.trig.map(([i, v, l]) => ({ left: ((i / (t.n - 1)) * 100).toFixed(1) + '%', top: topP(v), t: '', c: 'var(--mint)', bg: 'var(--bg-1)', radius: '2px', rot: 'rotate(45deg)' }))];
+    const STEPS = ['Approved', 'Order submitted', 'Filled', 'Active', 'Risk management', 'Partial exit', 'Exit pending', 'Closed · reconciled'];
+    const steps = STEPS.map((x, i) => ({ t: i === t.step && t.stepLabel ? t.stepLabel : x, bar: i < t.step ? 'var(--mint-line)' : i === t.step ? 'var(--mint)' : 'var(--bg-3)', c: i === t.step ? 'var(--ink)' : i < t.step ? 'var(--ink-3)' : 'var(--ink-4)' }));
+    const AT = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'] }[t.tone];
+    const ST = t.raw === 'ORDER_SUBMITTED' || t.raw === 'PARTIALLY_FILLED' ? ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'] : t.tone === 'danger' ? ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'] : ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'];
+    const [c, soft] = tone(t.pnl);
+    const WC = { YOU: 'var(--amber)', TLM: 'var(--indigo)', 'RISK GUARDIAN': 'var(--mint)', 'MIDDLE OFFICE': 'var(--ink-3)', ZERODHA: 'var(--mint)', 'PAPER ENGINE': 'var(--ink-3)' };
+    const nPaper = all.filter(x => x.mode === 'PAPER').length, nLive = all.length - nPaper;
+    return {
+      h1: m ? '30px' : '44px', h2: m ? '26px' : '32px', cardPad: m ? '18px 16px' : '22px 24px', chartH: m ? '190px' : '250px', chartMr: m ? '0px' : '96px', labelRight: m ? '0px' : '-96px', kvMin: m ? '150px' : '200px',
+      ladderCols: m ? 'minmax(0,1fr) auto auto' : 'minmax(170px,220px) minmax(0,1fr) 92px 64px', barCol: m ? '1 / -1' : 'auto',
+      countLabel: `${nPaper} paper · ${nLive} live`, headA: `${all.length} positions open.`,
+      filters: [['ALL', 'All'], ['PAPER', 'Paper'], ['LIVE', 'Live']].map(([v, l]) => ({ t: l, go: () => this.setState({ filter: v }), bg: s.filter === v ? 'var(--mint)' : 'transparent', color: s.filter === v ? '#06120B' : 'var(--ink-2)' })),
+      ladder,
+      t: {
+        id: t.id, plan: t.plan, inst: t.inst, strat: t.strat, modeLong: `${t.mode === 'LIVE' ? 'Live' : 'Paper'} · ${t.acct}`, mc: MT[t.mode][0], ml: MT[t.mode][1], stateRaw: t.raw, sc: ST[0], sl: ST[1], sbg: ST[2],
+        pnl: t.pnlT || fmt(t.pnl), c, soft, r: t.r, steps, hlines, stopPts: sp.join(' '), pricePts, labels, marks, ltpTop: topP(t.ltp), t0: t.t0, t1: t.tEnd,
+        action: t.action, ac: AT[0], al: AT[1], abg: AT[2], hasLink: !!t.link, linkT: t.link ? t.link[2] : '', link: t.link ? () => p.nav && p.nav(t.link[0], t.link[1]) : () => {},
+        hasLegs: !!t.legs, legs: (t.legs || []).map(([side, n2, avg, ltp, pnl, pc]) => ({ side, n: n2, avg, ltp, pnl, pc, sc: side === 'BUY' ? 'var(--mint)' : 'var(--danger)' })),
+        kv: t.kv.map(([k, v]) => ({ k, v })),
+        events: t.events.map(e => ({ ...e, c: WC[e.who] || 'var(--ink-4)' })),
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

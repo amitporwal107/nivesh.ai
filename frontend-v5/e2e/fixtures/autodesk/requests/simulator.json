@@ -1,0 +1,19 @@
+{
+  "create": {
+    "method": "POST", "path": "/simulations",
+    "body": { "name": "Desk replay", "mode": "HISTORICAL_REPLAY", "start_date": "{start_date}", "end_date": "{end_date}", "starting_capital_rs": 10000000, "operating_mode": "AUTONOMOUS_PAPER", "max_proposals_per_session": 5, "speed": "STEP" },
+    "expect": [201]
+  },
+  "create_symbols": {
+    "method": "POST", "path": "/simulations",
+    "body": { "name": "Desk replay", "mode": "HISTORICAL_REPLAY", "start_date": "{start_date}", "end_date": "{end_date}", "starting_capital_rs": 10000000, "operating_mode": "AUTONOMOUS_PAPER", "max_proposals_per_session": 5, "speed": "STEP", "symbols": ["PETRONET", "GRASIM"] },
+    "expect": [201]
+  },
+  "start": { "method": "POST", "path": "/simulations/{simulation_id}/start", "body": null, "expect": [200] },
+  "step_phase": { "method": "POST", "path": "/simulations/{simulation_id}/step", "body": { "unit": "PHASE" }, "expect": [200] },
+  "step_session": { "method": "POST", "path": "/simulations/{simulation_id}/step", "body": { "unit": "SESSION" }, "expect": [200] },
+  "run": { "method": "POST", "path": "/simulations/{simulation_id}/run", "body": null, "expect": [202] },
+  "pause": { "method": "POST", "path": "/simulations/{simulation_id}/pause", "body": null, "expect": [200] },
+  "resume": { "method": "POST", "path": "/simulations/{simulation_id}/resume", "body": null, "expect": [200] },
+  "stop": { "method": "POST", "path": "/simulations/{simulation_id}/stop", "body": null, "expect": [200] }
+}

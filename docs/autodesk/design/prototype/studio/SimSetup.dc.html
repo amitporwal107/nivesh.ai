@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">New simulation · SIM-0419</span><span class="nv-pill">Draft</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,4vw,44px);line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">Set up a run. <em style="color:var(--indigo)">Same inputs and seed</em> give the same result, every time.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Every setting below is stored with the run, so it can be replayed or compared later. Simulated orders go only to the isolated exchange model; live adapters are unreachable from a simulation namespace.</p>
+  </section>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0;grid-column:span 2">
+      <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="8">
+        <section style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;gap:12px;align-items:baseline"><span style="font-family:var(--display);font-size:20px;color:var(--ink-4)">{{ sec.n }}</span><span style="font-size:15px;font-weight:500;flex:1">{{ sec.t }}</span><span style="font-size:12px;color:var(--ink-3)">{{ sec.s }}</span></div>
+          <sc-for list="{{ sec.rows }}" as="r" hint-placeholder-count="2">
+            <div style="display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center">
+              <span style="font-size:12.5px;color:var(--ink-3);min-width:150px">{{ r.k }}</span>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0"><sc-for list="{{ r.opts }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.go }}" style="cursor:pointer;padding:7px 12px;border-radius:{{ o.rad }};border:1px solid {{ o.line }};background:{{ o.bg }};color:{{ o.color }};font-size:12.5px;display:flex;flex-direction:column;gap:2px"><span>{{ o.t }}</span><sc-if value="{{ o.hasSub }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;color:var(--ink-3)">{{ o.sub }}</span></sc-if></span></sc-for></div>
+            </div>
+          </sc-for>
+        </section>
+      </sc-for>
+      <section style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;gap:12px;align-items:baseline"><span style="font-family:var(--display);font-size:20px;color:var(--ink-4)">09</span><span style="font-size:15px;font-weight:500;flex:1">Scenario injections</span><span onClick="{{ goScen }}" style="cursor:pointer;font-size:12.5px;color:var(--mint)">Edit in scenario library ›</span></div>
+        <sc-for list="{{ sched }}" as="x" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line);font-size:13px"><span class="nv-num" style="font-family:var(--mono);font-size:11.5px;color:var(--amber);width:44px">{{ x.at }}</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);width:70px">{{ x.id }}</span><span style="flex:1">{{ x.n }}</span><span style="font-size:12px;color:var(--ink-3)">{{ x.p }}</span></div></sc-for>
+        <sc-if value="{{ noSched }}" hint-placeholder-val="{{ false }}"><span style="font-size:13px;color:var(--ink-3)">No injections scheduled. The run replays the session as it happened.</span></sc-if>
+      </section>
+    </div>
+
+    <aside style="position:sticky;top:96px;display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:16px;border:1px solid var(--indigo-line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <span class="nv-eyebrow">Run summary</span>
+      <span style="font-family:var(--display);font-size:26px;line-height:1.15">{{ title }}</span>
+      <sc-for list="{{ summary }}" as="r" hint-placeholder-count="9"><div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px"><span style="color:var(--ink-3)">{{ r.k }}</span><span class="nv-num" style="text-align:right;color:{{ r.c }}">{{ r.v }}</span></div></sc-for>
+      <div style="display:flex;gap:8px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--indigo-soft);font-size:12px;line-height:1.45;color:var(--ink-2)"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--indigo);flex:none">ISOLATED</span>Records carry simulation_id SIM-0419; live broker adapters are unreachable.</div>
+      <button onClick="{{ create }}" style="cursor:pointer;padding:12px 18px;border-radius:12px;border:0;background:var(--indigo);color:#0A0E1A;font-size:14.5px;font-weight:500">Create and start</button>
+      <span style="font-size:11.5px;color:var(--ink-3);text-align:center">Opens the trading day and plays it from 08:00.</span>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:1700},&quot;schedule&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;{id:string,at:string,p:string}[]&quot;},&quot;onCreate&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(cfg: object) =&gt; void&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { mode: 'hist', day: '28 Oct', preopen: true, post: true, uni: { n200: true, fno: true, idx: true }, cap: '1 Cr', ver: { trader: 'cur', strat: 'cur', risk: 'cur', mo: 'cur', ops: 'cur' }, policy: 'v8', fill: 'queue', slip: 1, lat: 150, partial: 10, rej: 1, speed: 120, seed: 8841, cp: 30 };
+  renderVals() {
+    const p = this.props, s = this.state;
+    const ch = (cur, v, t, set, sub, rad) => { const on = cur === v; return { t, sub: sub || '', hasSub: !!sub, go: set, rad: rad || '999px', line: on ? 'var(--indigo-line)' : 'var(--line-2)', bg: on ? 'var(--indigo-soft)' : 'transparent', color: on ? 'var(--ink)' : 'var(--ink-2)' }; };
+    const pick = (key, list, subs, rad) => list.map(([v, t], i) => ch(s[key], v, t, () => this.setState({ [key]: v }), subs ? subs[i] : '', rad));
+    const tog = (key, t) => ch(true, !!s[key], t, () => this.setState(x => ({ [key]: !x[key] })));
+    const UNI = [['n50', 'Nifty 50', 50], ['n200', 'Nifty 200', 200], ['n500', 'Nifty 500', 500], ['fno', 'F&O stocks', 212], ['idx', 'Index options', 4], ['wl', 'Watchlist', 24]];
+    const uniOpts = UNI.map(([k, t]) => ch(true, !!s.uni[k], t, () => this.setState(x => ({ uni: { ...x.uni, [k]: !x.uni[k] } }))));
+    const count = Math.min(712, UNI.filter(([k]) => s.uni[k]).reduce((a, [, , n]) => Math.max(a, n), 0) + (s.uni.fno && !s.uni.n500 ? 40 : 0) + (s.uni.idx ? 4 : 0));
+    const AG = [['trader', 'AI Trader', 'signal-v1.4', 'signal-v1.5-rc'], ['strat', 'Trading Assistant', 'strategist-v2.1', 'strategist-v2.2-rc'], ['risk', 'Risk Guardian', 'risk-engine 4.3', 'risk-engine 4.4-rc'], ['mo', 'Middle Office', 'mo-policy 7', 'mo-policy 8-rc'], ['ops', 'Tech Support', 'ops-runbooks 2.6', 'ops-runbooks 2.7-rc']];
+    const verRows = AG.map(([k, n, a, b]) => ({ k: n, opts: [['cur', a], ['rc', b]].map(([v, t]) => ch(s.ver[k], v, t, () => this.setState(x => ({ ver: { ...x.ver, [k]: v } })))) }));
+    const MODES = [['hist', 'Historical replay'], ['accel', 'Accelerated replay'], ['scen', 'Scenario simulation'], ['shadow', 'Live shadow']];
+    const MSUB = ['One past session at its own pace', 'Past sessions at up to 600×', 'Synthetic shocks on a base session', 'Today’s live data, hypothetical orders'];
+    const sections = [
+      { n: '01', t: 'Mode', s: 'Simulation modes never place broker orders', rows: [{ k: 'Run type', opts: pick('mode', MODES, MSUB, '12px') }] },
+      { n: '02', t: 'Session', s: 'Point-in-time data only', rows: [{ k: 'Trading day', opts: pick('day', [['26 Oct', 'Mon 26 Oct'], ['27 Oct', 'Tue 27 Oct'], ['28 Oct', 'Wed 28 Oct'], ['29 Oct', 'Thu 29 Oct'], ['30 Oct', 'Fri 30 Oct'], ['2 Nov', 'Mon 2 Nov']]) }, { k: 'Include', opts: [tog('preopen', 'Pre-open auction'), tog('post', 'Post-close reconciliation')] }] },
+      { n: '03', t: 'Universe', s: `${count} instruments`, rows: [{ k: 'Scan', opts: uniOpts }] },
+      { n: '04', t: 'Capital and account', s: 'Namespace sim_0419', rows: [{ k: 'Simulated capital', opts: pick('cap', [['50 L', '₹50 L'], ['1 Cr', '₹1.00 Cr'], ['5 Cr', '₹5.00 Cr']]) }] },
+      { n: '05', t: 'Agent versions', s: 'Model and prompt versions are pinned', rows: verRows },
+      { n: '06', t: 'Policy', s: 'Same seed makes A/B fair', rows: [{ k: 'Policy set', opts: pick('policy', [['v7', 'P-PAPER-v7 · active'], ['v8', 'P-PAPER-v8 · candidate']]) }] },
+      { n: '07', t: 'Execution model', s: 'Costs and frictions', rows: [{ k: 'Fill model', opts: pick('fill', [['tick', 'Next tick'], ['mid', 'Mid ± half spread'], ['queue', 'Queue position']]) }, { k: 'Slippage per leg', opts: pick('slip', [[0, '0 ticks'], [1, '1 tick'], [2, '2 ticks'], [5, '5 ticks']]) }, { k: 'Latency', opts: pick('lat', [[50, '50 ms'], [150, '150 ms'], [400, '400 ms']]) }, { k: 'Partial fills', opts: pick('partial', [[0, 'Off'], [10, '10%'], [25, '25%']]) }, { k: 'Reject rate', opts: pick('rej', [[0, '0%'], [1, '1%'], [3, '3%']]) }] },
+      { n: '08', t: 'Playback and seed', s: 'Checkpoints allow replay from any point', rows: [{ k: 'Speed', opts: pick('speed', [[1, '1×'], [60, '60×'], [120, '120×'], [600, '600×']]) }, { k: 'Checkpoints', opts: pick('cp', [[15, 'Every 15 min'], [30, 'Every 30 min'], [60, 'Hourly']]) }, { k: `Random seed · ${s.seed}`, opts: [ch(false, true, 'Re-roll seed', () => this.setState({ seed: 1000 + Math.floor(Math.random() * 9000) }))] }] },
+    ];
+    const NAMES = { 'SCN-004': 'Broker WebSocket drop', 'SCN-011': 'Volatility spike', 'SCN-007': 'LLM gateway outage', 'SCN-009': 'Option chain stale', 'SCN-001': 'Gap down 2% at open', 'SCN-002': 'Gap down 3% at open', 'SCN-005': 'Reject storm', 'SCN-003': 'Partial fills', 'SCN-006': 'Duplicate fill events', 'SCN-010': 'Database failover', 'SCN-012': 'Circuit limit on a holding', 'SCN-013': 'Weekly expiry pin', 'SCN-014': 'Slippage spike', 'SCN-015': 'Agent crash and quarantine' };
+    const sched = (p.schedule || []).slice().sort((a, b) => a.at.localeCompare(b.at)).map(x => ({ ...x, n: NAMES[x.id] || x.id }));
+    const hours = (s.preopen ? 0.25 : 0) + 6.25 + (s.post ? 3 : 0) + 1;
+    const mins = (hours * 60) / s.speed;
+    const rc = Object.values(s.ver).filter(v => v === 'rc').length;
+    return {
+      sections, sched, noSched: sched.length === 0, goScen: () => p.onNav && p.onNav('scen'),
+      title: `${MODES.find(m => m[0] === s.mode)[1]} · ${s.day} 2026`,
+      summary: [['Universe', `${count} instruments`], ['Capital', '₹' + s.cap.replace('1 Cr', '1.00 Cr').replace('5 Cr', '5.00 Cr')], ['Policy', s.policy === 'v8' ? 'P-PAPER-v8 candidate' : 'P-PAPER-v7'], ['Agents', rc ? `${rc} release candidate${rc > 1 ? 's' : ''}` : 'All current versions'], ['Execution', `${{ tick: 'Next tick', mid: 'Mid ± ½ spread', queue: 'Queue position' }[s.fill]} · ${s.slip} tick · ${s.lat} ms`], ['Frictions', `Partial ${s.partial}% · rejects ${s.rej}%`], ['Injections', `${sched.length} scheduled`], ['Seed · checkpoints', `${s.seed} · ${s.cp} min`], ['Runtime at ' + s.speed + '×', mins >= 60 ? `${(mins / 60).toFixed(1)} h` : `${Math.max(1, Math.round(mins))} min`]].map(([k, v]) => ({ k, v, c: k === 'Agents' && rc ? 'var(--amber)' : 'var(--ink)' })),
+      create: () => p.onCreate && p.onCreate({ ...s }),
+    };
+  }
+}
+</script>
+</body>
+</html>

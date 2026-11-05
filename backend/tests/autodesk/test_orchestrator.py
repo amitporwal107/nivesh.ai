@@ -110,13 +110,28 @@ def test_ad62_timeout_retry_and_escalation(pg_pool):
         t2 = tenant()
         acc2 = await _acct(pg_pool, t2)
         slow2 = stubs.SlowTA(); slow2.slow_attempts = 99
-        cyc2 = await _cycle(pg_pool, stubs.orchestrator(pg_pool, **{C.AgentKey.TRADING_ASSISTANT: slow2}), t2, acc2)
+        orch2 = stubs.orchestrator(pg_pool, **{C.AgentKey.TRADING_ASSISTANT: slow2})
+        await orch2.register_agents()            # registry rows, so the status written after the run can be read
+        cyc2 = await _cycle(pg_pool, orch2, t2, acc2)
         [wf2] = await _children(pg_pool, t2, cyc2["workflow_id"])
         assert wf2["state"] == "FAILED"
         async with pg_pool.acquire() as c:
             [ta2] = [x for x in await store.list_tasks(c, t2, workflow_id=wf2["workflow_id"])]
             assert ta2["state"] == "ESCALATED" and "deadline" in ta2["error"]
             assert await store.list_approvals(c, t2) == []
+            # The escalation leaves the agent DEGRADED in the registry (it used to be reset to IDLE straight away).
+            reg = {(a["agent_key"], a["version"]): a["status"] for a in await store.list_agents(c)}
+            assert reg[("TRADING_ASSISTANT", slow2.descriptor.version)] == "DEGRADED"
+
+        # Its next run that completes brings it back to IDLE.
+        slow3 = stubs.SlowTA(); slow3.slow_attempts = 0
+        t3 = tenant()
+        orch3 = stubs.orchestrator(pg_pool, **{C.AgentKey.TRADING_ASSISTANT: slow3})
+        await orch3.register_agents()
+        await _cycle(pg_pool, orch3, t3, await _acct(pg_pool, t3))
+        async with pg_pool.acquire() as c:
+            reg = {(a["agent_key"], a["version"]): a["status"] for a in await store.list_agents(c)}
+            assert reg[("TRADING_ASSISTANT", slow3.descriptor.version)] == "IDLE"
     run(go())
 
 

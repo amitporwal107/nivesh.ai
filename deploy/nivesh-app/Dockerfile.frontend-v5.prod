@@ -34,8 +34,11 @@ RUN npm ci --prefer-offline
 # Source
 COPY frontend-v5/ ./
 
-# Production build
+# Production build (the main app; `tsc -b` also typechecks src/autodesk)
 RUN npm run build
+
+# The Autonomous Trading Desk web app: same sources and dependencies, its own entry, served under /autodesk/
+RUN npm run build:autodesk
 
 # ── Stage 2: Nginx runtime ────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
@@ -47,6 +50,9 @@ COPY deploy/nivesh-app/nginx-frontend-v5.conf /etc/nginx/conf.d/app.conf
 
 # Vite output (under /v5/ due to VITE_BASE)
 COPY --from=builder /app/frontend-v5/dist /usr/share/nginx/html/v5
+
+# Autonomous Trading Desk web app (base /autodesk/; the edge routes /autodesk/ here, /autodesk/api/ to app-autodesk)
+COPY --from=builder /app/frontend-v5/dist-autodesk /usr/share/nginx/html/autodesk
 
 # Interactive design prototype (served at /v5/prototype/)
 COPY frontend-v5/design/ /usr/share/nginx/html/v5/prototype/

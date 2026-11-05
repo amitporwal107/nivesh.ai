@@ -147,3 +147,54 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 | AD-96 | I | STOP_NEW_ENTRIES active, a simulation steps through a past session | proposals run as usual (simulations not affected) | design §10 |
 | AD-97 | I+A | Activate twice, lift once | one ACTIVATED + one LIFTED event; second press `changed: false`; GET /desk/controls and /desk/status show the state | PRD §10.4 |
 | AD-98 | U+I | Approval binding | APPROVED scope carries `plan_hash` = sha256 of the plan version body; a person's decision with a stale `plan_hash` → Conflict; GET /trade-plans/{id} returns `plan_hash` | design §05, PRD §10.3 |
+
+## Desk web app (UI) — written 5 Nov before the UI code [ui]
+
+Design source: the owner's clickable prototype "Nivesh Trading Desk (2).html" (5 Nov), screens extracted to
+docs/autodesk/design/prototype/ (TD*.dc.html, _shell.html). The app is served at /autodesk/ (same origin as the API at
+/autodesk/api/v1 and the main app's /api). Phase 1 fills overview, agents, scanner, approvals, simulator and policies
+with real data; workbench, trades, P&L, capital & risk, middle office and fleet show a labelled Phase 2 screen.
+
+Layers: E = Playwright on the production build (`vite preview`), API answered by route mocks whose bodies copy the
+real API's shapes (marked MOCK in the spec); C = contract — every request body the UI sends is captured in the E run,
+written to frontend-v5/e2e/fixtures/autodesk/ui-requests.json, and posted to the real FastAPI app by a backend test;
+S = staging with a real sign-in (needs the owner's session token).
+
+Rules every screen follows: no number without a source (an API field or the live feed); nothing from a later phase
+is shown as if it existed (a labelled "Phase 2" state instead); an API failure shows the error, never a blank or a
+sample; agent-written text is shown as written; labels may use the design's standard words.
+
+### Shell [ui]
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-UI-01 | E | Open /autodesk/ signed in (desk/status 200) at 1280×800 | sidebar 236 px with brand, accounts card, 12 numbered items in Desk / Positions / Control groups; sticky header; Desk overview active |
+| AD-UI-02 | E | desk/status answers 401 | a sign-in screen with a link to /v5/login; no shell data, no sample numbers |
+| AD-UI-03 | E | Accounts card | one row per non-simulation account from GET /accounts with its mode pill (RESEARCH → Research, ASSISTED → Assisted, AUTONOMOUS_PAPER → Auto); no broker rows (brokers are not desk accounts in Phase 1) |
+| AD-UI-04 | E+C | No accounts → "New paper account" → name + capital → Create | POST /accounts `{name, operating_mode: "RESEARCH", starting_capital_rs}`; the card lists the new account |
+| AD-UI-05 | E | Header market strip, live feed answering mode "live", session "open" | "NSE open" mint pill; IST clock ticks; NIFTY 50 / NIFTY BANK / INDIA VIX values and % change from GET /api/live/quotes; "Kite feed live" |
+| AD-UI-06 | E | Live feed mode "closed" / "not_connected" / request fails | "NSE closed" pill; closed shows the day's close marked "close"; not connected or failure hides the numbers and says "Index quotes unavailable" — never a sample value |
+| AD-UI-07 | E | Agents pill | "{healthy}/{total} agents healthy" from desk/status agents (healthy = IDLE or BUSY); amber when any is not healthy; click → Agent fleet & reliability |
+| AD-UI-07b | E | The registry holds an older version of an agent (status OFFLINE) after its newest row | the pill counts each agent once by its newest version: "5/5 agents healthy"; no fleet badge |
+| AD-UI-08 | E+C | "Stop new entries" → dialog with a reason → Confirm | POST /desk/controls/STOP_NEW_ENTRIES `{active: true, reason}`; red "ENTRIES STOPPED" banner with the time and the person from the control row, saying new plans are not proposed or approved until resumed and simulations are not affected; button becomes "Resume entries" |
+| AD-UI-09 | E+C | "Resume entries" → Confirm | POST `{active: false, reason}`; banner gone |
+| AD-UI-10 | E | Control POST fails (500 / 403) | the dialog shows the API's message; state unchanged |
+| AD-UI-11 | E | Nav badges | Approval queue = pending approvals (amber, hidden at 0); Simulator "SIM" (indigo) |
+| AD-UI-12 | E | Phase 2 items (workbench, trades, P&L, capital & risk, middle office, fleet) | a screen titled as in the design saying what it will show and that it needs paper execution (Phase 2); no sample figures |
+| AD-UI-13 | E | Phone 390×844 | top bar with title + "STOP NEW"; 5-tab bottom bar Desk / Trades / Approve / P&L / More; Approve badge = pending count; More opens the sheet with all 12 items |
+| AD-UI-14 | E | Deep link /autodesk/approvals and reload | the approval queue renders (SPA fallback) |
+| AD-UI-15 | E | Light theme toggle | data-theme="light" on the frame; choice kept after reload |
+| AD-UI-16 | E | Any screen | no console errors; no request outside /autodesk/api/v1, /api/auth/me and /api/live/quotes |
+
+### Screens [ui]
+Per-screen cases (overview AD-UI-20.., agents 30.., scanner 40.., approvals 50.., simulator 60.., policies 70..) are
+in docs/autodesk/ui_testcases/ — each written before that screen's code.
+
+### Hosting [ui]
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-UI-90 | E | Production build with base /autodesk/ | index.html references /autodesk/assets/*; no request to /v5/ |
+| AD-UI-91 | E | Container nginx: /autodesk → 301 /autodesk/; /autodesk/x/y → index.html; /autodesk/assets/* immutable | as stated (throwaway nginx container on the built image layout) |
+| AD-UI-92 | E | Edge nginx: /autodesk/api/v1/health still reaches the desk API; /autodesk/ reaches the frontend container; /v5/ unchanged | `nginx -t` passes on the real files; routing test in a throwaway nginx |
+| AD-UI-93 | S | After merge + deploy: https://staging.niveshcopilot.com/autodesk/ | 200, the desk app's index.html |
