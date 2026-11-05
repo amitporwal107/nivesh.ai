@@ -412,6 +412,24 @@ class ScoreComponent(_Model):
     detail: str = ""
 
 
+class ShadowScore(_Model):
+    """A score from a scoring version that is NOT the active one (scoring/registry.py). Recorded beside the signal for
+    comparison and validation; it never changes what the desk selects. Every point is attributed (`components`)."""
+    version: str                          # e.g. "v2-positional"
+    horizon: Literal["POSITIONAL", "SWING", "INTRADAY"]
+    status: Literal["SHADOW", "ACTIVE", "DISABLED"] = "SHADOW"
+    score: Optional[Decimal] = None       # 0..100; None = not scored (see `reasons`)
+    band: Optional[str] = None            # Exceptional / Strong / Developing / Weak / Avoid
+    tier: Optional[str] = None            # TIER_1 / TIER_1_PROVISIONAL / TIER_2 / CONTEXT / NONE
+    primary_signal: Optional[str] = None
+    signals: list[str] = Field(default_factory=list)          # entry signals that fired
+    context_signals: list[str] = Field(default_factory=list)  # supporting information only
+    warnings: list[str] = Field(default_factory=list)         # bearish signals: risk / exit warnings, never entries
+    components: list[ScoreComponent] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    bars_used: int = 0
+
+
 class Signal(_Model):
     signal_id: str = Field(default_factory=lambda: new_id("SIG"))
     tenant_id: str
@@ -440,6 +458,7 @@ class Signal(_Model):
     rule_version: str
     expires_at: datetime
     status: SignalStatus = SignalStatus.DETECTED
+    shadow_scores: list[ShadowScore] = Field(default_factory=list)   # other scoring versions; never used for selection
 
     @field_validator("signal_score")
     @classmethod
@@ -706,6 +725,7 @@ class ScanReport(_Model):
     regime: Optional[dict[str, Any]] = None
     data_as_of: datetime
     rule_version: str
+    shadow: Optional[dict[str, Any]] = None   # shadow scoring summary + candidates (not published; scoring/registry.py)
 
 
 class StrategyProposal(_Model):

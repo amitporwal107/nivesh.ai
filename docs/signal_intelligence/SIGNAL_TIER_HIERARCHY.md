@@ -161,3 +161,49 @@ over the same window; t-statistic over per-day averages (signals on one day coun
 
 Caveats: 2.6 years only, one market history; today's index members (survivorship); edges are vs the Nifty — absolute returns were
 negative in the test period's falling stretches; costs assumed 0.25 %.
+
+## 11. v2-positional — as built (versioned, shadow only)
+
+Owner, 5 Nov 2026 (pasted decision): build the revised hierarchy as a versioned, configurable framework; keep v1 for comparison
+and rollback; bearish signals feed risk and exits only; signal-level attribution; intraday off until its study ends; walk-forward
+validation before promotion; scoring is horizon-aware.
+
+**Versions** (`backend/autodesk/scoring/registry.py`, `GET /api/v1/scoring/versions`):
+
+| Version | Horizon | Status | Selects signals |
+|---|---|---|---|
+| v1 (ait-rules-v1) | positional | ACTIVE | yes — unchanged |
+| v2-positional | positional, 10–20 sessions | SHADOW: score stored on each signal (`shadow_scores`) and in the scan report (`shadow`: candidates, bands, errors) | no |
+| v3-intraday | intraday | DISABLED until the intraday study ends | no |
+
+`AUTODESK_SCORING_SHADOW` ("" = off) switches shadow scoring; nothing switches the active version — promotion is a code change
+after the validation report. v1 reads exactly the 60 bars it always read (sliced from the longer read v2 needs,
+`AUTODESK_V2_BARS`, default 500); tests prove v1 scores, breakdowns and selection order are identical with shadow on and off.
+
+**v2 score** (`backend/autodesk/scoring/v2_positional.py`) = signal quality 45 + trend confirmation 30 + relative strength 15 +
+supporting evidence 10 − 10 per scan when a bearish warning is present; clamped 0–100; bands 85 / 75 / 65 / 50.
+
+| Entry signal | Tier | Quality points | Family |
+|---|---|---|---|
+| Relative-strength breakout (stock ÷ Nifty above its prior 250-session high) | Tier 1 — highest priority | 45 | relative strength |
+| Setup B pullback continuation | Tier 1 | 40 | pullback |
+| Higher highs + higher lows, turned up within 5 sessions | Tier 1 | 38 | trend |
+| MACD bullish cross | Tier 1 | 36 | trend |
+| Breakout + retest | Tier 1* provisional | 32 | breakout |
+| Setup A accumulation breakout (with the sector index) | Tier 2 — reduced | 24 | breakout |
+| Multi-year breakout (> prior 480-session high, ≥ 2× volume) | Tier 2 — experimental | 22 | breakout |
+| Plain volume breakout (20-session high, ≥ 1.5×) | Tier 2 — reduced | 20 | breakout |
+
+- Quality = the primary (highest) entry signal + 3 per further entry signal from a **different family**, max 45 — correlated
+  signals (HH-HL, MACD, trend) count once.
+- Trend confirmation: above a rising EMA50 12 · price > EMA20 > EMA50 8 · EMA50 > EMA200 4 · HH-HL structure 6 (not when HH-HL
+  is the primary signal).
+- Relative strength: 20-session return vs the Nifty ≥ 10 % 15 · 5–10 % 11 · 0–5 % 7 · below 0 nothing; half when the
+  relative-strength breakout is the primary signal (same evidence).
+- Supporting evidence: RSI14 75–80 4 · 65–75 3 · 55–65 or > 80 2 · delivery ≥ 50 % 3 · volume ≥ 1.5× 1 (10× earns the same) ·
+  context signals present 2.
+- Context only (no quality points): RSI divergence, setups C and E, Supertrend flip, engulfing at support, Bollinger squeeze.
+- Bearish warnings (never entries): breakdown on volume, lower highs + lower lows, EMA20/50 bearish cross, bearish RSI
+  divergence, failed breakout, MACD bearish cross, Supertrend flip down, 52-week breakdown on 2× volume.
+- No chasing penalty. Not scored: fewer than 60 sessions, or 20-session average traded value below ₹5 crore.
+- Every point is a component with its weight and reason; the same code scores the live scan (last bar) and history (every bar).

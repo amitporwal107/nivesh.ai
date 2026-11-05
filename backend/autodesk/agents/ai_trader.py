@@ -29,6 +29,8 @@ from ..contracts import (AgentDescriptor, AgentKey, AgentResult, Direction, Scan
 from ..market import indicators as ind
 from ..market.pit import INDEX_FUTURES
 from ..market.view import IST, Bar, BuildupRow, DataUnavailable, published_at
+from ..scoring import registry as scoring
+from ..scoring import v2_positional as v2
 from .base import Agent, AgentContext
 
 VERSION = "autodesk-ait-v1"
@@ -68,6 +70,12 @@ class _Market:
         self.fno_day: Optional[date] = None
         self.cash_day: Optional[date] = None
         self.missing: list[str] = []
+        # shadow scoring (scoring/registry.py): never used for selection
+        self.shadow_on: bool = False
+        self.bench_long: list[Bar] = []
+        self.shadow: dict[str, Any] = {}
+        self.shadow_errors: dict[str, str] = {}
+        self.sector_bars: dict[str, Any] = {}
 
     def regime(self) -> dict[str, Any]:
         cl = ind.closes(self.bench)
@@ -166,8 +174,14 @@ class AITrader(Agent):
     async def _market(self, m) -> _Market:
         mk = _Market()
         mk.cash_day = m.latest_session("cash")
+        mk.shadow_on = v2.VERSION in scoring.shadow_versions()
         try:
-            mk.bench = await m.index_bars(BENCHMARK, sessions=BARS)
+            if mk.shadow_on:
+                # one read serves both: v1 gets exactly the last BARS sessions it always had
+                mk.bench_long = await m.index_bars(BENCHMARK, sessions=max(BARS, scoring.v2_bars()))
+                mk.bench = mk.bench_long[-BARS:]
+            else:
+                mk.bench = await m.index_bars(BENCHMARK, sessions=BARS)
         except DataUnavailable:
             mk.missing.append(f"{BENCHMARK} bars")
         if len(mk.bench) < 21:
@@ -236,8 +250,13 @@ class AITrader(Agent):
 
     async def _stock(self, m, ctx, mk: _Market, sym: str) -> tuple[list[Signal], list[dict]]:
         out, skipped = [], []
+        bars_long: list[Bar] = []
         try:
-            bars = await m.daily_bars(sym, sessions=BARS)
+            if mk.shadow_on:
+                bars_long = await m.daily_bars(sym, sessions=max(BARS, scoring.v2_bars()))
+                bars = bars_long[-BARS:]                         # v1's input is unchanged
+            else:
+                bars = await m.daily_bars(sym, sessions=BARS)
         except DataUnavailable as e:
             return [], [{"instrument": sym, "reason": f"bars unavailable: {e}"}]
         if len(bars) < 30 or bars[-1].day != mk.cash_day:
@@ -292,7 +311,31 @@ class AITrader(Agent):
             out.append(self._signal(ctx, sym=sym, segment=seg, direction=d, category=cat, comps=comps,
                                     missing=missing, score=score, bars=bars, atr=atr, evidence=[why],
                                     data_as_of=asof, sector=sector, fno=fno))
+        if mk.shadow_on:
+            sh = await self._shadow(m, mk, sym, bars_long, sector)
+            if sh is not None:
+                for s in out:
+                    s.shadow_scores = [sh]
         return out, skipped
+
+    async def _shadow(self, m, mk: _Market, sym: str, bars_long: list[Bar], sector: Optional[str]):
+        """v2-positional shadow score for one stock. Any failure is recorded in the scan report and never touches v1."""
+        try:
+            name = v2.SECTOR_INDEX.get(sector or "")
+            sec = None
+            if name:
+                if name not in mk.sector_bars:
+                    try:
+                        mk.sector_bars[name] = await m.index_bars(name, sessions=max(BARS, scoring.v2_bars()))
+                    except DataUnavailable:
+                        mk.sector_bars[name] = None
+                sec = mk.sector_bars[name]
+            sh = await asyncio.to_thread(v2.score_last, bars_long, mk.bench_long, sec, name)
+            mk.shadow[sym] = sh
+            return sh
+        except Exception as e:  # noqa: BLE001 — recorded (ScanReport.shadow.errors); shadow scoring must not stop the scan
+            mk.shadow_errors[sym] = f"{type(e).__name__}: {str(e)[:120]}"
+            return None
 
     async def _index(self, m, ctx, mk: _Market, sym: str) -> tuple[list[Signal], list[dict]]:
         name = INDEX_FUTURES.get(sym)
@@ -373,7 +416,30 @@ class AITrader(Agent):
         rep = ScanReport(session_date=sd, universe=str(ctx.inputs.get("universe") or "FNO"), universe_size=len(uni),
                          scanned=len(uni) - len([x for x in suppressed if x["category"] is None]), signals=signals,
                          suppressed=suppressed, regime={**mk.regime(), "missing": mk.missing}, data_as_of=data_as_of,
-                         rule_version=RULE_VERSION)
+                         rule_version=RULE_VERSION, shadow=_shadow_summary(mk) if mk.shadow_on else None)
         return AgentResult(output_schema="scan-report-v1", output=rep.model_dump(mode="json"),
                            summary=f"{len(signals)} signals from {len(uni)} instruments "
                                    f"({len(suppressed)} suppressed or skipped)")
+
+
+def _shadow_summary(mk: _Market, top: int = 50) -> dict[str, Any]:
+    """v2 candidates for the scan report — recorded for comparison, never published as signals. Ties: relative-strength
+    points, then trend points (never the name)."""
+    def pts(sh, dim):
+        return next((float(c.points) for c in sh.components if c.dimension == dim), 0.0)
+    scored = {s: sh for s, sh in mk.shadow.items() if sh.score is not None}
+    cands = sorted(((s, sh) for s, sh in scored.items() if sh.signals),
+                   key=lambda x: (-float(x[1].score), -pts(x[1], "relative_strength"), -pts(x[1], "trend_confirmation"), x[0]))
+    not_scored: dict[str, int] = {}
+    for sh in mk.shadow.values():
+        if sh.score is None:
+            for r in sh.reasons or ["not scored"]:
+                not_scored[r] = not_scored.get(r, 0) + 1
+    return {"version": v2.VERSION, "rules": v2.RULES, "horizon": "POSITIONAL", "active_version": scoring.active_version(),
+            "scored": len(scored), "with_entry_signal": len(cands), "not_scored": not_scored,
+            "errors": dict(list(mk.shadow_errors.items())[:20]), "error_count": len(mk.shadow_errors),
+            "bands": {b: sum(1 for _, sh in cands if sh.band == b) for b in ("Exceptional", "Strong", "Developing", "Weak", "Avoid")},
+            "candidates": [{"instrument": s, "score": str(sh.score), "band": sh.band, "tier": sh.tier,
+                            "primary_signal": sh.primary_signal, "signals": sh.signals, "context_signals": sh.context_signals,
+                            "warnings": sh.warnings} for s, sh in cands[:top]]}
+
