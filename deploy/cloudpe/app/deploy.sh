@@ -139,9 +139,19 @@ fi
 RESOLVE=(-k --resolve "${HOSTNAME_PUBLIC}:443:127.0.0.1")
 wait_http_ok "/api/healthz via edge :443" 10 "${RESOLVE[@]}" "https://${HOSTNAME_PUBLIC}/api/healthz"
 wait_http_ok "/api/readyz via edge :443"  10 "${RESOLVE[@]}" "https://${HOSTNAME_PUBLIC}/api/readyz"
+# The edge finds the frontends through Docker DNS and caches the answer for 10 s
+# (resolver ... valid=10s). Both frontends are recreated together and can swap
+# IPs, so for a few seconds /v5/ can reach the v2 container and get a 404
+# (run 41996148672, 5 Nov). Retry for longer than the cache before failing.
 for path in /v2/ /v5/; do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${RESOLVE[@]}" "https://${HOSTNAME_PUBLIC}${path}")
-    [[ "$code" == "200" ]] || fail "Frontend ${path} returned HTTP ${code}."
+    code=000
+    for attempt in 1 2 3 4 5 6 7 8; do
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${RESOLVE[@]}" "https://${HOSTNAME_PUBLIC}${path}")
+        [[ "$code" == "200" || "$attempt" == 8 ]] && break
+        warn "Frontend ${path} returned HTTP ${code} (attempt ${attempt}/8); retrying in 3 s."
+        sleep 3
+    done
+    [[ "$code" == "200" ]] || fail "Frontend ${path} returned HTTP ${code} after 8 attempts."
     log "OK  ${path} → 200"
 done
 
