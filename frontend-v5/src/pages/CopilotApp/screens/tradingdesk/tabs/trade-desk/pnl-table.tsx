@@ -29,7 +29,8 @@ const PRODUCT: Record<string, string> = { intraday: "Intraday", delivery: "Deliv
 export const returnOf = (p: PnlPosition): number | null =>
   p.returnPct ?? (p.net != null && p.investedValue ? (p.net / Math.abs(p.investedValue)) * 100 : null);
 export const exposureOf = (p: PnlPosition): number | null => p.exposureRs ?? (p.investedValue != null ? Math.abs(p.investedValue) : null);
-const subLine = (p: PnlPosition) => p.strategyName ?? (p.product ? PRODUCT[p.product] ?? p.product : null) ?? (p.mode === "LIVE" ? "Broker position" : "Share trade");
+const subLine = (p: PnlPosition) => p.strategyName ?? (p.product ? PRODUCT[p.product] ?? p.product : null)
+  ?? (p.mode === "LIVE" ? "Broker position" : p.rowSource === "scanner" ? "Scanner paper trade" : "Share trade");
 
 export function matches(p: PnlPosition, q: string): boolean {
   const needle = q.trim().toLowerCase();

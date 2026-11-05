@@ -403,6 +403,20 @@ function useInvalidateSpt() {
   return () => qc.invalidateQueries({ queryKey: SPT_KEY });
 }
 
+/** POST /api/v1/paper/positions/{id}/exit {} — a manual exit of a scanner paper position (the P&L dashboard's Simulate exit
+ *  on a scanner row). The paper monitor fills it at the live bid in the session. 200 {order, duplicate}. */
+export function useSptExit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (positionId: string): Promise<{ order: SptOrderSummary | null; duplicate: boolean }> => {
+      const b = rec((await http({ method: "POST", path: `/api/v1/paper/positions/${encodeURIComponent(positionId)}/exit`, body: {}, noRetry: true, timeoutMs: 20_000 })).data);
+      return { order: readOrder(b.order), duplicate: b.duplicate === true };
+    },
+    // The P&L dashboard's own body is a stream (3 s in the session), so only the SPT reads are refreshed here.
+    onSettled: () => qc.invalidateQueries({ queryKey: SPT_KEY }),
+  });
+}
+
 export interface ApproveResult { proposal: SptProposal | null; order: SptOrderSummary | null; idempotent: boolean }
 
 /** POST /api/v1/opportunities/{id}/approve. */
