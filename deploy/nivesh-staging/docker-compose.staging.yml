@@ -101,7 +101,7 @@ services:
     # STARTTLS) lives in this env_file — same relay as prod. See
     # .env.staging.example for the canonical block.
     env_file: /opt/nivesh-staging/.env.staging
-    environment:
+    environment: &app-backend-env
       APP_ENV: staging
       # Main app connects as the 'nivesh' user (created by mongo-init.js,
       # the same one prod uses — directive: apply original scripts unchanged).
@@ -166,6 +166,41 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+
+  # ── Autonomous Trading Desk (separate app, docs/autodesk/DESIGN.md) ───────
+  # Same image and code mount as app-backend, its own process: uvicorn autodesk.main:app on 8010, ONE worker (the
+  # simulator's runs and the start-up recovery live in that process). Its own Postgres schema `autodesk` in the app
+  # database, created by its own migrations on start (AUTODESK_AUTO_MIGRATE). No order path: brokers are not called.
+  # Routed by the edge nginx at /autodesk/api/ → /api/ here. No network alias: the frontends' `backend` alias must
+  # keep resolving to app-backend only. If this container is absent only /autodesk/ answers 502.
+  app-autodesk:
+    image: nivesh/backend:staging
+    pull_policy: never
+    container_name: nivesh-staging-autodesk
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "autodesk.main:app", "--host", "0.0.0.0", "--port", "8010", "--workers", "1"]
+    working_dir: /app/backend
+    env_file: /opt/nivesh-staging/.env.staging
+    environment:
+      <<: *app-backend-env
+      AUTODESK_PG_URL: postgresql://${PI_POSTGRES_USER}:${PI_POSTGRES_PASSWORD}@postgres:5432/${PI_POSTGRES_DB}
+      AUTODESK_AUTO_MIGRATE: "1"
+      AUTODESK_LLM_ENABLED: "0"
+      AUTODESK_SCHEDULER: "0"
+    volumes:
+      - /opt/nivesh-staging/repo/backend:/app/backend:ro
+    networks:
+      nivesh-staging: {}
+    logging: *default-logging
+    depends_on:
+      postgres: { condition: service_healthy }
+      mongo:    { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8010/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   # ── frontend-v5 (Vite + React 18, served at /v5/) ────────────────────────
 
