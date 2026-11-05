@@ -30,7 +30,7 @@ export const reply = (status: number, body: unknown): Reply => ({ __reply: true,
 
 export interface Req { method: string; path: string; query: URLSearchParams; body: unknown; params: Record<string, string> }
 export type Handler = (req: Req, state: MockState) => unknown;
-export type RouteValue = unknown | Reply | Handler;
+export type RouteValue = Handler | Reply | Record<string, unknown> | unknown[] | string | number | boolean | null;
 
 export interface Captured { method: string; path: string; body: unknown }
 
@@ -67,7 +67,10 @@ export function deskStatus(state: MockState, over: Record<string, unknown> = {})
     pending_approvals: 0,
     open_workflows: 0,
     controls: state.controls,
-    last_premarket: { session_date: "2026-11-05", outcome: { status: "READY", checks: 6 } },
+    last_premarket: {
+      session_date: "2026-11-05",
+      outcome: { premarket: { status: "READY", session_date: "2026-11-05", checks: [{ name: "cash_eod", status: "READY", detail: "2187 cash rows for 2026-11-04 (need 500)", as_of: "2026-11-04" }], data_as_of: "2026-11-04", allowed_segments: ["CASH", "FUTURES", "OPTIONS"] } },
+    },
     market_data: { latest_cash_session: "2026-11-04", latest_fno_session: "2026-11-04" },
     execution: "none (Phase 1: no orders, fills or positions)",
     ...over,
@@ -108,6 +111,7 @@ const DEFAULTS: Record<string, RouteValue> = {
     return row;
   },
   "GET /approvals": [],
+  "GET /agents/:agent_key/activity": [],
   "GET /api/auth/me": ME,
   "GET /api/live/quotes": LIVE_OPEN,
 };

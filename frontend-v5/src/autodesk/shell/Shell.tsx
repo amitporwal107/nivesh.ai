@@ -80,7 +80,9 @@ function Tickers({ q, failed }: { q: IndexQuotes | undefined; failed: boolean })
 }
 
 function agentsHealth(st: DeskStatus | undefined): { text: string; tone: Tone; unhealthy: number } {
-  const a = st?.agents ?? [];
+  // The registry keeps a row per agent version (newest first per agent): count each agent once, by its newest version.
+  const seen = new Set<string>();
+  const a = (st?.agents ?? []).filter((x) => (seen.has(x.agent_key) ? false : (seen.add(x.agent_key), true)));
   if (!a.length) return { text: "Agents unknown", tone: "ink", unhealthy: 0 };
   const ok = a.filter((x) => HEALTHY.has(x.status)).length;
   return { text: `${ok}/${a.length} agents healthy`, tone: ok === a.length ? "mint" : "amber", unhealthy: a.length - ok };

@@ -175,6 +175,7 @@ sample; agent-written text is shown as written; labels may use the design's stan
 | AD-UI-05 | E | Header market strip, live feed answering mode "live", session "open" | "NSE open" mint pill; IST clock ticks; NIFTY 50 / NIFTY BANK / INDIA VIX values and % change from GET /api/live/quotes; "Kite feed live" |
 | AD-UI-06 | E | Live feed mode "closed" / "not_connected" / request fails | "NSE closed" pill; closed shows the day's close marked "close"; not connected or failure hides the numbers and says "Index quotes unavailable" — never a sample value |
 | AD-UI-07 | E | Agents pill | "{healthy}/{total} agents healthy" from desk/status agents (healthy = IDLE or BUSY); amber when any is not healthy; click → Agent fleet & reliability |
+| AD-UI-07b | E | The registry holds an older version of an agent (status OFFLINE) after its newest row | the pill counts each agent once by its newest version: "5/5 agents healthy"; no fleet badge |
 | AD-UI-08 | E+C | "Stop new entries" → dialog with a reason → Confirm | POST /desk/controls/STOP_NEW_ENTRIES `{active: true, reason}`; red "ENTRIES STOPPED" banner with the time and the person from the control row, saying new plans are not proposed or approved until resumed and simulations are not affected; button becomes "Resume entries" |
 | AD-UI-09 | E+C | "Resume entries" → Confirm | POST `{active: false, reason}`; banner gone |
 | AD-UI-10 | E | Control POST fails (500 / 403) | the dialog shows the API's message; state unchanged |

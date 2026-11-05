@@ -99,6 +99,9 @@ class TaskRunner:
                                    inputs=ctx.inputs, settings=ctx.settings)
             calls_before = len(ctx.market.tool_calls())
             await self._agent_status(agent, C.AgentStatus.BUSY)
+            # IDLE after a run (or a retry); DEGRADED when the task ends failed or escalated, kept until the agent's
+            # next run, so the registry (and the desk's "agents healthy" readout) shows it.
+            end_status = C.AgentStatus.IDLE
             try:
                 result = await asyncio.wait_for(agent.run(spec, run_ctx), timeout=float(spec.deadline_s))
             except asyncio.TimeoutError:
@@ -109,12 +112,12 @@ class TaskRunner:
                     await self._move(spec, C.TaskState.RETRY_PENDING)
                     continue
                 row = await self._move(spec, C.TaskState.ESCALATED, error=f"{last_error} on every attempt")
-                await self._agent_status(agent, C.AgentStatus.DEGRADED)
+                end_status = C.AgentStatus.DEGRADED
                 return TaskOutcome(task=row, ok=False, error=row["error"])
             except (LookAheadError, ToolNotAllowed) as e:   # an agent defect: never retried
                 last_error = f"{type(e).__name__}: {e}"
                 row = await self._move(spec, C.TaskState.FAILED, error=last_error, tool_calls=_calls(ctx, calls_before))
-                await self._agent_status(agent, C.AgentStatus.DEGRADED)
+                end_status = C.AgentStatus.DEGRADED
                 return TaskOutcome(task=row, ok=False, error=last_error)
             except Exception as e:  # noqa: BLE001 — recorded on the task, retried within bounds
                 last_error = f"{type(e).__name__}: {e}"
@@ -124,10 +127,10 @@ class TaskRunner:
                                      tool_calls=_calls(ctx, calls_before))
                     continue
                 row = await self._move(spec, C.TaskState.FAILED, error=last_error, tool_calls=_calls(ctx, calls_before))
-                await self._agent_status(agent, C.AgentStatus.DEGRADED)
+                end_status = C.AgentStatus.DEGRADED
                 return TaskOutcome(task=row, ok=False, error=last_error)
             finally:
-                await self._agent_status(agent, C.AgentStatus.IDLE)
+                await self._agent_status(agent, end_status)
 
             calls = _calls(ctx, calls_before) + [tc.model_dump(mode="json") for tc in result.tool_calls]
             if result.outcome in ("BLOCKED", "ESCALATED"):

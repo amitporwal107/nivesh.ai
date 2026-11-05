@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "find src -name '*.js' -delete 2>/dev/null || true && tsc -b && vite build",
+    "build:autodesk": "vite build --config vite.autodesk.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">Agent trace replay · SIM-0418</span><span class="nv-pill">Structured messages only</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,4vw,44px);line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">Replay one task, <em style="color:var(--indigo)">message by message</em>, as the agents handed it on.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Each step shows who asked whom, the inputs referenced, the structured output, tool calls with timings, validation and the handoff. Hidden model reasoning is neither stored nor shown.</p>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px">
+    <sc-for list="{{ tasks }}" as="k" hint-placeholder-count="3"><div onClick="{{ k.pick }}" style="cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:14px;border:1px solid {{ k.border }};background:{{ k.bg }};transition:all .15s ease" style-hover="border-color:var(--line-3)"><div style="display:flex;gap:8px;align-items:center"><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ k.id }}</span><span style="flex:1"></span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ k.n }} STEPS</span></div><span style="font-size:14.5px;font-weight:500">{{ k.t }}</span><span style="font-size:12px;color:var(--ink-3)">{{ k.s }}</span></div></sc-for>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%)">
+    <button onClick="{{ toggle }}" style="cursor:pointer;min-width:92px;height:36px;padding:0 16px;border-radius:10px;border:0;background:{{ playBg }};color:{{ playC }};font-size:13.5px;font-weight:500">{{ playT }}</button>
+    <button onClick="{{ prev }}" style="cursor:pointer;width:38px;height:36px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:15px">‹</button>
+    <button onClick="{{ next }}" style="cursor:pointer;width:38px;height:36px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:15px">›</button>
+    <button onClick="{{ restart }}" style="cursor:pointer;height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13px">Restart</button>
+    <span style="flex:1"></span>
+    <span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">STEP {{ stepN }}</span>
+    <div style="flex:0 1 220px;height:4px;border-radius:2px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ prog }};border-radius:2px;background:var(--indigo)"></span></div>
+  </section>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:18px;align-items:start">
+    <section style="display:flex;flex-direction:column;gap:8px;min-width:0">
+      <sc-for list="{{ msgs }}" as="m" hint-placeholder-count="6">
+        <div onClick="{{ m.pick }}" style="cursor:pointer;display:grid;grid-template-columns:34px minmax(0,1fr);gap:12px;padding:12px 14px;border-radius:14px;border:1px solid {{ m.border }};background:{{ m.bg }};opacity:{{ m.op }};transition:all .15s ease">
+          <span style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-family:var(--mono);font-size:11px;border:1px solid {{ m.line }};color:{{ m.c }};background:var(--bg-2)">{{ m.ini }}</span>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:baseline"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.05em;color:{{ m.c }}">{{ m.from }} → {{ m.to }}</span><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3)">{{ m.type }}</span><span style="flex:1"></span><span class="nv-num" style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ m.t }}</span></div>
+            <span style="font-size:14px;line-height:1.45">{{ m.x }}</span>
+          </div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ waiting }}" hint-placeholder-val="{{ false }}"><div style="padding:12px 14px;border-radius:14px;border:1px dashed var(--line-2);font-size:12.5px;color:var(--ink-3)">{{ waitT }}</div></sc-if>
+    </section>
+    <aside style="position:sticky;top:96px;display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:16px;border:1px solid var(--indigo-line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="nv-eyebrow">Step {{ d.n }} · {{ d.type }}</span><span style="flex:1"></span><span class="nv-pill" style="color:{{ d.vc }};border-color:{{ d.vl }}">{{ d.verdict }}</span></div>
+      <span style="font-family:var(--display);font-size:24px;line-height:1.15">{{ d.x }}</span>
+      <span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ d.from }} → {{ d.to }} · {{ d.t }} · {{ d.ms }}</span>
+      <div style="display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:12px;background:var(--bg-2)"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3);padding-bottom:4px">STRUCTURED OUTPUT</span><sc-for list="{{ d.payload }}" as="pl" hint-placeholder-count="5"><div style="display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;font-family:var(--mono);font-size:11.5px;line-height:1.6"><span style="color:var(--ink-3)">{{ pl.k }}</span><span style="color:var(--ink);overflow-wrap:anywhere">{{ pl.v }}</span></div></sc-for></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3)">TOOL CALLS</span><sc-for list="{{ d.tools }}" as="tl" hint-placeholder-count="2"><div style="display:flex;gap:10px;align-items:baseline;font-size:12.5px"><span style="font-family:var(--mono);font-size:11.5px;flex:1;min-width:0;overflow-wrap:anywhere">{{ tl.n }}</span><span style="color:{{ tl.c }};font-family:var(--mono);font-size:11px">{{ tl.r }}</span><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ tl.ms }}</span></div></sc-for><sc-if value="{{ d.noTools }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--ink-3)">No tool calls; deterministic event.</span></sc-if></div>
+      <sc-for list="{{ d.meta }}" as="mt" hint-placeholder-count="3"><div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px"><span style="color:var(--ink-3)">{{ mt.k }}</span><span style="text-align:right;color:var(--ink-2)">{{ mt.v }}</span></div></sc-for>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:1500}}">
+class Component extends DCLogic {
+  state = { task: 'T1', step: 0, sel: 0, playing: true };
+  componentDidMount() { this.iv = setInterval(() => { if (!this.state.playing) return; const n = this.tasks()[this.state.task].m.length; this.setState(x => x.step >= n - 1 ? { playing: false } : { step: x.step + 1, sel: x.step + 1 }); }, 1400); }
+  componentWillUnmount() { clearInterval(this.iv); }
+  tasks() {
+    const M = (t, from, to, type, x, payload, tools, val, ms, retries, handoff, verdict) => ({ t, from, to, type, x, payload, tools, val, ms, retries, handoff, verdict });
+    return {
+      T1: { t: 'AXISBANK long · resized, then approved', s: 'PLN-S-0311 · 12:51 → 12:55', m: [
+        M('12:51:10', 'AI Trader', 'Trading Assistant', 'SIGNAL', 'SIG-S-0214 · AXISBANK breakout · score 72', [['instrument', 'AXISBANK · NSE CASH'], ['direction', 'BULLISH · INTRADAY'], ['entry_zone', '1,112 – 1,120'], ['invalidation', '1,098'], ['targets', '1,131 / 1,145'], ['evidence', 'BREAKOUT · VOLUME 1.9× · OI +3.2%']], [['scan_universe', 'ok', '1.4 s'], ['score_signal', 'ok', '0.2 s']], 'Schema ✓ · data 8 s old ✓ · not a duplicate ✓', '1.6 s', '0', 'Trading Assistant', 'PUBLISHED'),
+        M('12:52:40', 'Trading Assistant', 'Risk Guardian', 'PLAN', 'PLN-S-0311 v1 · long 800 · limit 1,119', [['quantity', '800'], ['limit', '1,119.00'], ['stop', '1,098.00'], ['targets', 'T1 1,131 (half) · T2 1,145'], ['max_loss', '₹16,800'], ['time_exit', '15:15']], [['get_quote', 'ok', '0.3 s'], ['size_position', 'ok', '0.1 s'], ['backtest_lookup', 'n 71', '0.6 s']], '19 mandatory plan fields present ✓', '4.8 s', '0', 'Risk Guardian', 'SUBMITTED'),
+        M('12:53:05', 'Risk Guardian', 'Trading Assistant', 'RISK WARN', 'Risk ₹16,800 is above the breakout cap of 0.15% (₹15,000)', [['risk_rs', '16,800'], ['cap_rs', '15,000 · strategy level'], ['max_quantity', '714 shares'], ['open_risk_after', '0.31%']], [['portfolio_risk', 'ok', '0.4 s'], ['policy_eval', 'warn', '0.1 s']], 'Strategy limit binding; account limits pass', '0.9 s', '0', 'Trading Assistant · revise', 'NEEDS REVISION'),
+        M('12:54:30', 'Trading Assistant', 'Risk Guardian', 'PLAN', 'PLN-S-0311 v2 · long 600 · risk ₹12,600', [['quantity', '600'], ['changed_fields', 'quantity 800 → 600'], ['max_loss', '₹12,600'], ['reason', 'RSK-S-0421 strategy cap']], [['size_position', 'ok', '0.1 s']], 'Amendment record: before / after attached ✓', '1.2 s', '0', 'Risk Guardian', 'SUBMITTED'),
+        M('12:54:50', 'Risk Guardian', 'Middle Office', 'RISK PASS', 'RSK-S-0422 · 11 checks pass', [['risk_rs', '12,600 · 0.13%'], ['open_risk_after', '0.27% of 3%'], ['stress_nifty_-2%', '−₹14,100'], ['liquidity', 'A · bid-ask ₹0.10']], [['portfolio_risk', 'ok', '0.4 s'], ['stress_scenarios', 'ok', '0.7 s']], 'All mandatory checks pass', '1.3 s', '0', 'Middle Office', 'PASS'),
+        M('12:55:02', 'Middle Office', 'Sim approver', 'NEEDS HUMAN', '₹6.71 L notional is above the ₹5.00 L autonomous limit', [['notional', '₹6,71,040'], ['limit', '₹5,00,000 · P-PAPER-v8 §4'], ['binding', 'PLN-S-0311 v2 · 600 max · expires 13:10']], [['policy_eval', 'needs human', '0.1 s'], ['bind_approval', 'ok', '0.1 s']], 'Routed; capital reservation held', '0.3 s', '0', 'Simulated approver', 'ROUTED'),
+        M('12:55:08', 'Sim approver', 'Capital allocator', 'APPROVED', 'Scripted approval after 6 s', [['approver', 'sim-approver · script A'], ['bound_to', 'hash 3c9e…71b0'], ['decision', 'APPROVED']], [], 'Binding matches plan v2 ✓', '6.0 s', '0', 'Capital allocator', 'APPROVED'),
+        M('12:55:09', 'Capital allocator', 'Execution', 'RESERVE', 'RSV-S-0388 · ₹6.71 L reserved atomically', [['reservation', 'RSV-S-0388'], ['amount', '₹6,71,040'], ['expires', '15:20 or on fill']], [['reserve_capital', 'ok', '0.05 s']], 'No double reservation ✓', '0.1 s', '0', 'Execution gateway', 'RESERVED'),
+        M('12:55:10', 'Sim exchange', 'Lifecycle manager', 'FILL', 'Partial 400 @ 1,118.10, then 200 @ 1,119.00', [['filled', '600 of 600'], ['avg_price', '1,118.40'], ['fill_model', 'Queue position · 150 ms latency']], [], 'Fills reconciled to order ✓', '0.9 s', '0', 'Lifecycle manager', 'FILLED'),
+        M('12:55:11', 'Lifecycle manager', 'Risk Guardian', 'ACTIVE', 'Stop 1,098 placed for 600; T1 1,131 for 300', [['state', 'ACTIVE_POSITION'], ['protective', 'SL-M 1,098 · 600'], ['target_1', 'Sell 300 @ 1,131'], ['time_exit', '15:15']], [], 'Protective order matches filled quantity ✓', '0.2 s', '0', 'Risk Guardian · monitoring', 'ACTIVE'),
+      ] },
+      T2: { t: 'Volatility spike response', s: 'SCN-011 · 12:20 → 12:21', m: [
+        M('12:20:00', 'Scenario', 'Orchestrator', 'INJECT', 'SCN-011 · VIX +2.5 and metals +1.1% in one minute', [['scenario', 'SCN-011 · volatility spike'], ['magnitude', 'VIX +2.5'], ['affected', 'Metals, 4 open positions']], [], 'Injected at the scheduled time ✓', '—', '0', 'Tech Support, Risk Guardian', 'INJECTED'),
+        M('12:20:04', 'Tech Support', 'Orchestrator', 'DATA CHECK', 'Feeds agree; the move is in the market, not a data error', [['feeds_compared', 'Kite ticks · exchange snapshot'], ['divergence', '0.01%'], ['decision', 'Treat as real move']], [['feed_health', 'ok', '0.6 s'], ['cross_check', 'ok', '0.9 s']], 'No stale or broken data', '1.5 s', '0', 'Risk Guardian', 'CONFIRMED'),
+        M('12:20:09', 'Risk Guardian', 'Orchestrator', 'STRESS', 'Recalculating stress for 4 open positions', [['positions', 'RELIANCE · NIFTY spread · TATASTEEL · (AXISBANK pending)'], ['scenarios', '6'], ['priority', 'High']], [['stress_scenarios', 'running', '—']], 'Started within 9 s of the injection', '—', '0', '—', 'RUNNING'),
+        M('12:20:31', 'Risk Guardian', 'Orchestrator', 'STRESS DONE', 'All limits hold; new entries scaled to 80% for 30 min', [['worst_stress', '−₹31,400 · 0.31%'], ['open_risk', '0.29% of 3%'], ['sizing', '80% until 12:51']], [['stress_scenarios', 'ok', '21.8 s']], 'Assertion: stress ≤ 30 s ✓ (22 s)', '22 s', '0', 'Trading Assistant · sizing', 'PASS'),
+        M('12:21:14', 'Sim exchange', 'Lifecycle manager', 'TRIGGER', 'TATASTEEL 160.10 stop triggered', [['instrument', 'TATASTEEL · intraday short 3,000'], ['trigger', '160.10'], ['last', '160.12']], [], 'Event processed once ✓', '—', '0', 'Lifecycle manager', 'TRIGGERED'),
+        M('12:21:14', 'Lifecycle manager', 'Sim exchange', 'EXIT', 'Buy 3,000 to cover · market-protected limit 160.40', [['policy', 'STOP-HARD'], ['quantity', '3,000'], ['protection', 'Limit 160.40']], [['submit_order', 'ok', '0.1 s']], 'Exit quantity matches open quantity ✓', '0.1 s', '0', 'Sim exchange', 'SUBMITTED'),
+        M('12:21:15', 'Sim exchange', 'Lifecycle manager', 'FILL', 'Filled 3,000 @ 160.15, 0.05 beyond the trigger', [['filled', '3,000'], ['avg', '160.15'], ['realized', '−₹5,250']], [], 'Fill shown apart from the trigger ✓', '0.9 s', '0', 'Reconciliation', 'CLOSED'),
+      ] },
+      T3: { t: 'Nifty spread with a human approval', s: 'PLN-S-0304 · 09:52 → 10:18', m: [
+        M('09:52:00', 'AI Trader', 'Trading Assistant', 'SIGNAL', 'SIG-S-0204 · NIFTY long buildup · score 77', [['instrument', 'NIFTY · index options'], ['direction', 'BULLISH · to 3 Nov expiry'], ['invalidation', '23,240'], ['evidence', 'LONG BUILDUP · PCR 1.14']], [['scan_universe', 'ok', '1.2 s'], ['get_option_chain', 'ok', '0.8 s']], 'Schema ✓ · freshness ✓', '2.3 s', '0', 'Trading Assistant', 'PUBLISHED'),
+        M('10:02:30', 'Trading Assistant', 'Risk Guardian', 'PLAN', 'PLN-S-0304 v1 · 23,300/23,500 CE · 3 lots', [['legs', 'BUY 23,300 CE · SELL 23,500 CE'], ['lots', '3 × 65'], ['max_loss', '₹17,277']], [['price_strategy', 'ok', '0.4 s']], 'Plan fields ✓', '5.1 s', '0', 'Risk Guardian', 'SUBMITTED'),
+        M('10:03:10', 'Risk Guardian', 'Trading Assistant', 'RISK WARN', 'Index-options budget for the session is ₹12,000 max loss', [['max_loss', '₹17,277'], ['budget', '₹12,000'], ['max_lots', '2']], [['policy_eval', 'warn', '0.1 s']], 'Strategy budget binding', '0.6 s', '0', 'Trading Assistant · revise', 'NEEDS REVISION'),
+        M('10:05:40', 'Trading Assistant', 'Risk Guardian', 'PLAN', 'PLN-S-0304 v2 · 2 lots · debit 88.60', [['lots', '2 × 65'], ['max_loss', '₹11,518'], ['max_profit', '₹14,482']], [['price_strategy', 'ok', '0.4 s']], 'Amendment record ✓', '2.2 s', '0', 'Risk Guardian', 'SUBMITTED'),
+        M('10:05:52', 'Risk Guardian', 'Middle Office', 'RISK PASS', 'RSK-S-0414 · all checks pass', [['max_loss', '₹11,518 · 0.12%'], ['open_risk_after', '0.27%']], [['portfolio_risk', 'ok', '0.4 s']], 'Pass', '0.5 s', '0', 'Middle Office', 'PASS'),
+        M('10:06:00', 'Middle Office', 'Sim approver', 'NEEDS HUMAN', 'Index-option entries always need a human under v8', [['rule', 'P-PAPER-v8 §6'], ['binding', 'PLN-S-0304 v2 · 130 max · expires 10:30']], [['policy_eval', 'needs human', '0.1 s']], 'Routed', '0.2 s', '0', 'Simulated approver', 'ROUTED'),
+        M('10:06:45', 'Sim approver', 'Capital allocator', 'APPROVED', 'Scripted approval after 45 s', [['decision', 'APPROVED'], ['bound_to', 'hash 7a21…c04f']], [], 'Binding matches v2 ✓', '45 s', '0', 'Capital allocator', 'APPROVED'),
+        M('10:18:05', 'Sim exchange', 'Lifecycle manager', 'FILL', 'Both legs filled · net debit 88.60', [['leg_1', 'BUY 130 @ 141.90'], ['leg_2', 'SELL 130 @ 53.30'], ['net', '88.60']], [], 'Both legs filled; no legging risk ✓', '11 min queue', '1', 'Lifecycle manager', 'FILLED'),
+        M('10:18:06', 'Lifecycle manager', 'Risk Guardian', 'ACTIVE', 'Spread stop 44.30 · T1 130 · T2 150 · time exit 15:15', [['state', 'ACTIVE_POSITION'], ['stop', 'Spread 44.30'], ['targets', '130 / 150']], [], 'Exit rules registered ✓', '0.1 s', '0', 'Risk Guardian · monitoring', 'ACTIVE'),
+      ] },
+    };
+  }
+  renderVals() {
+    const s = this.state, T = this.tasks(), task = T[s.task], n = task.m.length;
+    const AC = { 'AI Trader': 'var(--mint)', 'Trading Assistant': 'var(--mint)', 'Risk Guardian': 'var(--indigo)', 'Middle Office': 'var(--ink-2)', 'Sim approver': 'var(--rose)', 'Capital allocator': 'var(--amber)', 'Sim exchange': 'var(--ink-3)', 'Lifecycle manager': 'var(--indigo)', 'Tech Support': 'var(--amber)', Orchestrator: 'var(--ink-2)', Scenario: 'var(--amber)', Execution: 'var(--ink-2)' };
+    const ini = (w) => w.split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase();
+    const msgs = task.m.slice(0, s.step + 1).map((m, i) => { const c = AC[m.from] || 'var(--ink-2)', on = i === s.sel; return { ...m, from: m.from.toUpperCase(), to: m.to.toUpperCase(), c, line: on ? c : 'var(--line-2)', ini: ini(m.from), border: on ? 'var(--indigo-line)' : 'var(--line)', bg: on ? 'var(--bg-2)' : 'var(--bg-1)', op: '1', pick: () => this.setState({ sel: i, playing: false }) }; });
+    const m = task.m[Math.min(s.sel, s.step)];
+    const VT = (v) => /WARN|REVISION/.test(v) ? ['var(--amber)', 'var(--amber-line)'] : /ROUTED|RUNNING|INJECTED|TRIGGERED/.test(v) ? ['var(--indigo)', 'var(--indigo-line)'] : ['var(--mint)', 'var(--mint-line)'];
+    const [vc, vl] = VT(m.verdict);
+    const last = s.step >= n - 1;
+    return {
+      tasks: Object.keys(T).map(k => ({ id: k === 'T1' ? 'PLN-S-0311' : k === 'T2' ? 'SCN-011' : 'PLN-S-0304', t: T[k].t, s: T[k].s, n: T[k].m.length, border: s.task === k ? 'var(--indigo-line)' : 'var(--line)', bg: s.task === k ? 'var(--indigo-soft)' : 'var(--bg-1)', pick: () => this.setState({ task: k, step: 0, sel: 0, playing: true }) })),
+      msgs, waiting: !last, waitT: s.playing ? `Next message arriving… (${n - s.step - 1} more)` : `${n - s.step - 1} more step${n - s.step - 1 === 1 ? '' : 's'} · press › or Play`,
+      playT: s.playing ? 'Pause' : last ? 'Replay' : 'Play', playBg: s.playing ? 'var(--bg-3)' : 'var(--indigo)', playC: s.playing ? 'var(--ink)' : '#0A0E1A',
+      toggle: () => { if (last && !s.playing) this.setState({ step: 0, sel: 0, playing: true }); else this.setState(x => ({ playing: !x.playing })); },
+      prev: () => this.setState(x => ({ playing: false, sel: Math.max(0, x.sel - 1) })),
+      next: () => this.setState(x => { const st = Math.min(n - 1, Math.max(x.step, x.sel + 1)); return { playing: false, step: st, sel: Math.min(n - 1, x.sel + 1) }; }),
+      restart: () => this.setState({ step: 0, sel: 0, playing: true }),
+      stepN: `${Math.min(s.sel, s.step) + 1} OF ${n}`, prog: (((s.step + 1) / n) * 100).toFixed(1) + '%',
+      d: { n: String(Math.min(s.sel, s.step) + 1), type: m.type, x: m.x, from: m.from.toUpperCase(), to: m.to.toUpperCase(), t: m.t, ms: m.ms, verdict: m.verdict, vc, vl, payload: m.payload.map(([k, v]) => ({ k, v })), tools: m.tools.map(([tn, r, ms]) => ({ n: tn, r, ms, c: r === 'ok' ? 'var(--mint)' : 'var(--amber)' })), noTools: m.tools.length === 0, meta: [['Validation', m.val], ['Retries', m.retries], ['Handoff', m.handoff]].map(([k, v]) => ({ k, v })) },
+    };
+  }
+}
+</script>
+</body>
+</html>

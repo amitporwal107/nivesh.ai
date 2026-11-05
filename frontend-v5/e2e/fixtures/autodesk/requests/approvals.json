@@ -1,0 +1,14 @@
+{
+  "approve": {
+    "method": "POST", "path": "/approvals/{approval_id}/decision",
+    "body": { "decision": "APPROVE", "reason": "", "plan_hash": "{plan_hash}" }, "expect": [201]
+  },
+  "reject": {
+    "method": "POST", "path": "/approvals/{approval_id}/decision",
+    "body": { "decision": "REJECT", "reason": "Risk too high for today", "plan_hash": "{plan_hash}" }, "expect": [201]
+  },
+  "request_revision": {
+    "method": "POST", "path": "/approvals/{approval_id}/decision",
+    "body": { "decision": "REQUEST_REVISION", "reason": "Smaller size", "plan_hash": "{plan_hash}" }, "expect": [201]
+  }
+}

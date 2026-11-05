@@ -114,6 +114,19 @@ test("AD-UI-07 agents pill counts healthy agents and opens the fleet screen", as
   await expect(page.getByTestId("screen-fleet")).toBeVisible();
 });
 
+test("AD-UI-07b the agents pill counts each agent once (newest version), not every registered version", async ({ page }) => {
+  // The registry keeps a row per version, newest first per agent (store.list_agents).
+  const agents = [
+    ...AGENTS_STATUS.slice(0, 2),
+    { agent_key: "AI_TRADER", version: "autodesk-ait-v0", kind: "DETERMINISTIC", status: "OFFLINE", last_heartbeat: "2026-11-04T05:31:09.870Z" },
+    ...AGENTS_STATUS.slice(2),
+  ];
+  await mockDesk(page, { routes: { "GET /desk/status": (_r, s) => deskStatus(s, { agents }) } });
+  await page.goto("/autodesk/");
+  await expect(page.getByTestId("agents-pill")).toHaveText("5/5 agents healthy");
+  await expect(page.getByTestId("badge-fleet")).toHaveCount(0);
+});
+
 test("AD-UI-08/09 stop and resume new entries: contract bodies, banner, button state", async ({ page }) => {
   const desk = await mockDesk(page);
   await page.goto("/autodesk/");

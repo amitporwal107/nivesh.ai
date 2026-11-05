@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:18px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">Full trading day · SIM-0418</span><span class="nv-pill nv-pill-indigo"><span class="nv-dot" style="background:var(--indigo)"></span>Historical replay · Wed 28 Oct 2026</span><span class="nv-pill">P-PAPER-v8 candidate · seed 8841</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,4vw,44px);line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:940px">{{ headA }} <em style="color:var(--indigo)">{{ headB }}</em></h1>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%);box-shadow:var(--shadow-pop)">
+    <button onClick="{{ toggle }}" style="cursor:pointer;min-width:96px;height:38px;padding:0 16px;border-radius:10px;border:0;background:{{ playBg }};color:{{ playC }};font-size:13.5px;font-weight:500">{{ playT }}</button>
+    <button onClick="{{ restart }}" style="cursor:pointer;height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13px">Restart day</button>
+    <div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2)"><sc-for list="{{ speeds }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.go }}" style="cursor:pointer;border:0;padding:6px 11px;border-radius:999px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:10.5px">{{ o.t }}</button></sc-for></div>
+    <span style="flex:1"></span>
+    <span class="nv-eyebrow" style="font-size:9.5px">Jump to</span>
+    <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ jumps }}" as="j" hint-placeholder-count="5"><span onClick="{{ j.go }}" style="cursor:pointer;padding:6px 11px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2)" style-hover="border-color:var(--indigo-line);color:var(--ink)">{{ j.t }}</span></sc-for></div>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px">
+    <div style="display:flex;flex-direction:column;gap:12px;padding:20px 22px;border-radius:14px;border:1px solid var(--indigo-line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap"><span class="nv-eyebrow">Simulation clock · IST</span><span class="nv-pill" style="color:{{ stC }};border-color:{{ stL }}">{{ stT }}</span></div>
+      <span class="nv-num" style="font-family:var(--display);font-size:64px;line-height:1;letter-spacing:-0.01em">{{ clock }}</span>
+      <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:16px;font-weight:500">{{ phase.n }}</span><span style="font-size:13px;line-height:1.5;color:var(--ink-3)">{{ phase.d }}</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-content:start">
+      <sc-for list="{{ counters }}" as="c" hint-placeholder-count="8"><div style="display:flex;flex-direction:column;gap:3px;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1);min-width:0"><span class="nv-eyebrow" style="font-size:8.5px">{{ c.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;line-height:1.05;color:{{ c.c }}">{{ c.v }}</span></div></sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span style="font-family:var(--display);font-size:24px">The day, agent by agent</span><span class="nv-eyebrow" style="font-size:9.5px">08:00 → 18:30 · click the track to jump</span></div>
+    <div style="overflow-x:auto"><div style="min-width:760px;display:flex;flex-direction:column;gap:0">
+      <div style="display:grid;grid-template-columns:132px minmax(0,1fr);gap:10px;align-items:end;padding-bottom:6px">
+        <span></span>
+        <div style="position:relative;height:30px"><sc-for list="{{ phases }}" as="ph" hint-placeholder-count="6"><div style="position:absolute;left:{{ ph.l }};width:{{ ph.w }};top:0;bottom:0;border-left:1px solid var(--line-2);padding:0 5px;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden"><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.06em;color:{{ ph.c }};white-space:nowrap">{{ ph.t }}</span><span class="nv-num" style="font-family:var(--mono);font-size:9px;color:var(--ink-4)">{{ ph.at }}</span></div></sc-for></div>
+      </div>
+      <div onClick="{{ seekTrack }}" style="position:relative;cursor:crosshair">
+        <sc-for list="{{ lanes }}" as="ln" hint-placeholder-count="9">
+          <div style="display:grid;grid-template-columns:132px minmax(0,1fr);gap:10px;align-items:center;height:30px;border-top:1px solid var(--line)">
+            <span style="font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ln.n }}</span>
+            <div style="position:relative;height:30px;background:{{ ln.bg }}"><sc-for list="{{ ln.dots }}" as="d" hint-placeholder-count="4"><span title="{{ d.title }}" style="position:absolute;left:{{ d.l }};top:50%;width:{{ d.s }};height:{{ d.s }};margin:-4px 0 0 -4px;border-radius:{{ d.r }};transform:{{ d.rot }};background:{{ d.c }};opacity:{{ d.op }};box-shadow:{{ d.glow }}"></span></sc-for></div>
+          </div>
+        </sc-for>
+        <div style="position:absolute;top:0;bottom:0;left:calc(142px + (100% - 142px) * {{ cursorF }});border-left:2px solid var(--indigo);pointer-events:none"><span class="nv-num" style="position:absolute;top:-2px;left:4px;padding:1px 5px;border-radius:5px;background:var(--indigo);color:#0A0E1A;font-family:var(--mono);font-size:9.5px">{{ clockShort }}</span></div>
+      </div>
+    </div></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)"><span><span style="color:var(--mint)">●</span> DECISION</span><span><span style="color:var(--indigo)">●</span> LIFECYCLE</span><span><span style="color:var(--amber)">◆</span> INJECTED SCENARIO</span><span><span style="color:var(--danger)">●</span> STOP / LOSS</span><span>FAINT = SCHEDULED, NOT YET REACHED</span></div>
+  </section>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start">
+    <section style="display:flex;flex-direction:column;gap:10px;padding:18px 20px 14px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline"><span style="font-family:var(--display);font-size:24px">Net P&amp;L, simulated</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:{{ pnlC }}">{{ pnlNow }}</span></div>
+      <div style="position:relative;height:170px">
+        <svg viewBox="0 0 600 170" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible">
+          <line x1="0" x2="600" y1="{{ zeroY }}" y2="{{ zeroY }}" stroke="var(--line-3)" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"></line>
+          <path d="{{ pnlArea }}" fill="var(--indigo)" fill-opacity="0.10"></path>
+          <polyline points="{{ pnlPts }}" fill="none" stroke="var(--indigo)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-4)"><span>09:15</span><span>12:20</span><span>15:30</span></div>
+    </section>
+    <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span style="font-family:var(--display);font-size:24px;padding-bottom:8px">Positions</span>
+      <sc-if value="{{ noPos }}" hint-placeholder-val="{{ false }}"><span style="font-size:13px;color:var(--ink-3);padding:10px 0;border-top:1px solid var(--line)">No positions yet. The first fill comes after the open.</span></sc-if>
+      <sc-for list="{{ positions }}" as="p" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 92px;gap:10px;padding:9px 0;border-top:1px solid var(--line);align-items:center">
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:13.5px;font-weight:500">{{ p.sym }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ p.side }}</span></div>
+          <div style="display:flex;flex-direction:column;gap:3px;min-width:0"><span class="nv-pill" style="align-self:flex-start;padding:1px 7px;font-size:8.5px;color:{{ p.sc }};border-color:{{ p.sl }}">{{ p.st }}</span><span style="font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.last }}</span></div>
+          <span class="nv-num" style="text-align:right;font-family:var(--mono);font-size:12.5px;color:{{ p.pc }}">{{ p.pnl }}</span>
+        </div>
+      </sc-for>
+    </section>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start">
+    <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-bottom:8px"><span style="font-family:var(--display);font-size:24px">Event feed</span><span class="nv-eyebrow" style="font-size:9.5px">Newest first · structured messages</span></div>
+      <sc-for list="{{ feed }}" as="e" hint-placeholder-count="10">
+        <div style="display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:baseline">
+          <span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ e.t }}</span>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.06em;color:{{ e.c }}">{{ e.who }} · {{ e.type }}</span><span style="font-size:13px;line-height:1.45">{{ e.x }}</span></div>
+        </div>
+      </sc-for>
+    </section>
+    <section style="display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:14px;border:1px solid {{ eod.line }};background:var(--bg-1)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-family:var(--display);font-size:24px;flex:1">End of day</span><span class="nv-pill" style="color:{{ eod.c }};border-color:{{ eod.line }}">{{ eod.st }}</span></div>
+      <sc-for list="{{ eod.rows }}" as="r" hint-placeholder-count="6"><div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:{{ r.c }};text-align:right">{{ r.v }}</span></div></sc-for>
+      <sc-if value="{{ eod.done }}" hint-placeholder-val="{{ false }}"><div style="display:flex;gap:10px;flex-wrap:wrap"><button onClick="{{ goRuns }}" style="cursor:pointer;padding:10px 16px;border-radius:12px;border:0;background:var(--indigo);color:#0A0E1A;font-size:13.5px;font-weight:500">Compare with SIM-0417</button><button onClick="{{ goTrace }}" style="cursor:pointer;padding:10px 16px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13.5px">Replay a task trace</button></div></sc-if>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:1700},&quot;runKey&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { t: 28800, playing: true, speed: 120 };
+  KEY = 'nv-simday-v1';
+  componentDidMount() {
+    try { const v = JSON.parse(localStorage.getItem(this.KEY) || 'null'); if (v && v.runKey === (this.props.runKey || 0)) this.setState({ t: v.t, speed: v.speed || 120, playing: v.t < 66600 }); } catch (e) {}
+    this.iv = setInterval(() => {
+      if (!this.state.playing) return;
+      this.setState(x => { const t = Math.min(66600, x.t + x.speed / 4); return { t, playing: t < 66600 }; }, () => { try { localStorage.setItem(this.KEY, JSON.stringify({ t: this.state.t, speed: this.state.speed, runKey: this.props.runKey || 0 })); } catch (e) {} });
+    }, 250);
+  }
+  componentWillUnmount() { clearInterval(this.iv); }
+  componentDidUpdate(pp) { if ((this.props.runKey || 0) !== (pp.runKey || 0)) this.setState({ t: 28800, playing: true }); }
+  script() {
+    const h = (s) => { const [a, b, c] = s.split(':').map(Number); return a * 3600 + b * 60 + (c || 0); };
+    const E = [
+      ['08:00:00', 'orch', 'Orchestrator', 'SESSION', 'SIM-0418 created · namespace sim_0418 · broker route disabled at the adapter', 'ink'],
+      ['08:00:05', 'ops', 'Tech Support', 'CHECK', 'Point-in-time market data for 28 Oct loaded · 2,140 instruments', 'mint'],
+      ['08:02:10', 'orch', 'Orchestrator', 'CONFIG', 'Instrument master, lot sizes and expiry calendar for 28 Oct loaded', 'ink'],
+      ['08:04:00', 'risk', 'Risk Guardian', 'CHECK', 'Policy P-PAPER-v8 candidate loaded · limits verified', 'mint'],
+      ['08:05:30', 'ops', 'Tech Support', 'CHECK', 'Paper engine and simulated exchange healthy · live adapters isolated', 'mint'],
+      ['08:10:00', 'tlm', 'TLM', 'RECON', 'Carried positions reconciled · clean start, 0 open', 'indigo'],
+      ['08:30:00', 'trader', 'AI Trader', 'PREP', 'Overnight context: GIFT Nifty −0.3%, FII −₹1,860 Cr, VIX 13.6', 'mint'],
+      ['08:45:00', 'strat', 'Trading Assistant', 'PREP', 'Watchlist of 24 setups prepared for the open', 'mint'],
+      ['09:00:00', 'exec', 'Sim exchange', 'PHASE', 'Pre-open order collection starts (equity call auction)', 'ink'],
+      ['09:08:00', 'exec', 'Sim exchange', 'PHASE', 'Price discovery · NIFTY indicative 23,412 (−0.28%)', 'ink'],
+      ['09:15:00', 'orch', 'Orchestrator', 'OPEN', 'Market open · first full scan started', 'mint'],
+      ['09:21:40', 'trader', 'AI Trader', 'SIGNAL', 'SIG-S-0201 · RELIANCE trend continuation · score 80', 'mint'],
+      ['09:24:10', 'strat', 'Trading Assistant', 'PLAN', 'PLN-S-0301 v1 · RELIANCE 300 shares · limit 1,487', 'mint'],
+      ['09:24:55', 'risk', 'Risk Guardian', 'RISK', 'RSK-S-0410 PASS', 'mint'],
+      ['09:25:02', 'mo', 'Middle Office', 'APPROVAL', 'Approved within delegated authority (₹4.46 L under the v8 ₹5.00 L limit)', 'mint'],
+      ['09:41:22', 'exec', 'Sim exchange', 'FILL', 'RELIANCE filled 300 @ 1,486.20 (queue-position model)', 'indigo'],
+      ['09:41:22', 'tlm', 'TLM', 'ACTIVE', 'RELIANCE active · stop 1,462', 'indigo'],
+      ['09:52:00', 'trader', 'AI Trader', 'SIGNAL', 'SIG-S-0204 · NIFTY long buildup · score 77', 'mint'],
+      ['10:02:30', 'strat', 'Trading Assistant', 'PLAN', 'PLN-S-0304 v1 · NIFTY 23,300/23,500 CE · 3 lots', 'mint'],
+      ['10:03:10', 'risk', 'Risk Guardian', 'RISK', 'RSK-S-0413 WARN · size above 0.5% risk', 'amber'],
+      ['10:05:40', 'strat', 'Trading Assistant', 'PLAN', 'PLN-S-0304 v2 · 2 lots · debit 88.60', 'mint'],
+      ['10:06:00', 'mo', 'Middle Office', 'APPROVAL', 'Index options entry routed to the simulated approver', 'amber'],
+      ['10:06:45', 'mo', 'Sim approver', 'APPROVAL', 'Approved after 45 s (scripted response)', 'mint'],
+      ['10:18:05', 'exec', 'Sim exchange', 'FILL', 'NIFTY spread · both legs filled · net debit 88.60', 'indigo'],
+      ['10:30:00', 'scn', 'Scenario', 'INJECT', 'SCN-004 · broker WebSocket drop for 180 s', 'amber'],
+      ['10:30:02', 'tlm', 'TLM', 'PAUSE', 'Modifications paused · stops held at the adapter', 'indigo'],
+      ['10:33:00', 'ops', 'Tech Support', 'RECOVER', 'Reconnected · 2 orders reconciled before resuming', 'mint'],
+      ['10:52:30', 'tlm', 'TLM', 'EXIT', 'RELIANCE T1 1,501 · 150 of 300 sold', 'indigo'],
+      ['11:06:10', 'trader', 'AI Trader', 'SIGNAL', 'SIG-S-0209 · TATASTEEL short buildup · score 68', 'mint'],
+      ['11:06:40', 'strat', 'Trading Assistant', 'PLAN', 'PLN-S-0307 · intraday short 3,000 · stop 160.10', 'mint'],
+      ['11:06:58', 'risk', 'Risk Guardian', 'RISK', 'RSK-S-0418 PASS', 'mint'],
+      ['11:07:05', 'mo', 'Middle Office', 'APPROVAL', 'Approved within delegated authority', 'mint'],
+      ['11:07:20', 'exec', 'Sim exchange', 'FILL', 'TATASTEEL sold 3,000 @ 158.40', 'indigo'],
+      ['12:20:00', 'scn', 'Scenario', 'INJECT', 'SCN-011 · volatility spike · VIX +2.5, metals jump', 'amber'],
+      ['12:21:14', 'tlm', 'TLM', 'STOP', 'TATASTEEL stop 160.10 triggered · filled 160.15 · −₹5,250', 'danger'],
+      ['12:21:30', 'risk', 'Risk Guardian', 'RISK', 'Stress recalculated after the spike · within limits', 'mint'],
+      ['12:51:10', 'trader', 'AI Trader', 'SIGNAL', 'SIG-S-0214 · AXISBANK breakout · score 72', 'mint'],
+      ['12:52:40', 'strat', 'Trading Assistant', 'PLAN', 'PLN-S-0311 v1 · 800 shares', 'mint'],
+      ['12:53:05', 'risk', 'Risk Guardian', 'RISK', 'RSK-S-0421 WARN · size → v2 at 600 shares', 'amber'],
+      ['12:54:50', 'risk', 'Risk Guardian', 'RISK', 'RSK-S-0422 PASS on v2', 'mint'],
+      ['12:55:02', 'mo', 'Middle Office', 'APPROVAL', '₹6.71 L notional above the ₹5.00 L limit · simulated approver approved in 6 s', 'amber'],
+      ['12:55:10', 'exec', 'Sim exchange', 'FILL', 'AXISBANK partial 400, then 200 · avg 1,118.40', 'indigo'],
+      ['13:02:00', 'trader', 'AI Trader', 'SIGNAL', 'SIG-S-0216 · BEL breakout on delivery · score 71', 'mint'],
+      ['13:03:20', 'mo', 'Middle Office', 'APPROVAL', 'PLN-S-0313 approved · BEL 800 positional', 'mint'],
+      ['13:04:10', 'exec', 'Sim exchange', 'FILL', 'BEL filled 800 @ 432.10', 'indigo'],
+      ['13:14:20', 'tlm', 'TLM', 'EXIT', 'AXISBANK T1 1,131.20 · 300 of 600 sold', 'indigo'],
+      ['14:00:00', 'scn', 'Scenario', 'INJECT', 'SCN-007 · LLM gateway outage for 10 min', 'amber'],
+      ['14:00:05', 'orch', 'Orchestrator', 'DEGRADED', 'No new plans · deterministic services keep managing 4 positions', 'amber'],
+      ['14:10:00', 'ops', 'Tech Support', 'RECOVER', 'LLM gateway back · 0 actions lost or replayed', 'mint'],
+      ['14:46:10', 'tlm', 'TLM', 'EXIT', 'RELIANCE trailing stop 1,509.40 · last 150 sold · closed', 'indigo'],
+      ['15:00:00', 'orch', 'Orchestrator', 'CUTOFF', 'Entry cutoff · no new entries', 'ink'],
+      ['15:10:30', 'tlm', 'TLM', 'EXIT', 'NIFTY spread T2 · both legs closed at 152.40', 'indigo'],
+      ['15:15:00', 'tlm', 'TLM', 'EXIT', 'AXISBANK intraday exit · 300 sold @ 1,127.90', 'indigo'],
+      ['15:22:00', 'scn', 'Scenario', 'INJECT', 'SCN-009 · option chain stale for 90 s', 'amber'],
+      ['15:23:30', 'ops', 'Tech Support', 'RECOVER', 'Chain fresh · entry block lifted after 2.4 s', 'amber'],
+      ['15:30:00', 'orch', 'Orchestrator', 'CLOSE', 'Market close · BEL carried overnight as planned', 'ink'],
+      ['15:40:00', 'exec', 'Sim exchange', 'CLOSE', 'Closing prices computed (VWAP 15:00–15:30)', 'ink'],
+      ['15:45:00', 'orch', 'Reconciliation', 'RECON', 'EOD reconciliation · 31 orders, 27 fills, 0 breaks', 'mint'],
+      ['16:00:00', 'tlm', 'TLM', 'P&L', 'P&L final · +₹16,734 after ₹2,140 charges', 'mint'],
+      ['16:10:00', 'orch', 'Trade journal', 'JOURNAL', '5 trades journaled with signal → fill → exit chains', 'ink'],
+      ['16:20:00', 'orch', 'Orchestrator', 'ASSERT', '19 of 20 assertions passed · entry-block latency 2.4 s > 2 s', 'amber'],
+      ['17:00:00', 'orch', 'Orchestrator', 'CHECKPOINT', 'Final checkpoint CP-1700 saved', 'ink'],
+      ['18:00:00', 'orch', 'Reconciliation', 'NOTES', 'Simulated contract notes generated · charges booked', 'ink'],
+      ['18:30:00', 'orch', 'Orchestrator', 'DONE', 'Run complete · results ready for comparison', 'mint'],
+    ];
+    return E.map(([t, lane, who, type, x, tone]) => ({ t: h(t), ts: t, lane, who, type, x, tone }));
+  }
+  renderVals() {
+    const p = this.props, s = this.state, t = s.t;
+    const D0 = 28800, D1 = 66600, f = (x) => (x - D0) / (D1 - D0), pct = (x) => (f(x) * 100).toFixed(2) + '%';
+    const z = (n) => String(n).padStart(2, '0'), fmt = (x) => `${z(Math.floor(x / 3600))}:${z(Math.floor((x % 3600) / 60))}:${z(Math.floor(x % 60))}`;
+    const TONE = { mint: 'var(--mint)', amber: 'var(--amber)', indigo: 'var(--indigo)', danger: 'var(--danger)', ink: 'var(--ink-3)' };
+    const E = this.script(), past = E.filter(e => e.t <= t);
+    const PH = [[28800, 32400, 'Pre-market', 'Data, reference data and policy load; health checks; carried positions reconciled.', 'var(--ink-2)'], [32400, 33300, 'Pre-open', 'Call-auction order collection and price discovery. Agents read the indicative open; no orders are sent.', 'var(--amber)'], [33300, 54000, 'Intraday', 'Scanning, planning, risk checks, approvals, execution and lifecycle management, with scheduled scenario injections.', 'var(--mint)'], [54000, 55800, 'Entry cutoff', 'No new entries. Intraday positions exit; positional ones are kept by plan.', 'var(--amber)'], [55800, 58800, 'Close and post-close', 'Closing prices, EOD reconciliation, final P&L, journal and assertions.', 'var(--indigo)'], [58800, 66600, 'Evening', 'Contract notes, charges booked and the final checkpoint.', 'var(--ink-2)']];
+    const cur = PH.find(ph => t >= ph[0] && t < ph[1]) || PH[PH.length - 1];
+    const LANES = [['trader', 'AI Trader'], ['strat', 'Trading Assistant'], ['risk', 'Risk Guardian'], ['mo', 'Middle Office'], ['ops', 'Tech Support'], ['tlm', 'Lifecycle manager'], ['exec', 'Sim exchange'], ['orch', 'Orchestrator'], ['scn', 'Scenarios']];
+    const lanes = LANES.map(([id, n], i) => ({ n, bg: i % 2 ? 'transparent' : 'var(--bg-2)', dots: E.filter(e => e.lane === id && (e.t <= t || id === 'scn')).map(e => { const done = e.t <= t, sc = id === 'scn'; return { l: pct(e.t), c: TONE[e.tone] === 'var(--ink-3)' ? 'var(--ink-2)' : TONE[e.tone], op: done ? '1' : '0.35', s: sc ? '9px' : '8px', r: sc ? '1px' : '50%', rot: sc ? 'rotate(45deg)' : 'none', glow: done && t - e.t < 900 ? `0 0 0 4px ${e.tone === 'amber' ? 'var(--amber-soft)' : e.tone === 'danger' ? 'var(--danger-soft)' : 'var(--indigo-soft)'}` : 'none', title: `${e.ts} · ${e.x}` }; }) }));
+    const cnt = (ty) => past.filter(e => e.type === ty).length;
+    const KP = [[33300, 0], [35000, -60], [36600, -320], [37860, -1900], [38000, -1100], [39150, 1980], [41400, 3100], [44400, 2400], [44475, -1420], [46500, -900], [47660, 2600], [50700, 3900], [53170, 8300], [54630, 13950], [54900, 15200], [55800, 16950]];
+    const val = (x) => { if (x <= 33300) return 0; for (let i = 1; i < KP.length; i++) if (x <= KP[i][0]) { const [a, va] = KP[i - 1], [b, vb] = KP[i]; return va + (vb - va) * (x - a) / (b - a) + Math.sin(x / 520) * 260 * Math.min(1, (x - 33300) / 3000); } return x >= 57600 ? 16734 : 16950; };
+    const P0 = 33300, P1 = 55800, lo = -3500, hi = 19000, X = (x) => ((x - P0) / (P1 - P0)) * 600, Y = (v) => 170 - ((v - lo) / (hi - lo)) * 170;
+    const pts = []; for (let x = P0; x <= Math.min(t, P1); x += 120) pts.push([x, val(x)]);
+    if (t > P0 && t <= P1) pts.push([t, val(t)]);
+    const pnlPts = pts.map(([x, v]) => `${X(x).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const zy = Y(0).toFixed(1);
+    const pnlArea = pts.length > 1 ? `M${X(pts[0][0]).toFixed(1)} ${zy} ` + pts.map(([x, v]) => `L${X(x).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ') + ` L${X(pts[pts.length - 1][0]).toFixed(1)} ${zy} Z` : '';
+    const pv = Math.round(val(Math.min(t, 66600)));
+    const rs = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + '₹' + Math.abs(Math.round(v)).toLocaleString('en-IN');
+    const POS = [
+      { sym: 'RELIANCE', side: 'LONG 300 @ 1,486.20', o: 35082, steps: [[39150, 'PARTIAL', 'T1 1,501 · 150 sold', 2220], [53170, 'CLOSED', 'Trail stop 1,509.40', 5700]], fin: 5700 },
+      { sym: 'NIFTY 23300/23500 CE', side: 'SPREAD · 2 LOTS · DEBIT 88.60', o: 37085, steps: [[54630, 'CLOSED', 'T2 · closed at 152.40', 8294]], fin: 8294 },
+      { sym: 'TATASTEEL', side: 'SHORT 3,000 @ 158.40', o: 40040, steps: [[44474, 'STOPPED', 'Stop 160.10 · fill 160.15', -5250]], fin: -5250 },
+      { sym: 'AXISBANK', side: 'LONG 600 @ 1,118.40', o: 46510, steps: [[47660, 'PARTIAL', 'T1 1,131.20 · 300 sold', 3840], [54900, 'CLOSED', 'Intraday exit 1,127.90', 6690]], fin: 6690 },
+      { sym: 'BEL', side: 'LONG 800 @ 432.10', o: 47050, steps: [[55800, 'CARRIED', 'Positional · MTM at close', 3440]], fin: 3440 },
+    ];
+    const ST = { OPEN: ['var(--mint)', 'var(--mint-line)'], PARTIAL: ['var(--indigo)', 'var(--indigo-line)'], CLOSED: ['var(--ink-2)', 'var(--line-2)'], STOPPED: ['var(--danger)', 'var(--danger-line)'], CARRIED: ['var(--amber)', 'var(--amber-line)'] };
+    const positions = POS.filter(q => t >= q.o).map(q => {
+      const done = q.steps.filter(sx => t >= sx[0]), last = done[done.length - 1];
+      const final = last && (last[1] === 'CLOSED' || last[1] === 'STOPPED' || last[1] === 'CARRIED');
+      const nextS = q.steps.find(sx => t < sx[0]);
+      let pnl;
+      if (final) pnl = last[3]; else { const a = last ? last[0] : q.o, va = last ? last[3] : 0, b = nextS ? nextS[0] : 55800, vb = nextS ? nextS[3] : q.fin; pnl = va + (vb - va) * Math.min(1, (t - a) / (b - a)) + Math.sin(t / 300 + q.o) * Math.abs(q.fin) * 0.08; }
+      const st = last ? last[1] : 'OPEN';
+      return { sym: q.sym, side: q.side, st, sc: ST[st][0], sl: ST[st][1], last: last ? last[2] : 'Entered at ' + fmt(q.o).slice(0, 5), pnl: rs(pnl), pc: pnl > 0 ? 'var(--mint)' : pnl < 0 ? 'var(--danger)' : 'var(--ink-2)' };
+    });
+    const feed = [...past].reverse().slice(0, 10).map(e => ({ t: e.ts.slice(0, 5), who: e.who.toUpperCase(), type: e.type, x: e.x, c: TONE[e.tone] }));
+    const done = t >= 58800, full = t >= 66600;
+    const eod = { st: full ? 'RUN COMPLETE' : done ? 'REPORT READY' : t >= 55800 ? 'RECONCILING' : 'AFTER 15:30', c: done ? 'var(--mint)' : 'var(--ink-3)', line: done ? 'var(--mint-line)' : 'var(--line)', done,
+      rows: [['Orders · fills · breaks', t >= 56700 ? '31 · 27 · 0' : '—', 'var(--ink)'], ['Gross · charges', t >= 57600 ? '+₹18,874 · ₹2,140' : '—', 'var(--ink)'], ['Net P&L after costs', t >= 57600 ? '+₹16,734' : '—', 'var(--mint)'], ['Max drawdown', t >= 57600 ? '−₹5,060 at 12:21' : '—', 'var(--amber)'], ['Assertions', t >= 58800 ? '19 of 20 passed' : '—', 'var(--amber)'], ['Policy violations', t >= 58800 ? '0' : '—', 'var(--mint)']].map(([k, v, c]) => ({ k, v, c })) };
+    const go = (x) => () => this.setState({ t: x, playing: x < 66600 });
+    return {
+      headA: t < 33300 ? 'Before the bell: the desk loads its world.' : t < 55800 ? `The market is open and the desk has ${positions.filter(q => q.st !== 'CLOSED' && q.st !== 'STOPPED').length} live position${positions.length === 1 ? '' : 's'}.` : 'The bell has rung.', headB: t < 33300 ? 'No order can leave the simulator.' : t < 55800 ? `${cnt('INJECT')} of 4 scheduled shocks injected so far.` : done ? 'Every order reconciled; one assertion needs a fix.' : 'Reconciliation is running.',
+      playT: full ? 'Day done' : s.playing ? 'Pause' : 'Play', playBg: s.playing ? 'var(--bg-3)' : 'var(--indigo)', playC: s.playing ? 'var(--ink)' : '#0A0E1A',
+      toggle: () => { if (full) { this.setState({ t: 28800, playing: true }); return; } this.setState(x => ({ playing: !x.playing })); },
+      restart: () => this.setState({ t: 28800, playing: true }),
+      speeds: [60, 120, 300, 600].map(v => ({ t: v + '×', go: () => this.setState({ speed: v }), bg: s.speed === v ? 'var(--indigo)' : 'transparent', color: s.speed === v ? '#0A0E1A' : 'var(--ink-2)' })),
+      jumps: [['Pre-market', 28800], ['Open', 33300], ['Midday shock', 44340], ['Close', 55740], ['Reconciliation', 56700]].map(([tt, x]) => ({ t: tt, go: go(x) })),
+      seekTrack: (e) => { const r = e.currentTarget.getBoundingClientRect(), x0 = r.left + 142, w = r.width - 142; const fr = Math.max(0, Math.min(1, (e.clientX - x0) / w)); this.setState({ t: Math.round(D0 + fr * (D1 - D0)), playing: true }); },
+      clock: fmt(t), clockShort: fmt(t).slice(0, 5), cursorF: f(t).toFixed(4),
+      stT: full ? 'COMPLETE' : s.playing ? `RUNNING · ${s.speed}×` : 'PAUSED', stC: s.playing ? 'var(--mint)' : full ? 'var(--indigo)' : 'var(--amber)', stL: s.playing ? 'var(--mint-line)' : full ? 'var(--indigo-line)' : 'var(--amber-line)',
+      phase: { n: cur[2], d: cur[3] },
+      phases: PH.map(([a, b, n, , c]) => ({ l: pct(a), w: (((b - a) / (D1 - D0)) * 100).toFixed(2) + '%', t: n.toUpperCase(), at: fmt(a).slice(0, 5), c: t >= a && t < b ? 'var(--ink)' : c })),
+      lanes,
+      counters: [['Signals', cnt('SIGNAL'), 'var(--ink)'], ['Plans', cnt('PLAN'), 'var(--ink)'], ['Risk checks', cnt('RISK'), 'var(--ink)'], ['Approvals', cnt('APPROVAL'), 'var(--ink)'], ['Fills', cnt('FILL'), 'var(--ink)'], ['Exits', cnt('EXIT') + cnt('STOP'), 'var(--ink)'], ['Shocks', cnt('INJECT') + ' / 4', 'var(--amber)'], ['Recovered', cnt('RECOVER'), 'var(--mint)']].map(([k, v, c]) => ({ k, v: String(v), c })),
+      pnlPts, pnlArea, zeroY: zy, pnlNow: t < 33300 ? 'BEFORE THE OPEN' : `${rs(pv)} AT ${fmt(Math.min(t, 66600)).slice(0, 5)}`, pnlC: pv >= 0 ? 'var(--mint)' : 'var(--danger)',
+      positions, noPos: positions.length === 0, feed, eod,
+      goRuns: () => p.onNav && p.onNav('runs'), goTrace: () => p.onNav && p.onNav('trace'),
+    };
+  }
+}
+</script>
+</body>
+</html>

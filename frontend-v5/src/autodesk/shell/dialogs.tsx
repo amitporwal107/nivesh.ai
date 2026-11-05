@@ -20,7 +20,7 @@ export function Modal({ title, children, onClose, testId, tone = "ink" }: {
     <div style={{ position: "fixed", inset: 0, zIndex: 80, display: "grid", placeItems: "center", padding: 16 }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.5)" }} />
       <div role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} data-testid={testId}
-        style={{ position: "relative", width: "min(460px, 100%)", display: "flex", flexDirection: "column", gap: 14, padding: "22px 24px", borderRadius: 18, border: `1px solid ${line}`, background: "var(--bg-1)", boxShadow: "var(--shadow-pop)", color: "var(--ink)", fontFamily: "var(--sans)" }}>
+        style={{ position: "relative", width: "min(460px, 100%)", maxHeight: "calc(100vh - 32px)", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14, padding: "22px 24px", borderRadius: 18, border: `1px solid ${line}`, background: "var(--bg-1)", boxShadow: "var(--shadow-pop)", color: "var(--ink)", fontFamily: "var(--sans)" }}>
         <span style={{ fontFamily: "var(--display)", fontSize: 26, lineHeight: 1.12, letterSpacing: "-0.01em" }}>{title}</span>
         {children}
       </div>

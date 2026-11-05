@@ -1,0 +1,6 @@
+{
+  "run_session_cycle": {
+    "method": "POST", "path": "/desk/workflows",
+    "body": { "kind": "SESSION_CYCLE", "account_id": "{account_id}" }, "expect": [202]
+  }
+}

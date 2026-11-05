@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">Run history</span><span class="nv-pill">{{ runCount }}</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,4vw,44px);line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">{{ headA }} <em style="color:var(--indigo)">{{ headB }}</em></h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Pick any two runs as A and B. Runs on the same session with the same seed differ only by configuration, so their gaps can be read as the effect of the change.</p>
+  </section>
+
+  <section style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:1020px">
+    <div style="display:grid;grid-template-columns:{{ cols }};gap:12px;padding:10px 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>A · B</span><span>Run</span><span>Type · session</span><span>Policy · seed</span><span>Status</span><span style="text-align:right">Trades</span><span style="text-align:right">Net P&amp;L</span><span style="text-align:right">Max DD</span><span style="text-align:right">Assertions</span></div>
+    <sc-for list="{{ rows }}" as="r" hint-placeholder-count="7">
+      <div style="display:grid;grid-template-columns:{{ cols }};gap:12px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center;background:{{ r.bg }}">
+        <span style="display:flex;gap:4px"><span onClick="{{ r.setA }}" style="cursor:pointer;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:11px;border:1px solid {{ r.aLine }};background:{{ r.aBg }};color:{{ r.aC }}">A</span><span onClick="{{ r.setB }}" style="cursor:pointer;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:11px;border:1px solid {{ r.bLine }};background:{{ r.bBg }};color:{{ r.bC }}">B</span></span>
+        <span style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--mono);font-size:12px">{{ r.id }}</span><span style="font-size:11px;color:var(--ink-3)">{{ r.when }}</span></span>
+        <span style="display:flex;flex-direction:column;gap:2px"><span>{{ r.type }}</span><span style="font-size:11.5px;color:var(--ink-3)">{{ r.day }}</span></span>
+        <span style="display:flex;flex-direction:column;gap:2px"><span>{{ r.pol }}</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">SEED {{ r.seed }} · {{ r.speed }}</span></span>
+        <span><span class="nv-pill" style="padding:2px 8px;font-size:9px;color:{{ r.sc }};border-color:{{ r.sl }}">{{ r.st }}</span></span>
+        <span class="nv-num" style="text-align:right">{{ r.trades }}</span>
+        <span class="nv-num" style="text-align:right;color:{{ r.pc }}">{{ r.pnl }}</span>
+        <span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ r.dd }}</span>
+        <span class="nv-num" style="text-align:right;color:{{ r.ac }}">{{ r.asrt }}</span>
+      </div>
+    </sc-for>
+  </div></div></section>
+
+  <section style="display:flex;flex-direction:column;gap:14px;padding:clamp(16px,2.4vw,24px);border-radius:16px;border:1px solid var(--indigo-line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:baseline"><span style="font-family:var(--display);font-size:28px;flex:1;min-width:260px">{{ cmpTitle }}</span><span class="nv-pill" style="color:{{ fairC }};border-color:{{ fairL }}">{{ fairT }}</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:18px;align-items:start">
+      <div style="display:flex;flex-direction:column">
+        <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:10px;padding-bottom:6px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3)"><span>MEASURE</span><span style="text-align:right">A · {{ aId }}</span><span style="text-align:right">B · {{ bId }}</span><span style="text-align:right">B − A</span></div>
+        <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="10"><div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px"><span style="color:var(--ink-2)">{{ m.k }}</span><span class="nv-num" style="text-align:right">{{ m.a }}</span><span class="nv-num" style="text-align:right">{{ m.b }}</span><span class="nv-num" style="text-align:right;color:{{ m.dc }}">{{ m.d }}</span></div></sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;gap:14px;font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)"><span><span style="color:var(--ink-2)">┅</span> A · {{ aId }}</span><span><span style="color:var(--indigo)">━</span> B · {{ bId }}</span><span>NET P&amp;L THROUGH THE SESSION</span></div>
+        <div style="position:relative;height:190px"><svg viewBox="0 0 600 190" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible"><line x1="0" x2="600" y1="{{ zeroY }}" y2="{{ zeroY }}" stroke="var(--line-3)" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"></line><polyline points="{{ aPts }}" fill="none" stroke="var(--ink-3)" stroke-width="1.6" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"></polyline><polyline points="{{ bPts }}" fill="none" stroke="var(--indigo)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline></svg></div>
+        <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-4)"><span>09:15</span><span>12:20</span><span>15:30</span></div>
+        <span class="nv-eyebrow" style="padding-top:6px">Where the two runs decided differently</span>
+        <sc-for list="{{ diffs }}" as="d" hint-placeholder-count="4"><div style="display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:baseline"><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ d.t }}</span><span style="font-size:13px;line-height:1.45">{{ d.x }}</span><span class="nv-num" style="font-family:var(--mono);font-size:11.5px;color:{{ d.c }}">{{ d.v }}</span></div></sc-for>
+      </div>
+    </div>
+    <span style="font-size:12px;line-height:1.5;color:var(--ink-3)">Simulated results include modelled costs, slippage and latency. They are evidence for a policy decision, not a forecast of live returns.</span>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:1400},&quot;runKey&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { a: 'SIM-0416', b: 'SIM-0417' };
+  runs() {
+    const R = [
+      ['SIM-0418', 'Today 08:02', 'Historical replay', 'Wed 28 Oct', 'v8 candidate', '8841', '120×', 'COMPLETE', 5, 16734, -5060, '19/20', 0.52, 2140, 2, 3, 0],
+      ['SIM-0417', '4 Nov 18:40', 'Accelerated replay', 'Tue 27 Oct', 'v8 candidate', '8841', '30×', 'COMPLETE', 17, 19420, -9860, '18/20', 0.53, 2960, 3, 1, 1],
+      ['SIM-0416', '4 Nov 18:12', 'Accelerated replay', 'Tue 27 Oct', 'v7 active', '8841', '30×', 'COMPLETE', 14, 16950, -6180, '18/20', 0.57, 2140, 6, 3, 1],
+      ['SIM-0412', '3 Nov 20:05', 'Scenario', '14 Oct + gap −3%', 'v7 active', '5520', '60×', 'COMPLETE', 9, -21300, -28400, '20/20', 0.33, 1880, 4, 2, 0],
+      ['SIM-0409', '3 Nov 15:31', 'Live shadow', 'Mon 3 Nov', 'v7 active', '—', '1×', 'COMPLETE', 11, 7810, -4120, '17/17', 0.55, 1210, 5, 4, 0],
+      ['SIM-0405', '2 Nov 21:44', 'Scenario', 'Reject storm', 'v7 active', '3301', '60×', 'ASSERTION FAILED', 6, -2410, -3900, '9/10', 0.33, 640, 2, 1, 4],
+    ];
+    if ((this.props.runKey || 0) > 0) R.unshift(['SIM-0419', 'Just now', 'Historical replay', 'Wed 28 Oct', 'v8 candidate', '8841', '120×', 'RUNNING', null, null, null, '—', null, null, null, null, null]);
+    return R.map(([id, when, type, day, pol, seed, speed, st, trades, pnl, dd, asrt, win, slip, rejp, human, fails]) => ({ id, when, type, day, pol, seed, speed, st, trades, pnl, dd, asrt, win, slip, rejp, human, fails }));
+  }
+  curve(id) {
+    const K = { 'SIM-0418': [[0, 0], [0.12, -320], [0.28, 3100], [0.5, -1420], [0.62, 2600], [0.85, 8300], [0.93, 13950], [1, 16950]], 'SIM-0417': [[0, 0], [0.1, -2600], [0.25, 4100], [0.42, 2900], [0.55, 11200], [0.7, 5800], [0.86, 14600], [1, 19420]], 'SIM-0416': [[0, 0], [0.1, -2100], [0.25, 3400], [0.42, 1800], [0.55, 8200], [0.7, 5900], [0.86, 12400], [1, 16950]], 'SIM-0412': [[0, 0], [0.05, -24800], [0.2, -28400], [0.5, -23900], [0.8, -22600], [1, -21300]], 'SIM-0409': [[0, 0], [0.2, 1900], [0.45, -2200], [0.7, 4600], [1, 7810]], 'SIM-0405': [[0, 0], [0.3, -800], [0.5, -3900], [0.8, -2900], [1, -2410]], 'SIM-0419': [[0, 0], [0.1, -200]] }[id] || [[0, 0], [1, 0]];
+    const pts = []; for (let i = 0; i <= 60; i++) { const x = i / 60; let v = K[K.length - 1][1]; for (let k = 1; k < K.length; k++) if (x <= K[k][0]) { const [a, va] = K[k - 1], [b, vb] = K[k]; v = va + (vb - va) * (x - a) / (b - a); break; } if (x > K[K.length - 1][0]) break; pts.push([x, v + Math.sin(i * 1.7 + id.length) * 300 * x]); }
+    return pts;
+  }
+  renderVals() {
+    const p = this.props, s = this.state, R = this.runs();
+    const A = R.find(r => r.id === s.a) || R[0], B = R.find(r => r.id === s.b) || R[1];
+    const rs = (v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + '₹' + Math.abs(v).toLocaleString('en-IN');
+    const ST = (st) => st === 'COMPLETE' ? ['var(--mint)', 'var(--mint-line)'] : st === 'RUNNING' ? ['var(--indigo)', 'var(--indigo-line)'] : ['var(--danger)', 'var(--danger-line)'];
+    const rows = R.map(r => { const isA = r.id === A.id, isB = r.id === B.id, [sc, sl] = ST(r.st); return { ...r, trades: r.trades == null ? '—' : String(r.trades), pnl: rs(r.pnl), pc: r.pnl == null ? 'var(--ink-3)' : r.pnl >= 0 ? 'var(--mint)' : 'var(--danger)', dd: rs(r.dd), sc, sl, ac: r.asrt.split('/')[0] === r.asrt.split('/')[1] ? 'var(--mint)' : 'var(--amber)', bg: isA || isB ? 'var(--bg-2)' : 'transparent', aLine: isA ? 'var(--line-3)' : 'var(--line-2)', aBg: isA ? 'var(--ink)' : 'transparent', aC: isA ? 'var(--bg-0)' : 'var(--ink-3)', bLine: isB ? 'var(--indigo-line)' : 'var(--line-2)', bBg: isB ? 'var(--indigo)' : 'transparent', bC: isB ? '#0A0E1A' : 'var(--ink-3)', setA: () => this.setState({ a: r.id }), setB: () => this.setState({ b: r.id }) }; });
+    const d = (a, b, fmt, goodUp) => { if (a == null || b == null) return { d: '—', dc: 'var(--ink-3)' }; const x = b - a; return { d: x === 0 ? '0' : (x > 0 ? '+' : '−') + fmt(Math.abs(x)), dc: x === 0 ? 'var(--ink-3)' : (x > 0) === goodUp ? 'var(--mint)' : 'var(--amber)' }; };
+    const num = (v) => v.toLocaleString('en-IN'), rupee = (v) => '₹' + v.toLocaleString('en-IN'), pctf = (v) => (v * 100).toFixed(0) + ' pt';
+    const M = [['Trades', A.trades, B.trades, num, null], ['Net P&L after costs', A.pnl, B.pnl, rupee, true], ['Max drawdown', A.dd, B.dd, rupee, true], ['Win rate', A.win, B.win, pctf, true], ['Slippage paid', A.slip, B.slip, rupee, false], ['Proposals rejected', A.rejp, B.rejp, num, null], ['Human approvals', A.human, B.human, num, null], ['Execution failures', A.fails, B.fails, num, false]];
+    const metrics = M.map(([k, a, b, f, up]) => { const dd = up == null ? (a == null || b == null ? { d: '—', dc: 'var(--ink-3)' } : { d: b - a === 0 ? '0' : (b - a > 0 ? '+' : '−') + f(Math.abs(b - a)), dc: 'var(--ink-2)' }) : d(a, b, f, up); const show = (v) => v == null ? '—' : k.includes('P&L') || k.includes('drawdown') ? rs(v) : k === 'Win rate' ? (v * 100).toFixed(0) + '%' : k === 'Slippage paid' ? rupee(v) : String(v); return { k, a: show(a), b: show(b), ...dd }; });
+    metrics.push({ k: 'Assertions', a: A.asrt, b: B.asrt, d: '', dc: 'var(--ink-3)' }, { k: 'Policy violations', a: '0', b: '0', d: '0', dc: 'var(--mint)' });
+    const fair = A.day === B.day && A.seed === B.seed && A.seed !== '—';
+    const ca = this.curve(A.id), cb = this.curve(B.id), vals = [...ca, ...cb].map(q => q[1]);
+    const lo = Math.min(0, ...vals) * 1.1 - 500, hi = Math.max(0, ...vals) * 1.1 + 500, Y = (v) => 190 - ((v - lo) / (hi - lo)) * 190;
+    const line = (c) => c.map(([x, v]) => `${(x * 600).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const pair = [A.id, B.id].sort().join('|');
+    const DIFF = { 'SIM-0416|SIM-0417': [['10:41', 'v8 auto-approved RELIANCE 330 shares (₹4.96 L); v7 waited 6 min for a human and filled ₹1.20 higher', '+₹396', 'var(--mint)'], ['12:05', 'v8’s tighter 1.3 × ATR trail exited HDFCBANK 14 min earlier', '−₹2,310', 'var(--amber)'], ['13:40', 'v8 took three extra breakout entries; two stopped out', '−₹6,480', 'var(--amber)'], ['14:55', 'The third extra entry ran to target 2 before the cutoff', '+₹10,864', 'var(--mint)']] };
+    const diffs = (DIFF[pair] || [['—', fair ? 'Same inputs: differences come from the configuration below the fold of each run' : 'Different sessions or seeds: there is no decision-by-decision match to show', '', 'var(--ink-3)']]).map(([t, x, v, c]) => ({ t, x, v, c }));
+    return {
+      runCount: `${R.length} runs · newest first`,
+      headA: fair ? `${A.id} against ${B.id}:` : 'These two runs are not like for like.', headB: fair ? `${B.pnl >= A.pnl ? 'more profit' : 'less profit'}, ${Math.abs(B.dd) > Math.abs(A.dd) ? 'a deeper drawdown' : 'a shallower drawdown'}.` : 'Read the differences with care.',
+      cols: '64px 120px minmax(0,1.3fr) minmax(0,1.1fr) 150px 70px 100px 100px 90px', rows,
+      aId: A.id, bId: B.id, cmpTitle: `${A.id} (${A.pol}) against ${B.id} (${B.pol})`,
+      fairT: fair ? 'SAME SESSION · SAME SEED' : 'DIFFERENT INPUTS', fairC: fair ? 'var(--mint)' : 'var(--amber)', fairL: fair ? 'var(--mint-line)' : 'var(--amber-line)',
+      metrics, aPts: line(ca), bPts: line(cb), zeroY: Y(0).toFixed(1), diffs,
+    };
+  }
+}
+</script>
+</body>
+</html>

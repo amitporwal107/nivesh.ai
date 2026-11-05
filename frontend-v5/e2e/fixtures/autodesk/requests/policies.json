@@ -1,0 +1,47 @@
+{
+  "set_mode_assisted": {
+    "method": "POST", "path": "/accounts/{account_id}/mode",
+    "body": { "mode": "ASSISTED", "reason": "Changed from Policies & permissions" }, "expect": [200]
+  },
+  "set_mode_research": {
+    "method": "POST", "path": "/accounts/{account_id}/mode",
+    "body": { "mode": "RESEARCH", "reason": "Changed from Policies & permissions" }, "expect": [200]
+  },
+  "set_mode_autonomous_paper": {
+    "method": "POST", "path": "/accounts/{account_id}/mode",
+    "body": { "mode": "AUTONOMOUS_PAPER", "reason": "Changed from Policies & permissions" }, "expect": [200]
+  },
+  "tighten_limit": {
+    "method": "POST", "path": "/policies/{policy_id}/versions",
+    "body": { "changes": { "per_trade_risk_pct": "0.4" }, "reason": "Edited from Policies & permissions" }, "expect": [201]
+  },
+  "loosen_limit_needs_admin": {
+    "method": "POST", "path": "/policies/{policy_id}/versions",
+    "body": { "changes": { "per_trade_risk_pct": "1" }, "reason": "Edited from Policies & permissions" }, "expect": [403]
+  },
+  "invalid_limit": {
+    "method": "POST", "path": "/policies/{policy_id}/versions",
+    "body": { "changes": { "per_trade_risk_pct": "150" }, "reason": "Edited from Policies & permissions" }, "expect": [422]
+  },
+  "autonomy_auto_approve_off": {
+    "method": "POST", "path": "/policies/{policy_id}/versions",
+    "body": {
+      "changes": {
+        "autonomy": {
+          "auto_approve": false, "max_risk_pct": "0.5", "min_signal_score": "70",
+          "strategies": ["LONG_EQUITY", "BULL_CALL_SPREAD", "BEAR_PUT_SPREAD", "BULL_PUT_SPREAD", "BEAR_CALL_SPREAD", "IRON_CONDOR"]
+        }
+      },
+      "reason": "Edited from Policies & permissions"
+    },
+    "expect": [201]
+  },
+  "stop_entries": {
+    "method": "POST", "path": "/desk/controls/STOP_NEW_ENTRIES",
+    "body": { "active": true, "reason": "Stopped from Policies & permissions" }, "expect": [200]
+  },
+  "lift_entries": {
+    "method": "POST", "path": "/desk/controls/STOP_NEW_ENTRIES",
+    "body": { "active": false, "reason": "Lifted from Policies & permissions" }, "expect": [200]
+  }
+}
