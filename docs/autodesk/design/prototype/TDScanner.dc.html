@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">03 · Opportunity scanner</span><span class="nv-pill nv-pill-mint"><span class="nv-dot" style="background:var(--mint)"></span>AI Trader · scanning</span><span class="nv-pill">signal-v1.4 · rules-v3.2</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">Eight signals cleared the line today. <em style="color:var(--mint)">Two</em> are already plans waiting on you.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">The score ranks evidence with versioned rules and is not a probability. A calibrated probability appears only where a validated, point-in-time study exists; missing data never counts as evidence.</p>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax({{ statMin }},1fr));gap:10px">
+    <sc-for list="{{ stats }}" as="st" hint-placeholder-count="6"><div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow" style="font-size:9px">{{ st.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;line-height:1.1;color:{{ st.c }}">{{ st.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ st.s }}</span></div></sc-for>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center">
+    <sc-for list="{{ filterGroups }}" as="fg" hint-placeholder-count="3">
+      <div style="display:flex;align-items:center;gap:8px"><span class="nv-eyebrow" style="font-size:9.5px">{{ fg.t }}</span><div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2)"><sc-for list="{{ fg.opts }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.go }}" style="cursor:pointer;border:0;padding:6px 12px;border-radius:999px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase">{{ o.t }}</button></sc-for></div></div>
+    </sc-for>
+  </section>
+
+  <sc-if value="{{ halted }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 14px;border-radius:12px;border:1px solid var(--danger-line);background:var(--danger-soft);font-size:13px;color:var(--ink-2)">New entries are stopped. Signals keep publishing for the record; strategy generation is paused until entries resume.</div></sc-if>
+
+  <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+    <section style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:1060px">
+      <div style="display:grid;grid-template-columns:{{ cols }};gap:12px;padding:10px 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>#</span><span>Instrument</span><span>Direction</span><span>Score</span><span>Calibrated P</span><span>Entry → invalidation</span><span>Targets</span><span>Confirmation</span><span>Age · expiry</span><span>Status</span></div>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+        <div>
+          <div onClick="{{ r.toggle }}" style="cursor:pointer;display:grid;grid-template-columns:{{ cols }};gap:12px;padding:12px 18px;border-top:1px solid var(--line);align-items:center;font-size:13px;background:{{ r.bg }}" style-hover="background:var(--bg-2)">
+            <span style="font-family:var(--display);font-size:20px;color:var(--ink-4)">{{ r.rank }}</span>
+            <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-weight:500">{{ r.sym }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.04em;color:var(--ink-3)">{{ r.seg }} · {{ r.tf }}</span></span>
+            <span><span class="nv-pill" style="padding:2px 8px;font-size:9.5px;color:{{ r.dc }};border-color:{{ r.dl }};background:{{ r.dbg }}">{{ r.dir }}</span></span>
+            <span style="display:flex;align-items:center;gap:8px"><span class="nv-num" style="font-family:var(--display);font-size:22px;width:28px">{{ r.score }}</span><span style="flex:1;height:4px;border-radius:2px;background:var(--bg-3);max-width:60px"><span style="display:block;height:100%;width:{{ r.sw }};border-radius:2px;background:{{ r.scC }}"></span></span></span>
+            <span style="display:flex;flex-direction:column;gap:2px"><span class="nv-num" style="color:{{ r.pc }}">{{ r.prob }}</span><span style="font-size:10.5px;color:var(--ink-3)">{{ r.probS }}</span></span>
+            <span class="nv-num" style="font-size:12.5px;color:var(--ink-2)">{{ r.entry }} → <span style="color:var(--danger)">{{ r.inval }}</span></span>
+            <span class="nv-num" style="font-size:12.5px;color:var(--mint)">{{ r.targets }}</span>
+            <span style="font-size:12px;line-height:1.4;color:var(--ink-2)">{{ r.oi }}</span>
+            <span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ r.age }} · {{ r.exp }}</span>
+            <span><span class="nv-pill" style="padding:2px 8px;font-size:9px;white-space:normal;color:{{ r.stc }};border-color:{{ r.stl }}">{{ r.status }}</span></span>
+          </div>
+          <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,0.9fr);gap:22px;padding:16px 18px 20px;background:var(--bg-2);border-top:1px solid var(--line)">
+              <div style="display:flex;flex-direction:column;gap:7px"><span class="nv-eyebrow" style="font-size:9.5px">Score breakdown · {{ r.score }} of 100</span><sc-for list="{{ r.dims }}" as="dm" hint-placeholder-count="8"><div style="display:grid;grid-template-columns:minmax(0,1fr) 90px 40px;gap:10px;align-items:center;font-size:12px"><span style="color:var(--ink-2)">{{ dm.k }}</span><span style="height:4px;border-radius:2px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ dm.w }};border-radius:2px;background:var(--mint)"></span></span><span class="nv-num" style="font-family:var(--mono);font-size:11px;text-align:right;color:var(--ink-3)">{{ dm.v }}</span></div></sc-for></div>
+              <div style="display:flex;flex-direction:column;gap:10px"><span class="nv-eyebrow" style="font-size:9.5px">Evidence</span><div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ r.evid }}" as="ev" hint-placeholder-count="3"><span class="nv-pill" style="padding:3px 8px;font-size:9px">{{ ev }}</span></sc-for></div><div style="display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--ink-2)"><span>LTP <span class="nv-num" style="color:var(--ink)">{{ r.ltp }}</span> · liquidity {{ r.liq }}</span><span>{{ r.vol }}</span><span style="color:var(--ink-3)">{{ r.hist }}</span></div></div>
+              <div style="display:flex;flex-direction:column;gap:8px"><span class="nv-eyebrow" style="font-size:9.5px">Provenance</span><span style="font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--ink-3)">{{ r.prov }}</span><sc-if value="{{ r.hasAct }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.act }}" style="cursor:pointer;align-self:flex-start;margin-top:4px;padding:9px 14px;border-radius:10px;border:1px solid {{ r.btnLine }};background:{{ r.btnBg }};color:{{ r.btnC }};font-size:13px;font-weight:500">{{ r.actT }}</button></sc-if></div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div></div></section>
+  </sc-if>
+
+  <sc-if value="{{ narrow }}" hint-placeholder-val="{{ false }}">
+    <section style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+        <div onClick="{{ r.toggle }}" style="cursor:pointer;display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;gap:10px;align-items:flex-start"><span style="font-family:var(--display);font-size:20px;color:var(--ink-4);width:22px">{{ r.rank }}</span><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:500">{{ r.sym }}</span><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.04em;color:var(--ink-3)">{{ r.seg }} · {{ r.tf }}</span></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="nv-num" style="font-family:var(--display);font-size:26px;line-height:1">{{ r.score }}</span><span class="nv-pill" style="padding:1px 7px;font-size:8.5px;color:{{ r.dc }};border-color:{{ r.dl }}">{{ r.dir }}</span></div></div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;font-size:12px"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--ink-3)">Entry → invalidation</span><span class="nv-num">{{ r.entry }} → {{ r.inval }}</span></div><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--ink-3)">Targets</span><span class="nv-num" style="color:var(--mint)">{{ r.targets }}</span></div><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--ink-3)">Calibrated P</span><span class="nv-num">{{ r.prob }}</span></div><div style="display:flex;flex-direction:column;gap:2px"><span style="font-size:10.5px;color:var(--ink-3)">Age · expiry</span><span class="nv-num">{{ r.age }} · {{ r.exp }}</span></div></div>
+          <span class="nv-pill" style="align-self:flex-start;padding:2px 8px;font-size:9px;white-space:normal;color:{{ r.stc }};border-color:{{ r.stl }}">{{ r.status }}</span>
+          <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:7px;padding-top:10px;border-top:1px solid var(--line)"><sc-for list="{{ r.dims }}" as="dm" hint-placeholder-count="8"><div style="display:grid;grid-template-columns:minmax(0,1fr) 70px 36px;gap:8px;align-items:center;font-size:11.5px"><span style="color:var(--ink-2)">{{ dm.k }}</span><span style="height:4px;border-radius:2px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ dm.w }};border-radius:2px;background:var(--mint)"></span></span><span class="nv-num" style="font-family:var(--mono);font-size:10.5px;text-align:right;color:var(--ink-3)">{{ dm.v }}</span></div></sc-for><span style="font-size:12px;color:var(--ink-3)">{{ r.oi }} · {{ r.hist }}</span><sc-if value="{{ r.hasAct }}" hint-placeholder-val="{{ false }}"><button onClick="{{ r.act }}" style="cursor:pointer;min-height:44px;padding:10px 14px;border-radius:12px;border:1px solid {{ r.btnLine }};background:{{ r.btnBg }};color:{{ r.btnC }};font-size:14px;font-weight:500">{{ r.actT }}</button></sc-if></div></sc-if>
+        </div>
+      </sc-for>
+    </section>
+  </sc-if>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <span class="nv-eyebrow">Signal history · last 30 sessions · after costs, point-in-time</span>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px">
+      <sc-for list="{{ history }}" as="h" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span style="font-size:13.5px;font-weight:500">{{ h.k }}</span><div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--ink-3)"><span>N {{ h.n }}</span><span>T1 HIT <span style="color:var(--ink)">{{ h.hit }}</span></span><span>AVG <span style="color:{{ h.c }}">{{ h.r }}</span></span></div><span style="font-size:11.5px;color:var(--ink-3)">{{ h.s }}</span></div></sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1500},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;halted&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { dir: 'ALL', seg: 'ALL', min: 0, open: 'SIG-10251' };
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state;
+    const nav = (sc, f) => () => p.nav && p.nav(sc, f);
+    const T = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], amber: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], ink: ['var(--ink-2)', 'var(--line-2)', 'transparent'] };
+    const DIMS = [['Trend confirmation', 20], ['Momentum', 15], ['Volume and delivery', 15], ['Relative strength', 10], ['Market structure', 10], ['Derivatives confirmation', 15], ['Market regime', 10], ['Liquidity', 5]];
+    const S = [
+      ['SIG-10251', 'RELIANCE', 'CASH', 'CASH', 'POSITIONAL', 'BULLISH', 82, null, null, '1,490–1,505', '1,460', '1,560 / 1,600', '1,498.40', 'A · ₹1,240 Cr ADV', 'Fut OI +6.2% with price up · volume 1.8×', 'Volume 1.8× the 20-day average', ['TREND CONFIRMATION', 'VOLUME EXPANSION', 'OI CONFIRMATION'], '2h 12m', '15:20', 'IN APPROVAL · APR-3106', 'amber', ['Open approval', 'approvals', 'APR-3106'], [18, 12, 13, 8, 8, 12, 7, 4], 'Trend continuation, 30 sessions: n 64 · T1 hit 58% · +0.42R'],
+      ['SIG-10262', 'NIFTY', 'INDEX OPTIONS', 'OPTIONS', 'SWING · 9 NOV', 'BULLISH', 78, 0.57, 412, '23,950–24,050', '23,786', '24,200 / 24,350', '24,012.35', 'A+ · ATM bid-ask ₹0.40', '24,000 PE writing +18 L · PCR 1.12', 'Breadth 1.48 · Nov future OI −8.6% then rebuilt', ['LONG BUILDUP', 'BREADTH', 'PCR'], '1h 37m', '15:25', 'IN APPROVAL · APR-3107', 'amber', ['Open in workbench', 'workbench'], [16, 11, 11, 8, 7, 14, 6, 5], 'Long buildup with PCR above 1.1: n 186 · T1 hit 52% · +0.21R'],
+      ['SIG-10254', 'HDFCBANK', 'FUTURES', 'FUTURES', 'SWING', 'BULLISH', 74, 0.54, 388, '1,000–1,008', '984', '1,030 / 1,045', '1,012.60', 'A · ₹2,860 Cr ADV', 'OI +4.1% with price up · long buildup', 'Volume 1.4× · relative strength vs Bank Nifty +1.2%', ['LONG BUILDUP', 'RELATIVE STRENGTH', 'TREND'], '1 day', '6 Nov 15:20', 'TRADED · TRD-1189', 'mint', ['Open trade', 'trades', 'TRD-1189'], [16, 11, 10, 8, 8, 12, 6, 3], 'Stock-future long buildup: n 240 · T1 hit 55% · +0.31R'],
+      ['SIG-10255', 'BEL', 'CASH', 'CASH', 'POSITIONAL', 'BULLISH', 71, null, null, '438–444', '430', '456 / 468', '448.90', 'A · ₹910 Cr ADV', 'Delivery 62% of volume', 'Volume 2.1× · defence sector rotation', ['BREAKOUT', 'DELIVERY', 'SECTOR ROTATION'], '1h 50m', '15:20', 'TRADED · TRD-1192', 'mint', ['Open trade', 'trades', 'TRD-1192'], [15, 11, 14, 7, 8, 6, 6, 4], 'Breakout on delivery: n 71 · T1 hit 49% · +0.18R'],
+      ['SIG-10258', 'TATASTEEL', 'FUTURES', 'FUTURES', 'INTRADAY', 'BEARISH', 66, null, null, '162.50–163.50', '165.80', '159.00 / 157.20', '162.95', 'A · ₹1,120 Cr ADV', 'OI +7.4% with price down · short buildup', 'Volume 1.6× · metals −0.8%', ['SHORT BUILDUP', 'BREAKDOWN'], '1h 28m', '15:10', 'REVISION · APR-3100', 'amber', ['Revise in workbench', 'workbench'], [13, 10, 12, 6, 7, 11, 4, 3], 'Intraday short buildup: n 133 · T1 hit 44% · +0.05R'],
+      ['SIG-10253', 'INFY', 'CASH', 'CASH', 'SWING', 'BEARISH', 61, null, null, '1,512–1,520', '1,548', '1,470 / 1,448', '1,514.30', 'A · ₹1,480 Cr ADV', 'Fut OI +2.0%', 'Broke below the 50-day average · IT −0.6%', ['BREAKDOWN', 'RELATIVE WEAKNESS'], '1h 55m', '15:20', 'REJECTED · APR-3099', 'danger', null, [12, 9, 9, 7, 8, 9, 4, 3], 'Breakdown below 50-DMA: n 58 · T1 hit 41% · −0.04R'],
+      ['SIG-10266', 'ICICIBANK', 'STOCK OPTIONS', 'OPTIONS', 'INTRADAY', 'BULLISH', 58, null, null, '1,418–1,425', '1,402', '1,445 / 1,460', '1,419.20', 'A · 1,440 CE bid-ask ₹0.35', '1,440 CE OI +38 L in 40 min · IV +2.1', 'You already hold 200 ICICIBANK live (TRD-1180)', ['UNUSUAL OPTIONS ACTIVITY', 'IV EXPANSION'], '22m', '14:30', 'STRATEGIST · PLN-2045', 'indigo', ['Open in workbench', 'workbench'], [10, 9, 8, 5, 6, 13, 4, 3], 'Unusual call activity: n 97 · T1 hit 38% · −0.11R'],
+      ['SIG-10267', 'SBIN', 'FUTURES', 'FUTURES', 'INTRADAY', 'NEUTRAL', 52, null, null, '—', '—', '—', '812.40', 'A · ₹1,960 Cr ADV', 'OI −3.3% with price down · long unwinding', 'Below the publish threshold of 55', ['LONG UNWINDING'], '12m', '15:20', 'WATCH ONLY', 'ink', null, [9, 7, 8, 5, 6, 9, 5, 3], 'Long unwinding: n 112 · no tradeable edge after costs'],
+    ];
+    const rows = S.filter(r => (s.dir === 'ALL' || r[5] === s.dir) && (s.seg === 'ALL' || r[3] === s.seg) && r[6] >= s.min).map((r, i) => {
+      const [id, sym, segL, , tf, dir, score, prob, n, entry, inval, targets, ltp, liq, oi, vol, evid, age, exp, status, stTone, act, dims, hist] = r;
+      const dt = dir === 'BULLISH' ? T.mint : dir === 'BEARISH' ? T.danger : T.ink, st = T[stTone], open = s.open === id;
+      const blocked = p.halted && act && act[1] === 'workbench';
+      return {
+        rank: String(S.indexOf(r) + 1).padStart(2, '0'), sym, seg: segL, tf, dir, dc: dt[0], dl: dt[1], dbg: dt[2], score: String(score), sw: score + '%', scC: score >= 70 ? 'var(--mint)' : score >= 55 ? 'var(--amber)' : 'var(--ink-4)',
+        prob: prob == null ? '—' : prob.toFixed(2), probS: prob == null ? 'Not calibrated' : `n = ${n} · validated`, pc: prob == null ? 'var(--ink-3)' : 'var(--ink)',
+        entry, inval, targets, oi, age, exp, status, stc: st[0], stl: st[1], ltp, liq, vol, hist, evid,
+        dims: dims.map((v, k) => ({ k: DIMS[k][0], v: `${v}/${DIMS[k][1]}`, w: ((v / DIMS[k][1]) * 100).toFixed(0) + '%' })),
+        prov: `${id} · DATA AS OF 2026-11-05 ${age === '1 day' ? '15:10 (4 NOV)' : 'INTRADAY'} · MODEL SIGNAL-V1.4 · RULES-V3.2 · EXPIRES ${exp}`,
+        open, bg: open ? 'var(--bg-2)' : 'transparent', toggle: () => this.setState(x => ({ open: x.open === id ? null : id })),
+        hasAct: !!act, actT: blocked ? 'Entries stopped' : act ? act[0] + ' ›' : '', act: blocked || !act ? () => {} : nav(act[1], act[2]),
+        btnBg: blocked ? 'transparent' : 'var(--mint)', btnC: blocked ? 'var(--ink-3)' : '#06120B', btnLine: blocked ? 'var(--line-2)' : 'transparent',
+      };
+    });
+    const chip = (key, val, list) => list.map(([v, t]) => ({ t, go: () => this.setState({ [key]: v }), bg: val === v ? 'var(--mint)' : 'transparent', color: val === v ? '#06120B' : 'var(--ink-2)' }));
+    return {
+      h1: m ? '30px' : '44px', statMin: m ? '100px' : '150px', wide: !m, narrow: m, halted: !!p.halted,
+      cols: '34px minmax(120px,1.2fr) 92px 110px 96px minmax(150px,1.2fr) 120px minmax(170px,1.5fr) 110px 150px',
+      stats: [['Universe', '712', 'Nifty 500 + F&O + indices', 'var(--ink)'], ['Coverage', '99.1%', '2 symbols missing data', 'var(--mint)'], ['Published', '46', 'Today, all scores', 'var(--ink)'], ['Above 55', '8', 'Shown here', 'var(--ink)'], ['Duplicates suppressed', '4', 'Same setup, same day', 'var(--ink-2)'], ['Expired unused', '9', 'Passed expiry untraded', 'var(--ink-2)']].map(([k, v, s2, c]) => ({ k, v, s: s2, c })),
+      filterGroups: [{ t: 'Direction', opts: chip('dir', s.dir, [['ALL', 'All'], ['BULLISH', 'Bullish'], ['BEARISH', 'Bearish']]) }, { t: 'Segment', opts: chip('seg', s.seg, [['ALL', 'All'], ['CASH', 'Cash'], ['FUTURES', 'Fut'], ['OPTIONS', 'Opt']]) }, { t: 'Min score', opts: chip('min', s.min, [[0, 'Any'], [60, '60'], [70, '70']]) }],
+      rows,
+      history: [['Trend continuation', '64', '58%', '+0.42R', 'var(--mint)', 'Cash and futures · 30 sessions'], ['Long buildup', '186', '52%', '+0.21R', 'var(--mint)', 'Index options, PCR above 1.1'], ['Breakout on delivery', '71', '49%', '+0.18R', 'var(--mint)', 'Cash · delivery above 55%'], ['Unusual options activity', '97', '38%', '−0.11R', 'var(--danger)', 'Not validated · shown for research']].map(([k, n, hit, r, c, s2]) => ({ k, n, hit, r, c, s: s2 })),
+    };
+  }
+}
+</script>
+</body>
+</html>

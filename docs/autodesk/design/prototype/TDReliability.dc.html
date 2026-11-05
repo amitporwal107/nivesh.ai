@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">11 · Agent fleet &amp; reliability</span><span class="nv-pill nv-pill-amber"><span class="nv-dot" style="background:var(--amber)"></span>Tech Support degraded</span><span class="nv-pill">{{ incPill }}</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">Every trading path is healthy. <em style="color:var(--amber)">One data feed</em> is late, and only the entries that depend on it are blocked.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Open positions keep their protection if the LLM gateway, an agent or the interface fails. The Tech Support agent may restart non-trading processes; it cannot create orders, change policy or disable protective controls.</p>
+  </section>
+
+  <section style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2);align-self:flex-start"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3"><button onClick="{{ t.go }}" style="cursor:pointer;border:0;padding:8px 16px;border-radius:999px;background:{{ t.bg }};color:{{ t.color }};font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase">{{ t.t }}</button></sc-for></section>
+
+  <sc-if value="{{ isFleet }}" hint-placeholder-val="{{ true }}">
+    <section style="display:flex;flex-direction:column;gap:10px">
+      <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:960px">
+          <div style="display:grid;grid-template-columns:{{ cols }};gap:12px;padding:10px 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Instance</span><span>Status</span><span>Version</span><span style="text-align:right">Uptime</span><span style="text-align:right">Tasks / h</span><span style="text-align:right">Success 7d</span><span style="text-align:right">p95</span><span style="text-align:right">Queue</span><span style="text-align:right">Action</span></div>
+          <sc-for list="{{ fleet }}" as="f" hint-placeholder-count="9"><div style="display:grid;grid-template-columns:{{ cols }};gap:12px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center"><span style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--mono);font-size:12px">{{ f.id }}</span><span style="font-size:11.5px;color:var(--ink-3)">{{ f.agent }}</span></span><span><span class="nv-pill" style="padding:2px 8px;font-size:9px;color:{{ f.c }};border-color:{{ f.line }}">{{ f.st }}</span></span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">{{ f.ver }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ f.up }}</span><span class="nv-num" style="text-align:right">{{ f.tph }}</span><span class="nv-num" style="text-align:right;color:{{ f.okc }}">{{ f.ok }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ f.p95 }}</span><span class="nv-num" style="text-align:right">{{ f.q }}</span><span style="text-align:right"><span onClick="{{ f.act }}" style="cursor:pointer;font-size:12.5px;color:{{ f.ac }}">{{ f.at }}</span></span></div></sc-for>
+        </div></div></div>
+      </sc-if>
+      <sc-if value="{{ narrow }}" hint-placeholder-val="{{ false }}">
+        <sc-for list="{{ fleet }}" as="f" hint-placeholder-count="9"><div style="display:flex;flex-direction:column;gap:8px;padding:13px 15px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><div style="display:flex;gap:8px;align-items:center"><span style="font-family:var(--mono);font-size:12px;flex:1">{{ f.id }}</span><span class="nv-pill" style="padding:2px 8px;font-size:9px;color:{{ f.c }};border-color:{{ f.line }}">{{ f.st }}</span></div><span style="font-size:12px;color:var(--ink-3)">{{ f.agent }} · {{ f.ver }}</span><div style="display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)"><span>OK {{ f.ok }}</span><span>P95 {{ f.p95 }}</span><span>QUEUE {{ f.q }}</span><span onClick="{{ f.act }}" style="cursor:pointer;color:{{ f.ac }}">{{ f.at }}</span></div></div></sc-for>
+      </sc-if>
+      <span style="font-size:12px;color:var(--ink-3)">Quarantined instances take no new tasks; in-flight tasks finish or are reassigned by the orchestrator. Quarantine never touches positions or orders.</span>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isServices }}" hint-placeholder-val="{{ false }}">
+    <section style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ svcMin }},1fr));gap:10px">
+      <sc-for list="{{ services }}" as="v" hint-placeholder-count="12"><div style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid {{ v.border }};background:var(--bg-1)"><div style="display:flex;gap:8px;align-items:center"><span class="nv-dot" style="background:{{ v.c }}"></span><span style="flex:1;font-size:13.5px;font-weight:500">{{ v.n }}</span><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.06em;color:{{ v.c }}">{{ v.st }}</span></div><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">{{ v.m }}</span><span style="font-size:11.5px;line-height:1.45;color:var(--ink-3)">{{ v.s }}</span></div></sc-for>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ isIncidents }}" hint-placeholder-val="{{ false }}">
+    <section style="display:flex;flex-direction:column;gap:14px;padding:{{ pad }};border-radius:16px;border:1px solid var(--amber-line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span style="font-family:var(--mono);font-size:11.5px;color:var(--ink-2)">INC-0311 · since 11:18</span><span class="nv-pill" style="color:{{ inc.c }};border-color:{{ inc.line }}">{{ inc.st }}</span><span class="nv-pill">Severity 3 · no position impact</span></div>
+      <span style="font-family:var(--display);font-size:{{ h2 }};line-height:1.12">BSE announcements are arriving 4 minutes late</span>
+      <span style="font-size:14px;line-height:1.55;color:var(--ink-2)">Entries are blocked on the three symbols with filings pending (DATA-FRESH-v2). Prices, orders and the other 709 symbols are unaffected. Overlapping items are being read from the NSE feed.</span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap"><button onClick="{{ ack }}" style="cursor:pointer;padding:10px 16px;border-radius:12px;border:0;background:var(--mint);color:#06120B;font-size:13.5px;font-weight:500">{{ ackT }}</button><button onClick="{{ esc }}" style="cursor:pointer;padding:10px 16px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13.5px">{{ escT }}</button></div>
+      <div style="display:flex;flex-direction:column"><span class="nv-eyebrow" style="padding-bottom:6px">Timeline and recovery evidence</span><sc-for list="{{ incTimeline }}" as="e" hint-placeholder-count="6"><div style="display:grid;grid-template-columns:66px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line)"><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ e.t }}</span><span style="font-size:13px;line-height:1.45">{{ e.x }}</span></div></sc-for></div>
+    </section>
+    <section style="display:flex;flex-direction:column;gap:10px">
+      <span class="nv-eyebrow">Resolved</span>
+      <sc-for list="{{ resolved }}" as="r" hint-placeholder-count="3"><div style="display:flex;flex-direction:column;gap:4px;padding:13px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ r.id }}</span><span style="font-size:14px;font-weight:500;flex:1">{{ r.n }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--mint)">{{ r.d }}</span></div><span style="font-size:12.5px;line-height:1.5;color:var(--ink-3)">{{ r.x }}</span></div></sc-for>
+    </section>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1300},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 'fleet', q: {}, ack: false, esc: false };
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state;
+    const ST = { BUSY: 'mint', IDLE: 'ink', SCALING: 'indigo', DEGRADED: 'amber', MAINTENANCE: 'ink', QUARANTINED: 'rose', OFFLINE: 'danger' };
+    const col = (k) => k === 'ink' ? ['var(--ink-2)', 'var(--line-2)'] : k === 'rose' ? ['var(--rose)', 'var(--rose)'] : [`var(--${k})`, `var(--${k}-line)`];
+    const F = [['ai-trader-0', 'AI Trader', 'BUSY', 'signal-v1.4', '6h 27m', '112', '99.6%', '2.1 s', '6'], ['ai-trader-1', 'AI Trader', 'BUSY', 'signal-v1.4', '6h 27m', '108', '99.5%', '2.2 s', '5'], ['ai-trader-2', 'AI Trader', 'SCALING', 'signal-v1.4', '2m', '—', '—', '—', '3'], ['strategist-0', 'Trading Assistant', 'BUSY', 'strategist-v2.1', '6h 27m', '41', '98.9%', '6.4 s', '3'], ['risk-0', 'Risk Guardian', 'BUSY', 'risk-engine 4.3', '6h 27m', '180', '100%', '1.9 s', '2'], ['risk-1', 'Risk Guardian', 'IDLE', 'risk-engine 4.3', '6h 27m', '64', '100%', '1.8 s', '0'], ['mo-0', 'Middle Office', 'IDLE', 'mo-policy 7', '6h 27m', '22', '100%', '0.4 s', '3'], ['ops-0', 'Tech Support', 'DEGRADED', 'ops-runbooks 2.6', '6h 27m', '9', '96.8%', '4.8 s', '1'], ['backtest-0', 'Strategist tool', 'MAINTENANCE', 'bt-engine 4.1', '—', '—', '99.9%', '38 s', '0']];
+    const fleet = F.map(([id, agent, st0, ver, up, tph, ok, p95, q]) => {
+      const st = s.q[id] ? 'QUARANTINED' : st0, [c, line] = col(ST[st]);
+      return { id, agent, st, ver, up, tph, ok, p95, q: s.q[id] ? '0' : q, c, line, okc: ok !== '—' && parseFloat(ok) < 98 ? 'var(--amber)' : 'var(--ink-2)', at: s.q[id] ? 'Release' : st0 === 'MAINTENANCE' ? 'Until 12:00' : 'Quarantine', ac: s.q[id] ? 'var(--mint)' : st0 === 'MAINTENANCE' ? 'var(--ink-3)' : 'var(--danger)', act: st0 === 'MAINTENANCE' ? () => {} : () => this.setState(x => ({ q: { ...x.q, [id]: !x.q[id] } })) };
+    });
+    const V = [['Desk Orchestrator', 'OK', '6 workflows in flight · 0 stuck', 'Deterministic; owns retries and human pauses'], ['Policy and authorization', 'OK', 'p95 38 ms', 'Checked again at execution time'], ['Capital and risk engine', 'OK', '4 reservations · p95 52 ms', 'Atomic reservations'], ['Trade Lifecycle Manager', 'OK', 'Event lag 120 ms · 7 positions', 'Persists state; recovers before acting'], ['Execution gateway', 'OK', '0 unknown order states', 'Queries before any retry'], ['Paper engine', 'OK', '6 fills today', 'Never routes to a broker'], ['Zerodha adapter', 'OK', 'Ack p95 180 ms · socket up 2h 26m', 'Live, assisted'], ['ICICI Direct adapter', 'SIGN IN', 'Session expired 08:55', 'Research only; no orders'], ['NSE prices · Kite WebSocket', 'LIVE', '0.8 s', 'Primary market data'], ['Option chain snapshots', 'OK', '14 s old · limit 60 s', 'Blocks entries when stale'], ['BSE announcements', 'DEGRADED', 'Lag 4m 10s', 'INC-0311 · entries blocked on 3 symbols'], ['PostgreSQL primary', 'OK', 'Replication lag 0.2 s', 'System of record'], ['Redis', 'OK', 'Hit rate 94%', 'Quotes and locks'], ['Event bus', 'OK', 'Consumer lag 38 messages', 'At-least-once; idempotent consumers'], ['Dead-letter queue', '2 ITEMS', '2 duplicate fill events', 'Quarantined; no position change'], ['Scheduled jobs', 'OK', 'EOD reconcile 15:45 · exit check 18:30', 'Supplement, never replace, events'], ['LLM gateway', 'OK', 'p95 2.3 s · fallback ready', 'If down: no new plans, positions stay protected']];
+    const services = V.map(([n, st, m2, s2]) => { const k = st === 'OK' || st === 'LIVE' ? 'mint' : st === 'SIGN IN' ? 'danger' : 'amber'; return { n, st, m: m2, s: s2, c: `var(--${k})`, border: k === 'mint' ? 'var(--line)' : `var(--${k}-line)` }; });
+    const inc = s.ack ? { st: 'ACKNOWLEDGED · amit.p', c: 'var(--indigo)', line: 'var(--indigo-line)' } : { st: 'OPEN', c: 'var(--amber)', line: 'var(--amber-line)' };
+    return {
+      h1: m ? '30px' : '44px', h2: m ? '24px' : '30px', pad: m ? '18px 16px' : '20px 22px', svcMin: m ? '100%' : '260px', wide: !m, narrow: m,
+      cols: 'minmax(150px,1.3fr) 120px 130px 80px 80px 90px 70px 60px 90px',
+      incPill: s.esc ? 'INC-0311 escalated' : 'INC-0311 open',
+      tabs: [['fleet', 'Fleet'], ['services', 'Services'], ['incidents', 'Incidents']].map(([v, t]) => ({ t, go: () => this.setState({ tab: v }), bg: s.tab === v ? 'var(--mint)' : 'transparent', color: s.tab === v ? '#06120B' : 'var(--ink-2)' })),
+      isFleet: s.tab === 'fleet', isServices: s.tab === 'services', isIncidents: s.tab === 'incidents',
+      fleet, services, inc, ackT: s.ack ? 'Acknowledged' : 'Acknowledge', escT: s.esc ? 'Escalated to vendor' : 'Escalate to vendor',
+      ack: () => this.setState({ ack: true }), esc: () => this.setState({ esc: true }),
+      incTimeline: [['11:18:02', 'Last BSE announcement received on time'], ['11:18:20', 'Lag above 120 s detected; INC-0311 opened by Tech Support'], ['11:22:30', 'Entries blocked on 3 symbols with pending filings · 0 open positions affected'], ['11:24:10', 'NSE feed used for overlapping announcements'], ['11:28:00', 'Unresolved after 10 minutes; operations administrator paged'], ['11:40:00', 'Lag steady at about 4 minutes; replay queued for recovery']].map(([t, x]) => ({ t, x })),
+      resolved: [['INC-0310', 'Kite WebSocket reconnect at open', '09:16 · 34 s', 'Socket dropped at 09:16:06; stops stayed at the broker; 2 orders reconciled before automation resumed.'], ['INC-0307', 'LLM gateway timeouts', '4 Nov · 4 min', 'No new plans for 4 minutes; deterministic services kept managing 6 positions; nothing was lost or replayed blindly.']].map(([id, n, d2, x]) => ({ id, n, d: d2, x })),
+    };
+  }
+}
+</script>
+</body>
+</html>

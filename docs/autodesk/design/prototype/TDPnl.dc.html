@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1;letter-spacing:-0.02em">Real-time P&amp;L</h1>
+        <span class="nv-eyebrow" style="font-size:10.5px;letter-spacing:0.08em">07 · Positions · Paper and live, never netted</span>
+      </div>
+      <div style="flex:1"></div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <span class="nv-pill" style="color:{{ feedC }};border-color:{{ feedL }};background:{{ feedBg }}"><span class="nv-dot" style="background:{{ feedC }}"></span>{{ feedT }}</span>
+        <sc-for list="{{ accounts }}" as="ac" hint-placeholder-count="3"><span style="display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;background:{{ ac.c }}"></span>{{ ac.n }}<span style="color:{{ ac.c }}">{{ ac.st }}</span></span></sc-for>
+        <span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--ink-2);padding:0 4px">{{ clockShown }} IST</span>
+        <button onClick="{{ togglePause }}" style="cursor:pointer;padding:6px 12px;border-radius:999px;border:1px solid var(--line-3);background:transparent;color:var(--ink);font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase">{{ pauseT }}</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--ink-3)"><span style="color:{{ connC }}">{{ connT }}</span><span>as of {{ clockShown }} IST</span><span>Display only: live prices never fill, exit or mark paper trades.</span></div>
+    <sc-if value="{{ paused }}" hint-placeholder-val="{{ false }}"><span style="font-size:12.5px;color:var(--amber)">Paused: the figures are frozen at {{ clockShown }} IST. Resume to follow the market again.</span></sc-if>
+  </section>
+
+  <section style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%)">
+    <div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2)"><sc-for list="{{ modes }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.go }}" style="cursor:pointer;border:0;padding:7px 16px;border-radius:999px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;font-weight:500">{{ o.t }}</button></sc-for></div>
+    <select onChange="{{ onAccount }}" value="{{ account }}" style="padding:8px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13px;min-width:0">
+      <option value="ALL">All accounts</option><option value="paper">Paper account · PAPER</option><option value="zx4821">Zerodha · LIVE</option><option value="ix2207">ICICI Direct · LIVE</option>
+    </select>
+    <select onChange="{{ onSegment }}" value="{{ segment }}" style="padding:8px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13px;min-width:0">
+      <option value="ALL">All segments</option><option value="EQUITY">Equity</option><option value="FUTURES">Futures</option><option value="OPTIONS">Options</option>
+    </select>
+    <input type="search" value="{{ q }}" onInput="{{ onSearch }}" placeholder="Search instrument or strategy" style="flex:1 1 180px;min-width:0;padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13px;outline:none">
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px">
+    <div style="display:flex;flex-direction:column;gap:14px;padding:{{ heroPad }};border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <span class="nv-eyebrow" style="font-size:11px">{{ heroLabel }}</span>
+      <span class="nv-num" style="font-family:var(--display);font-size:{{ heroSize }};line-height:1;letter-spacing:-0.01em;color:{{ s.netC }}">{{ s.net }}</span>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+        <span class="nv-pill" style="white-space:normal;border-radius:12px;color:{{ s.netC }};border-color:{{ s.netL }};background:{{ s.netBg }}">{{ s.ret }}</span>
+        <span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--ink-2)">Gross {{ s.gross }} − charges {{ s.chg }} (est. {{ s.est }} · booked {{ s.booked }})</span>
+      </div>
+      <sc-if value="{{ heroNote }}" hint-placeholder-val="{{ false }}"><div style="padding:10px 12px;border-radius:10px;background:var(--amber-soft);border:1px solid var(--amber-line);color:var(--amber);font-size:13px;line-height:1.45">ICICI Direct: session expired; sign in again. Its positions are not in this total.</div></sc-if>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">
+      <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:6px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);min-width:0">
+          <span class="nv-eyebrow" style="font-size:10px">{{ k.k }}</span>
+          <span class="nv-num" style="font-family:var(--display);font-size:{{ kpiSize }};line-height:1.05;color:{{ k.c }};overflow-wrap:anywhere">{{ k.v }}</span>
+          <span style="font-size:12px;line-height:1.4;color:var(--ink-3)">{{ k.s }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:20px">
+    <sc-for list="{{ modeCards }}" as="mc" hint-placeholder-count="2">
+      <div onClick="{{ mc.go }}" style="cursor:pointer;display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:14px;border:1px solid {{ mc.border }};background:var(--bg-1)">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px"><span class="nv-pill" style="color:{{ mc.tc }};border-color:{{ mc.tl }};background:{{ mc.tbg }}">{{ mc.t }}</span><span style="font-size:13px;color:var(--ink-3)">{{ mc.meta }}</span></div>
+        <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:12px"><span class="nv-num" style="font-family:var(--display);font-size:38px;line-height:1;color:var(--mint)">{{ mc.net }}</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--ink-2)">{{ mc.ret }}</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)"><span>REAL {{ mc.real }}</span><span>UNREAL {{ mc.unreal }}</span><span>{{ mc.names }}</span></div>
+        <sc-if value="{{ mc.hasNote }}" hint-placeholder-val="{{ false }}"><span style="font-size:12.5px;line-height:1.45;color:var(--amber)">{{ mc.note }}</span></sc-if>
+      </div>
+    </sc-for>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:14px;padding:20px 22px 16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+    <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px">
+      <span style="font-family:var(--display);font-size:24px;line-height:1.1">Intraday net P&amp;L</span>
+      <span class="nv-eyebrow" style="font-size:10.5px">Cumulative from session open · {{ modeText }} · 2026-11-05</span>
+      <span style="flex:1"></span>
+      <span class="nv-num" style="font-family:var(--mono);font-size:11.5px;color:var(--ink-2)">HIGH {{ c.hi }} · LOW {{ c.lo }}</span>
+    </div>
+    <div style="position:relative;height:{{ chartH }}">
+      <svg viewBox="0 0 800 240" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible">
+        <line x1="0" x2="800" y1="{{ c.zeroY }}" y2="{{ c.zeroY }}" stroke="var(--line-3)" stroke-dasharray="4 5" vector-effect="non-scaling-stroke"></line>
+        <path d="{{ c.area }}" fill="var(--mint)" fill-opacity="0.09"></path>
+        <polyline points="{{ c.pts }}" fill="none" stroke="var(--mint)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+      </svg>
+      <span style="position:absolute;right:-5px;top:{{ c.endTop }};width:10px;height:10px;margin-top:-5px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px var(--mint-soft)"></span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;color:var(--ink-4)"><span>09:15</span><span>10:30</span><span>{{ c.endLabel }}</span></div>
+    <span style="font-size:11px;color:var(--ink-3)">Built from 3-minute candles of the instruments held, net of the estimated charges of the open book. Not a stored series.</span>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+      <span style="font-family:var(--display);font-size:24px">Open positions</span>
+      <span class="nv-eyebrow">{{ rowCount }}</span>
+      <span style="flex:1"></span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{ sorts }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.go }}" style="cursor:pointer;padding:6px 12px;border-radius:999px;border:1px solid {{ o.line }};color:{{ o.color }};font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase">{{ o.t }}</span></sc-for></div>
+      <button onClick="{{ exportCsv }}" style="cursor:pointer;padding:6px 12px;border-radius:999px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase">Export CSV</button>
+    </div>
+    <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+      <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:1080px">
+        <div style="display:grid;grid-template-columns:{{ cols }};gap:10px;padding:10px 16px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Mode · account</span><span>Instrument</span><span>Side · qty</span><span style="text-align:right">Avg</span><span style="text-align:right">LTP</span><span style="text-align:right">Unrealized</span><span style="text-align:right">Realized</span><span style="text-align:right">Net P&amp;L</span><span style="text-align:right">SL / target</span><span style="text-align:right">Risk used</span><span style="text-align:right">Status</span></div>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+          <div>
+            <div onClick="{{ r.toggle }}" style="cursor:pointer;display:grid;grid-template-columns:{{ cols }};gap:10px;padding:11px 16px;border-top:1px solid var(--line);font-size:13px;align-items:center;background:{{ r.bg }}" style-hover="background:var(--bg-2)">
+              <span style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:{{ r.mc }}">{{ r.mode }}</span><span style="font-size:11.5px;color:var(--ink-3)">{{ r.acct }}</span></span>
+              <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-weight:500">{{ r.inst }}</span><span style="font-size:11px;color:var(--ink-3)">{{ r.sub }}</span></span>
+              <span style="font-family:var(--mono);font-size:11.5px;color:{{ r.sc }}">{{ r.side }}</span>
+              <span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ r.avg }}</span>
+              <span class="nv-num" style="text-align:right">{{ r.ltp }}</span>
+              <span class="nv-num" style="text-align:right;color:{{ r.uc }}">{{ r.unreal }}</span>
+              <span class="nv-num" style="text-align:right;color:{{ r.rc }}">{{ r.real }}</span>
+              <span class="nv-num" style="text-align:right;font-weight:500;color:{{ r.nc }}">{{ r.net }}</span>
+              <span class="nv-num" style="text-align:right;font-size:12px;color:var(--ink-2)">{{ r.sl }}</span>
+              <span class="nv-num" style="text-align:right;color:{{ r.ruc }}">{{ r.ru }}</span>
+              <span style="text-align:right"><span class="nv-pill" style="padding:2px 8px;font-size:9px;color:{{ r.stc }};border-color:{{ r.stl }}">{{ r.st }}</span></span>
+            </div>
+            <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:14px 16px 18px;background:var(--bg-2);border-top:1px solid var(--line)">
+                <div style="display:flex;flex-direction:column;gap:6px"><span class="nv-eyebrow" style="font-size:9.5px">P&amp;L breakdown</span><sc-for list="{{ r.breakdown }}" as="b" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px"><span style="color:var(--ink-3)">{{ b.k }}</span><span class="nv-num">{{ b.v }}</span></div></sc-for></div>
+                <div style="display:flex;flex-direction:column;gap:6px"><span class="nv-eyebrow" style="font-size:9.5px">Fills</span><sc-for list="{{ r.fills }}" as="f" hint-placeholder-count="2"><span class="nv-num" style="font-family:var(--mono);font-size:11.5px;color:var(--ink-2)">{{ f }}</span></sc-for></div>
+                <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start"><span class="nv-eyebrow" style="font-size:9.5px">Actions</span><span onClick="{{ r.goTrade }}" style="cursor:pointer;font-size:13px;color:var(--mint)">Open in active trades ›</span><span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ r.actNote }}</span></div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+        <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}"><div style="padding:16px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-3)">No open position matches these filters.</div></sc-if>
+      </div></div></div>
+    </sc-if>
+    <sc-if value="{{ narrow }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+          <div onClick="{{ r.toggle }}" style="cursor:pointer;display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+            <div style="display:flex;gap:10px;align-items:flex-start"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px"><span style="font-size:14.5px;font-weight:500">{{ r.inst }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:{{ r.mc }}">{{ r.mode }} · {{ r.side }}</span></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="nv-num" style="font-family:var(--display);font-size:22px;line-height:1;color:{{ r.nc }}">{{ r.net }}</span><span class="nv-pill" style="padding:1px 7px;font-size:8.5px;color:{{ r.stc }};border-color:{{ r.stl }}">{{ r.st }}</span></div></div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:12px"><div style="display:flex;flex-direction:column;gap:2px"><span style="color:var(--ink-3);font-size:10.5px">Avg · LTP</span><span class="nv-num">{{ r.avg }} · {{ r.ltp }}</span></div><div style="display:flex;flex-direction:column;gap:2px"><span style="color:var(--ink-3);font-size:10.5px">SL / target</span><span class="nv-num">{{ r.sl }}</span></div><div style="display:flex;flex-direction:column;gap:2px"><span style="color:var(--ink-3);font-size:10.5px">Risk used</span><span class="nv-num" style="color:{{ r.ruc }}">{{ r.ru }}</span></div></div>
+            <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px solid var(--line)"><sc-for list="{{ r.breakdown }}" as="b" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px"><span style="color:var(--ink-3)">{{ b.k }}</span><span class="nv-num">{{ b.v }}</span></div></sc-for><sc-for list="{{ r.fills }}" as="f" hint-placeholder-count="1"><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ f }}</span></sc-for></div></sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:20px">
+    <div style="display:flex;flex-direction:column;gap:14px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <span style="font-family:var(--display);font-size:24px;line-height:1.1">Risk monitor</span>
+      <sc-for list="{{ meters }}" as="mt" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><span style="color:var(--ink-2)">{{ mt.k }}</span><span class="nv-num" style="font-family:var(--mono);font-size:12px">{{ mt.v }}</span></div><span style="display:block;height:6px;border-radius:3px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ mt.w }};border-radius:3px;background:{{ mt.c }}"></span></span><span style="font-size:11px;color:var(--ink-3)">{{ mt.s }}</span></div>
+      </sc-for>
+      <div style="display:flex;flex-direction:column;gap:8px;padding-top:10px;border-top:1px solid var(--line)">
+        <span class="nv-eyebrow" style="font-size:9.5px">Alerts</span>
+        <sc-for list="{{ alerts }}" as="al" hint-placeholder-count="4"><div style="display:flex;gap:10px;align-items:baseline;font-size:12.5px;line-height:1.45"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.06em;color:{{ al.c }};flex:none;width:70px">{{ al.sev }}</span><span style="color:var(--ink-2)">{{ al.t }}</span></div></sc-for>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:14px;border:1px solid var(--indigo-line);background:var(--bg-1)">
+      <div style="display:flex;align-items:center;gap:10px"><span class="nv-mark" style="width:26px;height:26px;font-size:16px">न</span><span style="font-family:var(--display);font-size:24px;line-height:1.1">Points to review</span></div>
+      <span class="nv-eyebrow" style="font-size:9.5px">Rule-based reading of the figures above · no model call</span>
+      <sc-for list="{{ reading }}" as="rd" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line)"><span style="font-family:var(--display);font-size:18px;color:var(--ink-4);flex:none;width:22px">{{ rd.n }}</span><span style="font-size:13.5px;line-height:1.5;color:var(--ink-2)">{{ rd.t }}</span></div></sc-for>
+    </div>
+  </section>
+
+  <span style="font-size:11.5px;line-height:1.5;color:var(--ink-3)">Paper P&amp;L uses the desk cost card; charges are estimates until contract notes arrive. Live positions are the brokers’ net positions, read-only, refreshed at most every 60 s. All figures in ₹, IST.</span>
+
+  <details style="padding:14px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+    <summary style="cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-2)">Closed trades, waiting entries and analytics</summary>
+    <div style="display:flex;flex-direction:column;gap:16px;padding-top:14px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px"><sc-for list="{{ bySeg }}" as="sg" hint-placeholder-count="3"><div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;background:var(--bg-2)"><span class="nv-eyebrow" style="font-size:9.5px">{{ sg.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:22px;color:{{ sg.c }}">{{ sg.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ sg.s }}</span></div></sc-for></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><span class="nv-eyebrow" style="font-size:9.5px">Closed today · 1 trade, 1 partial · 2 checked against the ledger · 0 mismatches</span><sc-for list="{{ closed }}" as="cl" hint-placeholder-count="2"><div style="display:flex;flex-wrap:wrap;gap:6px 16px;padding:8px 0;border-top:1px solid var(--line);font-size:13px"><span style="font-weight:500;min-width:110px">{{ cl.n }}</span><span style="color:var(--ink-3);flex:1;min-width:160px">{{ cl.why }}</span><span class="nv-num" style="color:{{ cl.c }}">{{ cl.v }}</span></div></sc-for></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span class="nv-eyebrow" style="font-size:9.5px">Waiting to open · 1</span><span style="font-size:13px;color:var(--ink-2)">DLF · buy 200 more at 739.00 (limit) · LTP 741.10 · cancelled at 15:20 if unfilled. Not a position; no P&amp;L.</span></div>
+    </div>
+  </details>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1900},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;clock&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;11:42:18&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { mode: 'ALL', account: 'ALL', segment: 'ALL', q: '', sort: 'net', open: null, paused: false, frozen: '' };
+  rowsData() {
+    const R = (o) => o;
+    return [
+      R({ id: 'TRD-1192', mode: 'PAPER', acctId: 'paper', acct: 'Paper account', seg: 'EQUITY', inst: 'BEL', sub: 'NSE cash · breakout', side: 'LONG 900', avg: 441.85, ltp: 448.9, unreal: 6345, real: 0, chg: 312.4, booked: 0, sl: '432.00 / 456.00', ru: 0, st: 'ACTIVE', exp: 404010, fills: ['10:04:31 BUY 900 @ 441.85'] }),
+      R({ id: 'TRD-1189', mode: 'PAPER', acctId: 'paper', acct: 'Paper account', seg: 'FUTURES', inst: 'HDFCBANK NOV FUT', sub: '1 lot · 550', side: 'LONG 550', avg: 1004.2, ltp: 1012.6, unreal: 4620, real: 0, chg: 98.2, booked: 0, sl: '991.00 / 1,030.00', ru: 0, st: 'ACTIVE', exp: 556930, fills: ['4 Nov 14:10 BUY 550 @ 1,004.20'] }),
+      R({ id: 'TRD-1187', mode: 'PAPER', acctId: 'paper', acct: 'Paper account', seg: 'OPTIONS', inst: 'BANKNIFTY 23 NOV 55000 PE', sub: 'Bear put spread · leg 1', side: 'LONG 90', avg: 401.2, ltp: 309.6, unreal: -8244, real: 0, chg: 41.6, booked: 0, sl: 'Spread 84.20 / 260', ru: 44, st: 'ACTIVE', exp: 27864, fills: ['30 Oct 13:22 BUY 90 @ 401.20'] }),
+      R({ id: 'TRD-1187', mode: 'PAPER', acctId: 'paper', acct: 'Paper account', seg: 'OPTIONS', inst: 'BANKNIFTY 23 NOV 54500 PE', sub: 'Bear put spread · leg 2', side: 'SHORT 90', avg: 232.8, ltp: 178.5, unreal: 4887, real: 0, chg: 38.4, booked: 0, sl: 'Spread 84.20 / 260', ru: 44, st: 'ACTIVE', exp: 16065, fills: ['30 Oct 13:22 SELL 90 @ 232.80'] }),
+      R({ id: 'TRD-1183', mode: 'PAPER', acctId: 'paper', acct: 'Paper account', seg: 'EQUITY', inst: 'LT', sub: 'NSE cash · T1 booked', side: 'LONG 60', avg: 3912, ltp: 3968, unreal: 3360, real: 3390, chg: 188.6, booked: 196.3, sl: '3,912.00 / 4,020.00', ru: 0, st: 'TARGET 1 BOOKED', exp: 238080, fills: ['4 Nov 09:46 BUY 120 @ 3,912.00', '11:14:03 SELL 60 @ 3,968.50'] }),
+      R({ id: 'TRD-1191', mode: 'PAPER', acctId: 'paper', acct: 'Paper account', seg: 'EQUITY', inst: 'DLF', sub: 'NSE cash · 400 of 600', side: 'LONG 400', avg: 738.25, ltp: 741.1, unreal: 1140, real: 0, chg: 224.2, booked: 0, sl: '726.00 / 762.00', ru: 0, st: 'PARTIAL FILL', exp: 296440, fills: ['10:58:41 BUY 400 @ 738.25 avg'] }),
+      R({ id: 'TRD-1180', mode: 'LIVE', acctId: 'zx4821', acct: 'Zerodha', seg: 'EQUITY', inst: 'ICICIBANK', sub: 'NSE cash · delivery', side: 'LONG 200', avg: 1428.5, ltp: 1419.2, unreal: -1860, real: null, chg: 62.3, booked: 0, sl: '1,402.00 / 1,460.00', ru: 35, st: 'NEAR STOP LOSS', exp: 283840, fills: ["09:47:09 BUY 200 @ 1,428.55 (broker's trade book)"] }),
+      R({ id: 'TRD-1181', mode: 'LIVE', acctId: 'zx4821', acct: 'Zerodha', seg: 'EQUITY', inst: 'SUNPHARMA', sub: 'NSE cash · delivery', side: 'LONG 150', avg: 1702, ltp: 1718.6, unreal: 2490, real: null, chg: 55.7, booked: 0, sl: '1,672.00 / 1,745.00', ru: 0, st: 'ACTIVE', exp: 257790, fills: ["10:11:44 BUY 150 @ 1,702.00 (broker's trade book)"] }),
+    ];
+  }
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state;
+    const nf = (v, d = 2) => Math.abs(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+    const rs = (v) => v == null ? '—' : (v > 0 ? '+' : v < 0 ? '−' : '') + '₹' + nf(v);
+    const plain = (v) => '₹' + nf(v);
+    const sc = (v) => v == null || v === 0 ? 'var(--ink-2)' : v > 0 ? 'var(--mint)' : 'var(--danger)';
+    const all = this.rowsData();
+    const inSel = (r) => (s.mode === 'ALL' || r.mode === s.mode) && (s.account === 'ALL' || r.acctId === s.account) && (s.segment === 'ALL' || r.seg === s.segment);
+    const sel = all.filter(inSel);
+    const coforge = { mode: 'PAPER', acctId: 'paper', seg: 'EQUITY', real: -4860, booked: 162.3 };
+    const cl = inSel(coforge) ? [coforge] : [];
+    const sum = (arr, k) => arr.reduce((a, r) => a + (r[k] || 0), 0);
+    const unreal = sum(sel, 'unreal');
+    const liveOnly = sel.length > 0 && sel.every(r => r.mode === 'LIVE') && !cl.length;
+    const real = liveOnly ? null : sum(sel, 'real') + sum(cl, 'real');
+    const est = sum(sel, 'chg'), booked = sum(sel, 'booked') + sum(cl, 'booked');
+    const gross = unreal + (real || 0), chg = est + booked, net = gross - chg;
+    const cap = s.account === 'paper' || s.mode === 'PAPER' ? 10000000 : s.account === 'zx4821' || s.mode === 'LIVE' ? 2500000 : s.account === 'ix2207' ? null : 12500000;
+    const capT = cap === 10000000 ? '₹1.00 Cr' : cap === 2500000 ? '₹25.0 L' : '₹1.25 Cr';
+    const win = sel.filter(r => r.unreal > 0).length, lose = sel.filter(r => r.unreal < 0).length;
+    const positions = new Set(sel.map(r => r.id)).size;
+    const tone = net > 0 ? ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'] : net < 0 ? ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'] : ['var(--ink-2)', 'var(--line-2)', 'transparent'];
+    const q = s.q.trim().toLowerCase();
+    let rows = sel.filter(r => !q || (r.inst + ' ' + r.sub).toLowerCase().includes(q));
+    const netOf = (r) => r.unreal + (r.real || 0) - r.chg - r.booked;
+    const key = { net: (r) => netOf(r), ret: (r) => netOf(r) / r.exp, exp: (r) => r.exp }[s.sort];
+    rows = [...rows].sort((a, b) => key(b) - key(a));
+    const ST = (st) => st === 'NEAR STOP LOSS' ? ['var(--amber)', 'var(--amber-line)'] : st === 'TARGET 1 BOOKED' ? ['var(--mint)', 'var(--mint-line)'] : st === 'PARTIAL FILL' ? ['var(--indigo)', 'var(--indigo-line)'] : ['var(--ink-2)', 'var(--line-2)'];
+    const rowVals = rows.map((r, i) => {
+      const k = r.inst + i, n = netOf(r), [stc, stl] = ST(r.st);
+      return {
+        mode: r.mode, mc: r.mode === 'LIVE' ? 'var(--mint)' : 'var(--indigo)', acct: r.acct, inst: r.inst, sub: r.sub, side: r.side, sc: r.side.startsWith('SHORT') ? 'var(--danger)' : 'var(--ink-2)',
+        avg: nf(r.avg), ltp: nf(r.ltp), unreal: rs(r.unreal), uc: sc(r.unreal), real: r.real == null ? '—' : rs(r.real), rc: sc(r.real), net: rs(n), nc: sc(n), sl: r.sl,
+        ru: r.ru + '%', ruc: r.ru >= 50 ? 'var(--danger)' : r.ru >= 25 ? 'var(--amber)' : 'var(--ink-2)', st: r.st, stc, stl,
+        open: s.open === k, bg: s.open === k ? 'var(--bg-2)' : 'transparent', toggle: () => this.setState(x => ({ open: x.open === k ? null : k })),
+        breakdown: [['Unrealized', rs(r.unreal)], ['Realized', r.real == null ? '— (broker total only)' : rs(r.real)], ['Est. charges', '−' + plain(r.chg)], ['Booked charges', r.booked ? '−' + plain(r.booked) : '—'], ['Net', rs(n)]].map(([kk, v]) => ({ k: kk, v })),
+        fills: r.fills, goTrade: () => p.nav && p.nav('trades', r.id),
+        actNote: r.mode === 'LIVE' ? 'Read-only broker position. Nothing here places, modifies or cancels a broker order.' : 'Levels change through a new dated plan version, in force from the next session.',
+      };
+    });
+    const base = [0,-652,-1003,-1072,-1301,-1450,-1288,-1046,-844,-802,-440,-488,64,296,688,1120,1358,1636,1834,2192,2470,2144,1778,1652,1646,1400,754,108,-538,-1184,-1950,-3386,-4271,-4054,-3797,-3340,-2284,-1388,-412,524,1540,2324,2948,3892,4236,5180,7004,8704,9876,9888];
+    const liveC = base.map((v, i) => Math.round(v * 0.0518 + Math.sin(i / 3) * 90 * (i / base.length)));
+    liveC[liveC.length - 1] = 512;
+    const curve = s.mode === 'LIVE' ? liveC : s.mode === 'PAPER' ? base.map((v, i) => v - liveC[i]) : base;
+    const W = 800, H = 240, hi0 = Math.max(0, ...curve), lo0 = Math.min(0, ...curve), span = hi0 - lo0 || 1, lo = lo0 - span * 0.1, hi = hi0 + span * 0.1;
+    const X = (i) => (i / (curve.length - 1)) * W, Y = (v) => H - ((v - lo) / (hi - lo)) * H;
+    const pts = curve.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const zy = Y(0).toFixed(1);
+    const area = `M0 ${zy} ` + curve.map((v, i) => `L${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ') + ` L${W} ${zy} Z`;
+    const last = curve[curve.length - 1];
+    const clockShown = s.paused ? s.frozen : (p.clock || '11:42:18');
+    const exportCsv = () => {
+      const head = ['Mode', 'Account', 'Instrument', 'Side qty', 'Avg', 'LTP', 'Unrealized', 'Realized', 'Est charges', 'Net', 'SL / target', 'Status'];
+      const lines = [head.join(',')].concat(rows.map(r => [r.mode, r.acct, r.inst, r.side, r.avg, r.ltp, r.unreal, r.real == null ? '' : r.real, r.chg, netOf(r).toFixed(2), '"' + r.sl + '"', r.st].join(',')));
+      try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = 'positions-2026-11-05.csv'; a.click(); } catch (e) {}
+    };
+    const paperC = { t: 'Paper', tc: 'var(--indigo)', tl: 'var(--indigo-line)', tbg: 'var(--indigo-soft)', meta: '5 positions · ₹1.00 Cr allocated', net: '+₹9,376.00', ret: '+0.09%', real: '−₹1,470.00', unreal: '+₹12,108.00', names: 'PAPER ACCOUNT', hasNote: false, note: '', border: s.mode === 'PAPER' ? 'var(--indigo-line)' : 'var(--line)', go: () => this.setState({ mode: 'PAPER', account: 'ALL' }) };
+    const liveCd = { t: 'Live', tc: 'var(--mint)', tl: 'var(--mint-line)', tbg: 'var(--mint-soft)', meta: '2 positions · ₹25.0 L allocated', net: '+₹512.00', ret: '+0.02%', real: '—', unreal: '+₹630.00', names: 'ZERODHA · ICICI DIRECT', hasNote: true, note: 'ICICI Direct could not be read: session expired. Zerodha read 38 s ago.', border: s.mode === 'LIVE' ? 'var(--mint-line)' : 'var(--line)', go: () => this.setState({ mode: 'LIVE', account: 'ALL' }) };
+    return {
+      h1: m ? '30px' : '40px', heroPad: m ? '20px 18px' : '26px 28px', heroSize: m ? '48px' : '76px', kpiSize: m ? '22px' : '30px', chartH: m ? '160px' : '240px',
+      feedT: s.paused ? 'Feed paused' : 'Live feed', feedC: s.paused ? 'var(--amber)' : 'var(--mint)', feedL: s.paused ? 'var(--amber-line)' : 'var(--mint-line)', feedBg: s.paused ? 'var(--amber-soft)' : 'var(--mint-soft)',
+      accounts: [['Paper account', 'OK', 'var(--mint)'], ['Zerodha', 'OK', 'var(--mint)'], ['ICICI Direct', 'SIGN IN', 'var(--danger)']].map(([n, st, c]) => ({ n, st, c })),
+      clockShown, paused: s.paused, pauseT: s.paused ? 'Resume' : 'Pause',
+      togglePause: () => this.setState(x => ({ paused: !x.paused, frozen: p.clock || '11:42:18' })),
+      connT: s.paused ? 'Paused' : 'Streaming · updated 1 s ago', connC: s.paused ? 'var(--amber)' : 'var(--mint)',
+      modes: [['ALL', 'All'], ['PAPER', 'Paper'], ['LIVE', 'Live']].map(([v, t]) => ({ t, go: () => this.setState({ mode: v, account: 'ALL' }), bg: s.mode === v ? 'var(--mint)' : 'transparent', color: s.mode === v ? '#06120B' : 'var(--ink-2)' })),
+      account: s.account, segment: s.segment, q: s.q,
+      onAccount: (e) => this.setState({ account: e.target.value }), onSegment: (e) => this.setState({ segment: e.target.value }), onSearch: (e) => this.setState({ q: e.target.value }),
+      heroLabel: `${s.mode === 'ALL' ? 'Consolidated' : s.mode === 'PAPER' ? 'Paper' : 'Live'}${s.account !== 'ALL' ? ' · ' + { paper: 'Paper account', zx4821: 'Zerodha', ix2207: 'ICICI Direct' }[s.account] : ''}${s.segment !== 'ALL' ? ' · ' + s.segment.toLowerCase() : ''} net P&L · after estimated charges`,
+      heroNote: s.mode !== 'PAPER' && (s.account === 'ALL' || s.account === 'ix2207'),
+      s: { net: rs(net), netC: tone[0], netL: tone[1], netBg: tone[2], ret: cap ? `${net >= 0 ? '+' : '−'}${Math.abs((net / cap) * 100).toFixed(3)}% on ${capT}` : 'Return not computed: no capital read', gross: rs(gross), chg: plain(chg), est: plain(est), booked: plain(booked) },
+      kpis: [
+        { k: 'Realized P&L', v: rs(real), c: sc(real), s: real == null ? 'Brokers do not split their realized P&L' : 'Closed quantity · 1 closed, 1 partial today' },
+        { k: 'Unrealized P&L', v: rs(unreal), c: sc(unreal), s: 'Marked to the latest price shown' },
+        { k: 'Est. charges', v: plain(chg), c: 'var(--ink)', s: `Estimate, not settled · booked ${plain(booked)}` },
+        { k: 'Open positions', v: String(positions), c: 'var(--ink)', s: `${win} winning · ${lose} losing · ${sel.length} rows with legs` },
+      ],
+      modeCards: [paperC, liveCd],
+      modeText: s.mode === 'ALL' ? 'Paper + Live' : s.mode === 'PAPER' ? 'Paper only' : 'Live only',
+      c: { pts, area, zeroY: zy, endTop: ((Y(last) / H) * 100).toFixed(1) + '%', hi: rs(Math.max(...curve)), lo: rs(Math.min(...curve)), endLabel: `${clockShown.slice(0, 5)} · ${rs(last)}` },
+      rowCount: `${rowVals.length} rows · one per share position and per leg`,
+      sorts: [['net', 'Net P&L'], ['ret', 'Return %'], ['exp', 'Exposure']].map(([v, t]) => ({ t, go: () => this.setState({ sort: v }), line: s.sort === v ? 'var(--line-3)' : 'var(--line)', color: s.sort === v ? 'var(--ink)' : 'var(--ink-3)' })),
+      exportCsv, wide: !m, narrow: m, rows: rowVals, noRows: rowVals.length === 0,
+      cols: '110px minmax(0,1.6fr) 90px 80px 80px 96px 90px 100px 130px 70px 120px',
+      meters: [['Margin used', '16.4% of 40%', '41%', 'var(--mint)', 'Paper: capital blocked by open trades, not exchange margin'], ['Daily loss limit', '0% of ₹2.00 L used', '1%', 'var(--mint)', 'Net P&L today is positive'], ['Exposure', '₹20.5 L of ₹60.0 L', '34%', 'var(--mint)', 'Paper ₹15.1 L · live ₹5.4 L'], ['Open positions at risk', '1 of 7 near stop', '14%', 'var(--amber)', 'Within 1.5% of the stop loss']].map(([k, v, w, c, s2]) => ({ k, v, w, c, s: s2 })),
+      alerts: [['WARNING', 'ICICIBANK near stop loss: 1,419.20 against 1,402.00 (1.2%).', 'var(--amber)'], ['WARNING', 'ICICIBANK average differs from the broker by ₹0.05 (₹10 on 200). Contract note awaited.', 'var(--amber)'], ['INFO', 'LT target 1 reached at 11:14; 60 of 120 sold at 3,968.50.', 'var(--mint)'], ['INFO', 'BSE announcements feed 4 min late; prices are unaffected.', 'var(--ink-2)']].map(([sev, t, c]) => ({ sev, t, c })),
+      reading: ['ICICIBANK is 1.2% above its stop; the SL-M order rests at Zerodha and fires without the desk.', 'The Bank Nifty put spread is the only losing paper position: −₹8,285.60 on the long leg against +₹4,848.60 on the short leg.', 'Estimated charges are 12.2% of gross P&L today (₹1,380 of ₹11,268).', 'Futures carry 46% of today’s net from one position, HDFCBANK, now protected by a trailed stop at 991.'].map((t, i) => ({ n: '0' + (i + 1), t })),
+      bySeg: [['Equity', '+₹8,803.20', '5 positions, 1 closed', 'var(--mint)'], ['Futures', '+₹4,521.80', '1 position', 'var(--mint)'], ['Options', '−₹3,437.00', '1 structure, 2 legs', 'var(--danger)']].map(([k, v, s2, c]) => ({ k, v, s: s2, c })),
+      closed: [['COFORGE', 'Stop 1,912 triggered at 10:47; filled 1,908.40 · charges ₹162.30 booked', '−₹5,022.30', 'var(--danger)'], ['LT (partial)', 'T1 3,970 triggered at 11:14; 60 filled at 3,968.50 · charges ₹196.30 booked', '+₹3,193.70', 'var(--mint)']].map(([n, why, v, c]) => ({ n, why, v, c })),
+    };
+  }
+}
+</script>
+</body>
+</html>

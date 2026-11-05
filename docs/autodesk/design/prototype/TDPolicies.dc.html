@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">12 · Policies &amp; permissions</span><span class="nv-pill nv-pill-mint">P-PAPER-v7 active</span><span class="nv-pill nv-pill-indigo">v8 in simulation</span><span class="nv-pill">P-LIVE-v3 active</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:920px">The most restrictive rule always wins. <em style="color:var(--mint)">Autonomous live</em> stays locked until certification.</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Policies are versioned and scoped to tenant, account, strategy and instrument. A lower level can tighten a limit but never loosen one set above it, and every change is audited.</p>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <span class="nv-eyebrow">Operating mode by account</span>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px">
+      <sc-for list="{{ accounts }}" as="a" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+          <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><span style="font-family:var(--display);font-size:22px;flex:1">{{ a.n }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ a.pol }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px">
+            <sc-for list="{{ a.opts }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.go }}" style="cursor:{{ o.cur }};min-height:40px;padding:8px 10px;border-radius:10px;border:1px solid {{ o.line }};background:{{ o.bg }};color:{{ o.color }};font-size:12.5px;text-align:left">{{ o.t }}</button></sc-for>
+          </div>
+          <span style="font-size:12px;line-height:1.5;color:{{ a.nc }}">{{ a.note }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft)">
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber)">AUTONOMOUS LIVE · LOCKED</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2)"><sc-for list="{{ gate }}" as="g" hint-placeholder-count="4"><span><span style="color:{{ g.c }};font-family:var(--mono)">{{ g.g }}</span> {{ g.t }}</span></sc-for></div>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Effective policy · Paper · Desk A · breakout strategy</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">● BINDING LEVEL</span></div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:820px">
+      <div style="display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr)) minmax(0,1.1fr);gap:12px;padding:10px 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Field</span><span>Tenant · v4</span><span>Account · v7</span><span>Strategy · v3</span><span>Instrument</span><span>Effective</span></div>
+      <sc-for list="{{ eff }}" as="r" hint-placeholder-count="10"><div style="display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr)) minmax(0,1.1fr);gap:12px;padding:10px 18px;border-top:1px solid var(--line);font-size:13px;align-items:baseline"><span style="color:var(--ink-2)">{{ r.k }}</span><sc-for list="{{ r.lv }}" as="v" hint-placeholder-count="4"><span class="nv-num" style="color:{{ v.c }}">{{ v.t }}</span></sc-for><span class="nv-num" style="font-weight:500;color:var(--mint)">{{ r.e }}</span></div></sc-for>
+    </div></div></div>
+  </section>
+
+  <div style="display:grid;grid-template-columns:{{ twoCols }};gap:16px;align-items:start">
+    <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span style="font-family:var(--display);font-size:24px;padding-bottom:10px">What agents may do on their own</span>
+      <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:8px;padding-bottom:6px;font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Action</span><span>Assisted</span><span>Auto paper</span><span>Auto live</span></div>
+      <sc-for list="{{ matrix }}" as="r" hint-placeholder-count="9"><div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(3,minmax(0,1fr));gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px;align-items:center"><span style="color:var(--ink-2)">{{ r.k }}</span><sc-for list="{{ r.v }}" as="v" hint-placeholder-count="3"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.06em;color:{{ v.c }}">{{ v.t }}</span></sc-for></div></sc-for>
+    </section>
+    <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span style="font-family:var(--display);font-size:24px;padding-bottom:10px">Who must approve</span>
+      <sc-for list="{{ thresholds }}" as="t" hint-placeholder-count="6"><div style="display:flex;flex-direction:column;gap:3px;padding:9px 0;border-top:1px solid var(--line)"><span style="font-size:13.5px">{{ t.k }}</span><span style="font-size:12px;color:var(--ink-3)">{{ t.v }}</span></div></sc-for>
+    </section>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <span class="nv-eyebrow">Roles and permissions</span>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:760px">
+      <div style="display:grid;grid-template-columns:minmax(0,1.5fr) repeat(6,minmax(0,1fr));gap:10px;padding:10px 18px;font-family:var(--mono);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Role</span><sc-for list="{{ permHead }}" as="h" hint-placeholder-count="6"><span style="text-align:center">{{ h }}</span></sc-for></div>
+      <sc-for list="{{ roles }}" as="r" hint-placeholder-count="8"><div style="display:grid;grid-template-columns:minmax(0,1.5fr) repeat(6,minmax(0,1fr));gap:10px;padding:9px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center;background:{{ r.bg }}"><span>{{ r.n }}</span><sc-for list="{{ r.p }}" as="v" hint-placeholder-count="6"><span style="text-align:center;font-family:var(--mono);font-size:12px;color:{{ v.c }}">{{ v.t }}</span></sc-for></div></sc-for>
+    </div></div></div>
+    <span style="font-size:11.5px;color:var(--ink-3)">Highlighted row: your role. Authorization is checked again at execution time, not only when a plan is approved.</span>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:12px;padding:{{ pad }};border-radius:16px;border:1px solid var(--danger-line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:baseline"><span style="font-family:var(--display);font-size:26px;flex:1">Emergency controls</span><span style="font-size:12.5px;color:var(--ink-3)">None of these cancels a protective stop or leaves a position unprotected.</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px">
+      <sc-for list="{{ controls }}" as="c" hint-placeholder-count="8">
+        <div style="display:flex;flex-direction:column;gap:8px;padding:13px 15px;border-radius:12px;border:1px solid {{ c.line }};background:{{ c.bg }}">
+          <div style="display:flex;gap:10px;align-items:center"><span style="flex:1;font-size:14px;font-weight:500">{{ c.t }}</span><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:{{ c.sc }}">{{ c.st }}</span></div>
+          <span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ c.d }}</span>
+          <sc-if value="{{ c.asking }}" hint-placeholder-val="{{ false }}"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button onClick="{{ c.confirm }}" style="cursor:pointer;padding:8px 14px;border-radius:10px;border:0;background:var(--danger);color:#fff;font-size:13px;font-weight:500">{{ c.confirmT }}</button><span onClick="{{ c.cancel }}" style="cursor:pointer;font-size:12.5px;color:var(--ink-3)">Cancel</span></div></sc-if>
+          <sc-if value="{{ c.idle }}" hint-placeholder-val="{{ true }}"><span onClick="{{ c.ask }}" style="cursor:pointer;align-self:flex-start;font-size:13px;color:{{ c.ac }}">{{ c.at }}</span></sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+    <span style="font-family:var(--display);font-size:24px;padding-bottom:10px">Version history</span>
+    <sc-for list="{{ versions }}" as="v" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:4px;padding:10px 0;border-top:1px solid var(--line)"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><span style="font-family:var(--mono);font-size:11.5px">{{ v.id }}</span><span class="nv-pill" style="padding:1px 8px;font-size:9px;color:{{ v.c }};border-color:{{ v.line }}">{{ v.st }}</span><span style="flex:1"></span><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ v.when }}</span></div><span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ v.x }}</span></div></sc-for>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:2000},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;halted&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onHalt&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;() =&gt; void&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { modes: { paper: 'autopaper', live: 'assisted', icici: 'research' }, changed: null, ctl: { gen: false, mods: false, cancel: false, strat: true, acct: false, exits: false, broker: false }, ask: null };
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state;
+    const MODES = [['research', 'Research'], ['assisted', 'Assisted'], ['autopaper', 'Autonomous paper'], ['autolive', 'Autonomous live']];
+    const ACC = [['paper', 'Paper · Desk A', 'P-PAPER-v7', ['research', 'assisted', 'autopaper']], ['live', 'Zerodha · ZX4821', 'P-LIVE-v3', ['research', 'assisted']], ['icici', 'ICICI Direct · IX2207', 'P-LIVE-v3', ['research']]];
+    const accounts = ACC.map(([id, n, pol, allowed]) => {
+      const cur = s.modes[id];
+      const opts = MODES.map(([v, t]) => {
+        const on = cur === v, ok = allowed.includes(v);
+        return { t: ok || on ? t : t + ' · locked', go: ok && !on ? () => this.setState(x => ({ modes: { ...x.modes, [id]: v }, changed: id })) : () => {}, cur: ok && !on ? 'pointer' : 'default', line: on ? 'var(--mint-line)' : 'var(--line-2)', bg: on ? 'var(--mint-soft)' : 'transparent', color: on ? 'var(--mint)' : ok ? 'var(--ink-2)' : 'var(--ink-4)' };
+      });
+      const note = s.changed === id ? `Mode changed to ${MODES.find(x => x[0] === cur)[1].toLowerCase()} by amit.p and audited. Open positions keep the authority they were approved under; nothing migrates silently.` : id === 'paper' ? 'Paper orders can only reach the paper engine.' : id === 'live' ? 'Every live entry needs the account owner. Autonomous live needs certification.' : 'Session expired. Research only: no orders of any kind.';
+      return { n, pol, opts, note, nc: s.changed === id ? 'var(--amber)' : 'var(--ink-3)' };
+    });
+    const gate = [['✓', 'Broker permission · Zerodha', 'var(--mint)'], ['!', 'Simulator certification · 18 of 20', 'var(--amber)'], ['!', 'Compliance approval · requested 3 Nov', 'var(--amber)'], ['✓', 'Kill-switch drill · passed 30 Oct', 'var(--mint)']].map(([g, t, c]) => ({ g, t, c }));
+    const L = (k, levels, bind, e) => ({ k, e, lv: levels.map((t, i) => ({ t, c: i === bind ? 'var(--ink)' : t === '—' ? 'var(--ink-4)' : 'var(--ink-3)' })) });
+    const eff = [L('Max risk per trade', ['2%', '1%', '0.75%', '—'], 2, '0.75%'), L('Max aggregate open risk', ['5%', '3%', '—', '—'], 1, '3%'), L('Max daily loss', ['3%', '2%', '—', '—'], 1, '2%'), L('Max allocation per instrument', ['10%', '6%', '—', '—'], 1, '6%'), L('Max sector exposure', ['30%', '25%', '—', '—'], 1, '25%'), L('Max margin utilization', ['50%', '40%', '—', '—'], 1, '40%'), L('Autonomous notional per order', ['—', '₹4.00 L', '—', '—'], 1, '₹4.00 L'), L('Allowed order types', ['Limit, SL, SL-M', 'Limit, SL-M', '—', '—'], 1, 'Limit, SL-M'), L('Naked short options', ['Never', '—', '—', '—'], 0, 'Never'), L('Entry cutoff', ['15:00', '15:00', '14:30', '—'], 2, '14:30')];
+    const K = { A: ['AUTO', 'var(--mint)'], H: ['APPROVAL', 'var(--amber)'], N: ['NEVER', 'var(--danger)'] };
+    const matrix = [['Enter a new position', 'H', 'A', 'H'], ['Tighten a stop or trail it', 'A', 'A', 'A'], ['Book target 1 and target 2', 'A', 'A', 'A'], ['Exit on a triggered stop', 'A', 'A', 'A'], ['Exit when the thesis is invalid', 'H', 'A', 'H'], ['Roll or extend a holding', 'H', 'H', 'H'], ['Increase quantity', 'H', 'H', 'N'], ['Widen a stop', 'N', 'N', 'N'], ['Average down or martingale', 'N', 'N', 'N']].map(([k, ...v]) => ({ k, v: v.map(x => ({ t: K[x][0], c: K[x][1] })) }));
+    const thresholds = [['Any live entry', 'Account owner · P-LIVE-v3 §2'], ['Paper order above ₹4.00 L notional', 'Account owner · P-PAPER-v7 §4'], ['Holding past the planned expiry', 'Account owner · EXPIRY-HOLD-v2'], ['Strategy with undefined or unlimited loss', 'Never automatic · account owner and risk officer'], ['Amendment that raises max loss', 'Account owner and risk officer'], ['Policy or limit change', 'Risk officer, then tenant owner · versioned']].map(([k, v]) => ({ k, v }));
+    const PH = ['Approve live', 'Approve paper', 'Edit limits', 'Emergency', 'Change mode', 'View audit'];
+    const R = [['Tenant owner', '✓✓✓✓✓✓'], ['Account owner', '✓✓·✓✓✓'], ['Trader', '·····✓'], ['Risk officer', '··✓✓·✓'], ['Middle office approver', '·✓···✓'], ['Operations administrator', '···✓·✓'], ['Read-only auditor', '·····✓'], ['Platform administrator', '···✓·✓']];
+    const roles = R.map(([n, mask], i) => ({ n: n + (i === 1 ? ' · you' : ''), bg: i === 1 ? 'var(--bg-2)' : 'transparent', p: mask.split('').map(ch => ({ t: ch === '✓' ? '✓' : '—', c: ch === '✓' ? 'var(--mint)' : 'var(--ink-4)' })) }));
+    const halted = !!p.halted;
+    const C = [['entries', 'Stop new entries', 'Blocks every new entry on all accounts. Stops, targets and risk-reducing exits keep running.', halted], ['gen', 'Suspend strategy generation', 'The Strategist stops drafting plans. Signals keep publishing for the record.', s.ctl.gen], ['mods', 'Suspend automated modifications', 'No trailing or target changes. Resting protective orders stay in place.', s.ctl.mods], ['cancel', 'Cancel eligible pending entries', 'Cancels unfilled entry orders only (DLF 200 @ 739). Never touches exits.', s.ctl.cancel], ['strat', 'Suspend a strategy · mean reversion', 'Suspended on 21 Oct after six straight losses.', s.ctl.strat], ['acct', 'Suspend an account', 'Freezes new activity on one account; its open positions stay protected.', s.ctl.acct], ['exits', 'Controlled risk-reducing exits', 'Exits positions in order of risk using limit orders inside the collar.', s.ctl.exits], ['broker', 'Disable a broker adapter', 'Stops new orders to Zerodha. Broker-side stops remain at the broker.', s.ctl.broker]];
+    const controls = C.map(([id, t, d, on]) => {
+      const asking = s.ask === id;
+      const flip = () => { if (id === 'entries') { p.onHalt && p.onHalt(); } else this.setState(x => ({ ctl: { ...x.ctl, [id]: !x.ctl[id] } })); this.setState({ ask: null }); };
+      return { t, d, st: on ? 'ACTIVE' : 'OFF', sc: on ? 'var(--danger)' : 'var(--ink-3)', line: on ? 'var(--danger-line)' : 'var(--line)', bg: on ? 'var(--danger-soft)' : 'var(--bg-1)', asking, idle: !asking, at: on ? 'Lift this control' : 'Activate…', ac: on ? 'var(--mint)' : 'var(--danger)', ask: () => this.setState({ ask: id }), cancel: () => this.setState({ ask: null }), confirm: flip, confirmT: on ? 'Confirm lift' : 'Confirm activate' };
+    });
+    const versions = [['P-PAPER-v8', 'IN SIMULATION', 'indigo', 'Candidate · SIM-0417', 'Autonomous notional ₹4.00 L → ₹5.00 L; trailing stop 1.5 → 1.3 × ATR. Needs 20 of 20 certifications and risk officer approval.'], ['P-PAPER-v7', 'ACTIVE', 'mint', 'Since 28 Oct 09:00', 'Entry cutoff 15:00 for positional, 14:30 for intraday; instrument cap 6%.'], ['P-LIVE-v3', 'ACTIVE', 'mint', 'Since 20 Oct', 'Defined-risk options only; every entry needs the account owner.'], ['P-PAPER-v6', 'RETIRED', 'ink', '14 Oct – 28 Oct', 'Instrument cap 8%; replaced after a concentration review.']].map(([id, st, k, when, x]) => ({ id, st, when, x, c: k === 'ink' ? 'var(--ink-3)' : `var(--${k})`, line: k === 'ink' ? 'var(--line-2)' : `var(--${k}-line)` }));
+    return { h1: m ? '30px' : '44px', twoCols: m ? 'minmax(0,1fr)' : 'minmax(0,1.2fr) minmax(0,1fr)', pad: m ? '18px 16px' : '20px 22px', accounts, gate, eff, matrix, thresholds, permHead: PH, roles, controls, versions };
+  }
+}
+</script>
+</body>
+</html>

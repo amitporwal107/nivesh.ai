@@ -17,3 +17,4 @@ playwright-report/
 
 # Firebase config (contains the Android API key — keep local, build uses it)
 android/app/google-services.json
+dist-autodesk/
