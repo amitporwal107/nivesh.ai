@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from services.spt import constants as C
-from services.spt import overview
+from services.spt import allocation, overview
 from tests.paper_v2_fakes import A, NOW, U1, U2, client, world  # noqa: F401 (fixtures)
 
 AT = NOW.isoformat()
@@ -89,6 +89,7 @@ def state(**over):
                   "reservations": [{"sector": "IT", "risk_rs": 3000.0}, {"sector": "Bank", "risk_rs": 1000.0}],
                   "positions": []}}
     s.update(over)
+    s["open_risk_rows"] = allocation.open_risk_rows(s["book"], {})     # as account_state keeps them
     return s
 
 

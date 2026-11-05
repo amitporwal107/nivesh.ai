@@ -8,6 +8,15 @@ SOURCES (5 Nov 2026): every paper row says where it came from — `source` "desk
 "broker" (a live broker position). A scanner row is a cash share row in every figure; its charges are its fills' recorded
 costs plus the estimate for selling what is open (scanner_charges), its levels are read-only here (it is modified through
 /api/v1/paper/positions), and its exits are simulated live by the paper monitor, not at the evening check.
+
+SETUP TYPE (Paper Trading v2 "P&L by strategy", 5 Nov 2026): every paper position row, closed row and strategy entry
+carries `setup_type` and `setup_type_source`, taken ONLY from a stored field, never inferred (`setup_fields`):
+    scanner rows          the opportunity's stored category  spt_opportunities.category (read once per book build,
+                                                             services/paper_pnl/book._spt_setup_types)
+    desk F&O structures   the published trade's family       desk_paper_trades.family (bull_call_spread, …)
+    desk share trades     the idea's stored bucket           desk_paper_trades.source.bucket (the scanner / lab bucket the
+                                                             idea came from); null when the trade stores none
+`setup_type_source` names the field, and is null with the value. Broker (Live) rows carry neither.
 """
 from __future__ import annotations
 
@@ -293,13 +302,33 @@ SCANNER_EXEC_NOTE = ("Scanner paper fills: simulated on live bid/ask with the di
                      "each at its traded value ÷ quantity.")
 
 
+SETUP_SOURCE_SCANNER = "spt_opportunities.category"
+SETUP_SOURCE_STRATEGY = "desk_paper_trades.family"
+SETUP_SOURCE_DESK = "desk_paper_trades.source.bucket"
+
+
+def setup_fields(item: TradeItem) -> Dict[str, Any]:
+    """{setup_type, setup_type_source} from the stored field of the row's kind (module docstring, SETUP TYPE)."""
+    pub = item.public
+    if item.source == SCANNER:
+        value, src = pub.get("setup_type"), SETUP_SOURCE_SCANNER
+    elif item.kind == "strategy":
+        value, src = pub.get("family"), SETUP_SOURCE_STRATEGY
+    else:
+        stored = pub.get("source") if isinstance(pub.get("source"), dict) else {}
+        value, src = stored.get("bucket"), SETUP_SOURCE_DESK
+    value = value.strip() if isinstance(value, str) and value.strip() else None
+    return {"setup_type": value, "setup_type_source": src if value is not None else None}
+
+
 def source_fields(item: TradeItem) -> Dict[str, Any]:
-    """Where a paper row came from: the desk, or a scanner (SPT) position with its ids."""
+    """Where a paper row came from: the desk, or a scanner (SPT) position with its ids; and its setup type."""
     pub = item.public
     if item.source == SCANNER:
         return {"source": SCANNER, "opportunity_id": pub.get("opportunity_id"), "proposal_id": pub.get("proposal_id"),
-                "order_id": pub.get("order_id"), "spt_state": pub.get("spt_state")}
-    return {"source": "desk", "opportunity_id": None, "proposal_id": None, "order_id": None, "spt_state": None}
+                "order_id": pub.get("order_id"), "spt_state": pub.get("spt_state"), **setup_fields(item)}
+    return {"source": "desk", "opportunity_id": None, "proposal_id": None, "order_id": None, "spt_state": None,
+            **setup_fields(item)}
 
 
 def _exit_rule_text(item: TradeItem) -> str:
@@ -424,7 +453,7 @@ def build(book: Book, quotes: Dict[str, Quote], market: Dict[str, Any], account:
                 "entry_net_premium": pub.get("net_premium_rs"), "current_value": legs_value,
                 "unrealized_pnl": unreal if unknown == 0 else None, "charges_estimated": charges if c_unknown == 0 else None,
                 "net_pnl": net, "capital_at_risk": risk, "complete": complete, "opened_at": pub.get("opened_at"),
-                "risk_note": pub.get("risk_note"),
+                "risk_note": pub.get("risk_note"), **setup_fields(item),
             })
             label = f"{pub.get('family_name') or 'Structure'} {pub.get('underlying')}"
             if status == "STOP_LOSS_HIT":

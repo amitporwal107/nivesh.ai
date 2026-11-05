@@ -151,8 +151,14 @@ async def risk_account(account_id: str, request: Request) -> Dict[str, Any]:
         "utilisation": {"positions": {"open": state.get("positions_open"), "max": state.get("max_positions")},
                         "new_today": {"count": state.get("new_today"), "max": state.get("max_new_per_day")},
                         "buckets": {k: {"used_rs": (state.get("bucket_used_rs") or {}).get(k),
-                                        "cap_rs": (state.get("bucket_cap_rs") or {}).get(k)}
+                                        "cap_rs": (state.get("bucket_cap_rs") or {}).get(k),
+                                        # open risk in the bucket, on open_risk.rs's basis (allocation.open_risk_rows)
+                                        "risk_rs": (state.get("bucket_risk_rs") or {}).get(k)}
                                     for k in allocation.CATEGORIES},
+                        "bucket_risk_unknown": state.get("bucket_risk_unknown"),
+                        "bucket_risk_basis": "risk_rs = the open-risk rows in the bucket (reservations: the risk "
+                                             "service's estimate; positions with no reservation: risk_book's estimate), the "
+                                             "basis of open_risk.rs; used_rs counts SPT reservations only",
                         "exposure_rs": state.get("exposure_rs"), "exposure_pct_of_equity": _pct(state.get("exposure_rs"), eq)},
         "mode": (state.get("config") or {}).get("mode"),
     }

@@ -12,6 +12,19 @@ equity peak as it always does):
                       every reserved and legacy position — the measure the profile's open-risk limit is judged on
     buckets           SPT reservations' exposure by category (equity_positional, equity_intraday, fno) against
                       equity × allocation_buckets_pct; `reserve` is never allocated
+    open-risk rows    `open_risk_rows`: every row that makes up risk_book's open risk (the `open risk` line below) —
+                      each reservation on the paper account (its risk_rs: the risk service's estimate, stop loss + costs +
+                      the 1 % gap stress) and each open position with no reservation (legacy: risk_book's estimate from
+                      its stored levels; None when it has none, listed in `bucket_risk_unknown`) — with its sector and
+                      bucket. The bucket of an SPT reservation is its proposal's (horizon, instrument), as above; of any
+                      other reservation its kind (a structure → fno, shares → equity_positional); of a legacy position
+                      its kind (a strategy → fno, shares / a journal trade → equity_positional). Desk and journal trades
+                      are end-of-day positional, so none is ever counted as intraday.
+    bucket risk       `bucket_risk_rs`: the open-risk rows' risk_rs summed by bucket. ONE computation, used by
+                      GET /api/v1/risk/account (utilisation.buckets[k].risk_rs) and by the Paper Trading overview's
+                      concentration (services/spt/overview.py groups the same rows by sector). Its total equals open risk
+                      while the account's counters equal their entries (paper_account.reservation_invariants). NOTE: the
+                      buckets' CAPITAL (`bucket_used_rs`) counts SPT reservations only, while their RISK counts every row.
     sector            risk_book open.sector_rs (+ unclassified exposure, counted against every sector)
     positions         the account's reserved positions + legacy positions vs config max_positions
     new today         this user's SPT proposals that reached READY_FOR_ORDER / ORDER_CREATED today (IST)
@@ -77,6 +90,35 @@ def _f(x: Any) -> Optional[float]:
     if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(float(x)):
         return None
     return float(x)
+
+
+def open_risk_rows(book: Dict[str, Any], spt_category: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    """The rows of risk_book's open risk with sector and bucket (module docstring, "open-risk rows"). Pure.
+    `spt_category` = {SPT order id: bucket} worked out from the proposals (account_state)."""
+    cats = spt_category or {}
+    rows: List[Dict[str, Any]] = []
+    for e in book.get("reservations") or []:
+        tid = e.get("trade_id")
+        bucket = cats.get(tid) if e.get("store") == C.ORDERS and tid in cats else category_of("positional", e.get("kind") or "cash")
+        rows.append({"trade_id": tid, "store": e.get("store"), "symbol": e.get("symbol"), "sector": e.get("sector"),
+                     "bucket": bucket, "risk_rs": _f(e.get("risk_rs")), "reserved": True})
+    for p in book.get("positions") or []:
+        if p.get("reserved"):
+            continue
+        kind = p.get("kind") or "cash"
+        rows.append({"trade_id": p.get("trade_id"), "store": p.get("store"), "symbol": p.get("symbol"),
+                     "sector": p.get("sector"), "bucket": category_of("positional", "cash" if kind in ("cash", "journal") else kind),
+                     "risk_rs": _f(p.get("risk_rs")), "reserved": False})
+    return rows
+
+
+def risk_by(rows: List[Dict[str, Any]], key: str) -> Dict[str, float]:
+    """Σ risk_rs of the open-risk rows by `key` (bucket / sector); a row with no risk figure adds nothing."""
+    out: Dict[str, float] = {}
+    for r in rows:
+        k = r.get(key) or "unclassified"
+        out[k] = round(out.get(k, 0.0) + float(r.get("risk_rs") or 0.0), 2)
+    return out
 
 
 def _unfilled_fraction(order: Dict[str, Any]) -> float:
@@ -223,6 +265,7 @@ async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dic
             proposals[p["order_id"]] = p
     reserved = 0.0
     bucket_used = {c: 0.0 for c in CATEGORIES}
+    spt_category: Dict[str, str] = {}
     pending: List[Dict[str, Any]] = []
     for e in entries:
         funding = float(e.get("funding_rs") or 0.0)
@@ -241,12 +284,15 @@ async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dic
                             "order_state": (order or {}).get("state") or "not_written_yet"})
         p = proposals.get(e.get("trade_id")) or {}
         cat = category_of(p.get("horizon") or "positional", p.get("instrument") or e.get("kind") or "cash")
+        spt_category[e.get("trade_id")] = cat
         bucket_used[cat] = bucket_used.get(cat, 0.0) + float(e.get("exposure_rs") or 0.0)
     blocked = float(account["blocked_rs"])
     buckets_pct = cfg["extras"]["allocation_buckets_pct"]
     new_today = await db[C.PROPOSALS].count_documents(
         {"user_id": user_id, "order_day": out["day"], "state": {"$in": [C.PROP_READY_FOR_ORDER, C.PROP_ORDER_CREATED]}})
     positions = int(account_doc.get("open_positions") or 0) + int(book["open"].get("legacy_positions") or 0)
+    risk_rows = open_risk_rows(book, spt_category)
+    bucket_risk = risk_by(risk_rows, "bucket")
     out.update({
         "profile": {"limits": limits, "limits_version": profile.get("limits_version"), "profile": profile.get("profile")},
         "equity_rs": equity, "book_equity_rs": book_equity, "spt_pnl": spt,
@@ -261,6 +307,9 @@ async def account_state(db, user_id: str, *, now: datetime, config: Optional[Dic
         "exposure_rs": float(book["open"]["exposure_rs"]),
         "sector_rs": dict(book["open"]["sector_rs"]), "unclassified_exposure_rs": float(book["open"]["unclassified_exposure_rs"]),
         "bucket_used_rs": {k: round(v, 2) for k, v in bucket_used.items()},
+        "open_risk_rows": risk_rows,
+        "bucket_risk_rs": {k: bucket_risk.get(k, 0.0) for k in CATEGORIES},
+        "bucket_risk_unknown": [r["symbol"] for r in risk_rows if r["risk_rs"] is None],
         "bucket_cap_rs": {k: (round(equity * float(buckets_pct[k]) / 100.0, 2) if equity is not None else None)
                           for k in CATEGORIES},
         "positions_open": positions, "max_positions": int(cfg["extras"]["max_positions"]),

@@ -31,7 +31,8 @@ WARNINGS [{level, title, code, at, symbol?}]
 HEADLINE
     setups_cleared = risk_approved; blocked / reduced = today's proposals refused / APPROVE_REDUCED by the risk engine;
     worst_concentration = the sector whose exposure uses the largest share of the max-sector limit, reported only above
-    NEAR_LIMIT of it, with its share of the open risk (risk_rs of the reservations and positions in it ÷ all of them).
+    NEAR_LIMIT of it, with its share of the open risk: the account state's open-risk rows (allocation.open_risk_rows, the
+    same rows GET /api/v1/risk/account sums by bucket) summed by sector, ÷ all of them.
 """
 from __future__ import annotations
 
@@ -109,10 +110,10 @@ def concentration(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     use = float(used or 0.0) / (eq * cap_pct / 100.0)
     if use <= NEAR_LIMIT:
         return None
-    book = state.get("book") or {}
-    rows = list(book.get("reservations") or []) + [p for p in book.get("positions") or [] if not p.get("reserved")]
-    total = sum(float(r.get("risk_rs") or 0.0) for r in rows)
-    mine = sum(float(r.get("risk_rs") or 0.0) for r in rows if r.get("sector") == name)
+    from .allocation import risk_by
+    by_sector = risk_by(state.get("open_risk_rows") or [], "sector")
+    total = sum(by_sector.values())
+    mine = by_sector.get(name, 0.0)
     return {"name": name, "pct_of_open_risk": round(mine / total * 100.0, 2) if total > 0 else None,
             "exposure_rs": round(float(used), 2), "pct_of_sector_limit": round(use * 100.0, 2)}
 

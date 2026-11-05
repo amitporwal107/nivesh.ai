@@ -55,12 +55,24 @@ Scope (UI_DESIGN_V2 §4 items 1–6): `GET /api/v1/paper/overview`, `GET/PUT /ap
 | PV2-B-27 | wording | Compliance | no "recommend", "pick" or "suggest" in any string of the new responses |
 | PV2-B-28 | reads | GET routes write nothing | the policy, SPT config, proposal, order and position stores are unchanged after every GET |
 
+### Added 5 Nov (second request): bucket risk and setup type
+
+| Id | Area | Case | Expected |
+|---|---|---|---|
+| PV2-B-29 | bucket risk | The open-risk rows (pure) | every reservation and every unreserved position is one row with its bucket (SPT: its proposal's horizon / instrument; other reservations by kind, structure → fno; legacy strategy → fno; shares / journal → equity_positional) and sector; summed by bucket and by sector with one helper |
+| PV2-B-30 | bucket risk | GET /api/v1/risk/account | `utilisation.buckets[k].risk_rs` per bucket; their sum equals `open_risk.rs`; `used_rs` unchanged (SPT reservations only, said in `bucket_risk_basis`); the overview's concentration reads the same rows; an unreadable book → every `risk_rs` null |
+| PV2-B-31 | setup type | Each row kind | scanner → the opportunity's stored `category`; desk F&O → `family`; desk shares → `source.bucket`; nothing stored → null (a source `kind` is not a setup type); on open rows, closed rows and strategy entries, with `setup_type_source` |
+| PV2-B-32 | setup type | Over /api/desk/pnl | ONE batched `spt_opportunities` read per book build; a missing opportunity → null; an unreadable store → null and the position still shown |
+| PV2-B-33 | F&O id | fno-structures `id` vs /api/desk/pnl `strategy_id` | equal for the same structure (both the published trade's id) |
+
 ## Status (5 Nov 2026, 08:39 IST, after the fno_max_loss_pct default correction — output in `test_reports/paper_v2_backend_pytest.txt`)
 
 - PV2-B-01 … PV2-B-28: covered by `backend/tests/test_paper_v2_{policy,overview,risk,analytics,fno,routes}.py` —
   **78 passed** (`tests/test_paper_v2_*.py`) in the backend image, MOCK fixtures only.
 - Regression set (paper_pnl, spt_*, risk*, paper*, desk_trading*, scan_builder*, exit_rules*, exit_watch,
   order_path_guard): **1480 passed, 5 skipped, 0 failed**.
+- 09:28 IST, after PV2-B-29..33 (bucket risk, setup type): `tests/test_paper_v2_*.py tests/test_paper_pnl*.py` **147 passed**;
+  regression set **1488 passed, 5 skipped, 0 failed** (appended to the same output file).
 - **UNVERIFIED on staging:** nothing here was deployed or called against the staging API or its data (the brief forbids
   writes to staging; the code is not in the running image). Every claim above is about the unit/route tests on fakes.
   Needed next (integrator): deploy the branch to staging and call the seven routes with a real session; check the
