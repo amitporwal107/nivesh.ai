@@ -1,8 +1,12 @@
 /**
- * One-screen Copilot app (/v5/app) — Trade Desk › Paper Trading › P&L dashboard › Exit watch (docs/paper_pnl_dashboard/EXIT_WATCH.md;
- * test cases EW-33 … EW-37 in test_reports/exit_watch_TESTCASES.md): the live broker positions' stop loss and exit alerts —
- * the banner under the header, the section between the open positions and the risk monitor, Mark seen, Set my stop / Use the
- * rule, the phone cards.
+ * One-screen Copilot app (/v5/app) — Trade Desk › Paper Trading › 05 Real-time P&L › Exit watch (docs/paper_pnl_dashboard/
+ * EXIT_WATCH.md; test cases EW-33 … EW-37 in test_reports/exit_watch_TESTCASES.md), reworked for Paper Trading v2
+ * (UI_DESIGN_V2.md §5: "Exit-watch alerts … go to Overview's Risk warnings and a row action in Real-time P&L"; the P&L dashboard
+ * was replaced). The live broker positions' stop loss and exit alerts: the banner under the header (now on Paper as well, with
+ * a link to the live book), the row's exit-watch chip and the section after the open positions on Live, Mark seen, Set my stop /
+ * Use the rule, the phone cards.
+ * Dropped with the old layout: the "All" mode and the account select (the new view has a Paper / Live switch only), the risk
+ * monitor the section sat above (EW-33), and "the banner is hidden on Paper" (the banner now shows on both, by design here).
  *
  * Every /api/* answer below is an inline MOCK — not real data — in the shape EXIT_WATCH.md gives for GET /api/desk/pnl/exits,
  * POST /api/desk/pnl/exits/seen and PUT / DELETE /api/positions/{underlying}/levels, plus a minimal GET /api/desk/pnl body.
@@ -174,37 +178,42 @@ async function noSideScroll(page: Page) {
 const exitRow = (page: Page, key: string) => page.locator(`[data-testid="pnl-exit-row"][data-key="${key}"]`);
 const top = (page: Page, id: string) => page.evaluate((t) => (document.querySelector(`[data-testid="${t}"]`) as HTMLElement).getBoundingClientRect().top, id);
 
-test.describe("MOCK — not real data: P&L dashboard › Exit watch", () => {
-  test("EW-33 the section shows in All and Live, between the open positions and the risk monitor, and not in Paper", async ({ page }) => {
+const toLive = async (page: Page) => {
+  await page.getByTestId("pv2-pnl-mode-live").click();
+  await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-mode", "LIVE", SLOW);
+};
+
+test.describe("MOCK — not real data: Real-time P&L › Exit watch", () => {
+  test("EW-33 the banner shows on Paper and Live; on Live the row chip and the section, after the open positions and before Closed trades", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
+    await expect(page.getByTestId("pnl-exit-banner")).toBeVisible(SLOW);
+    expect(seen.exitQueries[0].get("account")).toBe("ALL");
+    await expect(page.getByTestId("pv2-pnl-kpis")).toBeVisible(SLOW);
+    expect(await top(page, "pv2-pnl-head")).toBeLessThan(await top(page, "pnl-exit-banner"));
+    expect(await top(page, "pnl-exit-banner")).toBeLessThan(await top(page, "pv2-pnl-kpis"));
+    await expect(page.getByTestId("pnl-exits")).toHaveCount(0);
+
+    await page.getByTestId("pv2-pnl-exit-golive").click();
+    await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-mode", "LIVE", SLOW);
     const section = page.getByTestId("pnl-exits");
     await expect(section).toBeVisible(SLOW);
-    expect(seen.exitQueries[0].get("account")).toBe("ALL");
     expect(await top(page, "pnl-positions")).toBeLessThan(await top(page, "pnl-exits"));
-    expect(await top(page, "pnl-exits")).toBeLessThan(await top(page, "pnl-risk"));
-    await expect(page.getByTestId("pnl-exit-banner")).toBeVisible();
-    expect(await top(page, "pnl-header")).toBeLessThan(await top(page, "pnl-exit-banner"));
-    expect(await top(page, "pnl-exit-banner")).toBeLessThan(await top(page, "pnl-filters"));
+    expect(await top(page, "pnl-exits")).toBeLessThan(await top(page, "pnl-closed"));
+    const chip = page.locator('[data-testid="pnl-row"][data-id="ic-1:TATASTEEL"]').getByTestId("pv2-pnl-row-exit");
+    await expect(chip).toHaveText("Exit watch · Stop hit · 174.20");
+    await expect(chip).toHaveAttribute("data-status", "HIT");
 
-    await page.getByTestId("pnl-mode-live").click();
-    await expect(page.getByTestId("pnl-dashboard")).toHaveAttribute("data-mode", "LIVE", SLOW);
-    await expect(section).toBeVisible();
-
-    await page.getByTestId("pnl-mode-paper").click();
-    await expect(page.getByTestId("pnl-dashboard")).toHaveAttribute("data-mode", "PAPER", SLOW);
+    await page.getByTestId("pv2-pnl-mode-paper").click();
+    await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-mode", "PAPER", SLOW);
     await expect(page.getByTestId("pnl-exits")).toHaveCount(0);
-    await expect(page.getByTestId("pnl-exit-banner")).toHaveCount(0);
-
-    await page.getByTestId("pnl-mode-all").click();
-    await expect(page.getByTestId("pnl-exits")).toBeVisible(SLOW);
-    await page.getByTestId("pnl-account").selectOption("ic-1");
-    await expect.poll(() => seen.exitQueries.some((q) => q.get("account") === "ic-1"), SLOW).toBe(true);
+    await expect(page.getByTestId("pnl-exit-banner")).toBeVisible();
   });
 
   test("EW-34 rows: status and method chips in words, distance, loss at the stop, latest signal; not watched; the watcher line", async ({ page }) => {
     await setup(page);
     await page.goto(PNL);
+    await toLive(page);
     await expect(page.getByTestId("pnl-exit-row")).toHaveCount(5, SLOW);
     await expect(page.getByTestId("pnl-exit-count")).toHaveText("5 watched");
     const expectRow = async (key: string, status: string, method: string, stop: string) => {
@@ -262,6 +271,8 @@ test.describe("MOCK — not real data: P&L dashboard › Exit watch", () => {
     await expect.poll(() => seen.seenBodies.length, SLOW).toBe(1);
     expect(seen.seenBodies[0]).toEqual({});
     await expect(banner).toHaveCount(0, SLOW);
+    await toLive(page);
+    await expect(page.getByTestId("pnl-exit-alert")).toHaveCount(3, SLOW);
     await expect(page.locator('[data-testid="pnl-exit-alert"][data-seen="false"]')).toHaveCount(0);
     await expect(page.getByTestId("pnl-exit-seen-all")).toHaveCount(0);
   });
@@ -269,6 +280,7 @@ test.describe("MOCK — not real data: P&L dashboard › Exit watch", () => {
   test("EW-36 Set my stop PUTs {stop} for the underlying; a bad price is refused on screen; Use the rule DELETEs your own stop", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(PNL);
+    await toLive(page);
     await exitRow(page, "ic-1|TATASTEEL|long").click(SLOW);
     const det = page.locator('[data-testid="pnl-exit-detail"][data-key="ic-1|TATASTEEL|long"]');
     await det.getByTestId("pnl-exit-setstop-input").fill("0");
@@ -294,6 +306,7 @@ test.describe("MOCK — not real data: P&L dashboard › Exit watch", () => {
     ex.own = { stop: 344, target: 420, trail_pct: 2 };                                  // MOCK — not real data
     const seen = await setup(page, { exits: { status: 200, body } });
     await page.goto(PNL);
+    await toLive(page);
     await exitRow(page, "ic-1|ITC|long").click(SLOW);
     const det = page.locator('[data-testid="pnl-exit-detail"][data-key="ic-1|ITC|long"]');
     await det.getByTestId("pnl-exit-userule").click();
@@ -304,7 +317,8 @@ test.describe("MOCK — not real data: P&L dashboard › Exit watch", () => {
   test("EW-37 390 px: cards that open to the same detail, no page-level sideways scroll", async ({ page }) => {
     await setup(page, { phone: true });
     await page.goto(PNL);
-    await expect(page.getByTestId("pnl-dashboard")).toHaveAttribute("data-narrow", "true", SLOW);
+    await expect(page.getByTestId("pv2-pnl")).toHaveAttribute("data-narrow", "true", SLOW);
+    await toLive(page);
     await expect(page.getByTestId("pnl-exit-card")).toHaveCount(5, SLOW);
     await expect(page.getByTestId("pnl-exit-table")).toHaveCount(0);
     const c = page.locator('[data-testid="pnl-exit-card"][data-key="ic-1|DLF|long"]');
@@ -320,14 +334,16 @@ test.describe("MOCK — not real data: P&L dashboard › Exit watch", () => {
   test("EW-33b the route missing (404) leaves the section out; a server error shows a problem with Retry inside it", async ({ page }) => {
     await setup(page, { exits: { status: 404, body: { detail: "Not Found" } } });
     await page.goto(PNL);
+    await toLive(page);
     await expect(page.getByTestId("pnl-positions")).toBeVisible(SLOW);
-    await expect(page.getByTestId("pnl-risk")).toBeVisible();
+    await expect(page.getByTestId("pnl-closed")).toBeVisible();
     await expect(page.getByTestId("pnl-exits")).toHaveCount(0);
     await expect(page.getByTestId("pnl-exit-banner")).toHaveCount(0);
 
     await page.unrouteAll({ behavior: "ignoreErrors" });
     await setup(page, { exits: { status: 500, body: { detail: "MOCK: boom" } } });
     await page.goto(PNL);
+    await toLive(page);
     const section = page.getByTestId("pnl-exits");
     await expect(section).toBeVisible(SLOW);
     await expect(section.getByRole("button", { name: /retry/i })).toBeVisible(SLOW);

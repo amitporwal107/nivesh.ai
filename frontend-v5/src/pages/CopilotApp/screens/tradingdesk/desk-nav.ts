@@ -9,10 +9,11 @@
  *                                         its sub-views (sub=):
  *                                           scanner     AI Scanner      ranked · library · scorecard
  *                                           chart       Chart Analysis  live · record
- *                                           paper       Paper Trading   live · journal · pnl (P&L dashboard: the real-time paper
- *                                                                         P&L, owner 4 Nov; docs/paper_pnl_dashboard/DESIGN.md) ·
- *                                                                         opportunities · analytics · settings (Scanner-to-Paper
- *                                                                         Trading screens, owner 5 Nov; docs/scanner_paper_trading)
+ *                                           paper       Paper Trading   the owner's six views (5 Nov, "completely replace the current
+ *                                                                         paper trading dashboard"; docs/scanner_paper_trading/
+ *                                                                         UI_DESIGN_V2.md §1): 01 overview · 02 opportunities ·
+ *                                                                         03 allocation · 04 risk · 05 pnl · 06 analytics. The old
+ *                                                                         keys redirect: live, journal → pnl; settings → allocation
  *                                           watchlists  Watchlists      (one page)
  *                                         Strategy Lab was removed (owner, 29 Oct: "remove strategy lab completely"); trades
  *                                         are built on the chart's paper basket now, so every lab URL opens Chart Analysis ›
@@ -24,9 +25,10 @@
  *                                         recovery (Market Recovery, owner 3 Nov; flagged market_recovery; docs/market_recovery/DESIGN.md)
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
- *   04 Risk Desk         tab=risk         limits · controls · log · overview · allocation · portfolio (Scanner-to-Paper Trading:
- *                                         Trading overview, Capital allocation, Portfolio risk; owner 5 Nov;
- *                                         docs/scanner_paper_trading) · hedge (flagged: Portfolio hedge, last)
+ *   04 Risk Desk         tab=risk         limits · controls · log · hedge (flagged: Portfolio hedge, last). The Scanner-to-Paper
+ *                                         Trading views that were here for a day (overview · allocation · portfolio) moved into
+ *                                         Paper Trading v2 (owner, 5 Nov): their URLs open Trade Desk › Paper Trading ›
+ *                                         overview · allocation · risk (RISK_TO_PAPER)
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
  *
@@ -54,7 +56,14 @@ export const PLACE_LABEL: Record<DeskPlace, string> = { ...SECTION_LABEL, portfo
 /** Short names for the phone's bottom bar. */
 export const SECTION_SHORT: Record<DeskSection, string> = { overview: "Overview", trade: "Trade", market: "Market", risk: "Risk" };
 
-export interface DeskViewDef { key: string; label: string }
+export interface DeskViewDef {
+  key: string;
+  label: string;
+  /** The design's small mono number before the label ("01"…"06"), where the design numbers its menu (Paper Trading v2). */
+  num?: string;
+  /** A shorter chip label for a phone, where the chip row overflows at 390 px (UI_DESIGN_V2.md §1: 06 → "Analytics"). */
+  short?: string;
+}
 
 /** Each tab's views, the default first. A tab with none is one page. */
 export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
@@ -79,11 +88,8 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "limits", label: "Exposure & limits" },
     { key: "controls", label: "Policy & runtime" },
     { key: "log", label: "Decision log" },
-    // Scanner-to-Paper Trading (owner, 5 Nov 2026: "build in the current workspace"; docs/scanner_paper_trading/DESIGN.md).
-    // After the existing views so they keep their places, and before Quick Hedge, which stays last.
-    { key: "overview", label: "Trading overview" },
-    { key: "allocation", label: "Capital allocation" },
-    { key: "portfolio", label: "Portfolio risk" },
+    // The Scanner-to-Paper Trading views (Trading overview, Capital allocation, Portfolio risk) moved to Trade Desk › Paper
+    // Trading v2 (owner, 5 Nov 2026; UI_DESIGN_V2.md §1). Their old URLs redirect there (RISK_TO_PAPER).
     // Quick Hedge (docs/RISK_AND_HEDGE_GAP_AND_PLAN_20261031.md). Listed last; the switcher shows it only when the
     // `portfolio_hedge` flag is on for the account (TradingDesk.tsx ViewSwitcher, HIDDEN_VIEWS).
     { key: "hedge", label: "Portfolio hedge" },
@@ -104,10 +110,14 @@ export const FLAGGED_SUBS: Readonly<Record<string, string>> = {
 export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
   "trade/scanner": [{ key: "ranked", label: "Ranked candidates" }, { key: "library", label: "Signal library & sources" }, { key: "scorecard", label: "Scorecard" }],
   "trade/chart": [{ key: "live", label: "Live chart" }, { key: "record", label: "Signal record" }],
-  // P&L dashboard: the real-time paper P&L (owner, 4 Nov 2026: a third Paper Trading sub-view; docs/paper_pnl_dashboard/DESIGN.md)
-  "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }, { key: "pnl", label: "P&L dashboard" },
-    // Scanner-to-Paper Trading (owner, 5 Nov 2026): the opportunities with approve/reject, the analytics, the SPT settings
-    { key: "opportunities", label: "Opportunities" }, { key: "analytics", label: "Analytics" }, { key: "settings", label: "Settings" }],
+  // Paper Trading v2 — the owner's six views, in his order, with his labels and numbers (5 Nov 2026: "We need to completely
+  // replace the current paper trading dashboard"; docs/scanner_paper_trading/UI_DESIGN_V2.md §1). `pnl` keeps the old P&L
+  // dashboard links working; the old keys redirect (PAPER_OLD_SUBS).
+  "trade/paper": [
+    { key: "overview", label: "Overview", num: "01" }, { key: "opportunities", label: "Scanner opportunities", num: "02" },
+    { key: "allocation", label: "Capital allocation", num: "03" }, { key: "risk", label: "Portfolio risk", num: "04" },
+    { key: "pnl", label: "Real-time P&L", num: "05" }, { key: "analytics", label: "Strategy analytics", num: "06", short: "Analytics" },
+  ],
   // Market Desk › Screener: the screener as it was, then the Chartink-style scans on our own data (owner, 3 Nov)
   "market/screener": [{ key: "screens", label: "Screener" }, { key: "dashboard", label: "Scan dashboard" }, { key: "builder", label: "Scan builder" }],
 };
@@ -198,6 +208,12 @@ export function canonical(params: URLSearchParams): URLSearchParams {
  */
 export const MOVED_TO_TRADE: ReadonlySet<string> = new Set(["watchlists", "scorecard"]);
 
+/** Paper Trading's sub-views before v2 (owner, 5 Nov 2026) and the v2 view each now opens (UI_DESIGN_V2.md §1). */
+export const PAPER_OLD_SUBS: Readonly<Record<string, string>> = { live: "pnl", journal: "pnl", settings: "allocation" };
+
+/** The Risk Desk's Scanner-to-Paper Trading views (one day, 5 Nov) and the Paper Trading v2 sub-view each now opens. */
+export const RISK_TO_PAPER: Readonly<Record<string, string>> = { overview: "overview", allocation: "allocation", portfolio: "risk" };
+
 /** The old desk's tabs and More views (before 2026-10-27). */
 const OLD_TABS = new Set(["scanner", "intel", "events", "chart", "smartmoney", "fno", "more"]);
 
@@ -246,7 +262,17 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     // Trade Desk's views before the owner's workbench structure (step 3, first cut): their new sections.
     const old = params.get("view");
     if (old === "lab" || old === "new") return toChart();
-    if (old === "open" || old === "closed") return set("trade", "paper", undefined, old === "closed" ? "journal" : "live");
+    // Live desk and Trade journal became Real-time P&L (Paper Trading v2, owner 5 Nov).
+    if (old === "open" || old === "closed") return set("trade", "paper", undefined, "pnl");
+    // Paper Trading's pre-v2 sub-views: their v2 places (live, journal → pnl; settings → allocation), keeping ?trade=.
+    const oldSub = params.get("sub");
+    if (old === "paper" && oldSub && Object.hasOwn(PAPER_OLD_SUBS, oldSub)) return set("trade", "paper", undefined, PAPER_OLD_SUBS[oldSub]);
+  }
+  if (tab === "risk" && Object.hasOwn(RISK_TO_PAPER, params.get("view") ?? "")) {
+    // The Risk Desk's Scanner-to-Paper Trading views moved into Paper Trading v2 (owner, 5 Nov): overview · allocation · risk.
+    const sub = RISK_TO_PAPER[params.get("view") as string];
+    p.delete("sub");
+    return set("trade", "paper", undefined, sub);
   }
   if (tab === "market" && params.get("view") === "screener" && params.get("section") === "chartink") {
     // Chartink sources moved from Market Desk › Screener to Trade Desk › AI Scanner › Signal library & sources (owner's design).

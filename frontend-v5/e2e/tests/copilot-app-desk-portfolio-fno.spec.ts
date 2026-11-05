@@ -576,8 +576,9 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-volatility")).toHaveAttribute("data-value", pct1(14.2));
 
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("desk-portfolio-record-title")).toHaveCount(0);
 
     await page.goto(`${DESK}?tab=portfolio`);
@@ -621,9 +622,9 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await mockSingleRoute(page, "**/api/portfolio/holdings-enriched*", "empty-portfolio.json");
     await portfolioData(page);
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    // Paper trades do not depend on holdings: Trade Desk's empty state shows.
-    await expect(page.getByTestId("td-open-empty")).toContainText("No open paper trades", { timeout: 15_000 });
+    // Paper trades do not depend on holdings: Paper Trading still opens. Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
 
     await page.goto(`${DESK}?tab=portfolio`);
     const empty = page.getByTestId("desk-portfolio-empty");
@@ -1113,8 +1114,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(page.getByTestId("desk-portfolio-trust")).toContainText("Stored holdings in Nivesh");
     await expect(page.getByTestId("desk-risk-trust")).toHaveAttribute("data-maker", "rules");
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. Its own rules line says what the marks are.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-rules-note")).toContainText("end-of-day daily bars", { timeout: 15_000 });
+    // The Live desk's rules line went with it. Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
   });
 
   test("§8.3 read live: cash from the brokers' funds read, live value checked line by line against the last sync; duplicates and a missing price are said", async ({ page }) => {
@@ -1466,9 +1468,10 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await page.getByTestId("desk-risk-liquidity-rule-toggle").click();
     await page.getByTestId("desk-risk-liquidity-toggle").click();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. A trade's record is its journal drawer.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=journal`);
-    await page.getByTestId("td-closed").getByRole("row").nth(1).click({ timeout: 15_000 });
-    await expect(page.getByTestId("td-journal")).toBeVisible();
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts). The trade record (the journal drawer) went with it; 390 px is checked on the v2 view.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(400);
     const o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
@@ -1492,8 +1495,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await page.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
     await page.getByTestId("desk-import-preview").click();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. A trade's record is its journal drawer.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=journal`);
-    await page.getByTestId("td-closed").getByRole("row").nth(1).click({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await page.setViewportSize({ width: 1440, height: 4200 });
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-1440-tall.png` });
@@ -1527,8 +1531,9 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
     await expect(page.getByTestId("desk-risk-overall")).toBeVisible();
     await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="unsplit"]')).toBeVisible();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-positions")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("broker-live-row")).toHaveCount(2);
@@ -1608,8 +1613,10 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await page.getByTestId("desk-risk-correlation-toggle").click();
     await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(400);
     o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
@@ -1625,8 +1632,9 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("desk-portfolio-hub")).toBeVisible();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-1440.png` });
     await page.setViewportSize({ width: 1440, height: 2000 });
@@ -1831,7 +1839,9 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     expect(calls.closes[0]).toEqual({ path: "/api/desk/paper-trades/st-future/close", body: {} });
   });
 
-  test("a strategy row without its legs or signal is a loud contract error, not a silently dropped trade", async ({ page }) => {
+  // RETIRED with the Live desk (Paper Trading v2, owner 5 Nov 2026): Trade Desk no longer reads /api/desk/paper-trades for the
+  // Live desk; Real-time P&L (builder B) reads the desk's structures and owns its own contract checks.
+  test.skip("a strategy row without its legs or signal is a loud contract error, not a silently dropped trade", async ({ page }) => {
     const broken = { ...spreadTrade(), legs: [] };
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([broken]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
@@ -1882,7 +1892,10 @@ test.describe("Smart trading desk — F&O roll", () => {
     return { posts, gets: () => gets };
   }
 
-  test("UI-4 the confirmation shows both legs and their prices, and Roll posts once", async ({ page }) => {
+  // RETIRED with the Live desk and the journal (Paper Trading v2, owner 5 Nov 2026), where Roll lived (StructureCard / RollAction
+  // "td-roll", JournalPanel). The v2 design (UI_DESIGN_V2.md §5) does not list Roll among the actions that move to the new views:
+  // flagged to the integrator as an action with no v2 place yet.
+  test.skip("UI-4 the confirmation shows both legs and their prices, and Roll posts once", async ({ page }) => {
     const calls = await rollPage(page, ROLL_PREVIEW);
     const row = page.getByTestId("td-structure").filter({ hasText: "Long future" });
     await row.getByTestId("td-roll-open").click({ timeout: 15_000 });
@@ -1900,7 +1913,7 @@ test.describe("Smart trading desk — F&O roll", () => {
     expect(calls.posts[0].key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
-  test("UI-4b a roll the route refuses shows its reason and offers no Roll button", async ({ page }) => {
+  test.skip("UI-4b a roll the route refuses shows its reason and offers no Roll button", async ({ page }) => {
     const calls = await rollPage(page, { eligible: false, trade_id: "st-future", refusal: { code: "roll_chain_not_ready",
       message: "The NSE F&O bhavcopy for 2026-10-27 is not in yet: it lands after 22:15 IST, and the roll records both sides at that day's close. Try again once it is in." } });
     const row = page.getByTestId("td-structure").filter({ hasText: "Long future" });
@@ -1911,7 +1924,7 @@ test.describe("Smart trading desk — F&O roll", () => {
     expect(calls.posts).toEqual([]);
   });
 
-  test("UI-4c the trade record offers the same roll", async ({ page }) => {
+  test.skip("UI-4c the trade record offers the same roll", async ({ page }) => {
     await rollPage(page, ROLL_PREVIEW);
     await page.getByTestId("td-structure").filter({ hasText: "Long future" }).getByTestId("td-structure-journal").click({ timeout: 15_000 });
     const rec = page.getByTestId("td-journal");

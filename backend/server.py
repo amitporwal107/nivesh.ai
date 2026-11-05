@@ -143,6 +143,8 @@ from routes.spt_accounts import router as spt_accounts_router  # /api/v1/paper/a
 from routes.spt_accounts import admin_router as spt_admin_router  # /api/admin/spt/{user_id}/config, /api/admin/spt/settings
 from routes.spt_risk import router as spt_risk_router          # /api/v1/risk/*, /api/v1/allocation/*, /api/v1/proposals, approve/reject
 from routes.spt_paper import router as spt_paper_router        # /api/v1/paper/orders, /positions, /trades, /reconcile, /stream
+from routes.spt_paper_v2 import router as paper_v2_router      # /api/v1/paper/overview, …/policy, /risk/correlation, /analytics/account, /paper/fno-structures
+from routes.spt_paper_v2 import admin_router as paper_v2_admin_router  # /api/admin/spt/{user_id}/policy
 from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
 from routes.desk_chart_events import router as desk_chart_events_router  # Live chart: market events + the stock's reaction (/api/desk/chart-events/*, read only)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
@@ -312,6 +314,8 @@ app.include_router(spt_accounts_router)      # SPT slice B: paper account SPT mo
 app.include_router(spt_admin_router)         # SPT admin: any user's SPT config + market-wide SPT settings
 app.include_router(spt_risk_router)          # SPT slice B: sizing, risk, allocation, proposals, approve/reject
 app.include_router(spt_paper_router)         # SPT slice C: paper orders, positions, trades, reconcile, stream
+app.include_router(paper_v2_router)          # Paper Trading v2: overview, combined policy, correlation, account analytics, F&O
+app.include_router(paper_v2_admin_router)    # Paper Trading v2 admin: any user's combined policy
 app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}
 app.include_router(desk_chart_events_router)  # /api/desk/chart-events/{symbol}
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation

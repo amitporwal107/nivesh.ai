@@ -260,6 +260,12 @@ jobs:
           tests/test_paper_pnl.py
           tests/test_paper_pnl_live.py
           tests/test_paper_pnl_spt.py
+          tests/test_paper_v2_analytics.py
+          tests/test_paper_v2_fno.py
+          tests/test_paper_v2_overview.py
+          tests/test_paper_v2_policy.py
+          tests/test_paper_v2_risk.py
+          tests/test_paper_v2_routes.py
           tests/test_exit_watch.py
           tests/test_spt_a_api.py
           tests/test_spt_a_opportunities.py

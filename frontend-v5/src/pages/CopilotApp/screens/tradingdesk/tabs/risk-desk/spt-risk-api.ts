@@ -105,7 +105,8 @@ export interface SptKillSwitch {
   text: string | null;
 }
 export interface SptPending { orderId: string | null; symbol: string | null; reservedRs: number | null; orderState: string | null }
-export interface SptBucketUse { usedRs: number | null; capRs: number | null }
+/** riskRs: the bucket's open risk at its stops (`risk_rs`), when the route sends it (Paper Trading v2 §2.03); null otherwise. */
+export interface SptBucketUse { usedRs: number | null; capRs: number | null; riskRs: number | null }
 
 export interface SptRiskAccount {
   accountId: string | null;
@@ -195,7 +196,7 @@ export function readSptRiskAccount(body: unknown): SptRiskAccount {
     },
     utilisation: {
       positionsOpen: num(pos.open), positionsMax: num(pos.max), newToday: num(nt.count), newTodayMax: num(nt.max),
-      buckets: Object.fromEntries(Object.entries(rec(ut.buckets)).map(([k, v]) => [k, { usedRs: num(rec(v).used_rs), capRs: num(rec(v).cap_rs) }])),
+      buckets: Object.fromEntries(Object.entries(rec(ut.buckets)).map(([k, v]) => [k, { usedRs: num(rec(v).used_rs), capRs: num(rec(v).cap_rs), riskRs: num(rec(v).risk_rs) }])),
       exposureRs: num(ut.exposure_rs), exposurePctOfEquity: num(ut.exposure_pct_of_equity),
     },
     mode: str(d.mode),

@@ -23,6 +23,12 @@ DEFAULTS (`profile_defaults`): where SPT overlaps the risk profile (services/ris
   max_new_per_day 5, max_chase_pct 1.0, min_adv_rs ₹1 crore, max_adv_participation_pct 5, approval_expiry_minutes 30,
   allocation_buckets_pct 45/25/20/10, stressed_gap_pct (risk_gate.estimate.GAP_STRESS_PCT). `defaults_source` names
   the profile field or "spt-default (owner-approved 5 Nov 2026)" for every leaf.
+  F&O extras (Paper Trading v2, docs/scanner_paper_trading/UI_DESIGN_V2.md §3, 5 Nov 2026):
+    fno_max_loss_pct  one F&O structure's maximum loss, % of paper equity = profile per_trade_risk_pct × 0.7, the same
+                      derivation as risk_pct.fno (owner rule 5 Nov: defaults come from the user's risk profile; PRD §9.4 /
+                      §26 "F&O strategy risk 0.35 %"); 0.35 for the owner-default profile
+    margin_util_pct   70: the most of paper equity the open F&O structures' exchange margin may use, from the owner's
+                      Paper Trading v2 design (5 Nov); the PRD has no figure; configurable
   For the owner-default profile (0.5 / 10 / 1.5): ladder 3.33 / 6.67 / 10, min R:R 1.5, risk 0.5 / 0.35 / 0.35.
 
 WHO MAY CHANGE WHAT (the services/risk_profile model): the account holder may change the mode and TIGHTEN any value;
@@ -30,7 +36,8 @@ LOOSENING any value needs an admin (the signed-in person; 403 `admin_required`),
 Looser, per field (judged on the EFFECTIVE value before and after, so removing an override counts by the value it
 falls back to):
     higher is looser   risk_pct.*, drawdown_ladder.reduce_at_pct / restrict_at_pct / halt_at_pct / reduce_factor,
-                       max_positions, max_new_per_day, max_adv_participation_pct, max_chase_pct, approval_expiry_minutes
+                       max_positions, max_new_per_day, max_adv_participation_pct, max_chase_pct, approval_expiry_minutes,
+                       margin_util_pct, fno_max_loss_pct
     lower is looser    min_rr.positional, min_adv_rs, stressed_gap_pct, allocation_buckets_pct.reserve
     neither            allocation_buckets_pct.equity_positional / equity_intraday / fno (moving room between buckets;
                        the reserve and the sum of 100 decide how much is ever allocated)
@@ -80,7 +87,10 @@ SPT_DEFAULTS: Dict[str, Any] = {
     "max_adv_participation_pct": 5.0,
     "max_chase_pct": 1.0,
     "approval_expiry_minutes": 30,
+    "margin_util_pct": 70.0,
 }
+#: margin_util_pct is not a PRD value (module docstring): its source says where it came from.
+EXTRA_SOURCE = {"margin_util_pct": "owner's Paper Trading v2 design (5 Nov); PRD has no figure; configurable"}
 PROFILE_SOURCE = {
     "drawdown_ladder.reduce_at_pct": "risk profile max_drawdown_pct × 1/3",
     "drawdown_ladder.restrict_at_pct": "risk profile max_drawdown_pct × 2/3",
@@ -89,6 +99,7 @@ PROFILE_SOURCE = {
     "risk_pct.positional": "risk profile per_trade_risk_pct",
     "risk_pct.intraday": f"risk profile per_trade_risk_pct × {SHORTER_RISK_FRACTION:g}",
     "risk_pct.fno": f"risk profile per_trade_risk_pct × {SHORTER_RISK_FRACTION:g}",
+    "fno_max_loss_pct": f"risk profile per_trade_risk_pct × {SHORTER_RISK_FRACTION:g} (PRD §9.4)",
 }
 
 #: (low, high, integer?) for every leaf, by dotted path.
@@ -112,12 +123,14 @@ RANGES: Dict[str, tuple] = {
     "max_adv_participation_pct": (0.01, SERVICE_MAX_ADV_PCT, False),
     "max_chase_pct": (0.0, 5.0, False),
     "approval_expiry_minutes": (1, 390, True),
+    "margin_util_pct": (1.0, 100.0, False),
+    "fno_max_loss_pct": (0.01, 5.0, False),
 }
 LEAVES = tuple(RANGES)
 HIGHER_IS_LOOSER = {"risk_pct.positional", "risk_pct.intraday", "risk_pct.fno", "drawdown_ladder.reduce_at_pct",
                     "drawdown_ladder.restrict_at_pct", "drawdown_ladder.halt_at_pct", "drawdown_ladder.reduce_factor",
                     "max_positions", "max_new_per_day", "max_adv_participation_pct", "max_chase_pct",
-                    "approval_expiry_minutes"}
+                    "approval_expiry_minutes", "margin_util_pct", "fno_max_loss_pct"}
 LOWER_IS_LOOSER = {"min_rr.positional", "min_adv_rs", "stressed_gap_pct", "allocation_buckets_pct.reserve"}
 NEUTRAL = set(LEAVES) - HIGHER_IS_LOOSER - LOWER_IS_LOOSER
 HORIZON_RISK_KEY = {"positional": "positional", "intraday": "intraday", "fno": "fno"}
@@ -208,7 +221,8 @@ def profile_defaults(limits: Dict[str, float]) -> Tuple[Dict[str, Any], Dict[str
     out["min_rr"] = {"positional": float(limits["min_reward_risk"])}
     out["risk_pct"] = {"positional": round(per_trade, 4), "intraday": round(per_trade * SHORTER_RISK_FRACTION, 4),
                        "fno": round(per_trade * SHORTER_RISK_FRACTION, 4)}
-    sources = {p: PROFILE_SOURCE.get(p, OWNER_APPROVED) for p in LEAVES}
+    out["fno_max_loss_pct"] = round(per_trade * SHORTER_RISK_FRACTION, 4)
+    sources = {p: PROFILE_SOURCE.get(p) or EXTRA_SOURCE.get(p) or OWNER_APPROVED for p in LEAVES}
     return out, sources
 
 

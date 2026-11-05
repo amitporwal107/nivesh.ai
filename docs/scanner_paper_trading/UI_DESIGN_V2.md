@@ -431,3 +431,70 @@ GET /api/v1/paper/fno-structures  → 200
      pnl_rs, legs: [ {side:"BUY"|"SELL", contract, entry, ltp|null, filled_qty, qty, pnl_rs|null, pending: bool} ],
      scenarios: [ {name, label, pnl_rs} ] } ],
   totals: { margin_rs, max_loss_rs, net: {...} }, limits: { fno_max_loss_pct, margin_util_pct }, basis, notes }
+
+### §7 amendments by the backend build (5 Nov 2026)
+
+Every shape above is built as written; the notes below are what changed or was added, and why. Added keys are additive
+(a client that ignores them is unaffected). Tests: `backend/tests/test_paper_v2_*.py`; cases:
+`test_reports/paper_v2_backend_TESTCASES.md`.
+
+- **Policy version** = risk profile `version` + SPT config `version` (no new store). A mode change (PUT …/config) also
+  moves it. A failed write that was rolled back moves it by 2 (the profile's write + its restore) with the values unchanged.
+- **Policy PUT:**
+  - `expected_version` is REQUIRED (422 `invalid_number`, field `expected_version`, when missing).
+  - A value equal to the one in force is not a change: it is dropped, never pins an SPT override (a draft may send every
+    field; e.g. `restrict_at_pct` keeps following ⅔ of the halt unless set to a different value).
+  - 403 detail = `{code: "admin_required", field: null, message, loosened: [keys]}`; a bucket rise that lowers the
+    reserve is a loosening, named by the bucket key(s) that rose.
+  - 409 detail = `{code: "version_conflict", field: null, message, current_version}`.
+  - 422 codes: `invalid_body`, `unknown_field`, `invalid_number`, `out_of_range`, `reserve_negative`,
+    `halt_not_above_restricted`, `ladder_not_ascending`, `open_risk_below_per_trade`, `weekly_below_daily`, `no_change`,
+    `reason_required`, `reason_too_long`.
+  - The two stores are written one after the other (no multi-document transaction on staging Mongo). When the second
+    write fails, the first is restored and the answer is the second store's refusal (409 `version_conflict`, its 403 /
+    422 code) or NEW 500 `policy_write_failed`, each with `rolled_back: true` (nothing changed). NEW 500
+    `policy_rollback_failed` `{rolled_back: false, written: [fields]}` when the restore failed too.
+  - A restricted level above ⅔ of a halt lowered in the same save (and under ⅓ of the old halt) is judged against the new
+    halt's default by the SPT store: 403 `admin_required` for the holder (the rest is put back).
+  - The holder's PUT may omit `reason` for a tightening; the stored reason is then "Paper Trading › policy panel (no
+    reason entered)" (the risk profile requires one on every change).
+- **Policy GET additions:** per field `looser_when` ("higher" | "lower" | "reserve_falls") and `path`; top level
+  `version_basis`, `stores {risk_profile, spt}`, `defaults_source`, `notes`, `view_version`; `derived.equity_rs` and
+  `derived.reason` (why the rupee figures are null).
+- **New SPT extras' defaults** (corrected 5 Nov: the first build used 0.65, a figure from the design's SAMPLE data, which
+  must never ship):
+  - `fno_max_loss_pct` = the risk profile's `per_trade_risk_pct` × 0.7, the same derivation as `risk_pct.fno` (owner rule
+    5 Nov: defaults come from the user's risk profile; PRD §9.4 / §26 "F&O strategy risk 0.35 %"). 0.35 for the
+    owner-default profile; it follows a later profile change unless overridden. Range 0.01–5.
+  - `margin_util_pct` = 70, `defaults_source` "owner's Paper Trading v2 design (5 Nov); PRD has no figure; configurable".
+- **Overview additions:** `status.feed_mode`, `status.kill_switch.code/reason`; warnings may carry `decision`;
+  `headline.worst_concentration` adds `exposure_rs`, `pct_of_sector_limit` (reported only above 80 % of the max-sector
+  limit); `basis`, `notes`. `kpis` is exactly the §7 list. When the account cannot be read every KPI is null and a danger
+  warning `ACCOUNT_UNREADABLE` says why.
+- **Correlation additions:** `cells` (each null off-diagonal cell with its reason), `concentrated_pairs`, `series`, `with`,
+  `min_overlap`, `version`, `account_id`. `days` must be 20–250 (422 otherwise); a bad `with` → 422 `invalid_symbol`. At
+  most 6 symbols (largest exposure first, `with` last); the rest are named in `notes`. A one-day move ≥ 18 % nulls that
+  series (possible unadjusted bonus/split: the validation's EOD source is raw prices).
+- **Stress test:** the five named rows are `{name, label, loss_rs, pnl_rs, assumption}` plus, where they apply,
+  `reason` (why `loss_rs` is null), `shares_pnl_rs`, `fno_pnl_rs`, `sector`, `symbols`. The three existing rows keep their
+  old shapes (they have no `loss_rs`). A `named` block gives the book counts and the unpriced rows. The named rows read
+  the wider paper book (SPT + desk share trades + desk F&O); the old three read the SPT entries only.
+- **Analytics:** closed SPT positions only (desk paper trades have no setup type or regime at entry). Additions:
+  `profit_factor_reason`, `net_rs`, `daily_points`, `start_capital_rs`, `thresholds`, `version`, `account_id`;
+  `by_setup[].net_rs`; `by_regime[].desk_regimes`. `ratio_reason` is always present (null when both ratios are worked
+  out). Certification uses `warn` for a passing figure on fewer than 30 trades; out-of-sample is always `not_measured`, so
+  no setup is `certified` until a walk-forward split exists.
+- **F&O structures:**
+  - `pnl_rs` and leg `pnl_rs` are GROSS of charges (`pnl_basis`); scenario `pnl_rs` is the CHANGE from the structure's
+    model value now (not P&L since entry); each scenario row has an `assumption`.
+  - `max_loss_rs` is null (with `max_loss_reason`) for an unbounded loss or a long future / shares without a long put
+    (owner rule, 30 Oct); `loss_at_stop_rs` then gives the loss at the structure's stop when it has one.
+  - `margin_rs` is Zerodha's calculator figure; null with `margin_reason` when the platform has no Kite session.
+  - `status: "partial"` / pending legs cannot occur for desk paper structures today (every leg is recorded at once); the
+    detection is built and tested on synthetic legs. Nothing blocks new orders on a partial structure, so the note says
+    only that the filled legs carry unhedged risk.
+  - Additions per structure: `family`, `summary`, `underlying_source`, `profit_unbounded`, `max_loss_limit_rs`,
+    `max_loss_used_pct`, `max_loss_flag` (NEAR_LIMIT > 80 %, BREACH > 100 % of the per-strategy limit), `opened_at`,
+    `notes`, `stress.iv_up_10_rs`; per leg `kind`, `expiry`, `strike`, `option_type`; `totals.count / pnl_rs / scenarios /
+    partial / unhedged / margin_util_used_pct`; `limits.fno_max_loss_rs / margin_limit_rs / equity_rs`; `scenario_note`,
+    `version`.
