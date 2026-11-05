@@ -112,3 +112,52 @@ calibration must show that the separation holds.
 1. What the engine should mainly find: all strong bullish and bearish signals · early breakouts · reversals · accumulation and
    distribution.
 2. Target move: 5–10 % positional · 2–5 % swing · large intraday · all horizons (assumed for now: all, scored per horizon).
+
+## 10. Calibration results — daily signals (5 Nov 2026)
+
+Data: DaaS adjusted daily bars, Nifty Total Market (739 stocks with enough history), 16 Apr 2024 – 4 Nov 2026; 163,656 signal
+events (fit Apr 2024 – Sep 2025: 85,173; test Oct 2025 – Nov 2026: 78,483). Entry at the next open; excess return vs the Nifty
+over the same window; t-statistic over per-day averages (signals on one day count once); costs 0.25 % round trip.
+
+**Excess return vs the Nifty, 20 sessions (fit → test).** Bold = positive in both periods and significant (|t| ≥ 2) in at least one.
+
+| Signal (tier in §2) | Fit | Test | Read |
+|---|---|---|---|
+| **Relative-strength breakout** (2) | +0.61 (t 2.1) | +1.22 (t 3.7) | strongest and most consistent bullish signal |
+| **Higher highs + higher lows** (1) | +0.42 (t 1.5) | +0.78 (t 3.5) | consistent |
+| **MACD bullish cross** (2) | +0.41 (t 1.4) | +0.86 (t 2.0) | consistent |
+| **Setup B pullback continuation** (1) | +0.10 | +1.08 (t 2.4) | consistent sign |
+| **Trend only, above EMA20 > EMA50** (3) | +0.35 | +1.10 (t 2.7) | consistent sign |
+| Breakout + retest (1) | +0.51 | +0.94 | positive both, not significant |
+| 52-week breakout, ≥ 2× volume, delivery ≥ 50 % (S) | +2.00 (n 51) | +0.88 (n 114) | positive both, small samples |
+| 20-day breakout + volume 1.5× (1) | +0.32 | +0.81 | positive at 20 sessions, negative at 5 |
+| Multi-year breakout ≥ 2× (S) | — (no 2-year history yet) | +0.78 (t 0.0) | unproven: one period, few days |
+| Setup A accumulation breakout (S) | −0.05 | +0.21 | **not** a top signal on this data |
+| RSI divergence, setups C and E, Supertrend flip, engulfing at support, Bollinger squeeze | mixed or negative in one period | | no reliable edge |
+| Every bearish signal (breakdowns, LH-LL, bearish crosses, divergences) | negative | negative | shorting them lost against the Nifty |
+
+- **Horizon matters:** at 5 sessions no daily signal beats the Nifty after costs (all within ±0.6 %, win rates 40–48 %); edges
+  appear at 10–20 sessions and only for trend / relative-strength signals.
+- **Price-volume strength on the signal day did not add consistently** (bullish breakouts, 10 sessions): relative volume ≥ 10×
+  +0.46 → −0.33; closing in the top 20 % of the range +0.01 → +0.44 (no better than average); day's range vs ATR no pattern;
+  delivery 50–60 % slightly positive in both (+0.27 → +0.60).
+- **Context:** above a rising EMA50 (+0.23 and +0.56 better than below) and EMA20 > 50 > 200 alignment help in both periods;
+  RSI 75–80 at the signal was the best band in both (+0.51, +1.28) — the 55–75 band is not better; "chasing" (> 3 ATR above
+  EMA20) did *better*, not worse, at 10 sessions; sector index bullish made no difference; the Nifty-above-50-day rule flipped
+  sign between periods.
+- Multi-year breakdowns were followed by a strong rebound (−6.5 % short excess at 20 sessions), but 41 of 132 events are the
+  March 2026 sell-off: one episode, not a rule.
+
+**Proposed revision (needs the owner's OK; intraday results to follow):**
+1. Promote the relative-strength breakout to Tier S; keep HH-HL, setup B, breakout + retest in Tier 1; add MACD bullish cross and
+   trend alignment to Tier 1.
+2. Move setup A, multi-year breakout (until more history), the 20-day breakout with volume and the EMA cross to Tier 2; RSI
+   divergence, setups C and E, Supertrend, engulfing and the Bollinger squeeze to "context only".
+3. No bearish tier for opening shorts; bearish signals become exit and risk warnings.
+4. Price-volume points shrink from 25 to 10 (delivery 50–60 %, RSI 75–80, 20-session return vs Nifty > 10 %); relative-volume and
+   close-location points are dropped for daily signals; drop the chasing penalty for positional plans (keep it for 2–5-day trades).
+5. Score per horizon: positional (10–20 sessions) uses the table above; 2–5-day swing has no qualifying daily signal — it waits
+   for the intraday study (10× first-5-minute volume, opening-range breakout, VWAP reclaim).
+
+Caveats: 2.6 years only, one market history; today's index members (survivorship); edges are vs the Nifty — absolute returns were
+negative in the test period's falling stretches; costs assumed 0.25 %.
