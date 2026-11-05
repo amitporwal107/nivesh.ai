@@ -207,3 +207,19 @@ supporting evidence 10 − 10 per scan when a bearish warning is present; clampe
   divergence, failed breakout, MACD bearish cross, Supertrend flip down, 52-week breakdown on 2× volume.
 - No chasing penalty. Not scored: fewer than 60 sessions, or 20-session average traded value below ₹5 crore.
 - Every point is a component with its weight and reason; the same code scores the live scan (last bar) and history (every bar).
+
+## 12. Shadow check of the shipped v2 on history (AD-SC-15, 5 Nov 2026)
+
+The shipped `v2_positional` scored every bar of 739 stocks (383,674 stock-days). 20-session excess vs the Nifty, entry next open:
+
+| | Fit (Apr 2024 – Sep 2025) | Test (Oct 2025 – Nov 2026) |
+|---|---|---|
+| Universe baseline (all scored stock-days) | +0.07 | +0.91 |
+| Exceptional / Strong / Developing / Weak / Avoid | +0.43 / +0.12 / −0.03 / +0.07 / +0.31 | +1.25 / +1.70 / +1.00 / +1.10 / +0.15 |
+| Primary: RS breakout · setup B · HH-HL · setup A | +0.34 · −0.16 · +0.23 · +0.02 | +1.58 · +1.19 · +0.74 · +0.04 |
+| Rank IC of the v2 score among candidates | −0.004 (t −0.6) | +0.055 (t 7.0) |
+
+v2 ranks candidates in the test period and not in the fit period; the tier choices saw both periods. The relative-strength
+breakout is the most consistent signal; setup A and the bearish-warning penalty add nothing (candidates for v2.1). Judge bands
+against the universe baseline (which beats the Nifty in the test period: equal weighting, survivorship). **v2 stays in shadow
+until live shadow scores confirm it.**
