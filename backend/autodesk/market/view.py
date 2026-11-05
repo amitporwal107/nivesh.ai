@@ -78,6 +78,7 @@ class FnoContract:
     change_in_oi: Optional[int]
     traded_volume: Optional[int]
     lot_size: Optional[int]
+    traded_value_rs: Optional[Decimal] = None   # as published by the exchange file (see pit.py for the unit check)
 
 
 @dataclass(frozen=True)
