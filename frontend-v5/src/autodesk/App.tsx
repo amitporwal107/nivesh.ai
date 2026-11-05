@@ -1,4 +1,5 @@
-/** Routes of the desk app (router basename /autodesk). Every screen renders inside the shell. */
+/** Routes of the desk app (router basename /autodesk). Desk screens render inside the shell; the Simulation studio
+ * (/studio) is a page of its own with its own header, as designed. */
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Shell } from "./shell/Shell";
@@ -11,8 +12,18 @@ const Scanner = lazy(() => import("./screens/Scanner"));
 const Approvals = lazy(() => import("./screens/Approvals"));
 const Simulator = lazy(() => import("./screens/Simulator"));
 const Policies = lazy(() => import("./screens/Policies"));
+const Studio = lazy(() => import("./studio/Studio"));
 
 export default function App() {
+  return (
+    <Routes>
+      <Route path="/studio/*" element={<Suspense fallback={<Loading />}><Studio /></Suspense>} />
+      <Route path="*" element={<Desk />} />
+    </Routes>
+  );
+}
+
+function Desk() {
   return (
     <Shell>
       <Suspense fallback={<Loading />}>

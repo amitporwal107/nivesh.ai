@@ -1,0 +1,6 @@
+{
+  "start": { "method": "POST", "path": "/simulations/{simulation_id}/start", "body": null, "expect": [200] },
+  "run": { "method": "POST", "path": "/simulations/{simulation_id}/run", "body": null, "expect": [202] },
+  "pause": { "method": "POST", "path": "/simulations/{simulation_id}/pause", "body": null, "expect": [200] },
+  "resume": { "method": "POST", "path": "/simulations/{simulation_id}/resume", "body": null, "expect": [200] }
+}

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date
 from pathlib import Path
 
@@ -163,5 +164,12 @@ def test_ui_request_contract(client, file, name, c):
     r = client.request(c["method"], f"/api/v1{path}", json=body, headers=ctx.h)
     assert r.status_code in c["expect"], f"{file}.{name}: {c['method']} {path} {body} → {r.status_code} {r.text}"
     if action == "run" and "simulation_id" in ctx.v:
-        # `run` replays in the background; stop it so it does not outlive the test's database pool.
-        client.post(f"/api/v1/simulations/{ctx.v['simulation_id']}/stop", headers=ctx.h)
+        # `run` replays in the background; stop it and wait for the job to end, so it does not outlive the test's
+        # database pool (that only adds "pool is closing" noise to the log).
+        sid = ctx.v["simulation_id"]
+        client.post(f"/api/v1/simulations/{sid}/stop", headers=ctx.h)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if not client.get(f"/api/v1/simulations/{sid}", headers=ctx.h).json().get("background_run"):
+                break
+            time.sleep(0.1)
