@@ -1,79 +1,80 @@
-# Test cases — Market Intelligence news ticker (authored up front, 2026-11-05)
+# Test cases — Market Intelligence "Market Update" ticker (authored up front 2026-11-05, revised 2026-11-06)
 
-Owner ask (5 Nov 2026, with a screenshot of Market Desk › Market Intelligence): "In the market intelligence section have a
-bloomberg style news ticker where user can see latest quarterly results for today and waiting for tomorrow, fresh order books,
-M&A and all other important aspects."
+Owner asks:
+- 5 Nov 2026 (with a screenshot of Market Desk › Market Intelligence): "have a bloomberg style news ticker where user can see
+  latest quarterly results for today and waiting for tomorrow, fresh order books, M&A and all other important aspects."
+- 6 Nov 2026, on the 20-filings-per-category limit: "we should [show] a summary of the everything, need not to display every
+  thing — 'Market Update'."
 
 ## Design (API + UI, before implementation)
 
 **Where:** Market Desk › Market Intelligence only, between the view head and the AI Event Intelligence panel
 (`tabs/market-desk/MarketDesk.tsx`, intel case). No other view gets it.
 
-**Data: no new backend route.** The ticker composes reads the view already makes, with the same React Query keys, so the
-caches are shared with the Intel list and the Events calendar:
+**What:** a summary band labelled MARKET UPDATE. One item per kind: a count line and a few names. The full lists stay
+below (the event list's chips and the Events calendar).
 
-| Segment (tag) | Source (existing route) | Window / rule |
+**Data: no new backend route.** The band composes existing reads, sharing their React Query caches where the keys match:
+
+| Item | Source (existing route) | Rule |
 |---|---|---|
-| RESULTS (declared, figures) | `GET /api/markets/events-calendar/expectations?from=today&to=tomorrow&universe=all`, plus the same route for the previous weekday alone | today's AND the previous weekday's meetings with loaded figures: Revenue and PAT filed, % vs the same quarter last year (both figures from the route). Added during implementation after real data showed 0 of today's 189 filed results had figures at 19:08 IST (figures load ~20:30), while 88 of the previous day's did |
-| RESULTS FILED (figures pending) | same | today, `filed_state = pending`: filed time, "figures not loaded yet" |
-| DUE TODAY | same | today, upcoming: one grouped item, each symbol clickable |
-| RESULTS TOMORROW | same | tomorrow: one grouped item with the count, first 15 symbols, "+N more" |
-| ORDER | `GET /api/filings/feed?category=orders` (Intel "Orders" chip query) | filings published from 00:00 IST of the previous weekday |
-| M&A · DIVIDEND · BUYBACK | Intel "M&A & actions" chip queries (mna, dividend, buyback) | same window |
-| CAPEX · FUNDRAISE (qip) · RATING | Intel "Announcements" chip queries (management is left out: appointments are noise in a ticker) | same window |
-| BLOCK / BULK DEAL | `GET /api/markets/deals` (Bulk & block chip) | latest deal date only, 6 largest by value; existing wording "acquired / disposed of" |
-| FII / DII | `GET /api/markets/fii-dii` | latest session; existing wording "net inflow / net outflow" |
-| SEBI | `GET /api/markets/circulars` | issued in the window, at most 3 |
-| SECTOR | `GET /api/markets/sector-returns` | last session, |1-day| ≥ 1 %, at most 4 |
+| RESULTS | `GET /api/markets/events-calendar/expectations?from=today&to=tomorrow&universe=all`, plus the same route for the previous weekday | declared since the previous weekday, newest filing first, ≤ 8 names, each with Rev / PAT vs the same quarter last year |
+| RESULTS FILED | same | today, figures not loaded yet |
+| DUE TODAY | same | today's meetings not filed yet (≤ 12 names) |
+| RESULTS TOMORROW | same | tomorrow's meetings (≤ 12 names, "+n more" → the results board) |
+| ORDERS · M&A | count: `GET /api/filings/feed?days=N&sort=latest&limit=1` (`facets`, the whole window). Names: the Intel chips' reads | count since 00:00 IST of the previous weekday; the newest 6 distinct companies; "+n more" → the chip |
+| CORPORATE ACTIONS | the same counts read | Dividend · Buyback · Capex · Fundraise · Rating counts, each → its chip |
+| DEALS | `GET /api/markets/deals` | the latest deal day's count and its 3 largest (one name per company) |
+| FII / DII | `GET /api/markets/fii-dii` | the latest session's net flows |
+| SEBI | `GET /api/markets/circulars` | circulars issued in the window (≤ 2 titles) |
+| SECTORS | `GET /api/markets/sector-returns` | last session's moves of 1 % or more (≤ 4) |
 
 Rules:
-- A filing whose exchange subject is a board-meeting outcome / financial results, from a company with results today, is NOT
-  listed under ORDER / M&A / CAPEX … (the classifier labels many results filings mna/capex; the RESULTS item covers them).
-- YoY % = filed ÷ same quarter last year − 1, only when last year's figure is positive; a filed loss against a profit reads
-  "turned to a loss", a profit against a loss "from a loss", no % otherwise. Never "beat", "miss", "above/below estimate".
-- Universe switch F&O (default) · Nifty 50 · All NSE (the Events calendar's own three) applies to the results segments.
-- Filings re-read every 60 s while the ticker is mounted; the board every 10 min (its existing interval).
-- Wording: no buy / sell / target / stop loss / recommend / pick / suggest (owner 3 Nov compliance rule).
+- YoY % = filed ÷ same quarter last year − 1, only when last year's figure is positive. A filed loss against a profit reads
+  "turned to a loss", a profit against a loss "from a loss". Never beat / miss.
+- A board-meeting outcome or results filing from a company with results in the window is not named under M&A. The count is
+  the classifier's own.
+- Without the counts read, a kind counts the names read, with "+" when that read hit its row limit.
+- Universe switch F&O (default) · Nifty 50 · All NSE filters the results items (one `universe=all` read).
+- Re-read: filings and counts every 60 s; the board every 10 min (its existing interval).
+- Wording: no buy / sell / target / stop loss / recommend / pick / suggest.
 
-**Clicks:** a filing / deal / FII-DII / SEBI / sector item sets `?in_chip=<chip>&in_ev=<event id>` (IntelTab's existing deep
-link) and scrolls to the Intel panel. A results item sets `?ev_open=<calendar event id>&ev_uni=<universe>`, which the Events
-calendar (new, `EventsTab.tsx`) consumes once: right month, RESULTS type on, universe set, the stock's panel/sheet open; the
-params are then removed. Both new params join `VIEW_PARAMS` (dropped on a view change).
+**Clicks:** a name opens its event in the list below (`?in_chip=&in_ev=`) or the company's results panel in the Events calendar
+(`?ev_open=&ev_uni=`, new in `EventsTab.tsx`, consumed once; phone shows a "Back to F&O" note for other lists). "+n more"
+opens the chip (`?in_chip=`, no event) or scrolls to the results board. Both new params join `VIEW_PARAMS`.
 
-**UI:** a dark band, mono type, a fixed left label ("MARKET WIRE" + latest filing time), the tape (two copies, the existing
-`mkt-marquee` seamless loop; speed scales with length), right controls: Pause/Play and the universe switch. Hover and keyboard
-focus pause it. `prefers-reduced-motion`: no animation, the tape scrolls sideways. The second copy is `aria-hidden` and its
-buttons are `tabIndex=-1`. A one-line source note sits under the band.
+**UI:** a dark band with a fixed left label (MARKET UPDATE + the newest filing time), the tape (two copies on the existing
+`mkt-marquee` loop, speed scaled to length, edge fade), and under it Pause, the universe switch and a one-line note. Hover and
+keyboard focus pause it. With reduced motion: no animation, one copy, scrolls sideways. The second copy is `aria-hidden`
+and its buttons have `tabIndex=-1`.
+
+History: the 5 Nov build listed every filing (149 items, ~16 min per pass on real data), then added caps, a Show switch and a
+coverage line. The 6 Nov owner instruction replaced all three with this summary.
 
 ## Test cases
 
 | ID | Area | Scenario | Type | Expected |
 |----|------|----------|------|----------|
-| NT-1 | placement | open Market Intelligence; open the other views | e2e | ticker visible above `desk-panel-intel` on intel only |
-| NT-2 | results | declared row with figures (rev 1,100 vs 1,000; PAT 90 vs 100) | e2e | "Rev ₹1,100 cr ▲10.0% YoY", "PAT ₹90 cr ▼10.0% YoY", period label |
-| NT-3 | results | PAT −5 vs 20; PAT 8 vs −3; last year missing | e2e | "turned to a loss"; "from a loss"; value only |
-| NT-4 | results | filed, figures pending | e2e | "results filed 16:05 · figures not loaded yet" |
-| NT-5 | results | due today (2) and tomorrow (18) | e2e | grouped items with counts and day label; 15 symbols + "+3 more" |
-| NT-6 | filings | orders / mna / dividend / buyback / capex / qip / rating rows today, plus one 9 days old | e2e | one item each with tag, symbol, exchange subject, time; the old one absent; management absent |
-| NT-7 | filings | "Outcome of Board Meeting" (mna) from a company with results today | e2e | not listed under M&A |
-| NT-8 | deals | 8 deals on the latest date + 1 older | e2e | 6 largest of the latest date, "acquired"/"disposed of" |
-| NT-9 | flows | FII −1,234.5 / DII +2,000 | e2e | "FIIs net outflow … · DIIs net inflow …" |
-| NT-10 | SEBI / sector | circular today, one 20 days old; sector moves 2.1 %, −1.4 %, 0.3 % | e2e | today's circular only; the two ≥ 1 % moves |
-| NT-11 | universe | default, then Nifty 50, then All NSE | e2e | board requests carry universe=fno, n50, all |
-| NT-12 | click | an ORDER item | e2e | URL in_chip=orders & in_ev=<id>; the Intel detail shows that filing |
-| NT-13 | click | a deal, the FII/DII item | e2e | in_chip=deals / flows with the event id |
-| NT-14 | click | a results item (desktop) | e2e | ev_open/ev_uni set, then consumed; Events panel for that stock opens |
-| NT-15 | motion | Pause button; hover; reduced motion | e2e | aria-pressed, animation paused; reduced motion: no animation, scrollable |
-| NT-16 | a11y | duplicate copy, labels | e2e | second copy aria-hidden, its buttons tabindex -1; band named |
-| NT-17 | states | loading; one source 500; all 500; nothing in window | e2e | loading line; partial note + rest; error + retry; empty line |
-| NT-18 | phone | 390 px | e2e | no horizontal page scroll; ticker and controls visible |
-| NT-19 | wording | all ticker text | e2e | no buy/sell/target/stop loss/recommend/pick/suggest |
-| NT-20 | refresh | 61 s pass with the ticker mounted | e2e | another /api/filings/feed request |
-| NT-23 | Show switch | 10 orders in the window; Everything, then Orders, then Deals & flows (added after the real-data run: 149 items ≈ 16 min per pass) | e2e | Everything: the newest 8 orders; Orders: all 10, nothing else; counts on the switches (Orders 10, M&A 1, Results 25) |
-| NT-24 | coverage | the M&A read returns its 20-row limit, all from today 09:00 (added after D-3: 61 real M&A filings in the window, the shared read's 20 reached back only to 4 Nov 20:25) | e2e | line under the band: "M&A from 5 Nov, 09:00 IST"; no line when every read is under its limit |
-| NT-21 | regression | market-desk, desk-events, results-today, desk-market specs | e2e | same results as dev |
-| NT-22 | build | tsc --noEmit, vite build | build | clean |
-| D-1 | data | real staging board today/tomorrow (fno, all) | data | counts match nidp.event_calendar SQL |
-| D-2 | data | 3 declared stocks' YoY | data | equals nse_financials_quarterly SQL |
-| D-3 | data | today's orders / M&A filings | data | ticker set ⊆ SQL list for the window, rule NT-7 applied |
-| D-4 | real render | ticker over real staging bodies (captured read-only) | e2e | renders, no page errors; screenshot |
+| NT-1 | placement | Market Intelligence vs other views | e2e | band above `desk-panel-intel`, intel only, label MARKET UPDATE |
+| NT-2 | order, counts | default tape | e2e | results, filed, due, tomorrow, orders, mna, actions, deals, flows, sebi, sector; counts read `days=1&sort=latest&limit=1` |
+| NT-3 | results | 4 declared (today + previous weekday) | e2e | "4 declared since Wed 4 Nov", newest first, `Rev ▲10.0% YoY`, `turned to a loss`, `from a loss`, `₹300 cr` |
+| NT-4/5 | meetings | filed 1, due 2, tomorrow 18 | e2e | count lines; 12 names + "+6 more ›" |
+| NT-6/7/8 | filings | counts 27 / 61 / actions; MNAA twice; OUTCO board outcome | e2e | "27 since Wed 4 Nov", 6 names, "+21 more"; M&A names MNAA once, "+59 more"; actions "Dividend 22 · …" |
+| NT-9 | fallback | counts read fails | e2e | orders "10 since Wed 4 Nov", "+4 more"; no actions item; "Not loaded: filing counts." |
+| NT-10–13 | market | 9 deals (both sides of DLB), flows, circulars, sectors | e2e | "9 bulk / block deals on 5 Nov", DLB once, "+5 more"; `−₹1,235 cr`; today's circular only; ▲2.10% / ▼1.40% |
+| NT-14 | universe | F&O → Nifty 50 → All NSE | e2e | two `universe=all` reads only; the switch filters |
+| NT-15 | clicks | order, "+ more", Capex count, deal, flows | e2e | `in_chip`/`in_ev` as designed; Intel detail shows the filing |
+| NT-16 | clicks | results name, tomorrow name | e2e | Events panel for the company; params consumed |
+| NT-17 | motion, a11y | pause, hover, focus; second copy; names | e2e | paused; `aria-hidden`, 0 tab stops; spoken names |
+| NT-18 | states | partial, all failed, nothing new, loading | e2e | note + retry; error + retry; empty line; loading line |
+| NT-19 | wording | all text in All NSE | e2e | no advice words |
+| NT-20 | refresh | 61 s on a fake clock | e2e | orders and counts read again |
+| NT-21 | reduced motion | `prefers-reduced-motion` | e2e | no animation, one copy, sideways scroll, no Pause |
+| NT-22 | phone | 390 px | e2e | no sideways page scroll; results tap opens the sheet in the right list; "Back to F&O" |
+| NT-R | regression | market-desk, events, results-today, desk-market, shell, top10, audit-wave1, macro | e2e | pass |
+| NT-B | build | tsc, vite build | build | clean |
+| D-1 | data | board counts | data | = nidp.event_calendar SQL |
+| D-2 | data | YoY of 3 stocks | data | = nse_financials_quarterly SQL |
+| D-3 | data | counts read vs SQL | data | facets = SQL since 00:00 IST |
+| D-4 | data | deals count | data | = nidp.bulk_deals + block_deals for the day |
+| D-5 | real render | captured staging bodies, desktop + phone | e2e | renders, no page errors |

@@ -1,11 +1,12 @@
 /**
- * One-screen Copilot app (/v5/app) — Market Desk › Market Intelligence: the news ticker (owner, 5 Nov 2026).
- * Covers tradingdesk/tabs/market-desk/NewsTicker.tsx + news-ticker-data.ts, the Events calendar's ?ev_open=&ev_uni= link
- * (EventsTab.tsx) and the ticker's ?in_chip=&in_ev= links into IntelTab. Test cases: test_reports/intel_news_ticker_TESTCASES.md.
+ * One-screen Copilot app (/v5/app) — Market Desk › Market Intelligence: the "Market Update" ticker (owner, 5–6 Nov 2026: a
+ * Bloomberg-style ticker that is a summary of everything, not every filing). Covers tradingdesk/tabs/market-desk/NewsTicker.tsx
+ * + news-ticker-data.ts, the Events calendar's ?ev_open=&ev_uni= link (EventsTab.tsx) and the ticker's ?in_chip=&in_ev= links
+ * into IntelTab. Test cases: test_reports/intel_news_ticker_TESTCASES.md.
  *
  * MOCK — not real data: every /api response is an inline payload in the shape the real route returns (named beside each)
  * with synthetic symbols and values; expected figures are worked out from the payload. The clock is fixed at Thu 5 Nov
- * 2026, 19:30 IST, so the filings window starts Wed 4 Nov 00:00 IST.
+ * 2026, 19:30 IST (14:00 UTC), so the window starts Wed 4 Nov 00:00 IST and the counts read asks days=1.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
@@ -64,22 +65,23 @@ const frow = (id: string, symbol: string, category: string, docLabel: string, da
   published_at: date, ingested_at: date,
 });
 const FEEDS: Record<string, unknown[]> = {
-  // ten orders in the window (the newest is ORDA), so "Everything" shows 8 of them; one 9 days old
+  // ten orders in the window (the newest is ORDA), one 9 days old
   orders: [frow("ord-1", "ORDA", "Orders", "Bagging/Receiving of orders/contracts", "2026-11-05T17:01:00+05:30"),
     ...Array.from({ length: 9 }, (_, i) => frow(`ord-x${i + 1}`, `ORDX${i + 1}`, "Orders", "Bagging/Receiving of orders/contracts", `2026-11-05T09:0${i}:00+05:30`)),
     frow("ord-old", "ORDOLD", "Orders", "Bagging/Receiving of orders/contracts", "2026-10-27T11:00:00+05:30")],
+  // MNAA filed twice (named once); OUTCO's board outcome on its results day is not named
   mna: [frow("mna-1", "MNAA", "Mna", "Acquisition", "2026-11-05T17:05:00+05:30"),
-    frow("mna-outcome", "OUTCO", "Mna", "Outcome of Board Meeting", "2026-11-05T16:59:00+05:30")],
+    frow("mna-outcome", "OUTCO", "Mna", "Outcome of Board Meeting", "2026-11-05T16:59:00+05:30"),
+    frow("mna-2", "MNAA", "Mna", "Acquisition", "2026-11-05T10:00:00+05:30")],
   dividend: [frow("div-1", "DIVA", "Dividend", "Dividend", "2026-11-04T14:00:00+05:30")],
   buyback: [frow("bb-1", "BBKA", "Buyback", "Buyback", "2026-11-05T12:00:00+05:30")],
-  capex: [frow("cap-1", "CAPX", "Capex", "Capacity addition", "2026-11-05T13:29:00+05:30")],
-  qip: [frow("qip-1", "QIPA", "Qip", "Fund raising", "2026-11-05T11:00:00+05:30")],
-  rating: [frow("rat-1", "RATA", "Rating", "Credit Rating", "2026-11-05T17:18:00+05:30")],
-  management: [frow("mgmt-1", "MGMT", "Management", "Change in Key Managerial Personnel", "2026-11-05T15:00:00+05:30")],
 };
 const feedBody = (rows: unknown[]) => ({ ok: true, total: rows.length, facets: {}, rows, provenance: { error: null } });
+// backend/routes/filings.py filings_feed?days=1&sort=latest&limit=1 — the per-category counts of the whole window (facets)
+const COUNTS = { ok: true, total: 961, facets: { earnings: 285, management: 78, orders: 27, mna: 61, dividend: 22, buyback: 1, capex: 15, qip: 17, rating: 10 }, rows: [] };
 
-// ── deals: backend/routes/markets_desk.py deals ── MOCK — not real data. Eight on the latest day, one the day before.
+// ── deals: backend/routes/markets_desk.py deals ── MOCK — not real data. Nine on the latest day (both sides of DLB's block),
+// one the day before.
 const deal = (symbol: string, value_cr: number, side: string, date = T, kind = "block") => ({
   date, kind, symbol, client_name: `FIXTURE ${symbol} FUND`, side, quantity: 100000, avg_price: 100, value_cr, pct_of_shares: 0.5,
   shares_period_end: "2026-09-30", close_on_day: 101, prev_close: 99, next_date: null, next_close: null, price_vs_close_pct: -1, ingested_at: "2026-11-05T19:00:00+05:30",
@@ -87,7 +89,7 @@ const deal = (symbol: string, value_cr: number, side: string, date = T, kind = "
 const DEALS = {
   as_of: T, from: "2026-11-01", days: 5, kind: "all", source: "NSE bulk and block deals (mock)", disclosure: "Exchange disclosure", count: 9, total: 9,
   rows: [deal("DLA", 50, "BUY"), deal("DLB", 80, "SELL"), deal("DLC", 10, "BUY", T, "bulk"), deal("DLD", 70, "BUY"), deal("DLE", 5, "SELL", T, "bulk"),
-    deal("DLF", 60, "SELL"), deal("DLG", 40, "BUY"), deal("DLH", 30, "BUY"), deal("DLOLD", 999, "BUY", PREV)],
+    deal("DLF", 60, "SELL"), deal("DLG", 40, "BUY"), deal("DLH", 30, "BUY"), deal("DLOLD", 999, "BUY", PREV), deal("DLB", 79.5, "BUY")],
 };
 // ── FII / DII: backend/routes/markets.py markets_fii_dii ── MOCK — not real data
 const FLOWS = { ok: true, as_of: T, monthly: [], daily: [
@@ -112,11 +114,11 @@ const CAL = { month: "2026-11", as_of: T, events: BOARD.events.concat(PREV_BOARD
 })), holidays: [], index_closes: [], gaps: [] };
 const HIST = { symbol: "DECLA", type: "RESULTS", coverage_from: "2025-10-01", n: 0, basis: "mock", occurrences: [], stats: { event_day: {}, d1: {}, w1: {} } };
 
-interface Calls { board: URL[]; feed: URL[] }
-type Fail = Partial<Record<"board" | "prev" | "feed" | "deals" | "flows" | "circulars" | "sectors", number>>;
+interface Calls { board: URL[]; feed: URL[]; counts: URL[] }
+type Fail = Partial<Record<"board" | "prev" | "feed" | "counts" | "deals" | "flows" | "circulars" | "sectors", number>>;
 
-async function setup(page: Page, opts: { fail?: Fail; empty?: boolean; fixedClock?: boolean; feeds?: Record<string, unknown[]> } = {}): Promise<Calls> {
-  const calls: Calls = { board: [], feed: [] };
+async function setup(page: Page, opts: { fail?: Fail; empty?: boolean; fixedClock?: boolean } = {}): Promise<Calls> {
+  const calls: Calls = { board: [], feed: [], counts: [] };
   const fail = opts.fail ?? {};
   await mockApi(page, "populated");
   if (opts.fixedClock !== false) await page.clock.setFixedTime(NOW);
@@ -142,12 +144,16 @@ async function setup(page: Page, opts: { fail?: Fail; empty?: boolean; fixedCloc
   await page.route("**/api/markets/macro-calendar*", (r) => json(r, { month: "2026-11", as_of: T, events: [], holidays: [], index_closes: [], gaps: [], countries: [] }));
   await page.route("**/api/filings/feed*", (r) => {
     const u = new URL(r.request().url());
+    const cat = u.searchParams.get("category");
+    if (!cat && !u.searchParams.get("family") && u.searchParams.get("limit") === "1") {
+      calls.counts.push(u);
+      if (fail.counts) return json(r, { detail: "upstream_unavailable" }, fail.counts);
+      return json(r, opts.empty ? { ...COUNTS, total: 0, facets: {} } : COUNTS);
+    }
     calls.feed.push(u);
     if (fail.feed) return json(r, { detail: "upstream_unavailable" }, fail.feed);
-    const cat = u.searchParams.get("category");
     if (opts.empty) return json(r, feedBody([]));
-    const feeds = { ...FEEDS, ...(opts.feeds ?? {}) };
-    return json(r, feedBody(cat ? feeds[cat] ?? [] : Object.values(feeds).flat()));
+    return json(r, feedBody(cat ? FEEDS[cat] ?? [] : Object.values(FEEDS).flat()));
   });
   await page.route("**/api/filings/*/insights", (r) => json(r, { ok: false, reason: "no_insight_yet" }, 404));
   await page.route("**/api/markets/deals*", (r) => (fail.deals ? json(r, { detail: "x" }, fail.deals) : json(r, opts.empty ? { ...DEALS, rows: [], count: 0, total: 0 } : DEALS)));
@@ -159,22 +165,25 @@ async function setup(page: Page, opts: { fail?: Fail; empty?: boolean; fixedCloc
 
 const tape = (page: Page) => page.getByTestId("md-ticker-tape");
 const item = (page: Page, key: string) => tape(page).getByTestId(`md-ticker-item-${key}`);
+const entry = (page: Page, key: string, id: string) => tape(page).getByTestId(`md-ticker-entry-${key}-${id}`);
+const entryIds = (page: Page, key: string) =>
+  item(page, key).locator(`[data-testid^="md-ticker-entry-${key}-"]`).evaluateAll((els, k) => els.map((e) => (e.getAttribute("data-testid") ?? "").replace(`md-ticker-entry-${k}-`, "")), key);
 const params = (page: Page) => new URL(page.url()).searchParams;
 const BANNED = /\b(buy|sell|sold|bought|target|stop[- ]?loss|recommend\w*|pick\w*|suggest\w*|beat|miss(ed)?)\b/i;
 
-test.describe("MOCK — not real data: Market Intelligence news ticker (desktop)", () => {
+test.describe("MOCK — not real data: Market Update (desktop)", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
 
-  test("NT-1 the ticker sits above the event list on Market Intelligence only", async ({ page }) => {
+  test("NT-1 the band sits above the event list on Market Intelligence only", async ({ page }) => {
     await setup(page);
     await page.goto(INTEL);
     const ticker = page.getByTestId("md-ticker");
     await expect(ticker).toBeVisible(SLOW);
-    await expect(ticker).toHaveAttribute("aria-label", "Market news ticker");
+    await expect(ticker).toHaveAttribute("aria-label", "Market update");
     const tBox = await page.getByTestId("desk-panel-ticker").boundingBox();
     const iBox = await page.getByTestId("desk-panel-intel").boundingBox();
     expect(tBox && iBox && tBox.y < iBox.y).toBe(true);
-    await expect(page.getByTestId("md-ticker-label")).toContainText("MARKET WIRE");
+    await expect(page.getByTestId("md-ticker-label")).toContainText("MARKET UPDATE");
     for (const view of ["smartmoney", "sectors", "research", "screener"]) {
       await page.goto(`${DESK}?tab=market&view=${view}`);
       await expect(page.getByTestId("md-head")).toHaveAttribute("data-view", view, SLOW);
@@ -182,105 +191,96 @@ test.describe("MOCK — not real data: Market Intelligence news ticker (desktop)
     }
   });
 
-  test("NT-2/3/4 results: figures vs the same quarter last year, losses in words, filed-pending, previous day", async ({ page }) => {
-    await setup(page);
+  test("NT-2 one item per kind, in order; the counts come from the counts read", async ({ page }) => {
+    const calls = await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
-    const decla = item(page, `res-${evId(T, "DECLA")}`);
-    await expect(decla).toContainText("DECLA");
-    await expect(decla).toContainText("Q2 FY27 results");
-    await expect(decla.getByTestId("md-ticker-fig-revenue")).toHaveText(/Rev\s*₹1,100 cr\s*▲10\.0% YoY/);
-    await expect(decla.getByTestId("md-ticker-fig-pat")).toHaveText(/PAT\s*₹90 cr\s*▼10\.0% YoY/);
-    await expect(decla).toContainText("16:10");
-    const loss = item(page, `res-${evId(T, "LOSSA")}`);
-    await expect(loss.getByTestId("md-ticker-fig-pat")).toContainText("turned to a loss");
-    await expect(loss.getByTestId("md-ticker-fig-pat")).not.toContainText("%");
-    const gain = item(page, `res-${evId(T, "GAINB")}`);
-    await expect(gain.getByTestId("md-ticker-fig-pat")).toContainText("from a loss");
-    await expect(gain.getByTestId("md-ticker-fig-revenue")).toHaveText(/Rev\s*₹300 cr$/);
-    // previous weekday's declared results, dated
-    const prev = item(page, `res-${evId(PREV, "PREVA")}`);
-    await expect(prev.getByTestId("md-ticker-fig-revenue")).toContainText("▲25.0% YoY");
-    await expect(prev.getByTestId("md-ticker-fig-pat")).toContainText("▲20.0% YoY");
-    await expect(prev).toContainText("4 Nov");
-    // newest filing first: LOSSA 17:00, DECLA 16:10, GAINB 15:00, PREVA 4 Nov
-    const keys = await tape(page).locator('[data-tag="results"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    expect(keys).toEqual([`md-ticker-item-res-${evId(T, "LOSSA")}`, `md-ticker-item-res-${evId(T, "DECLA")}`, `md-ticker-item-res-${evId(T, "GAINB")}`, `md-ticker-item-res-${evId(PREV, "PREVA")}`]);
-    // filed, figures pending
-    const pend = item(page, `filed-${evId(T, "PENDA")}`);
-    await expect(pend).toContainText("figures not loaded yet");
-    await expect(pend).toContainText("16:05");
-    // F&O by default: the non-F&O company is not on the tape
-    await expect(item(page, `res-${evId(T, "WIDEC")}`)).toHaveCount(0);
-  });
-
-  test("NT-5 due today and tomorrow are grouped; tomorrow shows 15 and '+3 more'", async ({ page }) => {
-    await setup(page);
-    await page.goto(INTEL);
-    const due = item(page, `due-${T}`);
-    await expect(due).toContainText("Thu 5 Nov · 2 companies", SLOW);
-    await expect(due.getByTestId("md-ticker-sym-due-DUEA")).toBeVisible();
-    await expect(due.getByTestId("md-ticker-sym-due-DUEB")).toBeVisible();
-    const tom = item(page, `tomorrow-${TOM}`);
-    await expect(tom).toContainText("Results tomorrow");
-    await expect(tom).toContainText("Fri 6 Nov · 18 companies");
-    await expect(tom.locator('[data-testid^="md-ticker-sym-tomorrow-"]')).toHaveCount(15);
-    await expect(tom.getByTestId("md-ticker-more-tomorrow")).toHaveText("+3 more ›");
-    await expect(tom.getByTestId("md-ticker-sym-tomorrow-TOMWIDE")).toHaveCount(0);
-  });
-
-  test("NT-6/7 filings since the previous weekday, one tag each; the old one, management and the results outcome are left out", async ({ page }) => {
-    await setup(page);
-    await page.goto(INTEL);
-    await expect(tape(page)).toBeVisible(SLOW);
-    const expectTag = async (id: string, tag: string, symbol: string, text: string, when: string) => {
-      const it = item(page, `filing-${id}`);
-      await expect(it, id).toHaveAttribute("data-tag", tag);
-      await expect(it, id).toContainText(symbol);
-      await expect(it, id).toContainText(text);
-      await expect(it, id).toContainText(when);
-    };
-    await expectTag("ord-1", "order", "ORDA", "Bagging/Receiving of orders/contracts", "17:01");
-    await expectTag("mna-1", "mna", "MNAA", "Acquisition", "17:05");
-    await expectTag("div-1", "dividend", "DIVA", "Dividend", "4 Nov");
-    await expectTag("bb-1", "buyback", "BBKA", "Buyback", "12:00");
-    await expectTag("cap-1", "capex", "CAPX", "Capacity addition", "13:29");
-    await expectTag("qip-1", "fundraise", "QIPA", "Fund raising", "11:00");
-    await expectTag("rat-1", "rating", "RATA", "Credit Rating", "17:18");
-    await expect(item(page, "filing-ord-old")).toHaveCount(0);
-    await expect(item(page, "filing-mgmt-1")).toHaveCount(0);
-    await expect(item(page, "filing-mna-outcome")).toHaveCount(0);
-    // tag order on the tape: results → order → M&A → buyback → dividend → capex → fundraise → rating → deals → flows → SEBI → sector
     const tags = await tape(page).locator("[data-tag]").evaluateAll((els) => els.map((e) => e.getAttribute("data-tag")));
-    const firsts = tags.filter((t, i) => tags.indexOf(t) === i);
-    expect(firsts).toEqual(["results", "filed", "due", "tomorrow", "order", "mna", "buyback", "dividend", "capex", "fundraise", "rating", "deal", "flows", "sebi", "sector"]);
+    expect(tags).toEqual(["results", "filed", "due", "tomorrow", "orders", "mna", "actions", "deals", "flows", "sebi", "sector"]);
+    expect(calls.counts).toHaveLength(1);
+    expect([calls.counts[0].searchParams.get("days"), calls.counts[0].searchParams.get("sort"), calls.counts[0].searchParams.get("limit")]).toEqual(["1", "latest", "1"]);
   });
 
-  test("NT-8/9/10 deals of the latest day (6 largest), FII / DII, SEBI in the window, sector moves of 1% or more", async ({ page }) => {
+  test("NT-3 results: declared since the previous weekday with their change on the year; losses in words", async ({ page }) => {
     await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
-    const deals = await tape(page).locator('[data-tag="deal"]').evaluateAll((els) => els.map((e) => (e.textContent ?? "").match(/DL[A-Z]+?(?=FIXTURE)/)?.[0]));
-    expect(deals).toEqual(["DLB", "DLD", "DLF", "DLA", "DLG", "DLH"]);
-    const dlb = tape(page).locator('[data-tag="deal"]').first();
-    await expect(dlb).toContainText("FIXTURE DLB FUND disposed of 1.00 L shares");
-    await expect(dlb).toContainText("₹80 cr");
-    await expect(dlb).toContainText("0.50%");
-    await expect(tape(page).locator('[data-tag="deal"]').nth(1)).toContainText("acquired");
-    const flows = tape(page).locator('[data-tag="flows"]');
-    await expect(flows).toHaveCount(1);
-    await expect(flows.getByTestId("md-ticker-fig-fii")).toContainText("−₹1,235 cr");
-    await expect(flows.getByTestId("md-ticker-fig-dii")).toContainText("+₹2,000 cr");
-    const sebi = tape(page).locator('[data-tag="sebi"]');
-    await expect(sebi).toHaveCount(1);
-    await expect(sebi).toContainText("Fixture circular on investor charters");
-    const sec = tape(page).locator('[data-tag="sector"]');
-    await expect(sec).toHaveCount(2);
-    await expect(sec.nth(0)).toContainText("Nifty IT rose 2.10%");
-    await expect(sec.nth(1)).toContainText("Nifty Metal fell 1.40%");
+    await expect(tape(page).getByTestId("md-ticker-count-results")).toHaveText("4 declared since Wed 4 Nov");
+    // newest filing first: LOSSA 17:00, DECLA 16:10, GAINB 15:00, PREVA 4 Nov; the non-F&O WIDEC is not on the F&O tape
+    expect(await entryIds(page, "results")).toEqual([evId(T, "LOSSA"), evId(T, "DECLA"), evId(T, "GAINB"), evId(PREV, "PREVA")]);
+    const decla = entry(page, "results", evId(T, "DECLA"));
+    await expect(decla.getByTestId("md-ticker-fig-revenue")).toHaveText(/Rev\s*▲10\.0% YoY/);
+    await expect(decla.getByTestId("md-ticker-fig-pat")).toHaveText(/PAT\s*▼10\.0% YoY/);
+    await expect(entry(page, "results", evId(T, "LOSSA")).getByTestId("md-ticker-fig-pat")).toHaveText(/PAT\s*turned to a loss/);
+    const gain = entry(page, "results", evId(T, "GAINB"));
+    await expect(gain.getByTestId("md-ticker-fig-revenue")).toHaveText(/Rev\s*₹300 cr/);
+    await expect(gain.getByTestId("md-ticker-fig-pat")).toHaveText(/PAT\s*from a loss/);
+    await expect(entry(page, "results", evId(PREV, "PREVA")).getByTestId("md-ticker-fig-pat")).toHaveText(/PAT\s*▲20\.0% YoY/);
+    await expect(tape(page).getByTestId("md-ticker-more-results")).toHaveCount(0);
   });
 
-  test("NT-11 one board read for all NSE; the switch filters it (F&O default, Nifty 50, All NSE)", async ({ page }) => {
+  test("NT-4/5 filed, due today and tomorrow: counts and names; tomorrow shows 12 and '+6 more'", async ({ page }) => {
+    await setup(page);
+    await page.goto(INTEL);
+    await expect(tape(page)).toBeVisible(SLOW);
+    await expect(tape(page).getByTestId("md-ticker-count-filed")).toHaveText("1 filed today, figures not loaded yet");
+    expect(await entryIds(page, "filed")).toEqual([evId(T, "PENDA")]);
+    await expect(tape(page).getByTestId("md-ticker-count-due")).toHaveText("2 meetings today");
+    expect(await entryIds(page, "due")).toEqual([evId(T, "DUEA"), evId(T, "DUEB")]);
+    await expect(tape(page).getByTestId("md-ticker-count-tomorrow")).toHaveText("Fri 6 Nov · 18 meetings");
+    expect(await entryIds(page, "tomorrow")).toHaveLength(12);
+    await expect(tape(page).getByTestId("md-ticker-more-tomorrow")).toHaveText("+6 more ›");
+  });
+
+  test("NT-6/7/8 orders and M&A: the full count with the newest names; corporate actions as counts", async ({ page }) => {
+    await setup(page);
+    await page.goto(INTEL);
+    await expect(tape(page)).toBeVisible(SLOW);
+    await expect(tape(page).getByTestId("md-ticker-count-orders")).toHaveText("27 since Wed 4 Nov");
+    expect(await entryIds(page, "orders")).toEqual(["ord-1", "ord-x9", "ord-x8", "ord-x7", "ord-x6", "ord-x5"]);
+    await expect(entry(page, "orders", "ord-1")).toHaveText("ORDA");
+    await expect(tape(page).getByTestId("md-ticker-more-orders")).toHaveText("+21 more ›");
+    // the board-meeting outcome of a company with results today is not named under M&A; the count is the classifier's
+    await expect(tape(page).getByTestId("md-ticker-count-mna")).toHaveText("61 since Wed 4 Nov");
+    // MNAA filed twice (one event of two records in the list): named once, "+ more" counts the other filings (61 − MNAA's 2)
+    expect(await entryIds(page, "mna")).toEqual(["mna-1"]);
+    await expect(tape(page).getByTestId("md-ticker-more-mna")).toHaveText("+59 more ›");
+    await expect(tape(page).getByTestId("md-ticker-count-actions")).toHaveText("65 since Wed 4 Nov");
+    const actions = await item(page, "actions").locator('[data-testid^="md-ticker-entry-actions-"]').allInnerTexts();
+    expect(actions).toEqual(["Dividend 22", "Buyback 1", "Capex 15", "Fundraise 17", "Rating 10"]);
+  });
+
+  test("NT-9 when the counts read fails, the names read is counted and the note says what did not load", async ({ page }) => {
+    await setup(page, { fail: { counts: 500 } });
+    await page.goto(INTEL);
+    await expect(tape(page)).toBeVisible(SLOW);
+    await expect(tape(page).getByTestId("md-ticker-count-orders")).toHaveText("10 since Wed 4 Nov", SLOW);
+    await expect(tape(page).getByTestId("md-ticker-more-orders")).toHaveText("+4 more ›");
+    await expect(item(page, "actions")).toHaveCount(0);
+    await expect(page.getByTestId("md-ticker-partial")).toContainText("Not loaded: filing counts.");
+  });
+
+  test("NT-10/11/12/13 deals, FII / DII, SEBI and sectors", async ({ page }) => {
+    await setup(page);
+    await page.goto(INTEL);
+    await expect(tape(page)).toBeVisible(SLOW);
+    await expect(tape(page).getByTestId("md-ticker-count-deals")).toHaveText("9 bulk / block deals on 5 Nov, the largest");
+    // both sides of DLB's block are one name (the larger), and "+ more" counts the other deals (9 − DLB's 2 − DLD − DLF)
+    const deals = await item(page, "deals").locator('[data-testid^="md-ticker-entry-deals-"]').allInnerTexts();
+    expect(deals.map((s) => s.replace(/\s+/g, " "))).toEqual(["DLB ₹80 cr", "DLD ₹70 cr", "DLF ₹60 cr"]);
+    await expect(tape(page).getByTestId("md-ticker-more-deals")).toHaveText("+5 more ›");
+    await expect(tape(page).getByTestId("md-ticker-count-flows")).toHaveText("5 Nov, cash market, provisional");
+    await expect(item(page, "flows").getByTestId("md-ticker-fig-fii")).toHaveText(/FII net\s*−₹1,235 cr/);
+    await expect(item(page, "flows").getByTestId("md-ticker-fig-dii")).toHaveText(/DII net\s*\+₹2,000 cr/);
+    await expect(tape(page).getByTestId("md-ticker-count-sebi")).toHaveText("1 circular since Wed 4 Nov");
+    await expect(item(page, "sebi")).toContainText("Fixture circular on investor charters");
+    await expect(item(page, "sebi")).not.toContainText("Fixture old circular");
+    await expect(tape(page).getByTestId("md-ticker-count-sector")).toHaveText("moved 1% or more on 5 Nov");
+    const sec = await item(page, "sector").locator('[data-testid^="md-ticker-entry-sector-"]').allInnerTexts();
+    expect(sec.map((s) => s.replace(/\s+/g, " "))).toEqual(["Nifty IT ▲2.10%", "Nifty Metal ▼1.40%"]);
+  });
+
+  test("NT-14 one board read for all NSE; the switch filters it (F&O default, Nifty 50, All NSE)", async ({ page }) => {
     const calls = await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
@@ -288,152 +288,106 @@ test.describe("MOCK — not real data: Market Intelligence news ticker (desktop)
     // the ticker's reads are universe=all (the Events calendar below makes its own F&O read of today and tomorrow)
     const tickerReads = () => calls.board.filter((u) => u.searchParams.get("universe") === "all");
     await expect.poll(() => tickerReads().length).toBe(2);
-    const boards = tickerReads().map((u) => `${u.searchParams.get("from")}..${u.searchParams.get("to")}`);
-    expect(boards.sort()).toEqual([`${PREV}..${PREV}`, `${T}..${TOM}`].sort());
+    expect(tickerReads().map((u) => `${u.searchParams.get("from")}..${u.searchParams.get("to")}`).sort()).toEqual([`${PREV}..${PREV}`, `${T}..${TOM}`].sort());
     await page.getByTestId("md-ticker-uni-n50").click();
-    await expect(item(page, `res-${evId(T, "DECLA")}`)).toBeVisible();
-    await expect(item(page, `res-${evId(T, "LOSSA")}`)).toHaveCount(0);
-    await expect(item(page, `tomorrow-${TOM}`)).toHaveCount(0);
+    expect(await entryIds(page, "results")).toEqual([evId(T, "DECLA")]);
+    await expect(item(page, "tomorrow")).toHaveCount(0);
     await page.getByTestId("md-ticker-uni-all").click();
-    await expect(item(page, `res-${evId(T, "WIDEC")}`)).toContainText("▲100.0% YoY");
-    await expect(item(page, `tomorrow-${TOM}`)).toContainText("19 companies");
-    // switching filters the one read; nothing is fetched again and no n50 read is made
+    await expect(tape(page).getByTestId("md-ticker-count-results")).toHaveText("5 declared since Wed 4 Nov");
+    await expect(entry(page, "results", evId(T, "WIDEC")).getByTestId("md-ticker-fig-revenue")).toHaveText(/▲100\.0% YoY/);
+    await expect(tape(page).getByTestId("md-ticker-count-tomorrow")).toHaveText("Fri 6 Nov · 19 meetings");
     expect(tickerReads().length).toBe(2);
     expect(calls.board.filter((u) => u.searchParams.get("universe") === "n50")).toHaveLength(0);
   });
 
-  test("NT-23 Show: Everything keeps the newest 8 orders; a kind shows all of it, with its count", async ({ page }) => {
-    await setup(page);
-    await page.goto(INTEL);
-    await expect(tape(page)).toBeVisible(SLOW);
-    await expect(page.getByTestId("md-ticker-focus-all")).toHaveAttribute("aria-pressed", "true");
-    const orderKeys = () => tape(page).locator('[data-tag="order"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    const all = await orderKeys();
-    expect(all).toHaveLength(8);
-    expect(all[0]).toBe("md-ticker-item-filing-ord-1");
-    await expect(page.getByTestId("md-ticker-focus-orders")).toHaveText("Orders10");
-    await expect(page.getByTestId("md-ticker-focus-mna")).toHaveText("M&A1");
-    // F&O results: 4 declared + 1 filed + 2 due today + 18 tomorrow
-    await expect(page.getByTestId("md-ticker-focus-results")).toHaveText("Results25");
-    await page.getByTestId("md-ticker-focus-orders").click();
-    await expect(page.getByTestId("md-ticker-focus-orders")).toHaveAttribute("aria-pressed", "true");
-    await expect.poll(async () => (await orderKeys()).length).toBe(10);
-    const tags = await tape(page).locator("[data-tag]").evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-tag")))]);
-    expect(tags).toEqual(["order"]);
-    await page.getByTestId("md-ticker-focus-market").click();
-    const market = await tape(page).locator("[data-tag]").evaluateAll((els) => [...new Set(els.map((e) => e.getAttribute("data-tag")))]);
-    expect(market).toEqual(["deal", "flows", "sebi", "sector"]);
-  });
-
-  test("NT-24 a kind whose read hits the row limit before the window's start says from when it is covered", async ({ page }) => {
-    // the M&A read returns its limit of 20 rows, all from today 09:00–09:19, so the tape covers M&A only from 09:00
-    const full = Array.from({ length: 20 }, (_, i) => frow(`mna-f${i}`, `MNAF${i}`, "Mna", "Acquisition", `2026-11-05T09:${String(i).padStart(2, "0")}:00+05:30`));
-    await setup(page, { feeds: { mna: full } });
-    await page.goto(INTEL);
-    await expect(tape(page)).toBeVisible(SLOW);
-    await expect(page.getByTestId("md-ticker-reach")).toHaveText(
-      "Each kind reads the newest 20 filings (40 for orders), so these start after Wed 4 Nov: M&A from 5 Nov, 09:00 IST.",
-    );
-    // the default fixture stays under every limit: no such line
-    const p2 = await page.context().newPage();
-    await setup(p2);
-    await p2.goto(INTEL);
-    await expect(p2.getByTestId("md-ticker-tape")).toBeVisible(SLOW);
-    await expect(p2.getByTestId("md-ticker-reach")).toHaveCount(0);
-  });
-
-  test("NT-12/13 a filing, a deal and the FII / DII item open their event in the list below", async ({ page }) => {
+  test("NT-15 names open their event below; '+ more' opens the whole list", async ({ page }) => {
     await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
     await page.getByTestId("md-ticker-pause").click();
-    await item(page, "filing-ord-1").getByRole("button").click();
+    await entry(page, "orders", "ord-1").click();
     await expect.poll(() => params(page).get("in_chip")).toBe("orders");
     expect(params(page).get("in_ev")).toBe("ord-1");
     await expect(page.getByTestId("desk-panel-intel").getByTestId("desk-event-title").first()).toContainText("Bagging/Receiving of orders/contracts", SLOW);
-    await tape(page).locator('[data-tag="deal"]').first().getByRole("button").click();
+    await tape(page).getByTestId("md-ticker-more-mna").click();
+    await expect.poll(() => params(page).get("in_chip")).toBe("mna");
+    expect(params(page).get("in_ev")).toBeNull();
+    await item(page, "actions").getByRole("button", { name: /Capex 15/ }).click();
+    await expect.poll(() => params(page).get("in_chip")).toBe("announcements");
+    await item(page, "deals").locator('[data-testid^="md-ticker-entry-deals-"]').first().click();
     await expect.poll(() => params(page).get("in_chip")).toBe("deals");
     expect(params(page).get("in_ev")).toMatch(/^deal-2026-11-05-block-DLB-/);
-    await tape(page).locator('[data-tag="flows"]').getByRole("button").click();
+    await item(page, "flows").getByRole("button").click();
     await expect.poll(() => params(page).get("in_chip")).toBe("flows");
     expect(params(page).get("in_ev")).toBe(`fiidii-${T}`);
   });
 
-  test("NT-14 a results item opens that company in the Events calendar; the link is used once", async ({ page }) => {
+  test("NT-16 a results name opens that company in the Events calendar; the link is used once", async ({ page }) => {
     await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
     await page.getByTestId("md-ticker-pause").click();
-    await item(page, `res-${evId(T, "DECLA")}`).getByRole("button").click();
+    await entry(page, "results", evId(T, "DECLA")).click();
     const panel = page.getByTestId("desk-panel-events").getByTestId("events-panel");
     await expect(panel).toContainText("DECLA Ltd (mock)", SLOW);
     await expect.poll(() => params(page).get("ev_open")).toBeNull();
     expect(params(page).get("ev_uni")).toBeNull();
-    // a grouped company (tomorrow) opens its own panel too
     await page.getByTestId("events-panel-close").first().click();
-    await tape(page).getByTestId("md-ticker-sym-tomorrow-TOM02").click();
+    await entry(page, "tomorrow", evId(TOM, "TOM02")).click();
     await expect(panel).toContainText("TOM02 Ltd (mock)", SLOW);
   });
 
-  test("NT-15/16 pause, hover and focus stop the tape; the copy is hidden from assistive technology", async ({ page }) => {
+  test("NT-17 pause, hover and focus stop the tape; the copy is hidden from assistive technology", async ({ page }) => {
     await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
     const track = page.getByTestId("md-ticker-track");
     const state = () => track.evaluate((el) => getComputedStyle(el).animationPlayState);
-    const name = () => track.evaluate((el) => getComputedStyle(el).animationName);
-    expect(await name()).toBe("mkt-marquee");
+    expect(await track.evaluate((el) => getComputedStyle(el).animationName)).toBe("mkt-marquee");
     expect(await state()).toBe("running");
     const pause = page.getByTestId("md-ticker-pause");
     await pause.click();
     await expect(pause).toHaveAttribute("aria-pressed", "true");
-    await expect(pause).toHaveAccessibleName("Play the ticker");
+    await expect(pause).toHaveAccessibleName("Play the market update");
     expect(await state()).toBe("paused");
     await pause.click();
-    await expect(pause).toHaveAttribute("aria-pressed", "false");
     await page.mouse.move(0, 0);
     expect(await state()).toBe("running");
     await page.getByTestId("md-ticker-view").hover();
     expect(await state()).toBe("paused");
     await page.mouse.move(0, 0);
-    // keyboard focus inside the tape pauses it
-    await item(page, "filing-ord-1").getByRole("button").focus();
+    await entry(page, "orders", "ord-1").focus();
     await expect(track).toHaveAttribute("data-paused", "true");
-    // the second copy: aria-hidden, no tab stops; the first copy's buttons are named
     const copy = page.getByTestId("md-ticker-tape-copy");
     await expect(copy).toHaveAttribute("aria-hidden", "true");
-    const tabbable = await copy.locator("button").evaluateAll((els) => els.filter((e) => e.getAttribute("tabindex") !== "-1").length);
-    expect(tabbable).toBe(0);
-    await expect(item(page, "filing-ord-1").getByRole("button")).toHaveAccessibleName(/Order, ORDA, Bagging\/Receiving of orders\/contracts, 17:01/);
+    expect(await copy.locator("button").evaluateAll((els) => els.filter((e) => e.getAttribute("tabindex") !== "-1").length)).toBe(0);
+    await expect(entry(page, "results", evId(T, "DECLA"))).toHaveAccessibleName("Results, DECLA, Rev up 10.0% YoY, PAT down 10.0% YoY");
+    await expect(tape(page).getByTestId("md-ticker-more-orders")).toHaveAccessibleName("Orders: the other 21, in the full list below");
   });
 
-  test("NT-17 states: loading, partial, all failed with retry, nothing in the window", async ({ page }) => {
-    // partial: deals and the board fail; filings still show, and the note names what did not load
+  test("NT-18 states: partial, all failed with retry, nothing new, loading", async ({ page }) => {
     await setup(page, { fail: { deals: 500, board: 500 } });
     await page.goto(INTEL);
-    await expect(item(page, "filing-ord-1")).toBeVisible(SLOW);
+    await expect(item(page, "orders")).toBeVisible(SLOW);
     await expect(page.getByTestId("md-ticker-partial")).toContainText("Not loaded: results, deals.");
     await expect(page.getByTestId("md-ticker-partial-retry")).toBeVisible();
 
     const p2 = await page.context().newPage();
-    await setup(p2, { fail: { board: 500, prev: 500, feed: 500, deals: 500, flows: 500, circulars: 500, sectors: 500 } });
+    await setup(p2, { fail: { board: 500, prev: 500, feed: 500, counts: 500, deals: 500, flows: 500, circulars: 500, sectors: 500 } });
     await p2.goto(INTEL);
-    await expect(p2.getByTestId("md-ticker-error")).toContainText("The ticker’s sources didn’t load.", SLOW);
+    await expect(p2.getByTestId("md-ticker-error")).toContainText("The market update’s sources didn’t load.", SLOW);
     await expect(p2.getByTestId("md-ticker-retry")).toBeVisible();
 
     const p3 = await page.context().newPage();
     await setup(p3, { empty: true });
     await p3.goto(INTEL);
-    await expect(p3.getByTestId("md-ticker-empty")).toContainText("Nothing on the wire since Wed 4 Nov", SLOW);
+    await expect(p3.getByTestId("md-ticker-empty")).toContainText("Nothing new since Wed 4 Nov", SLOW);
 
     const p4 = await page.context().newPage();
     await setup(p4);
-    await p4.route("**/api/markets/events-calendar/expectations*", () => undefined); // never answers
-    await p4.route("**/api/filings/feed*", () => undefined);
-    await p4.route("**/api/markets/deals*", () => undefined);
-    await p4.route("**/api/markets/fii-dii*", () => undefined);
-    await p4.route("**/api/markets/circulars*", () => undefined);
-    await p4.route("**/api/markets/sector-returns", () => undefined);
+    for (const pat of ["**/api/markets/events-calendar/expectations*", "**/api/filings/feed*", "**/api/markets/deals*", "**/api/markets/fii-dii*", "**/api/markets/circulars*", "**/api/markets/sector-returns"]) {
+      await p4.route(pat, () => undefined); // never answers
+    }
     await p4.goto(INTEL);
     await expect(p4.getByTestId("md-ticker-loading")).toBeVisible(SLOW);
   });
@@ -450,38 +404,38 @@ test.describe("MOCK — not real data: Market Intelligence news ticker (desktop)
   });
 });
 
-test.describe("MOCK — not real data: news ticker refresh, reduced motion and phone", () => {
-  test("NT-20 filings are re-read every minute while the ticker is on screen", async ({ page }) => {
+test.describe("MOCK — not real data: Market Update refresh, reduced motion and phone", () => {
+  test("NT-20 counts and names are re-read every minute while the band is on screen", async ({ page }) => {
     await page.clock.install({ time: NOW });
     const calls = await setup(page, { fixedClock: false });
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
     const orders = () => calls.feed.filter((u) => u.searchParams.get("category") === "orders").length;
-    const before = orders();
+    const [o, c] = [orders(), calls.counts.length];
     await page.clock.runFor(61_000);
-    await expect.poll(orders).toBeGreaterThan(before);
+    await expect.poll(orders).toBeGreaterThan(o);
+    await expect.poll(() => calls.counts.length).toBeGreaterThan(c);
   });
 
-  test("NT-15b reduced motion: no animation, one copy, scrolls sideways, no Pause button", async ({ page }) => {
+  test("NT-21 reduced motion: no animation, one copy, scrolls sideways, no Pause button", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
     await expect(page.getByTestId("md-ticker-tape-copy")).toHaveCount(0);
     await expect(page.getByTestId("md-ticker-pause")).toHaveCount(0);
-    const anim = await page.getByTestId("md-ticker-track").evaluate((el) => getComputedStyle(el).animationName);
-    expect(anim).toBe("none");
+    expect(await page.getByTestId("md-ticker-track").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
     const view = page.getByTestId("md-ticker-view");
     expect(await view.evaluate((el) => getComputedStyle(el).overflowX)).toBe("auto");
     expect(await view.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   });
 
-  test("NT-18 phone 390 px: no sideways page scroll; the controls sit under the band; a results tap opens the sheet", async ({ page }) => {
+  test("NT-22 phone 390 px: no sideways page scroll; a results tap opens the sheet in the right list", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setup(page);
     await page.goto(INTEL);
     await expect(tape(page)).toBeVisible(SLOW);
-    await expect(page.getByTestId("md-ticker-label")).toContainText("WIRE");
+    await expect(page.getByTestId("md-ticker-label")).toContainText("UPDATE");
     await expect(page.getByTestId("md-ticker-uni-fno")).toBeVisible();
     const o = await page.evaluate(() => {
       const sc = document.querySelector('[data-testid="copilot-scroll"]') as HTMLElement | null;
@@ -492,12 +446,11 @@ test.describe("MOCK — not real data: news ticker refresh, reduced motion and p
     await page.getByTestId("md-ticker-pause").click();
     await page.getByTestId("md-ticker").screenshot({ path: "e2e/screenshots/desk-news-ticker/phone-ticker.png" });
     await page.getByTestId("md-ticker-uni-all").click();
-    await item(page, `res-${evId(T, "WIDEC")}`).getByRole("button").click();
+    await entry(page, "results", evId(T, "WIDEC")).click();
     await expect(page.getByTestId("events-sheet")).toContainText("WIDEC Ltd (mock)", SLOW);
     await expect(page.getByTestId("events-m-uni")).toContainText("Showing all NSE companies");
     await page.getByTestId("events-sheet-close").click();
     await page.getByTestId("events-m-uni-back").click();
     await expect(page.getByTestId("events-m-uni")).toHaveCount(0);
-    await page.screenshot({ path: "e2e/screenshots/desk-news-ticker/phone-intel.png" });
   });
 });

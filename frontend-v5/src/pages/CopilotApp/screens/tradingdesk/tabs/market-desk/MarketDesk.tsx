@@ -4,8 +4,8 @@
  * switcher (the shell's), then a view head (eyebrow, one sentence, the parts of the view and where related data lives),
  * then the view. Two levels (tab → view), three for the Screener (its sub-views); `section=` scrolls to a part of a view.
  *
- *   intel       Market Intelligence   the news ticker (NewsTicker.tsx, owner 5 Nov: results today and tomorrow, orders, M&A,
- *                                     deals, flows …), IntelTab (filings, SEBI circulars, bulk / block deals), the sector-rotation
+ *   intel       Market Intelligence   the Market Update band (NewsTicker.tsx, owner 5–6 Nov: a summary of results today and
+ *                                     tomorrow, orders, M&A, deals, flows …), IntelTab (filings, SEBI circulars, bulk / block deals), the sector-rotation
  *                                     readout (SectorReadout.tsx) and the Events calendar (EventsTab), as the owner's design draws it
  *   smartmoney  Smart Money           SmartMoneyTab (FII / DII, sector flows, MF evidence) + the F&O section: the F&O lab's
  *                                     build-up, candidates, indices and option chain (FnoTab). The option chain lives here
@@ -290,7 +290,7 @@ export default function MarketDesk({ view, sub = null }: { view: string | null; 
               { id: "events", label: "Events calendar", onClick: jump("events", () => desk.openTab("events")) },
             ]}
           />
-          <Hosted id="ticker" name="the news ticker"><NewsTicker /></Hosted>
+          <Hosted id="ticker" name="the market update"><NewsTicker /></Hosted>
           <Hosted id="intel" name="Market Intelligence"><IntelTab /></Hosted>
           <SectorReadout onOpenRotation={() => goView("sectors")} />
           <Section id="events" title="Events calendar"><EventsTab /></Section>

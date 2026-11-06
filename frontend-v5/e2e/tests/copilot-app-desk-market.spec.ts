@@ -525,9 +525,10 @@ test.describe("Smart trading desk — Market intelligence", () => {
     );
     await page.getByTestId("desk-intel-more").click();
     await expect(rows).toHaveCount(order.length);
-    // The filings request asks for provenance; deals and circulars are read for All. (The news ticker above the list makes
-    // its own per-category reads, so All's request is the one without a category or family, not necessarily the first.)
-    const allReq = calls.feed.find((u) => u.searchParams.get("category") === null && u.searchParams.get("family") === null);
+    // The filings request asks for provenance; deals and circulars are read for All. (The Market Update band above the list
+    // makes its own per-category reads and a one-row counts read, so All's request is the one without a category or family
+    // that asks for rows, not necessarily the first.)
+    const allReq = calls.feed.find((u) => u.searchParams.get("category") === null && u.searchParams.get("family") === null && u.searchParams.get("limit") !== "1");
     expect(allReq).toBeDefined();
     expect([allReq?.searchParams.get("days"), allReq?.searchParams.get("sort"), allReq?.searchParams.get("provenance")]).toEqual(["7", "latest", "1"]);
 

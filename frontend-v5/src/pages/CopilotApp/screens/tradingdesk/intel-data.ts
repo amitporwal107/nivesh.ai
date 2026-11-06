@@ -63,7 +63,7 @@ const noRetry4xx = (count: number, e: unknown) =>
 
 /** The classifier's window is 30 days; a trading desk reads the last week. */
 export const FEED_DAYS = 7;
-/** Rows per request: one category on its own, or each category of a group (the news ticker says when a kind hits it). */
+/** Rows per request: one category on its own, or each category of a group (the Market Update band counts "+" past it). */
 export const LIMIT_SINGLE = 40;
 export const LIMIT_GROUPED = 20;
 /** What "All" takes from the sources that are not filings. */
@@ -772,7 +772,7 @@ async function fetchFeed(params: DeskFeedParams, signal?: AbortSignal): Promise<
 
 /**
  * Every event behind one chip, merged newest first. `refetchMs` re-reads the chip's filings on that interval while the
- * caller is mounted (the Market Intelligence news ticker); the list itself passes none.
+ * caller is mounted (the Market Update band); the list itself passes none.
  */
 export function useIntelEvents(chip: IntelChip, opts: { refetchMs?: number } = {}): EventFeed {
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
