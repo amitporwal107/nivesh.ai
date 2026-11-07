@@ -146,4 +146,13 @@ throwaway Postgres (`backend/scripts/run_autodesk_tests.sh`), with a faked sign-
 ## Inputs required from user
 none
 
+## Coordinator's independent re-run (7 Nov ~06:10 IST)
+- `sudo -n bash backend/scripts/run_autodesk_tests.sh /home/deploy/nivesh-wt-desk-fixes tests/autodesk tests/test_order_path_guard.py -p no:warnings` → `166 passed in 41.10s`; `py_compile OK`.
+- Playwright in Docker on the production build: `tsc exit=0`, `build exit=0`, `160 passed (1.1m)`.
+- **Real-data replay of 2–5 Nov with this code** (real NSE calendar through `PitMarketView.previous_session`, DaaS read-only, fresh throwaway
+  database): `signals before/after: 863 863 | identical incl. scores: True`; per session `{'2026-11-02': 297, '2026-11-03': 179, '2026-11-04': 213,
+  '2026-11-05': 174}`; `result CYCLE_COMPLETED premarket READY` on all four days. v1's signals are unchanged by F1/F2.
+- Real load times, `nidp.v_feed_status`: `NSE_BHAVCOPY|2026-11-06|06 Nov 19:00`, `NSE_FNO_BHAVCOPY|2026-11-06|06 Nov 22:15` — the new 19:30 / 22:45 cut-offs sit after them.
+- Still UNVERIFIED until deployed: a live desk cycle after F1/F2, re-run after a block, the scanner's block panel on real responses.
+
 ## Verdict: PASS
