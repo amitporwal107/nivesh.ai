@@ -71,7 +71,7 @@ Method: unit tests with a fake transport and a throwaway Postgres (the usual scr
 | AD-AL-16 | Same alert repeats | Same key (check, account, result) inside the window posts once, then a reply "repeated n times" |
 | AD-AL-17 | Different key | A different check or account is a separate alert |
 | AD-AL-18 | Burst | Above N messages a minute, the rest are collapsed into one summary line with the count |
-| AD-AL-19 | Recovery | When the check clears, a RESOLVED reply appears in the original alert's thread |
+| AD-AL-19 | Recovery | When the check clears, a RESOLVED message is posted (a webhook returns no message id, so it is a new top-level message, not a thread reply) |
 
 ### Workflow chat (depends on decision Q7)
 | ID | Case | Expected |

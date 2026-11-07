@@ -108,6 +108,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
         if touched:
             log.warning("recovery failed closed %d interrupted tasks", len(touched))
         app.state.desk = st
+        from .notify.runtime import start as start_notifier
+        start_notifier(st)
         try:
             yield
         finally:
@@ -130,6 +132,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
         log.warning("correlation middleware unavailable: %s", e)
     error_handlers(app)
     app.include_router(router)
+    from .routers.alerts import router as alerts_router
+    app.include_router(alerts_router)
     return app
 
 
