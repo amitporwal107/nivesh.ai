@@ -20,8 +20,8 @@ export const SCAN_TASK = "TASK-9e4b2a71c3d84f05b6e1";
 export const SIM_ID = "SIM-7d2c9b0e1f3a48d6c5b4";
 
 const EXPIRES = "2026-11-05T10:00:00+00:00";        // 15:30 IST, session close
-const CASH_ASOF = "2026-11-04T13:00:00+00:00";      // 18:30 IST, cash EOD published
-const FNO_ASOF = "2026-11-04T14:00:00+00:00";       // 19:30 IST, F&O EOD published
+const CASH_ASOF = "2026-11-04T14:00:00+00:00";      // 19:30 IST, cash EOD published
+const FNO_ASOF = "2026-11-04T17:15:00+00:00";       // 22:45 IST, F&O EOD published
 const SIG_CREATED = "2026-11-05T05:31:11.402000+00:00";
 const VERSION = "autodesk-ait-v1/ait-rules-v1";
 
@@ -212,6 +212,37 @@ export const CYCLE_RUNNING = { ...CYCLE, state: "RUNNING", outcome: null, update
 export const SIM_CYCLE = { ...CYCLE, workflow_id: "WF-c6f8b0d2e4a64c73bfd5", simulation_id: SIM_ID, account_id: "ACC-SIM01JBX3K2M4N5P6Q7R8", created_at: "2026-11-05T06:00:00.000000+00:00" };
 
 export const detailOf = (wf: Record<string, unknown>) => ({ workflow: wf, tasks: [], handoffs: [], children: [] });
+
+// ── cycles that ended BLOCKED at the pre-market stage, and a later attempt (desk fixes of 7 Nov) ─────────────────────────
+
+/** The pre-market report Tech Support wrote when the cash file of the previous session had not landed (contracts.PremarketReport). */
+export const BLOCKED_PREMARKET = {
+  status: "BLOCKED", session_date: SESSION, allowed_segments: [], data_as_of: { cash_eod: "2026-11-03", fno_eod: "2026-11-03" },
+  checks: [
+    { name: "desk_db", status: "READY", detail: "answers", as_of: null },
+    { name: "cash_eod", status: "BLOCKED", detail: "Cash data is for 2026-11-03; the 2026-11-05 session needs 2026-11-04", as_of: "2026-11-03" },
+    { name: "fno_eod", status: "DEGRADED", detail: "F&O data is for 2026-11-03; the 2026-11-05 session needs 2026-11-04", as_of: "2026-11-03" },
+    { name: "vix", status: "DEGRADED", detail: "no India VIX for the session (regime inputs will be listed as missing)", as_of: null },
+  ],
+};
+export const CYCLE_BLOCKED_ID = "WF-4b7c1d9e0a2f4c58b3a6";
+export const CYCLE_BLOCKED = {
+  ...CYCLE, workflow_id: CYCLE_BLOCKED_ID, state: "BLOCKED", correlation_id: CYCLE_BLOCKED_ID,
+  outcome: { premarket: BLOCKED_PREMARKET, result: "BLOCKED_NO_NEW_RISK" }, created_at: "2026-11-05T01:20:38.100000+00:00",
+  updated_at: "2026-11-05T01:20:41.300000+00:00", completed_at: "2026-11-05T01:20:41.300000+00:00",
+};
+/** The next attempt (idempotency key …:cycle:attempt-2): a new workflow; the blocked one stays for the audit. */
+export const ATTEMPT_ID = "WF-9d2e6a1b7c3f4e08a5b1";
+export const ATTEMPT_RUNNING = {
+  ...CYCLE_RUNNING, workflow_id: ATTEMPT_ID, correlation_id: ATTEMPT_ID, idempotency_key: `${ACC}:${SESSION}:cycle:attempt-2`,
+  input: { ...CYCLE_INPUT, attempt: 2 }, created_at: "2026-11-05T05:31:01.950000+00:00", updated_at: "2026-11-05T05:31:01.950000+00:00",
+};
+export const ATTEMPT_DONE = { ...ATTEMPT_RUNNING, state: "COMPLETED", outcome: CYCLE_OUTCOME, updated_at: "2026-11-05T05:31:18.400000+00:00", completed_at: "2026-11-05T05:31:18.400000+00:00" };
+export const ATTEMPT_BLOCKED = {
+  ...ATTEMPT_RUNNING, state: "BLOCKED",
+  outcome: { premarket: { ...BLOCKED_PREMARKET, checks: BLOCKED_PREMARKET.checks.map((c) => (c.name === "cash_eod" ? { ...c, detail: "0 cash rows for 2026-11-04 (need 500)", as_of: "2026-11-04" } : c)) }, result: "BLOCKED_NO_NEW_RISK" },
+  updated_at: "2026-11-05T05:31:04.300000+00:00", completed_at: "2026-11-05T05:31:04.300000+00:00",
+};
 
 export const POLICY = {
   policy_id: POLICY_ID, tenant_id: TENANT, name: "Default", scope_type: "TENANT", scope_ref: null, version: 1, current_version: 1,

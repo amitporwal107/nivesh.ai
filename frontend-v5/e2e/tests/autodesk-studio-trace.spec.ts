@@ -5,7 +5,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 import { collectConsoleErrors, mockDesk, reply, type RouteValue } from "./autodesk-mock";
-import { BY_INST, EMPTY_SID, SID, sigId, traceRoutes, trdId, wfId } from "./autodesk-fixtures-studio-trace";
+import { BY_INST, EMPTY_SID, SID, aprId, sigId, traceRoutes, trdId, wfId } from "./autodesk-fixtures-studio-trace";
 
 async function open(page: Page, routes: Record<string, RouteValue>, opts: { path?: string; motion?: boolean } = {}) {
   if (!opts.motion) await page.emulateMedia({ reducedMotion: "reduce" });
@@ -225,4 +225,58 @@ test("AD-UI-158 phone 390×844: single column, no overflow, no sample ids", asyn
   const text = await page.getByTestId("studio-trace").innerText();
   for (const sample of ["SIM-0418", "PLN-S-", "SCN-0", "AXISBANK", "RSV-S-"]) expect(text).not.toContain(sample);
   expect(errors).toEqual([]);
+});
+
+
+// ── desk fixes from the 5 Nov walk-through: F5 "Open full plan" (AD-FX-30..34) ───────────────────────────────────────
+
+const planHref = (inst: string, n: number) => `/autodesk/approvals/${aprId(BY_INST[inst], n)}`;
+
+test("AD-FX-30 each card that made a plan links to the plan's page via its newest approval row; no plan, no link", async ({ page }) => {
+  const desk = await open(page, traceRoutes());
+  const cards = page.getByTestId("trace-card");
+  await expect(cards).toHaveCount(6);
+  const links = page.getByTestId("trace-open-plan");
+  await expect(links).toHaveCount(4);                                                      // PETRONET, GRASIM, ADANIPORTS, TATASTEEL
+  for (const [inst, n] of [["PETRONET", 1], ["GRASIM", 1], ["ADANIPORTS", 1], ["TATASTEEL", 2]] as const) {
+    const l = page.locator(`[data-testid="trace-open-plan"][data-wf="${wfId(BY_INST[inst])}"]`);
+    await expect(l).toHaveText("Open full plan ›");
+    await expect(l).toHaveAttribute("href", planHref(inst, n));                           // TATASTEEL: the person's approval, not the older request
+  }
+  for (const inst of ["HINDALCO", "DLF"]) await expect(page.locator(`[data-testid="trace-open-plan"][data-wf="${wfId(BY_INST[inst])}"]`)).toHaveCount(0);
+  const asked = desk.requests.map((r) => r.path).filter((q) => q.startsWith("/approvals"));
+  expect(asked.sort()).toEqual(["PETRONET", "GRASIM", "ADANIPORTS", "DLF", "TATASTEEL"].map((i) => `/approvals?simulation_id=${SID}&trade_id=${trdId(BY_INST[i])}&limit=20`).sort());   // none for the NO_TRADE card
+  expect(desk.posts).toEqual([]);
+  expect(desk.unmatched).toEqual([]);
+});
+
+test("AD-FX-31 the link opens the plan's page in the desk, labelled as a simulation's", async ({ page }) => {
+  const desk = await open(page, traceRoutes());
+  await page.locator(`[data-testid="trace-open-plan"][data-wf="${wfId(BY_INST.TATASTEEL)}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`/autodesk/approvals/${aprId(BY_INST.TATASTEEL, 2)}$`));
+  await expect(page.getByTestId("screen-approvals")).toBeVisible();
+  await expect.poll(() => desk.requests.some((r) => r.path === `/approvals/${aprId(BY_INST.TATASTEEL, 2)}`)).toBe(true);   // the page asks the API for that approval
+  await expect(page.getByTestId("studio")).toHaveCount(0);                                // left the studio, into the desk shell
+});
+
+test("AD-FX-32 the finished chain's outcome box carries the same link", async ({ page }) => {
+  await open(page, traceRoutes());
+  await expect(page.getByTestId("trace-outcome-plan")).toHaveCount(0);                    // not before the replay reaches the end
+  for (let i = 0; i < 5; i++) await page.getByTestId("trace-next").click();
+  await expect(stepN(page)).toHaveText("STEP 6 OF 6");
+  await expect(page.getByTestId("trace-outcome-plan")).toHaveAttribute("href", planHref("ADANIPORTS", 1));
+  await page.getByTestId("trace-card").nth(3).click();                                    // HINDALCO: no plan
+  await page.getByTestId("trace-next").click();
+  await expect(page.getByTestId("trace-outcome")).toBeVisible();
+  await expect(page.getByTestId("trace-outcome-plan")).toHaveCount(0);
+});
+
+test("AD-FX-34 a failed approvals lookup is shown; the cards and the replay still work and no link is guessed", async ({ page }) => {
+  await open(page, traceRoutes({ "GET /approvals": reply(500, { error: "INTERNAL", message: "approvals store unavailable" }) }));
+  await expect(page.getByTestId("error-box")).toContainText("approvals store unavailable (500)", { timeout: 15000 });
+  await expect(page.getByTestId("error-box")).toContainText("Could not load the links to the plans' pages");
+  await expect(page.getByTestId("trace-card")).toHaveCount(6);
+  await expect(page.getByTestId("trace-open-plan")).toHaveCount(0);
+  await page.getByTestId("trace-next").click();
+  await expect(stepN(page)).toHaveText("STEP 2 OF 6");
 });

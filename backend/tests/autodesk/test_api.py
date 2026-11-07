@@ -72,6 +72,37 @@ def test_ad80_unauthenticated(client):
         assert r.status_code == 401, (method, path, r.status_code)
 
 
+def test_adfx14_blocked_cycle_then_again_over_the_api(client):
+    """AD-FX-14: POST /desk/workflows after a BLOCKED pre-market opens a new workflow; both are listed (newest first)."""
+    from autodesk import contracts as C
+    ts = client.app.state.desk.orchestrator.agents[C.AgentKey.TECH_SUPPORT]
+    acc = _account(client)
+    body = {"kind": "SESSION_CYCLE", "account_id": acc["account_id"], "max_proposals": 1, "wait": True}
+    ts.status = C.HealthStatus.BLOCKED
+    try:
+        r1 = client.post("/api/v1/desk/workflows", json=body, headers=A)
+        assert r1.status_code == 202 and r1.json()["state"] == "BLOCKED", r1.text
+        assert r1.json()["outcome"]["result"] == "BLOCKED_NO_NEW_RISK"
+        r2 = client.post("/api/v1/desk/workflows", json=body, headers=A)
+        assert r2.status_code == 202 and r2.json()["state"] == "BLOCKED", r2.text
+        assert r2.json()["workflow_id"] != r1.json()["workflow_id"]
+        assert r2.json()["idempotency_key"].endswith(":cycle:attempt-2")
+        ts.status = C.HealthStatus.READY
+        r3 = client.post("/api/v1/desk/workflows", json=body, headers=A)
+        assert r3.json()["state"] == "COMPLETED" and r3.json()["idempotency_key"].endswith(":attempt-3"), r3.text
+        r4 = client.post("/api/v1/desk/workflows", json=body, headers=A)       # a finished cycle stays final
+        assert r4.json()["workflow_id"] == r3.json()["workflow_id"]
+    finally:
+        ts.status = C.HealthStatus.READY
+    wfs = client.get(f"/api/v1/desk/workflows?account_id={acc['account_id']}&kind=SESSION_CYCLE", headers=A).json()
+    assert [w["workflow_id"] for w in wfs] == [r3.json()["workflow_id"], r2.json()["workflow_id"],
+                                               r1.json()["workflow_id"]]          # newest first (AD-FX-43)
+    two = client.get(f"/api/v1/desk/workflows?account_id={acc['account_id']}&kind=SESSION_CYCLE&limit=2", headers=A).json()
+    assert [w["workflow_id"] for w in two] == [r3.json()["workflow_id"], r2.json()["workflow_id"]]   # the newest two
+    kids = client.get(f"/api/v1/desk/workflows/{r3.json()['workflow_id']}", headers=A).json()["children"]
+    assert [k["kind"] for k in kids] == ["PREMARKET_CHECK", "MARKET_SCAN", "TRADE_PROPOSAL"]         # children: creation order
+
+
 def test_ad81_ad82_accounts_isolation_and_mode(client):
     acc = _account(client)
     assert acc["kind"] == "PAPER" and acc["operating_mode"] == "AUTONOMOUS_PAPER"
@@ -117,6 +148,41 @@ def test_ad83_ad84_desk_session_cycle(client):
     r = client.post(f"/api/v1/trade-plans/{tid}/validate", headers=A)
     assert r.status_code == 201 and r.json()["trade_id"] == tid
     assert client.post(f"/api/v1/trade-plans/{tid}/validate", headers=B).status_code == 404
+
+
+def test_adfx35_41_42_newest_rows_and_the_plan_approval_lookup(client):
+    """AD-FX-41/42: /events and the timeline return the NEWEST rows without a cursor and walk forward with one;
+    AD-FX-35: the approvals of one simulated plan, newest first (what the studio's "Open full plan" links to)."""
+    body = {"name": "fx sim", "start_date": "2026-11-04", "end_date": "2026-11-05", "operating_mode": "ASSISTED",
+            "max_proposals_per_session": 1}
+    sid = client.post("/api/v1/simulations", json=body, headers=A).json()["simulation_id"]
+    client.post(f"/api/v1/simulations/{sid}/start", headers=A)
+    for _ in range(3):
+        assert client.post(f"/api/v1/simulations/{sid}/step", json={"unit": "PHASE"}, headers=A).status_code == 200
+    seqs = lambda rows: [e["seq"] for e in rows]   # noqa: E731
+    full = client.get(f"/api/v1/simulations/{sid}/timeline?limit=5000", headers=A).json()
+    ev = full["events"]
+    assert len(ev) > 12 and seqs(ev) == sorted(seqs(ev))
+    for url in (f"/api/v1/simulations/{sid}/timeline", f"/api/v1/events?simulation_id={sid}"):
+        pick = (lambda r: r.json()["events"]) if "timeline" in url else (lambda r: r.json())
+        newest = pick(client.get(f"{url}{'&' if '?' in url else '?'}limit=5", headers=A))
+        assert seqs(newest) == seqs(ev)[-5:]                                        # no cursor: the newest, ascending
+        first = pick(client.get(f"{url}{'&' if '?' in url else '?'}after_seq=0&limit=5", headers=A))
+        assert seqs(first) == seqs(ev)[:5]                                          # cursor 0: from the first event
+        nxt = pick(client.get(f"{url}{'&' if '?' in url else '?'}after_seq={seqs(ev)[4]}&limit=5", headers=A))
+        assert seqs(nxt) == seqs(ev)[5:10]
+    assert full["clock"] == client.get(f"/api/v1/simulations/{sid}/timeline?limit=2", headers=A).json()["clock"]
+    assert [c["phase"] for c in full["clock"]] == ["PREMARKET", "SCAN", "PROPOSALS"]    # clock rows are never limited
+    # AD-FX-35
+    [pend] = client.get(f"/api/v1/approvals?pending=true&simulation_id={sid}", headers=A).json()
+    tid = pend["trade_id"]
+    r = client.post(f"/api/v1/approvals/{pend['approval_id']}/decision", json={"decision": "APPROVE", "reason": "ok"},
+                    headers=A)
+    assert r.status_code == 201
+    rows = client.get(f"/api/v1/approvals?simulation_id={sid}&trade_id={tid}", headers=A).json()
+    assert [x["status"] for x in rows] == ["APPROVED", "NEEDS_HUMAN_APPROVAL"]            # newest first
+    assert rows[0]["approval_id"] == r.json()["approval_id"] and rows[0]["supersedes_id"] == pend["approval_id"]
+    assert client.get(f"/api/v1/approvals?simulation_id={sid}&trade_id={tid}", headers=B).json() == []
 
 
 def test_ad85_ad86_simulation_and_human_decision(client):

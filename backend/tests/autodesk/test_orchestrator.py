@@ -179,6 +179,89 @@ def test_ad65_idempotent_cycle(pg_pool):
     run(go())
 
 
+def test_adfx10_11_blocked_cycle_can_be_asked_for_again(pg_pool):
+    """AD-FX-10/11: a cycle BLOCKED at the pre-market stage does not use up the session; attempt-2, attempt-3; a cycle
+    that gets past the pre-market is final."""
+    async def go():
+        t = tenant()
+        acc = await _acct(pg_pool, t)
+        ts = stubs.StubTS(); ts.status = C.HealthStatus.BLOCKED
+        orch = stubs.orchestrator(pg_pool, **{C.AgentKey.TECH_SUPPORT: ts})
+        first = await _cycle(pg_pool, orch, t, acc)
+        assert first["state"] == "BLOCKED" and first["idempotency_key"] == f"{acc['account_id']}:{D.isoformat()}:cycle"
+        second = await _cycle(pg_pool, orch, t, acc)
+        assert second["workflow_id"] != first["workflow_id"] and second["state"] == "BLOCKED"
+        assert second["idempotency_key"] == f"{acc['account_id']}:{D.isoformat()}:cycle:attempt-2"
+        assert second["input"]["attempt"] == 2 and "attempt" not in first["input"]
+        third = await _cycle(pg_pool, orch, t, acc)
+        assert third["idempotency_key"].endswith(":cycle:attempt-3") and third["state"] == "BLOCKED"
+        # the data is in now: the next attempt gets through and is final
+        ts.status = C.HealthStatus.READY
+        fourth = await _cycle(pg_pool, orch, t, acc)
+        assert fourth["idempotency_key"].endswith(":cycle:attempt-4") and fourth["state"] == "COMPLETED", fourth
+        again = await _cycle(pg_pool, orch, t, acc)
+        assert again["workflow_id"] == fourth["workflow_id"]
+        async with pg_pool.acquire() as c:
+            cycles = await store.list_workflows(c, t, kind="SESSION_CYCLE")
+            assert [w["workflow_id"] for w in cycles] == [first["workflow_id"], second["workflow_id"],
+                                                          third["workflow_id"], fourth["workflow_id"]]
+            old = await store.get_workflow(c, t, first["workflow_id"])
+            assert old["state"] == "BLOCKED" and old["outcome"]["result"] == "BLOCKED_NO_NEW_RISK"   # audit kept
+            assert old["outcome"]["premarket"]["status"] == "BLOCKED"
+            assert len(await store.list_workflows(c, t, kind="TRADE_PROPOSAL")) == 1
+    run(go())
+
+
+def test_adfx12_completed_or_running_cycle_stays_idempotent(pg_pool):
+    async def go():
+        t = tenant()
+        acc = await _acct(pg_pool, t)
+        orch = stubs.orchestrator(pg_pool)
+        done = await _cycle(pg_pool, orch, t, acc)
+        assert done["state"] == "COMPLETED"
+        assert (await _cycle(pg_pool, orch, t, acc))["workflow_id"] == done["workflow_id"]
+        # a cycle that is open (RUNNING) is returned as it is, never replaced
+        t2 = tenant()
+        acc2 = await _acct(pg_pool, t2)
+        opened = await orch.open_session_cycle(tenant_id=t2, account_id=acc2["account_id"], session_date=D, as_of=AS_OF)
+        assert opened["state"] == "RUNNING"
+        again = await orch.open_session_cycle(tenant_id=t2, account_id=acc2["account_id"], session_date=D, as_of=AS_OF)
+        assert again["workflow_id"] == opened["workflow_id"]
+        async with pg_pool.acquire() as c:
+            assert len(await store.list_workflows(c, t2, kind="SESSION_CYCLE")) == 1
+    run(go())
+
+
+def test_adfx13_which_cycles_may_be_attempted_again(pg_pool):
+    from autodesk.orchestrator.engine import reattemptable
+    blocked = {"state": "BLOCKED", "outcome": {"premarket": {"status": "BLOCKED"}, "result": "BLOCKED_NO_NEW_RISK"}}
+    assert reattemptable(blocked)
+    assert reattemptable({"state": "BLOCKED", "outcome": None})
+    assert not reattemptable({**blocked, "outcome": {**blocked["outcome"], "scan": {"signals": 3}}})
+    assert not reattemptable({**blocked, "outcome": {**blocked["outcome"], "proposals": {"proposed": 0}}})
+    for st in ("RUNNING", "COMPLETED", "FAILED", "CREATED", "WAITING_HUMAN"):
+        assert not reattemptable({"state": st, "outcome": blocked["outcome"]})
+
+    async def go():
+        # an explicit idempotency key (what simulations pass) is never re-attempted, even for a BLOCKED cycle
+        t = tenant()
+        acc = await _acct(pg_pool, t)
+        ts = stubs.StubTS(); ts.status = C.HealthStatus.BLOCKED
+        orch = stubs.orchestrator(pg_pool, **{C.AgentKey.TECH_SUPPORT: ts})
+        a = await _cycle(pg_pool, orch, t, acc, idempotency_key="explicit-key-1")
+        b = await _cycle(pg_pool, orch, t, acc, idempotency_key="explicit-key-1")
+        assert a["state"] == "BLOCKED" and a["workflow_id"] == b["workflow_id"]
+        # a FAILED cycle (a scan that failed) is final too
+        t2 = tenant()
+        acc2 = await _acct(pg_pool, t2)
+        orch2 = stubs.orchestrator(pg_pool)
+        c1 = await _cycle(pg_pool, orch2, t2, acc2)
+        async with pg_pool.acquire() as c:
+            assert c1["state"] == "COMPLETED"
+            assert not reattemptable(await store.get_workflow(c, t2, c1["workflow_id"]))
+    run(go())
+
+
 def test_ad66_human_decisions(pg_pool):
     async def go():
         t = tenant()

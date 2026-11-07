@@ -94,3 +94,32 @@ def test_production_agents_are_the_real_ones():
         assert d.agent_key == key and d.version.startswith("autodesk-") and d.kind == "DETERMINISTIC"
         for tool in a.market_tools():
             assert callable(getattr(PitMarketView, tool, None)), f"{key.value} lists unknown tool {tool}"
+
+
+def test_adfx24_tech_support_details_have_no_advice_words(monkeypatch):
+    """AD-92 extended to the pre-market details written for the desk fixes (stale, unknown, blocked, degraded)."""
+    from datetime import datetime
+    from autodesk.agents import tech_support
+    from autodesk.agents.tech_support import TechSupport
+    from autodesk.market.view import DataUnavailable, FrozenMarketView, IST
+
+    class NoCalendar(FrozenMarketView):
+        async def previous_session(self, day):
+            raise DataUnavailable("the NSE holiday list for 2026 is not loaded")
+
+    monkeypatch.setattr(tech_support, "MIN_CASH_ROWS", 2)
+    monkeypatch.setattr(tech_support, "MIN_FNO_UNDERLYINGS", 2)
+    d5 = md.FNO_DAY
+    views = [FrozenMarketView(md.AS_OF, md.data()),
+             FrozenMarketView(datetime(d5.year, d5.month, d5.day, 20, 0, tzinfo=IST), md.data()),
+             FrozenMarketView(datetime(d5.year, d5.month, d5.day, 18, 50, tzinfo=IST), md.data()),
+             NoCalendar(md.AS_OF, md.data())]
+    texts = []
+    for v in views:
+        ctx = md.ctx(v, {"session_date": md.SD.isoformat(), "db_ok": False})
+        res = run(TechSupport().run(md.task(C.TaskType.PREMARKET_HEALTH_CHECK), ctx))
+        rep = C.PremarketReport.model_validate(res.output)
+        texts += [res.summary] + [c.detail for c in rep.checks]
+    assert any("session needs" in t for t in texts) and any("cannot tell" in t for t in texts)
+    bad = sorted({f"{m.group(0)!r} in: {t}" for t in texts for m in ADVICE.finditer(t)})
+    assert bad == [], bad

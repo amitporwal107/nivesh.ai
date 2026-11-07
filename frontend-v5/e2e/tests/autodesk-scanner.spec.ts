@@ -6,7 +6,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { NOW, TENANT, collectConsoleErrors, expectContract, mockDesk, reply } from "./autodesk-mock";
 import {
-  ACC, APR, CYCLE, CYCLE_RUNNING, PLANS, SCAN_TASK, SCAN_WF, SIG, SIGNALS, detailOf, scannerRoutes,
+  ACC, APR, ATTEMPT_BLOCKED, ATTEMPT_DONE, ATTEMPT_ID, ATTEMPT_RUNNING, BLOCKED_PREMARKET, CYCLE, CYCLE_BLOCKED, CYCLE_BLOCKED_ID,
+  CYCLE_OUTCOME, CYCLE_RUNNING, PLANS, SCAN_TASK, SCAN_WF, SIG, SIGNALS, detailOf, scannerRoutes,
 } from "./autodesk-fixtures-scanner";
 
 const rowsIn = (page: Page) => page.getByTestId("signal-row");
@@ -119,7 +120,7 @@ test("AD-UI-43 expanded row: eight dimensions, evidence, missing inputs, provena
   await expect(x.getByTestId("row-close")).toHaveText("Close 318.45 · liquidity 20-session average traded value ₹38.2 cr");
   await expect(x).toContainText("Similar-setup history needs recorded outcomes");
   const prov = x.getByTestId("provenance");
-  for (const t of [SIG.PETRONET, "DATA AS OF 4 Nov 19:30 IST", "MODEL autodesk-ait-v1/ait-rules-v1", "RULES ait-rules-v1", "SESSION 5 Nov", "EXPIRES 5 Nov 15:30", `WORKFLOW ${SCAN_WF}`, `TASK ${SCAN_TASK}`]) {
+  for (const t of [SIG.PETRONET, "DATA AS OF 4 Nov 22:45 IST", "MODEL autodesk-ait-v1/ait-rules-v1", "RULES ait-rules-v1", "SESSION 5 Nov", "EXPIRES 5 Nov 15:30", `WORKFLOW ${SCAN_WF}`, `TASK ${SCAN_TASK}`]) {
     await expect(prov).toContainText(t);
   }
   await expect(x.getByTestId("row-action")).toHaveText("Open approval ›");
@@ -320,4 +321,132 @@ test("AD-UI-49 phone 390×844: cards instead of the table, tap to expand, no hor
   await expect(page.getByTestId("run-cycle")).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+
+// ── desk fixes from the 5 Nov walk-through: F3 run again after a blocked cycle, F4 why it was blocked ─────────────────
+
+const cyclesOf = (...rows: Record<string, unknown>[]) => (r: { query: URLSearchParams }) => (r.query.get("kind") === "SESSION_CYCLE" && r.query.get("account_id") === ACC ? rows : []);
+const detailById = (...wfs: Record<string, unknown>[]) => (r: { params: Record<string, string> }) => {
+  const w = wfs.find((x) => x.workflow_id === r.params.id);
+  return w ? detailOf(w) : reply(404, { error: "NOT_FOUND", message: `not found: ${r.params.id}` });
+};
+
+test("AD-FX-20 a BLOCKED cycle lists the pre-market checks that failed or ran degraded, with their detail", async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  const desk = await mockDesk(page, { routes: scannerRoutes({ "GET /desk/workflows": cyclesOf(CYCLE_BLOCKED) as never, "GET /signals": [] }) });
+  await page.goto("/autodesk/scanner");
+  const box = page.getByTestId("premarket-blocked");
+  await expect(box).toBeVisible();
+  await expect(box).toContainText("Pre-market check blocked this session · 5 Nov");
+  await expect(page.getByTestId("premarket-lead")).toContainText("The desk did not scan or make a plan for this session");
+  await expect(page.getByTestId("premarket-lead")).toContainText("Run session cycle again once it is.");
+  const issues = box.getByTestId("premarket-issue");
+  await expect(issues).toHaveCount(3);                                                  // the READY desk_db check is not listed
+  await expect(issues.nth(0)).toHaveText("Cash end-of-day data blocked: Cash data is for 2026-11-03; the 2026-11-05 session needs 2026-11-04");
+  await expect(issues.nth(1)).toHaveText("F&O end-of-day data degraded: F&O data is for 2026-11-03; the 2026-11-05 session needs 2026-11-04");
+  await expect(issues.nth(2)).toHaveText("India VIX degraded: no India VIX for the session (regime inputs will be listed as missing)");
+  await expect(issues.nth(0)).toHaveAttribute("data-status", "BLOCKED");
+  await expect(page.getByTestId("scanner-no-signals")).toContainText("published no signal: it was blocked before the scan.");
+  await expect(page.getByTestId("run-cycle")).toBeEnabled();
+  await expect(page.getByTestId("cycle-already")).toHaveCount(0);
+  expect(desk.posts).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("AD-FX-15/21 after a blocked cycle Run session cycle opens a new attempt; no \"already ran\"; the old cycle is kept", async ({ page }) => {
+  const st = { posted: false, polls: 0 };
+  const desk = await mockDesk(page, {
+    routes: scannerRoutes({
+      "GET /desk/workflows": ((r: { query: URLSearchParams }) => cyclesOf(...(!st.posted ? [CYCLE_BLOCKED] : [st.polls >= 2 ? ATTEMPT_DONE : ATTEMPT_RUNNING, CYCLE_BLOCKED]))(r)) as never,
+      "POST /desk/workflows": () => { st.posted = true; return reply(202, ATTEMPT_RUNNING); },
+      "GET /desk/workflows/:id": ((r: { params: Record<string, string> }) => {
+        if (r.params.id === ATTEMPT_ID) { st.polls += 1; return detailOf(st.polls >= 2 ? ATTEMPT_DONE : ATTEMPT_RUNNING); }
+        return detailById(CYCLE_BLOCKED)(r);
+      }) as never,
+      "GET /signals": (() => (st.posted && st.polls >= 2 ? SIGNALS : [])) as never,
+    }),
+  });
+  await page.goto("/autodesk/scanner");
+  await expect(page.getByTestId("premarket-blocked")).toBeVisible();
+  await expect(page.getByTestId("run-cycle")).toBeEnabled();
+  await expect(page.getByTestId("run-cycle")).toHaveText("Run session cycle");
+  await page.getByTestId("run-cycle").click();
+
+  const status = page.getByTestId("cycle-status");
+  await expect(status).toHaveAttribute("data-state", "RUNNING");
+  expectContract(desk.posts.find((p) => p.path === "/desk/workflows"), "scanner", "run_session_cycle", { account_id: ACC });
+  await expect(page.getByTestId("cycle-already")).toHaveCount(0);
+  await expect(page.getByTestId("premarket-blocked")).toHaveCount(0);                    // the blocked attempt is not the newest any more
+  await expect(status).toHaveAttribute("data-state", "COMPLETED", { timeout: 10000 });
+  await expect(rowsIn(page)).toHaveCount(9);
+  await expect(page.getByTestId("cycle-already")).toHaveCount(0);
+  await expect(page.getByTestId("premarket-blocked")).toHaveCount(0);
+  expect(desk.posts).toHaveLength(1);
+  expect(desk.requests.some((r) => r.path === `/desk/workflows/${ATTEMPT_ID}`)).toBe(true);
+});
+
+test("AD-FX-16/21 a request answered with a blocked, scan-less cycle says why, not \"already ran\"; a new attempt that is blocked again shows its own checks", async ({ page }) => {
+  // (a) the API hands back the blocked cycle itself (nothing was re-opened)
+  const a = await mockDesk(page, { routes: scannerRoutes({ "GET /desk/workflows": cyclesOf(CYCLE_BLOCKED) as never, "GET /desk/workflows/:id": detailById(CYCLE_BLOCKED) as never, "POST /desk/workflows": reply(202, CYCLE_BLOCKED), "GET /signals": [] }) });
+  await page.goto("/autodesk/scanner");
+  await page.getByTestId("run-cycle").click();
+  await expect(page.getByTestId("cycle-status")).toHaveAttribute("data-state", "BLOCKED");
+  await expect(page.getByTestId("cycle-status")).toContainText("BLOCKED · BLOCKED_NO_NEW_RISK");
+  await expect(page.getByTestId("cycle-already")).toHaveCount(0);
+  await expect(page.getByTestId("premarket-blocked").getByTestId("premarket-issue")).toHaveCount(3);
+  expect(a.posts).toHaveLength(1);
+
+  // (b) a new attempt runs, ends BLOCKED with a different detail: the panel shows the newest attempt's checks
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  const st = { posted: false, polls: 0 };
+  await mockDesk(page, {
+    routes: scannerRoutes({
+      "GET /desk/workflows": ((r: { query: URLSearchParams }) => cyclesOf(...(!st.posted ? [CYCLE_BLOCKED] : [st.polls >= 1 ? ATTEMPT_BLOCKED : ATTEMPT_RUNNING, CYCLE_BLOCKED]))(r)) as never,
+      "POST /desk/workflows": () => { st.posted = true; return reply(202, ATTEMPT_RUNNING); },
+      "GET /desk/workflows/:id": ((r: { params: Record<string, string> }) => {
+        if (r.params.id === ATTEMPT_ID) { st.polls += 1; return detailOf(st.polls >= 2 ? ATTEMPT_BLOCKED : ATTEMPT_RUNNING); }
+        return detailById(CYCLE_BLOCKED)(r);
+      }) as never,
+      "GET /signals": [],
+    }),
+  });
+  await page.reload();
+  await expect(page.getByTestId("premarket-issue").nth(0)).toContainText("Cash data is for 2026-11-03");
+  await page.getByTestId("run-cycle").click();
+  await expect(page.getByTestId("cycle-status")).toHaveAttribute("data-state", "BLOCKED", { timeout: 10000 });
+  await expect(page.getByTestId("premarket-issue").nth(0)).toHaveText("Cash end-of-day data blocked: 0 cash rows for 2026-11-04 (need 500)");
+  await expect(page.getByTestId("cycle-already")).toHaveCount(0);
+  await expect(page.getByTestId("run-cycle")).toBeEnabled();                              // and it can be run again
+});
+
+test("AD-FX-22 a pre-market check that did not complete: its reason is shown as written", async ({ page }) => {
+  const reason = "pre-market check did not complete: TimeoutError: the desk database did not answer in 30 s";
+  const wf = { ...CYCLE_BLOCKED, outcome: { premarket: { status: "BLOCKED", allowed_segments: [], reason }, result: "BLOCKED_NO_NEW_RISK" } };
+  await mockDesk(page, { routes: scannerRoutes({ "GET /desk/workflows": cyclesOf(wf) as never, "GET /signals": [] }) });
+  await page.goto("/autodesk/scanner");
+  await expect(page.getByTestId("premarket-reason")).toHaveText(reason);
+  await expect(page.getByTestId("premarket-issue")).toHaveCount(0);
+  await expect(page.getByTestId("premarket-blocked")).toBeVisible();
+});
+
+test("AD-FX-23 a DEGRADED pre-market is a note on a cycle that ran; a clean one shows no panel", async ({ page }) => {
+  const degraded = { ...CYCLE, outcome: { ...CYCLE_OUTCOME, premarket: { ...BLOCKED_PREMARKET, status: "DEGRADED", allowed_segments: ["CASH"], checks: BLOCKED_PREMARKET.checks.map((c) => (c.name === "cash_eod" ? { ...c, status: "READY", detail: "2391 cash rows for 2026-11-04 (need 500)" } : c)) } } };
+  await mockDesk(page, { routes: scannerRoutes({ "GET /desk/workflows": cyclesOf(degraded) as never, "GET /desk/workflows/:id": detailById(degraded) as never }) });
+  await page.goto("/autodesk/scanner");
+  const box = page.getByTestId("premarket-degraded");
+  await expect(box).toBeVisible();
+  await expect(box).toContainText("Pre-market check ran degraded · 5 Nov");
+  await expect(page.getByTestId("premarket-lead")).toContainText("new risk in Cash only");
+  await expect(box.getByTestId("premarket-issue")).toHaveCount(2);                       // F&O and VIX; cash is READY
+  await expect(box.getByTestId("premarket-issue").nth(0)).toContainText("F&O end-of-day data degraded: F&O data is for 2026-11-03");
+  await expect(page.getByTestId("premarket-blocked")).toHaveCount(0);
+  await expect(rowsIn(page)).toHaveCount(9);
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockDesk(page, { routes: scannerRoutes() });                                      // READY cycle (AD-UI-40)
+  await page.reload();
+  await expect(rowsIn(page)).toHaveCount(9);
+  await expect(page.getByTestId("premarket-blocked")).toHaveCount(0);
+  await expect(page.getByTestId("premarket-degraded")).toHaveCount(0);
 });

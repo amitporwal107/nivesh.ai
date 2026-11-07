@@ -1,6 +1,6 @@
 """Point-in-time MarketView over the data platform (DaaS API) — the real market data of the desk.
 
-Every read is bounded by the view's `as_of` (cash end-of-day of session d visible from d 18:30 IST, F&O from d 19:30
+Every read is bounded by the view's `as_of` (cash end-of-day of session d visible from d 19:30 IST, F&O from d 22:45
 IST; market/calendar.py decides the sessions) and recorded as a tool call. A failed or non-200 read is DataUnavailable:
 an empty answer is never passed off as "no data".
 
@@ -111,6 +111,21 @@ class PitMarketView(RecordingMixin):
         if day > latest:
             raise LookAheadError(f"{kind} data for {day} is not published at {self.as_of.isoformat()}")
         return day
+
+    async def previous_session(self, day: date) -> date:
+        """The last NSE session before `day` (calendar only: it reads no market data, so it cannot look ahead). Used to
+        tell whether the published data is for the session just before the one being prepared."""
+        t0 = time.monotonic()
+        try:
+            prior = await calendar.sessions_between(day - timedelta(days=15), day - timedelta(days=1))
+        except calendar.CalendarUnavailable as e:
+            self._record("previous_session", {"day": day}, t0=t0, ok=False, error=str(e))
+            raise DataUnavailable(str(e)) from e
+        if not prior:
+            self._record("previous_session", {"day": day}, t0=t0, rows=0, ok=False, error="no session in 15 days")
+            raise DataUnavailable(f"no session in the 15 days before {day}")
+        self._record("previous_session", {"day": day}, t0=t0, rows=1)
+        return prior[-1]
 
     def _window_start(self, latest: date, sessions: int) -> date:
         return latest - timedelta(days=int(sessions * 1.6) + 12)

@@ -94,10 +94,10 @@ def test_ad10_publication_rule():
     assert v.latest_session("cash") == date(2026, 11, 4) and v.latest_session("fno") == date(2026, 11, 4)
     with pytest.raises(LookAheadError):
         run(v.day_snapshot(D))
-    assert PitMarketView(at(D, "18:29"), getter=api).latest_session("cash") == date(2026, 11, 4)
-    assert PitMarketView(at(D, "18:31"), getter=api).latest_session("cash") == D
-    assert PitMarketView(at(D, "19:29"), getter=api).latest_session("fno") == date(2026, 11, 4)
-    v = PitMarketView(at(D, "19:31"), getter=api)
+    assert PitMarketView(at(D, "19:29"), getter=api).latest_session("cash") == date(2026, 11, 4)
+    assert PitMarketView(at(D, "19:31"), getter=api).latest_session("cash") == D
+    assert PitMarketView(at(D, "22:44"), getter=api).latest_session("fno") == date(2026, 11, 4)
+    v = PitMarketView(at(D, "22:46"), getter=api)
     assert v.latest_session("fno") == D
     bars = run(v.daily_bars("XYZ", sessions=5))
     assert bars[-1].day == D and len(bars) == 5            # D+1 and D+2 rows in the API are never returned
@@ -109,10 +109,10 @@ def test_ad10_publication_rule():
 def test_ad11_split_adjusted_as_of_the_view():
     split = date(2026, 11, 2)
     api = FakeAPI(split=date(2026, 11, 20))                 # split AFTER the view's date
-    bars = run(PitMarketView(at(D, "19:00"), getter=api).daily_bars("XYZ", sessions=10))
+    bars = run(PitMarketView(at(D, "20:00"), getter=api).daily_bars("XYZ", sessions=10))
     assert {b.close for b in bars} == {Decimal("2000")}     # unadjusted: the later split does not leak in
     api = FakeAPI(split=split)                              # split inside the window
-    bars = run(PitMarketView(at(D, "19:00"), getter=api).daily_bars("XYZ", sessions=10))
+    bars = run(PitMarketView(at(D, "20:00"), getter=api).daily_bars("XYZ", sessions=10))
     before = [b for b in bars if b.day < split]
     after = [b for b in bars if b.day >= split]
     assert before and after
@@ -121,7 +121,7 @@ def test_ad11_split_adjusted_as_of_the_view():
 
 
 def test_fno_reads_and_lot_size():
-    v = PitMarketView(at(D, "20:00"), getter=FakeAPI(split=date(2026, 12, 1)))
+    v = PitMarketView(at(D, "23:00"), getter=FakeAPI(split=date(2026, 12, 1)))
     [fut] = run(v.futures("ACME"))
     assert fut.kind == "FUT" and fut.lot_size == 500 and fut.traded_value_rs == Decimal("2500000")
     assert run(v.lot_size("ACME")) == 500 and run(v.expiries("ACME")) == [date(2026, 11, 24)]
@@ -163,3 +163,56 @@ def test_buildup_answered_for_another_day_is_refused():
     v = PitMarketView(at(D, "20:00"), getter=getter)
     with pytest.raises(DataUnavailable):
         run(v.fno_buildup())
+
+
+# ── desk fixes from the 5 Nov walk-through: AD-FX-01, 02, 09 ────────────────────────────────────────────────────────
+
+def test_adfx01_published_times_follow_the_real_loads():
+    """Cash 19:30 IST and F&O 22:45 IST: after the real loads (cash ~19:00, F&O ~22:15, nidp.v_feed_status)."""
+    from datetime import time as dtime, timezone
+    from autodesk.market import view as mv
+    assert mv.CASH_EOD_PUBLISHED_IST == dtime(19, 30) and mv.FNO_EOD_PUBLISHED_IST == dtime(22, 45)
+    assert mv.published_at(D, "cash") == at(D, "19:30").astimezone(timezone.utc) == \
+        datetime(2026, 11, 5, 14, 0, tzinfo=timezone.utc)
+    assert mv.published_at(D, "fno") == at(D, "22:45").astimezone(timezone.utc) == \
+        datetime(2026, 11, 5, 17, 15, tzinfo=timezone.utc)
+
+
+def test_adfx02_strict_point_in_time_at_the_new_instants():
+    api = FakeAPI(split=date(2026, 12, 1))
+    prev = date(2026, 11, 4)
+    # the 18:50 IST walk-through case: 5 Nov cash is not published yet, so the view still sees 4 Nov
+    assert PitMarketView(at(D, "18:50"), getter=api).latest_session("cash") == prev
+    for hhmm, kind, want in (("19:29", "cash", prev), ("19:30", "cash", D), ("22:44", "fno", prev), ("22:45", "fno", D)):
+        assert PitMarketView(at(D, hhmm), getter=api).latest_session(kind) == want, (hhmm, kind)
+        assert FrozenMarketView(at(D, hhmm), {"sessions": [prev, D]}).latest_session(kind) == want, (hhmm, kind)
+    # look-ahead stays an error until the instant, for both kinds, on both implementations
+    early = PitMarketView(at(D, "19:29"), getter=api)
+    with pytest.raises(LookAheadError):
+        run(early.day_snapshot(D))
+    with pytest.raises(LookAheadError):
+        run(PitMarketView(at(D, "22:44"), getter=api).fno_universe(D))
+    frozen = FrozenMarketView(at(D, "22:44"), {"sessions": [prev, D]})
+    with pytest.raises(LookAheadError):
+        run(frozen.fno_universe(D))
+    # a Monday-morning view sees Friday for both kinds
+    mon = at(date(2026, 11, 9), "08:45")
+    assert PitMarketView(mon, getter=api).latest_session("fno") == date(2026, 11, 6)
+    assert PitMarketView(mon, getter=api).latest_session("cash") == date(2026, 11, 6)
+
+
+def test_adfx09_previous_session_is_calendar_only_and_skips_holidays():
+    api = FakeAPI(split=date(2026, 12, 1))
+    v = PitMarketView(at(D, "08:45"), getter=api)
+    assert run(v.previous_session(date(2026, 11, 6))) == D
+    assert run(v.previous_session(date(2026, 11, 9))) == date(2026, 11, 6)           # over the weekend
+    assert run(v.previous_session(date(2026, 11, 11))) == date(2026, 11, 9)          # over the 10 Nov holiday
+    assert run(v.previous_session(date(2026, 11, 14))) == date(2026, 11, 13)         # a Saturday asks for Friday
+    calls = [c for c in v.tool_calls() if c.tool == "previous_session"]
+    assert len(calls) == 4 and all(c.ok and c.rows == 1 and c.as_of == v.as_of for c in calls)
+    assert api.calls == []                                                           # no data API read at all
+    # Frozen view: from its own session list; none before the first session -> DataUnavailable (never a guess)
+    f = FrozenMarketView(at(D, "08:45"), {"sessions": [date(2026, 11, 3), D]})
+    assert run(f.previous_session(D)) == date(2026, 11, 3)
+    with pytest.raises(DataUnavailable):
+        run(f.previous_session(date(2026, 11, 3)))
