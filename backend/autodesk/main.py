@@ -151,6 +151,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
         log.warning("correlation middleware unavailable: %s", e)
     error_handlers(app)
     app.include_router(router)
+    from .routers.execution import router as execution_router
+    app.include_router(execution_router)
     return app
 
 
