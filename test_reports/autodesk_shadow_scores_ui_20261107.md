@@ -35,4 +35,10 @@ Not applicable to this part (display only). The real-data numbers for the shadow
 ## Inputs required from user
 none
 
+## Coordinator re-run (Account 1, 7 Nov, after merging PR #500's head fe3aabd3 + a4055e20 into this branch)
+- Backend: `run_autodesk_tests.sh ... tests/autodesk tests/test_order_path_guard.py` → `186 passed in 43.03s`.
+- Playwright on this branch: `1 failed, 167 passed`. The failure is AD-UI-74, the limits-dialog bug that PR #501 fixes; this branch does not contain #501.
+- Playwright on this branch with #501 merged (detached e43a7604, not pushed): `169 passed (1.2m)`.
+- Field names in `shadow.tsx` checked against `contracts.ShadowScore` and `ScoreComponent`. UNVERIFIED still: the screens against a live API response with stored shadow scores (needs a deploy and a desk cycle).
+
 ## Verdict: PASS
