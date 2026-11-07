@@ -54,4 +54,11 @@ Permission to run the throwaway container with the DaaS env (first attempts were
 - A full multi-session TOTAL_MARKET *replay* (orchestrator + simulator + Postgres) was not run; the real-data check is the AI Trader scan only. Proposal/approval stages on 230 signals are untested at that scale.
 - Index membership is today's, so any historical replay carries survivorship bias (stated in results and the UI).
 
+## Coordinator's review (Account 1, 7 Nov)
+- Merged with dev 8d0b5449 (PR #499), no conflicts. On that merged tree, before the fix below: backend `185 passed in 54.52s`; `tsc exit=0`, `build exit=0`; Playwright `163 passed (1.3m)` on one full run, 1 failure on each of two other full runs (AD-UI-74, AD-UI-76).
+- Those failures are a timing bug in the Policies screen that this branch does not touch: after a save, the version-keyed policy query is briefly empty, the limits dialog unmounts and loses its close callback, then reappears offering version 3 (page snapshot: "Saving creates version 3", "Save new version" disabled). Stress run of the spec, 8 repeats: this tree `2 failed, 110 passed`; plain dev `112 passed`. Fixed separately in its own PR.
+- Bug found in review and fixed here (fe3aabd3): `v21.score_last` raised NameError (`features` not imported); the live scan uses `score_at`, so no test reached it. Test added. Branch alone after the fix: `170 passed in 43.44s`.
+- The real-data scan (AD-SC-35) ran after the owner confirmed it in Account 2's conversation and left auto mode; two earlier attempts had been refused by the safety check.
+- Not deployed. To check after merge: a Studio replay on TOTAL_MARKET, and that signals carry both shadow scores.
+
 ## Verdict: PASS
