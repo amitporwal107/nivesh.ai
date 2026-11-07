@@ -50,7 +50,7 @@ def build_state(pool, *, agents: dict, market_factory, sessions_provider, next_s
     def versions() -> dict:
         v: dict[str, Any] = {"app": APP_VERSION,
                              "agents": {k.value: a.descriptor.version for k, a in agents.items()},
-                             "market_view": "point-in-time; cash EOD visible 18:30 IST, F&O EOD 19:30 IST"}
+                             "market_view": "point-in-time; cash EOD visible 19:30 IST, F&O EOD 22:45 IST"}
         try:
             from .control.risk_engine import ENGINE_VERSION
             v["risk_engine"] = ENGINE_VERSION

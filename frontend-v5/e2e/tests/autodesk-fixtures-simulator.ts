@@ -19,7 +19,7 @@ export const simTime = (day: string, i: number) => `${day}T${PH[i][1]}:00+00:00`
 export const VERSIONS = {
   app: "0.1.0",
   agents: { AI_TRADER: "autodesk-ait-v1", TRADING_ASSISTANT: "autodesk-ta-v1", RISK_OPS: "autodesk-risk-v1", MIDDLE_OFFICE: "autodesk-mo-v1", TECH_SUPPORT: "autodesk-ts-v1" },
-  market_view: "point-in-time; cash EOD visible 18:30 IST, F&O EOD 19:30 IST",
+  market_view: "point-in-time; cash EOD visible 19:30 IST, F&O EOD 22:45 IST",
   risk_engine: "autodesk-risk-v1",
   scan_rules: "ait-rules-v1",
   policy: { policy_id: "POL-1b7e93c4d05a4e2f9c61", version: 1, sha256: "e3a1f09c7b5d2e4f6a8c0b1d3e5f7a9c2b4d6e8f0a1c3e5f7b9d1f3a5c7e9b0d" },

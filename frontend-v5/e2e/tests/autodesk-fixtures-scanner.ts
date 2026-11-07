@@ -20,8 +20,8 @@ export const SCAN_TASK = "TASK-9e4b2a71c3d84f05b6e1";
 export const SIM_ID = "SIM-7d2c9b0e1f3a48d6c5b4";
 
 const EXPIRES = "2026-11-05T10:00:00+00:00";        // 15:30 IST, session close
-const CASH_ASOF = "2026-11-04T13:00:00+00:00";      // 18:30 IST, cash EOD published
-const FNO_ASOF = "2026-11-04T14:00:00+00:00";       // 19:30 IST, F&O EOD published
+const CASH_ASOF = "2026-11-04T14:00:00+00:00";      // 19:30 IST, cash EOD published
+const FNO_ASOF = "2026-11-04T17:15:00+00:00";       // 22:45 IST, F&O EOD published
 const SIG_CREATED = "2026-11-05T05:31:11.402000+00:00";
 const VERSION = "autodesk-ait-v1/ait-rules-v1";
 

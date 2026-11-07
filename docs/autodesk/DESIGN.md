@@ -98,7 +98,8 @@ risk engine built on the pure helpers above, with the same check names where the
 - `index_eod` is dense only from 2026-02-06 (relative strength and regime inputs are "unavailable" before that, never
   zero-filled into a positive score).
 
-**Publication rule (no future data).** Cash EOD for session d is visible from d 18:30 IST, F&O EOD from d 19:30 IST.
+**Publication rule (no future data).** Cash EOD for session d is visible from d 19:30 IST, F&O EOD from d 22:45 IST (after the real loads: cash about 19:00,
+F&O about 22:15 IST; changed from 18:30 / 19:30 on 7 Nov after a cycle at 18:50 IST found no cash file yet).
 A read for a later session raises `LookAheadError`. Every read is recorded on the task (tool calls), so AD-72 can prove
 it from the stored evidence.
 
@@ -113,7 +114,7 @@ positions, no capital reservation** — those are Phase 2.
 
 | Agent | Task types | Phase 1 behaviour | Tools (market view methods) |
 |---|---|---|---|
-| Tech Support `autodesk-ts-v1` | PREMARKET_HEALTH_CHECK | Checks the previous session's cash and F&O data exist and are fresh, the data API answers, the desk DB answers. READY / DEGRADED (F&O missing → cash only) / BLOCKED (no cash data → no new risk) | latest_session, day_snapshot, fno_universe, vix |
+| Tech Support `autodesk-ts-v1` | PREMARKET_HEALTH_CHECK | Checks the previous session's cash and F&O data exist and are fresh, the data API answers, the desk DB answers. "Fresh" = the data is for the session immediately before the one being prepared (`previous_session`). READY / DEGRADED (F&O missing, too few, or not for that session → cash only) / BLOCKED (no cash data, or cash older than that session → no new risk) | latest_session, previous_session, day_snapshot, fno_universe, vix |
 | AI Trader `autodesk-ait-v1` | SCAN_MARKET | Scans the universe on the previous session's data: breakout / breakdown, trend continuation, momentum, unusual volume and delivery, OI build-up (long/short build-up, short covering, long unwinding), Nifty/Bank Nifty trend or range. Scores 0–100 on the PRD's 8 dimensions with versioned weights; missing inputs earn 0 and are listed; a score is not a probability (`calibrated_probability` stays null). Dedupes. | all read tools |
 | Trading Assistant `autodesk-ta-v1` | GENERATE_STRATEGY, REVISE_STRATEGY | Builds cash / futures / option alternatives from the existing templates on the previous session's chain, ranks them (reward:risk, loss within budget, liquidity), returns the top as a 19-field plan or NO_TRADE with reasons. Revises on risk violations (smaller size, then the next alternative). | daily_bars, futures, options, expiries, lot_size, vix, sector |
 | Risk & Operations `autodesk-risk-v1` | ASSESS_RISK | Runs the deterministic risk engine (§6.2) on the exact plan version against the account book. | daily_bars, lot_size, sector |

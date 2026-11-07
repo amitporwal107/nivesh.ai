@@ -119,7 +119,7 @@ test("AD-UI-43 expanded row: eight dimensions, evidence, missing inputs, provena
   await expect(x.getByTestId("row-close")).toHaveText("Close 318.45 · liquidity 20-session average traded value ₹38.2 cr");
   await expect(x).toContainText("Similar-setup history needs recorded outcomes");
   const prov = x.getByTestId("provenance");
-  for (const t of [SIG.PETRONET, "DATA AS OF 4 Nov 19:30 IST", "MODEL autodesk-ait-v1/ait-rules-v1", "RULES ait-rules-v1", "SESSION 5 Nov", "EXPIRES 5 Nov 15:30", `WORKFLOW ${SCAN_WF}`, `TASK ${SCAN_TASK}`]) {
+  for (const t of [SIG.PETRONET, "DATA AS OF 4 Nov 22:45 IST", "MODEL autodesk-ait-v1/ait-rules-v1", "RULES ait-rules-v1", "SESSION 5 Nov", "EXPIRES 5 Nov 15:30", `WORKFLOW ${SCAN_WF}`, `TASK ${SCAN_TASK}`]) {
     await expect(prov).toContainText(t);
   }
   await expect(x.getByTestId("row-action")).toHaveText("Open approval ›");

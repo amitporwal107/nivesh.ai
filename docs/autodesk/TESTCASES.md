@@ -20,7 +20,7 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 
 | ID | Layer | Case | Expected | Ref |
 |---|---|---|---|---|
-| AD-10 | U | View at D 08:45 IST asks for D's cash bars; at D 18:29 / 18:31 IST; F&O at D 19:29 / 19:31 IST | LookAheadError before publication, visible after | PRD §28.4 |
+| AD-10 | U | View at D 08:45 IST asks for D's cash bars; at D 19:29 / 19:31 IST; F&O at D 22:44 / 22:46 IST (7 Nov: was 18:29 / 18:31 and 19:29 / 19:31, see AD-FX-01/02) | LookAheadError before publication, visible after | PRD §28.4 |
 | AD-11 | U | A 1:2 split dated after D: view at D sees unadjusted bars; view after the split sees bars before the split halved | as-of adjustment never uses later events | ARCH §10.5 |
 | AD-12 | U | chain_snapshot with an untraded strike side | that side's close is None | data fact §5 |
 | AD-13 | U | Agent calls a market method outside its allowlist | ToolNotAllowed | PRD §29.5 |
@@ -41,7 +41,7 @@ E = edge, F = failure. Owner of the code under test in brackets. PRD/ARCH refere
 
 | ID | Layer | Case | Expected | Ref |
 |---|---|---|---|---|
-| AD-25 | U | D-1 cash + F&O present / F&O missing / cash missing | READY [CASH,FUTURES,OPTIONS] / DEGRADED [CASH] / BLOCKED [] | PRD §30.1 |
+| AD-25 | U | D-1 cash + F&O present / F&O missing / cash missing (D-1 = the session immediately before the one prepared; older data: AD-FX-05/06) | READY [CASH,FUTURES,OPTIONS] / DEGRADED [CASH] / BLOCKED [] | PRD §30.1 |
 
 ## Trading Assistant [control]
 
