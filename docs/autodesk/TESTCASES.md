@@ -322,3 +322,134 @@ sends) they return the next rows after the cursor, oldest first, exactly as befo
 | AD-FX-42 | A | GET /simulations/{id}/timeline?limit=N (no after_seq) and with after_seq=0 | events as AD-FX-41; `clock` rows unchanged (all of them, ascending) |
 | AD-FX-43 | I+A | `store.list_workflows(newest_first)` and GET /desk/workflows?limit=2 with 3 session cycles for different sessions | the two newest, newest first; account and kind filters apply; children of a workflow (GET /desk/workflows/{id}) stay in creation order |
 | AD-FX-44 | E | UI consumers: scanner (newest cycle first), agents screen, Trading day / simulator timeline | existing specs pass unchanged; the timeline requests carry `after_seq` (cursor mode), so the UI still reads a run from its first event |
+
+## Phase 2 — risk-to-paper [core] (before the code)
+
+Design: `PHASE2_DESIGN.md`. Layers as above: U unit, I integration on a throwaway Postgres, A API, R real data (read-only). Market data and quotes in U/I/A are crafted (`tests/autodesk/stubs.py`, `FakeQuoteSource`), labelled as not real.
+
+### Capital ledger
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-01 | I | New account; existing account (row inserted before the migration) | one CAPITAL_AVAILABLE row each; equity = cash = available cash = buying power = capital; all other measures 0 |
+| AD-P2-02 | I | UPDATE and DELETE on ledger, fills, order events, journal | refused by the trigger; `fill_kind` other than SIMULATED refused by CHECK |
+| AD-P2-03 | I | 100 shares filled at 1,000 | cash −100,000 − fees; notional +100,000; margin 0; risk moved from pending to open; fees to the paisa from desk-cost-v2 |
+| AD-P2-04 | I | 1 lot (500) of futures filled at 1,000 | cash − fees only; margin +75,000; notional +500,000; loss figure separate: three different numbers |
+| AD-P2-05 | I | Long call; debit spread; credit spread; iron condor | debit: cash − net premium, margin 0. Credit: cash + credit, margin + width, buying power falls by width − credit + fees |
+| AD-P2-06 | I | After fills and marks at a new price | equity = capital + net P&L = cash + Σ market value; difference 0.00; unrealized signed correctly for long and short legs |
+
+### Reservation
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-10 | I | Ten concurrent reservations of 150,000 on 1,000,000 | exactly six succeed, four refused INSUFFICIENT_FUNDS; reserved 900,000; buying power 100,000; ledger sums agree |
+| AD-P2-11 | I | Same idempotency key twice, also concurrently | one reservation, one ledger row |
+| AD-P2-12 | I | Reservation past its expiry; next reserve on the account | status EXPIRED; funds back; `CAPITAL_RESERVATION_RELEASED` row; the new reservation sees them |
+| AD-P2-13 | I | Reservation partly consumed by a fill, the order ends | consumed + released = amount; status CONSUMED; reserved back to 0 |
+| AD-P2-14 | I | Funds, per-trade risk, open risk, position, sector, margin limits | each refused with its own code; no reservation row; no ledger row |
+
+### Intents and approval binding
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-20 | I | Approved plan → intent | intent committed as CREATED before controls run (a failing control step leaves it visible); then VALIDATED with every control stored; one order per leg VALIDATED; reservation ACTIVE; plan EXECUTING; events in the same transaction |
+| AD-P2-21 | I | Same key again; five concurrent calls | same intent; one reservation; one set of orders |
+| AD-P2-22 | I | Caller's plan hash differs; stored version's hash differs from scope | REFUSED PLAN_HASH_MISMATCH |
+| AD-P2-23 | I | A newer plan version exists | REFUSED PLAN_VERSION_STALE |
+| AD-P2-24 | I | No approval; approval of another version; expired approval; no PASS assessment | REFUSED NO_APPROVAL / NO_APPROVAL / APPROVAL_EXPIRED / NO_PASS_ASSESSMENT |
+| AD-P2-25 | I | Plan outside scope (lots, notional, risk, action, instrument) | REFUSED SCOPE_EXCEEDED |
+| AD-P2-26 | I | Account mode changed; policy changed; account suspended; RESEARCH account | REFUSED ACCOUNT_MODE_CHANGED / POLICY_CHANGED / ACCOUNT_NOT_ACTIVE / MODE_NOT_ALLOWED |
+| AD-P2-27 | I | STOP_NEW_ENTRIES active at intent, and activated between intent and submission | desk: REFUSED ENTRIES_STOPPED, reservation released. Simulation: not affected |
+| AD-P2-28 | I | Same plan version under another key | REFUSED DUPLICATE_INTENT |
+| AD-P2-29 | I | Every refusal | row kept with codes; no orders; no reservation left; plan EXECUTION_REFUSED; event recorded |
+| AD-P2-30 | I | Policy changed between intent and OPEN | refused at submission; orders REJECTED; reservation released |
+| AD-P2-31 | U | Short futures plan; lots not a multiple; limit off the tick; limit outside the collar | STRATEGY_NOT_ALLOWED; LOT_SIZE; TICK_SIZE; COLLAR |
+
+### Order state machine
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-32 | U | Every legal move; illegal moves (FILLED → OPEN, CREATED → FILLED, EXPIRED → anything) | legal pass; illegal raise IllegalTransition |
+| AD-P2-33 | I | A filled order's history | CREATED, VALIDATED, SUBMITTED, ACKNOWLEDGED, OPEN, FILLED in order, with sim time |
+| AD-P2-34 | I | Adapter raises at submit | order UNKNOWN; intent persisted; not retried; reservation held until expiry then released |
+| AD-P2-35 | I | Withdraw an open order; a filled order; `amend` | CANCEL_PENDING → CANCELLED, released, plan EXPIRED; Conflict; "not available" |
+
+### Fill model (pure, crafted bars)
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-40 | U | MARKET BUY and SELL at the open | open ± half spread ± slippage, tick rounded against the order; arrival, spread and slippage amounts recorded |
+| AD-P2-41 | U | LIMIT marketable at the open | fills at the priced fill, never past the limit |
+| AD-P2-42 | U | LIMIT not marketable; CLOSE with low through / low touching / low above | rests; fills at the limit / no fill / no fill |
+| AD-P2-43 | U | Order above 10 % of session volume; lots | partial in whole lots; cap below one lot: no fill |
+| AD-P2-44 | U | Latency | in 50..400 ms on the simulated clock; fixed by seed |
+| AD-P2-45 | U | Lot differs; open outside the band; open 10 % away from plan; untraded contract; no bar; open through invalidation; MARKET outside the collar | LOT_SIZE; PRICE_BAND; REFERENCE_MOVED; UNTRADED_CONTRACT; rests then expires; THROUGH_INVALIDATION; COLLAR |
+| AD-P2-46 | U | Costs by segment on a BUY and a SELL | equal desk_cost_card.order_side with slippage 0; brokerage only on an order's first fill; Decimal |
+| AD-P2-47 | U+I | Option leg | priced from its own contract's open, not the underlying's or another strike's |
+| AD-P2-48 | U | Same seed twice; another seed | identical decisions; slippage or latency differ; streams independent of processing order |
+| AD-P2-49 | U | OPEN decision with different high, low, close | identical (the open decision cannot see them) |
+
+### Multi-leg
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-50 | I | Spread with one untraded leg | every leg REJECTED; reason names the leg and all-or-none; reservation RELEASED; no position; plan EXECUTION_REFUSED |
+| AD-P2-51 | I | Net cost above `net_limit_rs`; one leg's volume below its quantity | same, with BASKET_NET_LIMIT / BASKET_VOLUME_CAP |
+| AD-P2-52 | I | All legs fill (debit spread, iron condor) | one position; 2 or 4 legs; each leg its own fill and charges; ledger as AD-P2-05 |
+
+### Simulator wiring
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-60 | I | Step a simulation phase by phase | 09:00 reservation ACTIVE, orders VALIDATED; 09:15 fills, position open; 15:30 marked, snapshot; 18:00 summary. Audit events at each step |
+| AD-P2-61 | I | Limit never reached | OPEN at 09:15; EXPIRED at 15:30; reservation EXPIRED; plan EXPIRED; buying power restored |
+| AD-P2-62 | I | Position across sessions | stays open; marked each session; daily and cumulative P&L; maximum drawdown from the snapshots |
+| AD-P2-63 | I | Two runs, same seed; a third, another seed | same fingerprint and figures; the third differs |
+| AD-P2-64 | I | No look-ahead | every session-bar read is for the clock's session; bar reader refuses a later one; changing a later session's bars changes nothing before it; agents' tools still raise LookAheadError for the session (AD-72 holds) |
+| AD-P2-65 | I | Isolation | simulation rows absent from desk lists; two simulations do not share capital; live adapter refuses a simulated order; simulation adapter refuses a desk order; STOP_NEW_ENTRIES does not touch simulations |
+| AD-P2-66 | I | Results | `execution_summary` with trades, net P&L, drawdown, orders, fills, charges, reservations, fill ratio, rejection rate, models, reconciliation difference 0.00, fingerprint; Phase 1 keys unchanged; `execution` still a string |
+| AD-P2-67 | I | A person approves before OPEN; after OPEN | filled at OPEN; REFUSED SESSION_PHASE_PASSED |
+| AD-P2-68 | I | Second proposal after the first reserved / filled | `load_book` shows the first's remaining risk and capital; open-risk check counts it; plan row expiry does not drop a filled position |
+| AD-P2-69 | I | No gateway wired | Phase 1 behaviour: `APPROVED_NO_EXECUTION`, no rows in the new tables except the opening entry |
+
+### Live desk (fake quote source)
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-70 | U | Quote checks | fresh ok; older than 120 s QUOTE_STALE; another day QUOTE_NOT_TODAY; volume 0 QUOTE_NOT_TRADED_TODAY; none QUOTE_MISSING; no LTP QUOTE_NO_PRICE |
+| AD-P2-71 | I | Fresh quote in market hours | fill at ask + slippage; `fill_kind` SIMULATED; `price_source` names the quote; position open |
+| AD-P2-72 | I | Stale quote, then no quote, then fresh | no fill twice; order OPEN; attempts 2; reason recorded; then fills at the fresh price, never the old one |
+| AD-P2-73 | I | Saturday, before 09:15, a holiday, cash after 15:15 | no read of the quote source; order waits; Monday in session fills |
+| AD-P2-74 | I | Past the session close | EXPIRED; reservation released; plan EXPIRED; a fill is no longer possible |
+| AD-P2-75 | I | Limit past the ask; displayed quantity below the order; the same quote again; no displayed quantity | no fill; partial; no second fill from one quote; 25 % per tick, at least a lot |
+| AD-P2-76 | I | Basket: one leg stale; all fresh | nothing fills; all fill together |
+| AD-P2-77 | I | STOP_NEW_ENTRIES after submission | no fill while active; reason recorded |
+| AD-P2-78 | U | `KiteQuoteSource` with fakes | Redis answers first; REST only for what is missing; token failure: no quote, reason given, no stale price; source file calls only `instruments` and `quote` |
+| AD-P2-79 | I | Marks | fresh quote updates a mark; old mark read back as `mark_stale`; `/capital` lists stale legs |
+
+### API
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-80 | A | Every new route signed out | 401 |
+| AD-P2-81 | A | Another tenant's account, order, intent, position, simulation filter | 404 or an empty list; never its rows |
+| AD-P2-82 | A | Capital, ledger, reservations, P&L, intents, orders + history + fills, positions, journal after a simulation | shapes of PHASE2_DESIGN §9; money as strings; journal holds the chain signal → plan → risk → approval → intent → reservation → order → fill → position |
+| AD-P2-83 | A | Cancel route | open order: 200, released. Terminal: 409. Other tenant: 404 |
+| AD-P2-84 | A | Existing routes; UI request contracts | all existing API tests and `test_ui_request_contracts.py` pass unchanged |
+
+### Safety
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-90 | U | AD-91, order-path guard; `LIVE_EXECUTION_AVAILABLE` | green; False; adapters are PAPER and SHADOW only; shadow refuses; no client input reaches the router |
+| AD-P2-91 | U | AD-92 on every reason, refusal, journal summary and limitation | none of the banned words |
+| AD-P2-92 | A | Fills in API answers | `fill_kind` SIMULATED, `broker_confirmed` false |
+
+### Real data (read-only, fresh database on the throwaway Postgres)
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-95 | R | 2–3 session replay with the real agents and the data API | approved plans become orders and fills, with reservations, costs and P&L |
+| AD-P2-96 | R | Same replay, same seed | same fingerprint and figures |
+| AD-P2-97 | R | Each fill against the exchange row read again | price = its contract's open ± model, or the limit inside the low/high; quantity within the volume share; marks = closes |
+| AD-P2-98 | R | One real read-only quote through `KiteQuoteSource` | a real quote, or UNVERIFIED with the real reason (login not valid, market closed) |
