@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">08 · Capital &amp; risk</span><span class="nv-pill">{{ policy }}</span>
+      <span style="flex:1"></span>
+      <div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2)"><sc-for list="{{ accts }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.go }}" style="cursor:pointer;border:0;padding:6px 14px;border-radius:999px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase">{{ o.t }}</button></sc-for></div>
+    </div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">{{ headA }} <em style="color:var(--mint)">{{ headB }}</em> {{ headC }}</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Notional, margin and maximum loss are different numbers and are never added together. A reservation holds capital from approval until fills convert it or it expires.</p>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ tileMin }},1fr));gap:10px">
+    <sc-for list="{{ capital }}" as="c" hint-placeholder-count="9"><div style="display:flex;flex-direction:column;gap:4px;padding:13px 15px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow" style="font-size:9px">{{ c.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:23px;line-height:1.1;color:{{ c.c }}">{{ c.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ c.s }}</span></div></sc-for>
+  </section>
+
+  <div style="display:grid;grid-template-columns:{{ twoCols }};gap:16px;align-items:start">
+    <section style="display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span style="font-family:var(--display);font-size:24px">Allocation limits</span><span class="nv-eyebrow" style="font-size:9.5px">Used · limit</span></div>
+      <sc-for list="{{ limits }}" as="l" hint-placeholder-count="10">
+        <div style="display:flex;flex-direction:column;gap:5px;padding-top:9px;border-top:1px solid var(--line)">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:13px"><span style="color:var(--ink-2)">{{ l.k }}</span><span class="nv-num" style="font-family:var(--mono);font-size:11.5px;color:{{ l.c }}">{{ l.v }}</span></div>
+          <span style="display:block;height:5px;border-radius:3px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ l.w }};border-radius:3px;background:{{ l.c }}"></span></span>
+          <span style="font-size:11px;color:var(--ink-3)">{{ l.s }}</span>
+        </div>
+      </sc-for>
+    </section>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <section style="display:flex;flex-direction:column;gap:6px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow" style="padding-bottom:6px">Guardrail hierarchy · most restrictive wins</span>
+        <sc-for list="{{ guard }}" as="g" hint-placeholder-count="7"><div style="display:flex;gap:12px;align-items:center;padding:7px 0;border-top:1px solid var(--line)"><span style="font-family:var(--display);font-size:18px;color:var(--ink-4);width:20px">{{ g.n }}</span><span style="flex:1;font-size:13.5px">{{ g.k }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:{{ g.c }}">{{ g.v }}</span></div></sc-for>
+      </section>
+      <section style="display:flex;flex-direction:column;gap:10px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Sector concentration · % of equity</span>
+        <sc-for list="{{ sectors }}" as="sc" hint-placeholder-count="5"><div style="display:grid;grid-template-columns:110px minmax(0,1fr) 54px;gap:10px;align-items:center;font-size:12.5px"><span style="color:var(--ink-2)">{{ sc.k }}</span><span style="position:relative;height:8px;border-radius:4px;background:var(--bg-3)"><span style="position:absolute;left:0;top:0;bottom:0;width:{{ sc.w }};border-radius:4px;background:{{ sc.c }}"></span><span style="position:absolute;left:{{ sc.capL }};top:-3px;bottom:-3px;border-left:1px dashed var(--danger)"></span></span><span class="nv-num" style="font-family:var(--mono);font-size:11px;text-align:right">{{ sc.v }}</span></div></sc-for>
+        <span style="font-size:11px;color:var(--ink-3)">Dashed line: 25% sector limit. Approving APR-3106 adds Energy 4.9%.</span>
+      </section>
+    </div>
+  </div>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px">
+    <sc-for list="{{ greeks }}" as="g" hint-placeholder-count="6"><div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;background:var(--bg-2)"><span class="nv-eyebrow" style="font-size:9px">{{ g.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:22px">{{ g.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ g.s }}</span></div></sc-for>
+  </section>
+
+  <div style="display:grid;grid-template-columns:{{ twoCols }};gap:16px;align-items:start">
+    <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-bottom:8px"><span style="font-family:var(--display);font-size:24px">Stress scenarios</span><span class="nv-eyebrow" style="font-size:9.5px">Stress loss limit 3% of equity</span></div>
+      <sc-for list="{{ stress }}" as="r" hint-placeholder-count="6"><div style="display:grid;grid-template-columns:minmax(0,1fr) 100px 70px;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:13px;align-items:baseline"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="text-align:right;color:{{ r.c }}">{{ r.v }}</span><span class="nv-num" style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ r.p }}</span></div></sc-for>
+    </section>
+    <section style="display:flex;flex-direction:column;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-bottom:8px"><span style="font-family:var(--display);font-size:24px">Reservations</span><span class="nv-eyebrow" style="font-size:9.5px">Atomic · expire on their own</span></div>
+      <sc-for list="{{ reservations }}" as="r" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:4px;padding:10px 0;border-top:1px solid var(--line)"><div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><span style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">{{ r.id }}</span><span style="font-size:13px;flex:1;min-width:140px">{{ r.n }}</span><span class="nv-num" style="font-size:13px">{{ r.v }}</span></div><div style="display:flex;gap:10px;align-items:center"><span style="font-size:11.5px;color:var(--ink-3);flex:1">{{ r.s }}</span><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:{{ r.c }}">{{ r.st }}</span></div></div></sc-for>
+    </section>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span style="font-family:var(--display);font-size:24px">Strategy budgets</span><span class="nv-eyebrow" style="font-size:9.5px">Fixed risk 0.5% per trade · volatility-adjusted (ATR 14)</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px">
+      <sc-for list="{{ budgets }}" as="b" hint-placeholder-count="5"><div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px"><span>{{ b.k }}</span><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ b.v }}</span></div><span style="display:block;height:5px;border-radius:3px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ b.w }};border-radius:3px;background:{{ b.c }}"></span></span><span style="font-size:11px;color:{{ b.sc }}">{{ b.s }}</span></div></sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1700},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;decided&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;Record&lt;string,string&gt;&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { acct: 'paper' };
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state, d = p.decided || {};
+    const paper = s.acct === 'paper';
+    const C = { mint: 'var(--mint)', amber: 'var(--amber)', danger: 'var(--danger)', ink: 'var(--ink)' };
+    const lim = (k, used, max, unit, sub, warnAt) => { const r = used / max; return { k, v: `${used}${unit} of ${max}${unit}`, w: Math.min(100, r * 100).toFixed(0) + '%', c: r >= (warnAt || 0.85) ? C.amber : C.mint, s: sub }; };
+    const capital = paper
+      ? [['Net liquidation', '₹1,01,84,560', 'Equity at live marks'], ['Available cash', '₹84,71,300', 'Before reservations'], ['Used margin', '₹1,02,400', 'HDFCBANK future · SPAN + exposure'], ['Reserved capital', '₹6,44,200', '3 reservations · see below'], ['Deployed notional', '₹15,07,259', '5 open positions'], ['Buying power', '₹77,24,700', 'Cash − reserved − margin'], ['Open risk', '₹48,289', '0.47% of equity · to stops', C.mint], ['Realized · unrealized', '−₹1,470 · +₹12,108', 'Today'], ['Pending order commitment', '₹1,47,800', 'DLF · 200 at 739.00']]
+      : [['Net liquidation', '₹25,06,520', 'Broker funds + positions'], ['Available cash', '₹19,64,890', 'Zerodha funds 11:41'], ['Used margin', '₹0', 'Delivery only · no leverage'], ['Reserved capital', '₹10,927', 'APR-3107 premium'], ['Deployed notional', '₹5,41,630', '2 open positions'], ['Buying power', '₹19,53,963', 'Cash − reserved'], ['Open risk', '₹10,430', '0.42% of capital · to stops', C.mint], ['Realized · unrealized', '— · +₹630', 'Brokers do not split realized'], ['Pending order commitment', String(d['APR-3107'] || '').startsWith('APPROVED') ? '₹10,927' : '₹0', 'Working orders']];
+    const limits = paper
+      ? [lim('Capital deployment', 15.1, 60, '%', '₹15.1 L deployed of ₹1.02 Cr'), lim('Largest risk per trade', 0.15, 1, '%', 'BEL · ₹15,210 to stop'), lim('Aggregate open risk', 0.47, 3, '%', 'Five positions to their stops'), lim('Per strategy · breakout', 6.3, 20, '%', 'BEL and DLF'), lim('Per instrument · HDFCBANK', 5.47, 6, '%', 'Future notional ₹5.57 L · 91% of the cap'), lim('Sector · Capital goods', 6.3, 25, '%', 'BEL and LT'), lim('Correlated · private banks', 5.5, 15, '%', 'HDFCBANK future against the Bank Nifty spread'), lim('Margin utilization', 16.4, 40, '%', 'Buffer 83.6%, minimum 20%'), lim('Daily loss', 0, 2, '%', 'Net P&L today is positive'), lim('Portfolio drawdown', 1.4, 8, '%', 'Peak ₹1,03,29,000 on 28 Oct')]
+      : [lim('Capital deployment', 21.7, 60, '%', '₹5.42 L of ₹25.0 L'), lim('Largest risk per trade', 0.28, 1, '%', 'SUNPHARMA · ₹6,990 to stop'), lim('Aggregate open risk', 0.42, 3, '%', 'Two positions to their stops'), lim('Per instrument · ICICIBANK', 11.4, 15, '%', '₹2.84 L'), lim('Sector · Financials', 11.4, 25, '%', 'ICICIBANK'), lim('Index options share', 0, 10, '%', '0.44% if APR-3107 fills'), lim('Daily loss', 0, 2, '%', '₹50,000 limit'), lim('Portfolio drawdown', 0.6, 5, '%', 'Since 1 Nov')];
+    const guard = [['Trade', 'All within 1%', 'mint'], ['Strategy', 'Breakout 6.3% of 20%', 'mint'], ['Instrument', paper ? 'HDFCBANK at 91% of cap' : 'ICICIBANK at 76% of cap', 'amber'], ['Sector and concentration', 'Largest 6.3% of 25%', 'mint'], ['Account daily loss', '0% of 2%', 'mint'], ['Portfolio drawdown', paper ? '1.4% of 8%' : '0.6% of 5%', 'mint'], ['Tenant restrictions', 'No naked short options', 'mint']].map(([k, v, c], i) => ({ n: String(i + 1), k, v: v.toUpperCase(), c: C[c] }));
+    const relApproved = String(d['APR-3106'] || '').startsWith('APPROVED');
+    const sectors = (paper ? [['Capital goods', 6.3], ['Financials', 5.6], ['Realty', 2.9], ['Energy', relApproved ? 4.9 : 0], ['Index options', 0.1]] : [['Financials', 11.4], ['Pharma', 10.3], ['Index options', 0]]).map(([k, v]) => ({ k, v: v.toFixed(1) + '%', w: ((v / 30) * 100).toFixed(1) + '%', capL: ((25 / 30) * 100).toFixed(1) + '%', c: v >= 20 ? C.amber : 'var(--indigo)' }));
+    const greeks = paper ? [['Gross exposure', '₹15.1 L', 'Long ₹15.0 L · short ₹0.1 L'], ['Beta-weighted', '₹15.6 L', 'Portfolio beta 1.04'], ['Nifty delta', '+₹15,600', 'Per 1% move'], ['Theta', '−₹410/day', 'Bank Nifty spread'], ['Vega', '+₹960/pt', 'Bank Nifty spread'], ['Stress loss, worst', '−₹82,600', '0.81% of equity']] : [['Gross exposure', '₹5.4 L', 'Long only'], ['Beta-weighted', '₹4.9 L', 'Portfolio beta 0.91'], ['Nifty delta', '+₹4,900', 'Per 1% move'], ['Theta', '₹0/day', 'No options yet'], ['Vega', '₹0/pt', 'No options yet'], ['Stress loss, worst', '−₹27,100', '1.08% of capital']];
+    const stress = (paper ? [['Nifty gaps down 3%', '−₹62,400', '−0.61%'], ['Nifty rallies 3%', '+₹48,900', '+0.48%'], ['Bank Nifty −4%', '−₹21,300', '−0.21%'], ['India VIX +5 pts', '+₹4,800', '+0.05%'], ['Exit slippage ×3', '−₹3,900', '−0.04%'], ['Overnight gap through every stop (−5%)', '−₹82,600', '−0.81%']] : [['Nifty gaps down 3%', '−₹14,800', '−0.59%'], ['Nifty rallies 3%', '+₹14,600', '+0.58%'], ['Financials −4%', '−₹11,400', '−0.45%'], ['Exit slippage ×3', '−₹900', '−0.04%'], ['Overnight gap through every stop (−5%)', '−₹27,100', '−1.08%']]).map(([k, v, pc]) => ({ k, v, p: pc, c: v.startsWith('+') ? C.mint : 'var(--danger)' }));
+    const rsv = (id, apr, n, v, sub) => { const dv = String(d[apr] || '').split('@')[0]; const st = !apr ? 'HELD' : dv === 'APPROVED' ? 'CONVERTING ON FILL' : dv === 'REJECTED' ? 'RELEASED' : dv === 'NEEDS_REVISION' ? 'RELEASED' : 'HELD'; return { id, n, v, s: sub, st, c: st === 'HELD' ? C.amber : st === 'RELEASED' ? 'var(--ink-3)' : C.mint }; };
+    const reservations = paper ? [rsv('RSV-7731', 'APR-3106', 'RELIANCE · APR-3106', '₹4,95,660', 'Expires 12:30:00 if not approved'), rsv('RSV-7729', null, 'DLF · remaining 200', '₹1,47,800', 'Until 15:20 · ENTRY-TTL-v1'), rsv('RSV-7726', 'APR-3104', 'Bank Nifty roll · APR-3104', '₹3,591', 'Extra premium · expires 14:00:00')] : [rsv('RSV-7733', 'APR-3107', 'NIFTY spread · APR-3107', '₹10,927', 'Expires 12:10:00 if not approved')];
+    const budgets = [['Breakout', '6.3% of 30%', 21, C.mint, 'BEL · DLF'], ['Trend', '7.8% of 30%', 26, C.mint, 'HDFCBANK future · LT'], ['Index options', '0.1% of 20%', 1, C.mint, 'Bank Nifty spread'], ['Mean reversion', 'Suspended', 0, 'var(--ink-4)', 'Suspended 21 Oct after 6 losses'], ['Reserve', '20%', 100, 'var(--indigo)', 'Never allocated automatically']].map(([k, v, w, c, s2]) => ({ k, v, w: w + '%', c, s: s2, sc: k === 'Mean reversion' ? C.amber : 'var(--ink-3)' }));
+    return {
+      h1: m ? '30px' : '44px', tileMin: m ? '150px' : '190px', twoCols: m ? 'minmax(0,1fr)' : 'minmax(0,1.2fr) minmax(0,1fr)',
+      policy: paper ? 'Paper · Desk A · P-PAPER-v7' : 'Zerodha · ZX4821 · P-LIVE-v3',
+      accts: [['paper', 'Desk A'], ['live', 'ZX4821']].map(([v, t]) => ({ t, go: () => this.setState({ acct: v }), bg: s.acct === v ? 'var(--mint)' : 'transparent', color: s.acct === v ? '#06120B' : 'var(--ink-2)' })),
+      headA: paper ? 'Capital is 15% deployed and open risk is' : 'Two live positions hold ₹5.4 L; open risk is', headB: paper ? '0.47%' : '0.42%', headC: paper ? 'of a 3% limit. HDFCBANK is closest to its cap.' : 'of a 3% limit.',
+      capital: capital.map(([k, v, s2, c]) => ({ k, v, s: s2, c: c || C.ink })), limits, guard, sectors, greeks, stress, reservations, budgets,
+    };
+  }
+}
+</script>
+</body>
+</html>

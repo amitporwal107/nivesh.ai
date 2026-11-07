@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:24px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">05 · Approval queue</span><span class="nv-pill nv-pill-amber">{{ pendLabel }}</span><span class="nv-pill">Approvals bind to one plan version</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">{{ headA }} <em style="color:var(--amber)">{{ headB }}</em></h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:680px">Each item has passed the Risk Guardian and been routed by the Middle Office. Your decision is recorded against the exact plan version, quantity, mode and expiry shown here; a changed plan needs a new approval.</p>
+  </section>
+
+  <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+    <sc-if value="{{ showList }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:10px">
+        <span class="nv-eyebrow">Waiting on you</span>
+        <sc-for list="{{ items }}" as="it" hint-placeholder-count="3">
+          <div onClick="{{ it.pick }}" style="cursor:pointer;display:flex;flex-direction:column;gap:9px;padding:14px 16px;border-radius:14px;border:1px solid {{ it.border }};background:{{ it.bg }};transition:all .15s ease" style-hover="border-color:var(--line-3)">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">{{ it.id }}</span><span class="nv-pill" style="padding:2px 8px;font-size:9px;color:{{ it.mc }};border-color:{{ it.ml }}">{{ it.mode }}</span><span style="flex:1"></span><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:{{ it.cdc }}">{{ it.cd }}</span></div>
+            <span style="font-size:14.5px;font-weight:500;line-height:1.35">{{ it.short }}</span>
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><span style="font-size:12px;color:var(--ink-3)">{{ it.acct }}</span><span class="nv-num" style="font-family:var(--display);font-size:20px;color:var(--ink)">{{ it.risk }}</span></div>
+            <sc-if value="{{ it.isDone }}" hint-placeholder-val="{{ false }}"><span class="nv-pill" style="align-self:flex-start;color:{{ it.dc }};border-color:{{ it.dl }};background:{{ it.dbg }}">{{ it.dtext }}</span></sc-if>
+          </div>
+        </sc-for>
+        <span class="nv-eyebrow" style="padding-top:12px">Decided earlier today</span>
+        <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+          <sc-for list="{{ history }}" as="h" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:5px;padding:12px 16px;border-top:1px solid {{ h.line }}">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ h.id }} · {{ h.t }}</span><span style="flex:1"></span><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:{{ h.c }}">{{ h.st }}</span></div>
+              <span style="font-size:13.5px">{{ h.n }}</span>
+              <span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ h.why }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showDetail }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:999 1 460px;display:flex;flex-direction:column;gap:16px;min-width:0">
+        <sc-if value="{{ mobileBack }}" hint-placeholder-val="{{ false }}"><span onClick="{{ back }}" style="cursor:pointer;font-size:13px;color:var(--mint);min-height:32px;display:flex;align-items:center">‹ All approvals</span></sc-if>
+        <div style="display:flex;flex-direction:column;gap:16px;padding:{{ cardPad }};border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card)">
+          <div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-start;justify-content:space-between">
+            <div style="display:flex;flex-direction:column;gap:8px;min-width:0;flex:1 1 300px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span style="font-family:var(--mono);font-size:11.5px;color:var(--ink-2)">{{ a.id }} · {{ a.plan }}</span><span class="nv-pill" style="color:{{ a.mc }};border-color:{{ a.ml }}">{{ a.mode }}</span><span class="nv-pill">{{ a.acct }}</span></div>
+              <h2 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h2 }};line-height:1.12;letter-spacing:-0.015em;text-wrap:pretty">{{ a.title }}</h2>
+              <span style="font-size:13px;color:var(--amber)">{{ a.why }}</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="nv-num" style="font-family:var(--display);font-size:40px;line-height:1;color:{{ a.cdc }}">{{ a.cd }}</span><span class="nv-eyebrow" style="font-size:9px">{{ a.cdLabel }}</span></div>
+          </div>
+          <p style="margin:0;font-size:14.5px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">{{ a.thesis }}</p>
+
+          <sc-if value="{{ a.isDone }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:12px 14px;border-radius:12px;border:1px solid {{ a.dl }};background:{{ a.dbg }}"><span style="font-family:var(--mono);font-size:10.5px;letter-spacing:0.1em;color:{{ a.dc }}">{{ a.dtext }}</span><span style="font-size:13px;color:var(--ink-2)">{{ a.dnote }}</span></div>
+          </sc-if>
+          <sc-if value="{{ a.open }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;flex-wrap:wrap;gap:10px">
+                <button onClick="{{ act.approve }}" style="cursor:pointer;padding:11px 20px;border-radius:12px;border:1px solid transparent;background:var(--mint);color:#06120B;font-size:14px;font-weight:500">Approve…</button>
+                <button onClick="{{ act.revise }}" style="cursor:pointer;padding:11px 18px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:14px" style-hover="border-color:var(--line-3)">Request revision</button>
+                <button onClick="{{ act.reject }}" style="cursor:pointer;padding:11px 18px;border-radius:12px;border:1px solid var(--danger-line);background:transparent;color:var(--danger);font-size:14px" style-hover="background:var(--danger-soft)">Reject</button>
+              </div>
+              <sc-if value="{{ stepApprove }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:12px;border:1px solid var(--mint-line);background:var(--mint-soft)">
+                  <span class="nv-eyebrow" style="color:var(--mint)">Your approval binds exactly this</span>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:8px 18px">
+                    <sc-for list="{{ a.bind }}" as="b" hint-placeholder-count="7"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)">{{ b.k }}</span><span style="font-size:13px">{{ b.v }}</span></div></sc-for>
+                  </div>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button onClick="{{ act.confirmApprove }}" style="cursor:pointer;padding:10px 18px;border-radius:12px;border:0;background:var(--mint);color:#06120B;font-size:14px;font-weight:500">Confirm approval</button><span onClick="{{ act.cancel }}" style="cursor:pointer;font-size:13px;color:var(--ink-3)">Cancel</span><span style="font-size:12px;color:var(--ink-3)">Authorization is checked again at execution time.</span></div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ stepReason }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-2)">
+                  <span class="nv-eyebrow">{{ reasonTitle }}</span>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ reasons }}" as="r" hint-placeholder-count="3"><span onClick="{{ r.pick }}" style="cursor:pointer;padding:8px 14px;border-radius:999px;font-size:13px;border:1px solid {{ r.line }};color:{{ r.color }};background:{{ r.bg }}">{{ r.t }}</span></sc-for></div>
+                  <div style="display:flex;gap:10px;align-items:center"><button onClick="{{ act.confirmReason }}" style="cursor:pointer;padding:10px 18px;border-radius:12px;border:1px solid var(--line-3);background:var(--bg-3);color:var(--ink);font-size:14px">{{ reasonBtn }}</button><span onClick="{{ act.cancel }}" style="cursor:pointer;font-size:13px;color:var(--ink-3)">Cancel</span></div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px">
+          <div style="display:flex;flex-direction:column;gap:2px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+            <span class="nv-eyebrow" style="padding-bottom:8px">Proposed trade</span>
+            <sc-for list="{{ a.trade }}" as="t" hint-placeholder-count="4">
+              <div style="display:grid;grid-template-columns:58px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.45"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3);padding-top:2px">{{ t.k }}</span><div style="display:flex;flex-direction:column;gap:2px"><span style="overflow-wrap:anywhere">{{ t.v }}</span><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ t.n }}</span></div></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+            <span class="nv-eyebrow" style="padding-bottom:8px">Capital allocation</span>
+            <sc-for list="{{ a.capital }}" as="t" hint-placeholder-count="3">
+              <div style="display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid var(--line)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)">{{ t.k }}</span><span class="nv-num" style="font-size:13.5px;overflow-wrap:anywhere">{{ t.v }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Risk report</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ a.riskId }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax({{ tileMin }},1fr));gap:10px">
+            <sc-for list="{{ a.riskTiles }}" as="r" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;background:var(--bg-2)"><span class="nv-eyebrow" style="font-size:9px">{{ r.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;line-height:1.1;color:{{ r.c }}">{{ r.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ r.s }}</span></div></sc-for>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:0 18px">
+            <sc-for list="{{ a.stress }}" as="r" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:{{ r.c }}">{{ r.v }}</span></div></sc-for>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px">
+          <div style="display:flex;flex-direction:column;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+            <span class="nv-eyebrow" style="padding-bottom:10px">Portfolio impact</span>
+            <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,0.8fr));gap:8px;padding-bottom:6px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Measure</span><span style="text-align:right">Before</span><span style="text-align:right">After</span><span style="text-align:right">Limit</span></div>
+            <sc-for list="{{ a.impact }}" as="r" hint-placeholder-count="4">
+              <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,0.8fr));gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px;align-items:baseline"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.b }}</span><span class="nv-num" style="text-align:right">{{ r.a }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.l }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+            <span class="nv-eyebrow">Required approvals</span>
+            <sc-for list="{{ a.chain }}" as="c" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:12px"><span style="width:22px;height:22px;flex:none;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:10px;border:1px solid {{ c.line }};background:{{ c.bg }};color:{{ c.c }}">{{ c.i }}</span><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px"><span style="font-size:13.5px">{{ c.who }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:{{ c.c }}">{{ c.st }}</span></div><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ c.t }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-bottom:10px"><span class="nv-eyebrow">Policy checks</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ a.checkSum }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:0 22px">
+            <sc-for list="{{ a.checks }}" as="c" hint-placeholder-count="12">
+              <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:baseline"><span style="font-family:var(--mono);font-size:12px;width:14px;flex:none;color:{{ c.c }}">{{ c.g }}</span><div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:13px">{{ c.t }}</span><span style="font-size:11.5px;color:var(--ink-3)">{{ c.d }}</span></div></div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <span class="nv-eyebrow" style="padding-bottom:8px">Audit history</span>
+          <sc-for list="{{ a.audit }}" as="h" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:70px {{ auditCol }} minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px;line-height:1.45;align-items:baseline"><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ h.t }}</span><span style="font-size:12px;color:{{ h.c }}">{{ h.who }}</span><span style="color:var(--ink-2);overflow-wrap:anywhere;min-width:0">{{ h.x }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1600},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;focus&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;sec&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;decided&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;Record&lt;string,string&gt;&quot;},&quot;onDecide&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(id: string, v: string) =&gt; void&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;},&quot;halted&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { sel: null, step: null, reason: null };
+  componentDidUpdate(pp) { if (this.props.focus && this.props.focus !== pp.focus) this.setState({ sel: this.props.focus, step: null }); }
+  data() {
+    const P = (s, t, d) => ({ s, t, d });
+    return {
+      'APR-3107': {
+        plan: 'PLN-2041 v2', title: 'NIFTY bull call spread · 24000 / 24200 CE · 9 Nov expiry', short: 'NIFTY 24000/24200 CE spread · 2 lots', mode: 'Assisted live', tone: 'indigo', acct: 'Zerodha · ZX4821', exp: 43800, expT: '12:10:00', risk: '₹10,927',
+        why: 'Live entries always need the account owner (P-LIVE-v3 §2).',
+        thesis: 'Nifty is holding above the 61.8% retracement at 23,786, with long buildup in the November future and fresh put writing at 24,000. The spread caps the cost of being wrong at the premium paid and keeps the short strike inside the ±343 expected move to Monday’s expiry.',
+        trade: [['Buy', '2 lots · 130 · NIFTY 09 NOV 24000 CE', 'LIMIT 143.25'], ['Sell', '2 lots · 130 · NIFTY 09 NOV 24200 CE', 'LIMIT 59.20'], ['Net', 'Debit 84.05 per unit · ₹10,926.50', 'COLLAR ±1.5% OF MID'], ['Exit', 'T1 spread 160 (half) · T2 190 · stop 42 · time exit 9 Nov 15:00', 'PRE-AUTHORIZED IN PLAN']],
+        capital: [['Reservation', 'RSV-7733 · ₹10,927 held until 12:10:00'], ['Funds used after', '₹5.53 L of ₹25.0 L (22.1%)'], ['Sizing rule', 'Fixed risk · ≤ 0.5% of live capital']],
+        riskId: 'RSK-5530 · RISK GUARDIAN · 11:38:10',
+        riskTiles: [['Max loss', '₹10,927', '0.44% of capital', 'danger'], ['Max profit', '₹15,074', 'R:R 1 : 1.38', 'mint'], ['Breakeven', '24,084.05', '+0.30% from spot', 'ink'], ['Chance of profit', '41%', 'Lognormal at IV 13.4% · a model', 'ink']],
+        stress: [['Nifty −1% (−240)', '−₹6,980'], ['Nifty +1% (+240)', '+₹8,620'], ['IV −2 pts', '−₹310'], ['One session passes', '−₹1,240']],
+        impact: [['Open risk (ZX4821)', '0.42%', '0.85%', '3%'], ['Nifty delta', '+₹5.4 L', '+₹12.9 L', '₹20 L'], ['Funds used', '21.7%', '22.1%', '60%'], ['Index options share', '0%', '0.44%', '10%']],
+        chain: [['Risk Guardian', 'PASS · 1 WARNING', '11:38:10', 'mint'], ['Middle Office', 'NEEDS_HUMAN_APPROVAL', '11:38:40', 'amber'], ['Account owner · you', 'WAITING', '—', 'ink'], ['Execution gateway', 'NOT STARTED', '—', 'ink']],
+        checks: [P('p', 'Instrument allowed', 'NIFTY index options are enabled on ZX4821'), P('p', 'Strategy allowed live', 'Defined-risk spreads only'), P('p', 'Trade risk ≤ 1% of capital', '₹10,927 of ₹25,000'), P('p', 'Open risk after trade ≤ 3%', '0.85%'), P('p', 'Daily loss headroom', '₹50,000 unused'), P('p', 'Funds used ≤ 60%', '22.1% after trade'), P('p', 'Order type and collar', 'Limit only, ±1.5% of mid'), P('p', 'Liquidity', 'Bid-ask ₹0.40 and ₹0.55 per leg'), P('p', 'Data freshness', 'Chain snapshot 14s old, limit 60s'), P('w', 'Expiry within two sessions', 'Overnight hold allowed; time decay noted'), P('p', 'Entry session', 'Before the 15:00 entry cutoff'), P('p', 'Approval binding', 'Plan hash matches v2')],
+        bind: [['Tenant · account', 'TNT-01 · ZX4821'], ['Trade · plan', 'TRD-1195 · PLN-2041 v2 · hash 9f3c…a21e'], ['Instrument · strategy', 'NIFTY 09 NOV 24000/24200 CE · bull call spread'], ['Max quantity', '130 per leg (2 lots)'], ['Max premium · risk', '₹10,927 · ₹10,927'], ['Mode · actions', 'Assisted live · limit entry, protective and target exits'], ['Expires', '12:10:00 IST · approver amit.p']],
+        audit: [['10:05:12', 'AI Trader', 'SIG-10262 published · NIFTY long buildup · score 78'], ['10:21:40', 'Strategist', 'PLN-2041 v1 · 24000/24300 CE · debit 109.40'], ['10:24:02', 'Risk Guardian', 'RSK-5521 WARN · max loss ₹14,222 above the 0.5% live sizing cap'], ['11:35:44', 'Strategist', 'PLN-2041 v2 · 24000/24200 CE · debit 84.05'], ['11:38:10', 'Risk Guardian', 'RSK-5530 PASS · 1 warning'], ['11:38:40', 'Middle Office', 'APR-3107 opened · NEEDS_HUMAN_APPROVAL · RSV-7733 ₹10,927']],
+      },
+      'APR-3106': {
+        plan: 'PLN-2038 v1', title: 'RELIANCE long · 330 shares · limit 1,502', short: 'RELIANCE long · 330 shares', mode: 'Auto paper', tone: 'mint', acct: 'Paper · Desk A', exp: 45000, expT: '12:30:00', risk: '₹13,860',
+        why: '₹4.96 L notional is above the ₹4.00 L autonomous limit (P-PAPER-v7 §4).',
+        thesis: 'RELIANCE is consolidating above its 50-day average, with futures open interest up 6.2% on a rising price and volume 1.8× the 20-day average. The plan buys inside 1,490–1,505 and is invalid below 1,460.',
+        trade: [['Buy', '330 · RELIANCE · NSE cash', 'LIMIT 1,502.00'], ['Stop', 'Invalidation 1,460.00 · SL-M', '−2.80%'], ['Targets', 'T1 1,560 (half) · T2 1,600', '+3.86% · +6.52%'], ['Valid', 'Entry window until 15:20 today', 'ENTRY-TTL-v1']],
+        capital: [['Reservation', 'RSV-7731 · ₹4,95,660 held until 12:30:00'], ['Deployed after', '₹20.0 L of ₹1.02 Cr (19.7%)'], ['Sizing rule', 'Fixed risk 0.15% · ATR(14) 21.4']],
+        riskId: 'RSK-5529 · RISK GUARDIAN · 11:30:41',
+        riskTiles: [['Risk to stop', '₹13,860', '0.14% of equity', 'danger'], ['Reward to T1', '₹19,140', 'R:R 1 : 1.38', 'mint'], ['Reward to T2', '₹32,340', 'R:R 1 : 2.33', 'mint'], ['Gap risk', '₹33,130', 'At a 4% gap below the stop', 'amber']],
+        stress: [['Nifty −2% (beta 1.05)', '−₹10,420'], ['Energy sector −3%', '−₹14,870'], ['Slippage ×3', '−₹590'], ['Overnight gap −4%', '−₹33,130']],
+        impact: [['Open risk (Desk A)', '0.47%', '0.61%', '3%'], ['Capital deployed', '15.1%', '19.7%', '60%'], ['RELIANCE allocation', '0%', '4.9%', '6%'], ['Energy sector', '0%', '4.9%', '25%']],
+        chain: [['Risk Guardian', 'PASS', '11:30:41', 'mint'], ['Middle Office', 'NEEDS_HUMAN_APPROVAL', '11:31:07', 'amber'], ['Account owner · you', 'WAITING', '—', 'ink'], ['Paper engine', 'NOT STARTED', '—', 'ink']],
+        checks: [P('p', 'Instrument allowed', 'NSE cash · Nifty 50 universe'), P('p', 'Trade risk ≤ 1%', '0.14% of equity'), P('p', 'Open risk after trade ≤ 3%', '0.61%'), P('p', 'Instrument allocation ≤ 6%', '4.9%'), P('p', 'Sector ≤ 25%', 'Energy 4.9%'), P('w', 'Autonomous notional ≤ ₹4.00 L', '₹4.96 L, so a human signs'), P('p', 'Liquidity', '₹1,240 Cr average daily value'), P('p', 'Data freshness', 'Quote 0.8s old'), P('p', 'Price collar', 'Limit within 0.25% of LTP'), P('p', 'Entry session', 'Before the 15:00 cutoff'), P('p', 'Duplicate check', 'No other open RELIANCE plan'), P('p', 'Approval binding', 'Plan hash matches v1')],
+        bind: [['Tenant · account', 'TNT-01 · Paper · Desk A'], ['Trade · plan', 'TRD-1196 · PLN-2038 v1 · hash 41d0…7b2c'], ['Instrument · strategy', 'RELIANCE NSE cash · long equity'], ['Max quantity', '330 shares'], ['Max notional · risk', '₹4,95,660 · ₹13,860'], ['Mode · actions', 'Auto paper · entry, stop, T1/T2, trailing'], ['Expires', '12:30:00 IST · approver amit.p']],
+        audit: [['09:30:02', 'AI Trader', 'SIG-10251 · RELIANCE bullish · score 82'], ['11:28:15', 'Strategist', 'PLN-2038 v1 · 330 shares · limit 1,502'], ['11:30:41', 'Risk Guardian', 'RSK-5529 PASS'], ['11:31:07', 'Middle Office', 'APR-3106 opened · NEEDS_HUMAN_APPROVAL · RSV-7731 ₹4,95,660']],
+      },
+      'APR-3104': {
+        plan: 'AMD-0092 · PLN-2029 v3', title: 'BANKNIFTY bear put spread · roll 23 Nov → 29 Dec', short: 'BANKNIFTY put spread roll to 29 Dec', mode: 'Auto paper', tone: 'mint', acct: 'Paper · Desk A', exp: 50400, expT: '14:00:00', risk: '₹15,390',
+        why: 'The roll extends holding past the approved 23 Nov expiry (EXPIRY-HOLD-v2).',
+        thesis: 'Bank Nifty is up 1.9% since entry and the pullback to 54,500 has not happened. AMD-0092 keeps the same strikes and lot count, moves expiry to 29 Dec and books today’s loss on the November spread.',
+        trade: [['Close', '3 lots · 90 · BANKNIFTY 23 NOV 55000/54500 PE', 'NET CREDIT 131.10'], ['Open', '3 lots · 90 · BANKNIFTY 29 DEC 55000/54500 PE', 'NET DEBIT 171.00'], ['Books', 'Realizes −₹3,357 on the November spread', 'TODAY'], ['Exit', 'Stop if spread ≤ 85.50 · T1 260 · T2 340', 'SAME RULES AS v2']],
+        capital: [['Reservation', 'RSV-7726 · ₹3,591 extra premium'], ['Premium at risk', '₹11,799 → ₹15,390'], ['Sizing rule', 'Unchanged · 3 lots']],
+        riskId: 'RSK-5527 · RISK GUARDIAN · 11:12:05',
+        riskTiles: [['New max loss', '₹15,390', '0.15% of equity', 'danger'], ['Max profit', '₹29,610', 'R:R 1 : 1.92', 'mint'], ['Breakeven', '54,829', 'BANKNIFTY at expiry', 'ink'], ['Days added', '+36', 'Θ −₹180/day after roll', 'amber']],
+        stress: [['BANKNIFTY −3%', '+₹14,200'], ['BANKNIFTY +3%', '−₹7,950'], ['IV +2 pts', '+₹1,020'], ['10 sessions pass', '−₹1,860']],
+        impact: [['Open risk (Desk A)', '0.47%', '0.51%', '3%'], ['Bank index delta', '−₹4.2 L', '−₹3.9 L', '₹15 L'], ['Positions past 30 days', '0', '1', '2'], ['Realized today', '−₹1,470', '−₹4,827', '—']],
+        chain: [['Strategist', 'AMD-0092 PROPOSED', '11:09:52', 'indigo'], ['Risk Guardian', 'PASS', '11:12:05', 'mint'], ['Middle Office', 'NEEDS_HUMAN_APPROVAL', '11:12:30', 'amber'], ['Account owner · you', 'WAITING', '—', 'ink']],
+        checks: [P('p', 'Max loss within trade limit', '₹15,390 of ₹1.02 L'), P('w', 'Holding extends past plan expiry', 'Needs the owner under EXPIRY-HOLD-v2'), P('p', 'Same strikes and quantity', 'No added exposure'), P('p', 'Liquidity, December strikes', 'Bid-ask ₹2.10'), P('p', 'Data freshness', 'Chain snapshot 22s old'), P('p', 'Amendment record', 'Reason, evidence, before/after attached'), P('p', 'Approval binding', 'Hash matches v3')],
+        bind: [['Tenant · account', 'TNT-01 · Paper · Desk A'], ['Trade · plan', 'TRD-1187 · PLN-2029 v3 · hash c71e…09fd'], ['Instrument · strategy', 'BANKNIFTY 55000/54500 PE · bear put spread'], ['Max quantity', '90 per leg (3 lots)'], ['Max premium · risk', '₹15,390 · ₹15,390'], ['Mode · actions', 'Auto paper · close Nov, open Dec, protective exits'], ['Expires', '14:00:00 IST · approver amit.p']],
+        audit: [['10:55:00', 'TLM', 'Thesis check · BANKNIFTY +1.9% since entry, no exit rule fired'], ['11:09:52', 'Strategist', 'AMD-0092 · roll to 29 Dec, same strikes'], ['11:12:05', 'Risk Guardian', 'RSK-5527 PASS · stress run queued'], ['11:12:30', 'Middle Office', 'APR-3104 opened · NEEDS_HUMAN_APPROVAL']],
+      },
+    };
+  }
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state, d = p.decided || {}, sec = p.sec || 0;
+    const D = this.data(), ids = Object.keys(D);
+    const T = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], amber: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], ink: ['var(--ink-2)', 'var(--line-2)', 'transparent'] };
+    const z = (n) => String(n).padStart(2, '0');
+    const clock = (t) => `${z(Math.floor(t / 3600))}:${z(Math.floor((t % 3600) / 60))}:${z(t % 60)}`;
+    const now = 42138 + sec;
+    const pending = ids.filter(id => !d[id]);
+    const selId = s.sel && D[s.sel] ? s.sel : (p.focus && D[p.focus] ? p.focus : (m ? null : (pending[0] || ids[0])));
+    const decInfo = (id) => {
+      const raw = d[id]; if (!raw) return null;
+      const [v, at] = String(raw).split('@'), tone = v === 'APPROVED' ? 'mint' : v === 'REJECTED' ? 'danger' : 'amber';
+      return { v, at, tone };
+    };
+    const cd = (id) => {
+      const left = D[id].exp - now;
+      if (left <= 0) return { t: 'EXPIRED', c: 'var(--danger)' };
+      const mm = Math.floor(left / 60), ss = left % 60;
+      return { t: mm >= 60 ? `${Math.floor(mm / 60)}h ${z(mm % 60)}m` : `${z(mm)}:${z(ss)}`, c: left < 900 ? 'var(--amber)' : 'var(--ink-2)' };
+    };
+    const items = ids.map(id => {
+      const a = D[id], t = T[a.tone], di = decInfo(id), c = cd(id), on = id === selId, dt = di ? T[di.tone] : T.ink;
+      return { id, short: a.short, acct: a.acct, risk: a.risk, mode: a.mode, mc: t[0], ml: t[1], cd: di ? di.at : c.t, cdc: di ? 'var(--ink-3)' : c.c, border: on ? 'var(--line-3)' : 'var(--line)', bg: on ? 'var(--bg-2)' : 'var(--bg-1)', isDone: !!di, dtext: di ? di.v.replace('_', ' ') : '', dc: dt[0], dl: dt[1], dbg: dt[2], pick: () => this.setState({ sel: id, step: null, reason: null }) };
+    });
+    const hist = [['APR-3101', 'BEL long · 900 shares', 'APPROVED', 'Middle Office · within delegated paper authority (P-PAPER-v7)', '10:04:12', 'mint'], ['APR-3100', 'TATASTEEL Nov future short · 1 lot', 'NEEDS_REVISION', 'Stop 2.1% away is wider than the 1.5% intraday rule', '10:21:30', 'amber'], ['APR-3099', 'INFY short · 300 shares', 'REJECTED', 'Cash shorts beyond intraday are not allowed on Desk A', '09:58:44', 'danger']];
+    const history = hist.map(([id, n, st, why, t, k], i) => ({ id, n, st, why, t, c: T[k][0], line: i ? 'var(--line)' : 'transparent' }));
+    const ACT = { 'AI Trader': 'var(--mint)', Strategist: 'var(--mint)', 'Risk Guardian': 'var(--mint)', 'Middle Office': 'var(--ink-2)', TLM: 'var(--indigo)', You: 'var(--amber)' };
+    let a = { id: '', plan: '', title: '', thesis: '', trade: [], capital: [], riskTiles: [], stress: [], impact: [], chain: [], checks: [], bind: [], audit: [] };
+    if (selId) {
+      const r = D[selId], t = T[r.tone], di = decInfo(selId), c = cd(selId);
+      const dt = di ? T[di.tone] : T.ink;
+      const chain = r.chain.map(([who, st, tm, k], i) => {
+        let stx = st, tt = tm, kk = k;
+        if (di && who.startsWith('Account owner')) { stx = di.v; tt = di.at; kk = di.tone; }
+        if (di && di.v === 'APPROVED' && (who.startsWith('Execution') || who.startsWith('Paper engine'))) { stx = 'INTENT SENT'; tt = di.at; kk = 'mint'; }
+        return { who, st: stx, t: tt, c: T[kk][0], line: T[kk][1], bg: T[kk][2], i: String(i + 1) };
+      });
+      const audit = r.audit.map(([tm, who, x]) => ({ t: tm, who, x, c: ACT[who] || 'var(--ink-2)' }));
+      if (di) audit.push({ t: di.at, who: 'You', x: `${di.v.replace('_', ' ')} by amit.p${s.reason ? ' · ' + s.reason : ''} · bound to ${r.plan}`, c: 'var(--amber)' });
+      const checks = r.checks.map(x => ({ t: x.t, d: x.d, g: x.s === 'p' ? '✓' : x.s === 'w' ? '!' : '×', c: x.s === 'p' ? 'var(--mint)' : x.s === 'w' ? 'var(--amber)' : 'var(--danger)' }));
+      const nw = r.checks.filter(x => x.s === 'w').length;
+      a = {
+        id: selId, plan: r.plan, title: r.title, mode: r.mode, mc: t[0], ml: t[1], acct: r.acct, why: r.why, thesis: r.thesis,
+        cd: di ? di.at : c.t, cdc: di ? 'var(--ink-3)' : c.c, cdLabel: di ? 'DECIDED · IST' : `LEFT · EXPIRES ${r.expT} IST`,
+        isDone: !!di, open: !di && c.t !== 'EXPIRED', dtext: di ? di.v.replace('_', ' ') : '', dc: dt[0], dl: dt[1], dbg: dt[2],
+        dnote: di ? (di.v === 'APPROVED' ? `Execution intent sent at ${di.at}. Capital reservation converts to deployed capital on confirmed fills.` : di.v === 'REJECTED' ? 'Reservation released. The Strategist will not resubmit this plan version.' : 'Sent back to the Strategist with your note. A new version will need a new approval.') : '',
+        trade: r.trade.map(([k, v, n]) => ({ k, v, n })), capital: r.capital.map(([k, v]) => ({ k, v })), riskId: r.riskId,
+        riskTiles: r.riskTiles.map(([k, v, s2, kk]) => ({ k, v, s: s2, c: kk === 'ink' ? 'var(--ink)' : T[kk][0] })),
+        stress: r.stress.map(([k, v]) => ({ k, v, c: v.startsWith('+') ? 'var(--mint)' : 'var(--danger)' })),
+        impact: r.impact.map(([k, b, af, l]) => ({ k, b, a: af, l })), chain, checks, checkSum: `${r.checks.length - nw} PASS · ${nw} WARNING${nw === 1 ? '' : 'S'} · 0 FAIL`,
+        bind: r.bind.map(([k, v]) => ({ k, v })), audit,
+      };
+    }
+    const decide = (v) => () => { p.onDecide && p.onDecide(selId, `${v}@${clock(now)}`); this.setState({ step: null }); };
+    const REASONS = { reject: ['Risk too high for today', 'Thesis not convincing', 'Wrong instrument'], revise: ['Smaller size', 'Tighter stop', 'Different strikes or expiry'] };
+    const reasons = (REASONS[s.step] || []).map(t => { const on = s.reason === t; return { t, pick: () => this.setState({ reason: t }), line: on ? 'var(--line-3)' : 'var(--line-2)', color: on ? 'var(--ink)' : 'var(--ink-2)', bg: on ? 'var(--bg-3)' : 'transparent' }; });
+    const np = pending.length;
+    return {
+      h1: m ? '30px' : '44px', h2: m ? '24px' : '30px', cardPad: m ? '18px 16px' : '22px 24px', tileMin: m ? '130px' : '150px', auditCol: m ? '86px' : '110px',
+      cols: m ? 'minmax(0,1fr)' : 'minmax(260px,330px) minmax(0,1fr)',
+      pendLabel: `${np} pending`,
+      headA: np ? `${['', 'One decision', 'Two decisions', 'Three decisions'][np]} ${np === 1 ? 'needs' : 'need'} you.` : 'The queue is clear.',
+      headB: np ? `The first lapses at ${D[pending[0]].expT.slice(0, 5)}.` : 'Agents continue inside policy.',
+      items, history, a, showList: !m || !selId, showDetail: !!selId, mobileBack: m && !!selId,
+      back: () => this.setState({ sel: '__none__', step: null }),
+      stepApprove: s.step === 'approve', stepReason: s.step === 'reject' || s.step === 'revise', reasons,
+      reasonTitle: s.step === 'reject' ? 'Why are you rejecting it?' : 'What should the Strategist change?',
+      reasonBtn: s.step === 'reject' ? 'Reject plan' : 'Send for revision',
+      act: {
+        approve: () => this.setState({ step: 'approve' }), reject: () => this.setState({ step: 'reject', reason: null }), revise: () => this.setState({ step: 'revise', reason: null }),
+        cancel: () => this.setState({ step: null, reason: null }), confirmApprove: decide('APPROVED'),
+        confirmReason: s.step === 'reject' ? decide('REJECTED') : decide('NEEDS_REVISION'),
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

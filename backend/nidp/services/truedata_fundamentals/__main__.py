@@ -2,7 +2,8 @@
 
 Loads company balance sheets, fiscal-year cash flows and quarterly finance costs from TrueData's corporate API into
 the warehouse (service.py has the whole flow). Obeys the market-data switch: at `current` nothing calls TrueData and
-nothing is written except a SKIPPED job_log row.
+nothing is written except a SKIPPED job_log row. STAGING ONLY (owner, 3 Nov 2026): on production or an unknown
+environment (nidp.shared.deploy_env) it calls nothing and writes no data either (verdict NOT_STAGING).
 
   --days N           load window: filings listed in the last N days (default 10)
   --anchor-days N    also make sure N days of result lists are cached, for the fiscal-year P&L that fixes each
@@ -15,9 +16,9 @@ nothing is written except a SKIPPED job_log row.
   --max-minutes M    stop fetching after M minutes and load what is cached (default 75)
   --raw-dir PATH     raw cache (default $NIDP_RAW_DIR/truedata_fundamentals, or TRUEDATA_FUNDAMENTALS_RAW_DIR)
   --rollback RUN_ID  undo one run exactly (deletes the rows it inserted, NULLs the columns it filled that still hold
-                     its values); works whatever the switch says
+                     its values); works whatever the switch says, in every environment
 
-Exit: 0 OK / PARTIAL / SKIPPED / dry run / rollback; 1 FAILED; 2 usage.
+Return codes: 0 OK / PARTIAL / SKIPPED / dry run / rollback; 1 FAILED; 2 usage.
 Needs TRUEDATA_USERNAME / TRUEDATA_PASSWORD and the NIDP database environment.
 """
 from __future__ import annotations

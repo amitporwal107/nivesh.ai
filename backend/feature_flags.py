@@ -59,6 +59,18 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": [],
         "allowed_modes": ["off", "allowlist", "everyone"],
     },
+    "scan_builder": {
+        "display_name": "Scan Builder (Market Desk)",
+        "description": (
+            "Market Desk › Scan Builder: the user builds stock scans (filters, columns, sort) that run on our own data — NSE "
+            "end-of-day bars (split/bonus adjusted) with today's Kite candle, plus fundamentals from the feature store — and the "
+            "result refreshes every 10 seconds while the market is open. Reads only; no order is placed. Allow-listed for the "
+            "owner while it is new."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist", "everyone"],
+    },
     "portfolio_hedge": {
         "display_name": "Quick Hedge (portfolio protection)",
         "description": (
@@ -66,6 +78,19 @@ KNOWN_FEATURES: Dict[str, Dict] = {
             "user's equity-linked holdings from their tolerable loss and the fall they fear, and shows what each choice would cost "
             "and do under market falls. Estimates only; paper hedges only, no order is ever placed. Off until the compliance "
             "position on personalised hedge ideas is settled, so it is allow-listed for the owner."
+        ),
+        "default_mode": "allowlist",
+        "default_allowlist": ["aporwal107@gmail.com"],
+        "allowed_modes": ["off", "allowlist", "everyone"],
+    },
+    "market_recovery": {
+        "display_name": "Market Recovery (Market Desk)",
+        "description": (
+            "Market Desk › Market Recovery: whether the market is recovering (Nifty 50 trend, Nifty 500 breadth, India VIX), "
+            "the leading sectors, and the Nifty 500 stocks that score best on relative strength, technical recovery, volume and "
+            "delivery, fundamentals and smart-money signals, with an entry zone, stop loss and two targets per stock (the "
+            "owner's chosen wording for this page). End-of-day data, rule-based, not back-tested; reads only. Allow-listed "
+            "for the owner while it is new."
         ),
         "default_mode": "allowlist",
         "default_allowlist": ["aporwal107@gmail.com"],

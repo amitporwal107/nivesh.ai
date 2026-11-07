@@ -145,7 +145,7 @@ export default function WatchlistScreen() {
       <ScreenHeader
         eyebrow="Watchlist & alerts"
         title="Stocks you follow, and what you want to be told"
-        sub="Pick a watchlist on the left. This week's results names. The AI scanner's daily ideas, your own lists, the research watchlist with live prices, your saved screens as watchlists, the price levels the scanner is watching, and your filing alerts."
+        sub="Choose a watchlist on the left. This week's results names. The AI scanner's daily ideas, your own lists, the research watchlist with live prices, your saved screens as watchlists, the price levels the scanner is watching, and your filing alerts."
       />
       <div data-testid="wl-layout" className={mobile ? "flex min-w-0 flex-col" : "grid min-w-0"}
         style={mobile ? { gap: 12 } : { gridTemplateColumns: "220px minmax(0,1fr)", gap: 18, alignItems: "start" }}>

@@ -301,7 +301,7 @@ test.describe("My portfolio — broker block", () => {
     await expect(zerodha.getByTestId("broker-position-row")).toHaveCount(0);
     // What is still not read from a broker is named.
     // Cash is now read (GET /api/broker/funds); day P&L and a stop or target per position still are not.
-    await expect(page.getByTestId("trader-positions-not-connected")).toContainText("Day P&L and a stop or target per position are not read");
+    await expect(page.getByTestId("trader-positions-not-connected")).toContainText("Day P&L and a risk or reward level per position are not read");
     await expect(page.getByTestId("trader-broker-none")).toHaveCount(0);
     expect(calls.live.length).toBe(1);
 

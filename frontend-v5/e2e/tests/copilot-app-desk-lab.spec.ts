@@ -1118,7 +1118,7 @@ test.describe("Smart trading desk — Options & futures lab · Candidates", () =
     const b = page.getByTestId("desk-cand-research");
     await expect(b).toHaveAttribute("data-status", "research_setting_not_validated");
     await expect(b).toContainText("Research setting · not validated");
-    await expect(b).toContainText("not a recommendation and not a forecast");
+    await expect(b).toContainText("not advice and not a forecast");
     for (const e of CAND.research.experiments) await expect(b).toContainText(e.id);
     await expect(b).toContainText("29 Dec 2025 – 22 Oct 2026");
   });

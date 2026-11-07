@@ -86,7 +86,7 @@ test.describe("results and event answers (MOCK payloads from the real builders)"
       if (items[i].body) {
         await expect(c.getByTestId("va-brief-body")).toHaveText(items[i].body);
         await expect(c.getByTestId("va-brief-note")).toHaveText(items[i].body_note);
-        await expect(c.getByTestId("va-brief-note")).toContainText("Not a recommendation");
+        await expect(c.getByTestId("va-brief-note")).toContainText("Not advice");
       } else {
         await expect(c.getByTestId("va-brief-empty")).toHaveText("Not analysed yet");
       }

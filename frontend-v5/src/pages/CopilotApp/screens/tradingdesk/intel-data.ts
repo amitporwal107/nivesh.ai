@@ -547,7 +547,7 @@ const signedPct = (n: number, digits = 2) => `${n > 0 ? "+" : n < 0 ? "−" : ""
 
 export function dealEvent(d: DealRow, i: number, source: string | null): IntelEvent {
   const kind = d.kind === "block" ? "Block deal" : d.kind === "bulk" ? "Bulk deal" : "Deal";
-  const verb = d.side === "BUY" ? "bought" : d.side === "SELL" ? "sold" : "traded";
+  const verb = d.side === "BUY" ? "acquired" : d.side === "SELL" ? "disposed of" : "traded";
   const qty = d.quantity != null ? (d.quantity >= 1e5 ? `${(d.quantity / 1e5).toFixed(2)} L` : fmtNum(d.quantity)) : null;
   const value = d.valueCr != null ? `₹${fmtNum(d.valueCr, 2)} Cr` : null;
   const price = d.price != null ? `₹${fmtNum(d.price, 2)} average` : null;
@@ -633,7 +633,7 @@ export function circularEvent(c: Circular, i: number): IntelEvent {
 }
 
 const flowWords = (who: string, n: number | null) =>
-  n == null ? `${who}: no figure` : n > 0 ? `${who} net bought ${crore(n)}` : n < 0 ? `${who} net sold ${crore(n)}` : `${who} flat`;
+  n == null ? `${who}: no figure` : n > 0 ? `${who} net inflow ${crore(n)}` : n < 0 ? `${who} net outflow ${crore(n)}` : `${who} flat`;
 
 export function flowEvent(r: FiiDiiFlowRow): IntelEvent {
   const fii = r.fii_net ?? null;

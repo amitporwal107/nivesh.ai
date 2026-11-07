@@ -136,10 +136,21 @@ from routes.markets_evidence import router as markets_evidence_router  # Trading
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
 from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
+from routes.desk_pnl import router as desk_pnl_router  # Trade Desk › Paper Trading › P&L dashboard (/api/desk/pnl*), read-only
+# Scanner-to-Paper Trading (docs/scanner_paper_trading/DESIGN.md): signals → opportunities → proposals → risk → paper orders
+from routes.spt_signals import router as spt_signals_router    # /api/v1/scanner/signals, /api/v1/opportunities, /api/v1/analytics/scanners
+from routes.spt_accounts import router as spt_accounts_router  # /api/v1/paper/accounts (SPT mode + config, ledger)
+from routes.spt_accounts import admin_router as spt_admin_router  # /api/admin/spt/{user_id}/config, /api/admin/spt/settings
+from routes.spt_risk import router as spt_risk_router          # /api/v1/risk/*, /api/v1/allocation/*, /api/v1/proposals, approve/reject
+from routes.spt_paper import router as spt_paper_router        # /api/v1/paper/orders, /positions, /trades, /reconcile, /stream
+from routes.spt_paper_v2 import router as paper_v2_router      # /api/v1/paper/overview, …/policy, /risk/correlation, /analytics/account, /paper/fno-structures
+from routes.spt_paper_v2 import admin_router as paper_v2_admin_router  # /api/admin/spt/{user_id}/policy
 from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
 from routes.desk_chart_events import router as desk_chart_events_router  # Live chart: market events + the stock's reaction (/api/desk/chart-events/*, read only)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
+from routes.scan_builder import router as scan_builder_router  # Market Desk › Scan Builder: scans on our own data (/api/scan-builder/*, flag scan_builder)
+from routes.market_recovery import router as market_recovery_router  # Market Desk › Market Recovery (/api/market-recovery, flag market_recovery)
 from routes.results_week import router as results_week_router  # Trading desk: results week, earnings vs historical trend (/api/desk/results-week)
 from routes.strategy_plan import router as strategy_plan_router  # Strategy Builder: POST /api/desk/strategy/payoff (pure calculation)
 from routes.circulars import router as circulars_router  # Trading desk: SEBI circulars (/api/markets/circulars)
@@ -297,10 +308,20 @@ app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/
 app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit, /decisions, /policy
 app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
+app.include_router(desk_pnl_router)          # /api/desk/pnl, /api/desk/pnl/stream, /api/desk/pnl/timeseries (paper P&L, read-only)
+app.include_router(spt_signals_router)       # SPT slice A: scanner signals, opportunities, scanner analytics
+app.include_router(spt_accounts_router)      # SPT slice B: paper account SPT mode/config
+app.include_router(spt_admin_router)         # SPT admin: any user's SPT config + market-wide SPT settings
+app.include_router(spt_risk_router)          # SPT slice B: sizing, risk, allocation, proposals, approve/reject
+app.include_router(spt_paper_router)         # SPT slice C: paper orders, positions, trades, reconcile, stream
+app.include_router(paper_v2_router)          # Paper Trading v2: overview, combined policy, correlation, account analytics, F&O
+app.include_router(paper_v2_admin_router)    # Paper Trading v2 admin: any user's combined policy
 app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}
 app.include_router(desk_chart_events_router)  # /api/desk/chart-events/{symbol}
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*
+app.include_router(scan_builder_router)      # /api/scan-builder/*
+app.include_router(market_recovery_router)   # /api/market-recovery
 app.include_router(results_week_router)      # /api/desk/results-week
 app.include_router(strategy_plan_router)     # /api/desk/strategy/payoff
 app.include_router(circulars_router)         # /api/markets/circulars
@@ -480,10 +501,55 @@ async def startup_seed():
         await truedata_live.start(db)
     except Exception as e:
         logger.warning("truedata shadow did not start: %s", type(e).__name__)
+    # Scan dashboard early signals (services/scan_builder/signals.py): one worker (Redis lock) computes the dashboard every
+    # 15 s in the session so signals are recorded even when nobody has the page open. On where APP_ENV=staging;
+    # SCAN_SIGNALS_ENABLED=0 turns it off, =1 turns it on elsewhere.
+    try:
+        from services.scan_builder import signals as scan_signals
+        scan_signals.start()
+    except Exception as e:
+        logger.warning("scan signals did not start: %s", type(e).__name__)
+    # Exit watch (services/exit_watch/runner.py): stop-loss and exit alerts for live broker positions, in the app only.
+    # One worker (Redis lock) checks live prices every 30 s in the session and moves the stops after NSE's end-of-day
+    # file. Reads stored broker snapshots, never a broker. On where APP_ENV=staging; EXIT_WATCH_ENABLED=0 turns it off.
+    try:
+        from services.exit_watch import runner as exit_watch_runner
+        exit_watch_runner.start()
+    except Exception as e:
+        logger.warning("exit watch did not start: %s", type(e).__name__)
+    # Scanner-to-Paper Trading loops (docs/scanner_paper_trading/DESIGN.md), each one leader across workers (Redis lock),
+    # on where APP_ENV=staging; SPT_A_ENABLED / SPT_B_ENABLED / SPT_C_ENABLED = 0 turns one off. A: catch-up ingest of
+    # scan signals, consolidation, validation, expiry, evening signal outcomes. B: proposals for accounts whose SPT mode
+    # is not "off" (default off), sizing, allocation, risk. C: paper order fills on live quotes, stop/target exits, the
+    # evening exit-rule pass. Nothing reaches a broker.
+    for _spt_name, _spt_mod in (("spt signals", "services.spt.opportunities.runner"), ("spt pipeline", "services.spt.pipeline"),
+                                ("spt paper monitor", "services.spt.paper.monitor")):
+        try:
+            import importlib
+            importlib.import_module(_spt_mod).start()
+        except Exception as e:
+            logger.warning("%s did not start: %s", _spt_name, type(e).__name__)
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        from services.scan_builder import signals as scan_signals
+        scan_signals.stop()
+    except Exception as e:
+        logger.warning("scan signals did not stop cleanly: %s", type(e).__name__)
+    try:
+        from services.exit_watch import runner as exit_watch_runner
+        exit_watch_runner.stop()
+    except Exception as e:
+        logger.warning("exit watch did not stop cleanly: %s", type(e).__name__)
+    for _spt_name, _spt_mod in (("spt signals", "services.spt.opportunities.runner"), ("spt pipeline", "services.spt.pipeline"),
+                                ("spt paper monitor", "services.spt.paper.monitor")):
+        try:
+            import importlib
+            importlib.import_module(_spt_mod).stop()
+        except Exception as e:
+            logger.warning("%s did not stop cleanly: %s", _spt_name, type(e).__name__)
     try:
         from services import kite_live_feed
         await kite_live_feed.stop(db)

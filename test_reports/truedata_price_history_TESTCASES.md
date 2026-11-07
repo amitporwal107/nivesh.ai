@@ -65,6 +65,22 @@ day; below 0.5, above 10, or without that record it stays flagged.
 |----|------|----------|------|----------|
 | TC-08b | stitch | factor 2.01 with a demerger after our first day; factor 5 with a demerger only BEFORE it; factor 0.2 or 12 with a demerger | unit + PG container | first LOADED with the ex-date in the reason; the others FACTOR_OUT_OF_RANGE |
 
+## Follow-up, 3 Nov (owner rules; written before the gate code)
+
+Owner, 3 Nov: "keep on staging.. on prod please use our snapshot data" → TrueData data is loaded on STAGING only.
+Owner, 3 Nov: "Please check compliance and do not use words like buy, stop loss, target".
+Design: `nidp.shared.deploy_env` decides from the database being written to (`nidp_staging` = staging, `nidp` =
+production, the repo's existing split) plus production signals that always refuse (`NIDP_HOME=/opt/nidp`,
+`NIDP_ENV`/`APP_ENV` = prod/production). Anything else is unknown and refused (fail closed). Both jobs ask it after the
+switch and before any TrueData client, fetch or write; a refused real run records a SKIPPED job_log row (NOT_STAGING).
+
+| ID | Area | Scenario | Type | Expected |
+|----|------|----------|------|----------|
+| TC-21 | gate | staging DB (± staging NIDP_HOME) allowed; DB `nidp`, NIDP_HOME=/opt/nidp, NIDP_ENV/APP_ENV=production → production, refused; unknown DB, odd NIDP_HOME, NIDP_ENV=staging on an unknown DB, failing query → unknown, refused. Both jobs off staging: 0 TrueData calls, 0 data rows, SKIPPED NOT_STAGING run, dry run writes nothing; also on real databases named `nidp` and `nidp_unknown_env` | unit + PG container | as stated |
+| TC-22 | api | production keeps the history table empty: view and `GET /v1/prices/research-long/{symbol}` answer 200 (all tables empty → `[]`; our prices only; unknown symbol → `[]`) on a database named `nidp` | PG container | as stated |
+| TC-23 | CI | the workflow's exact allowlist (`.github/workflows/backend-tests.yml`) on untouched origin/dev and on the PR merge tree, same image | unit | no failure only on the PR side; new suites in the allowlist pass |
+| TC-24 | wording | every line the branch adds scanned for buy / sell / stop loss / target / entry / exit / accumulate / upside / recommend / tips … | check | none user-visible |
+
 ## Not in scope (stated now, reported as UNVERIFIED later)
 
 Applying migration 191 on staging, running the backfill or the nightly job against staging, installing the cron line,

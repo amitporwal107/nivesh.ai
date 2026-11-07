@@ -53,7 +53,7 @@ def _reasons(rs: List[Dict[str, Any]], keep) -> List[Dict[str, Any]]:
 _LIMIT_TEXT = {
     "POSITION_SIZE": "Position size: at most {limit:g}% of your paper equity in one position",
     "LIQUIDITY": "Liquidity: at most {limit:g}% of the stock's average daily traded value",
-    "RISK_PER_TRADE": "Risk per trade: the stop distance within {limit:g}% of your paper equity",
+    "RISK_PER_TRADE": "Risk per trade: the distance to the risk level within {limit:g}% of your paper equity",
     "NET_EXPOSURE": "Net exposure: at most {limit:g}% of your paper equity in the market",
     "SECTOR_LIMIT": "Sector: at most {limit:g}% of your paper equity in one sector",
 }
@@ -68,7 +68,7 @@ def _binding(rs: List[Dict[str, Any]], budget: Optional[float], size: int, unit:
             continue
         code, limit = r.get("code"), r.get("limit")
         if code == "per_trade_risk_exceeded":
-            text = (f"Per-trade risk budget Rs {budget:,.2f} (the stop's loss + costs + {est.GAP_STRESS_PCT:g}% gap stress)"
+            text = (f"Per-trade risk budget Rs {budget:,.2f} (the loss at risk level + costs + {est.GAP_STRESS_PCT:g}% gap stress)"
                     if budget is not None else "Per-trade risk budget")
         elif code in _LIMIT_TEXT and isinstance(limit, (int, float)):
             text = _LIMIT_TEXT[code].format(limit=limit)
@@ -175,7 +175,7 @@ async def _size_for(db, tp: Dict[str, Any], user_id: str, now: datetime) -> Dict
                             "as_of": now.astimezone(timezone.utc).isoformat()}
     probe = request_for(tp, user_id, quantity=1) if cash else request_for(tp, user_id)
     if probe is None:
-        return {**base, "status": "unavailable", "reason": "the plan has no entry and stop (or no legs) to size"}
+        return {**base, "status": "unavailable", "reason": "the plan has no reference price and risk level (or no legs) to size"}
     snap = await svc.gather(db, probe, now)
     book = snap.get("book") or {}
     equity = (book.get("equity") or {}).get("equity_rs")

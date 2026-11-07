@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">Scenario library</span><span class="nv-pill">14 scenarios · 3 categories</span><span class="nv-pill nv-pill-amber">{{ schedCount }}</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,4vw,44px);line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">Each scenario names the shock <em style="color:var(--amber)">and the behaviour it must produce.</em></h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Pick a scenario, set when and how hard it hits, and add it to the schedule for the next run. Its assertions are checked automatically at the end of the session.</p>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--amber-line);background:var(--bg-1)">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span style="font-family:var(--display);font-size:22px">Schedule for the next run</span><span class="nv-eyebrow" style="font-size:9.5px">09:15 → 15:30</span></div>
+    <div style="position:relative;height:44px;margin:4px 6px">
+      <div style="position:absolute;left:0;right:0;top:20px;height:4px;border-radius:2px;background:var(--bg-3)"></div>
+      <sc-for list="{{ ticks }}" as="k" hint-placeholder-count="7"><span class="nv-num" style="position:absolute;left:{{ k.l }};top:30px;transform:translateX(-50%);font-family:var(--mono);font-size:9.5px;color:var(--ink-4)">{{ k.t }}</span></sc-for>
+      <sc-for list="{{ sched }}" as="x" hint-placeholder-count="4"><span title="{{ x.title }}" style="position:absolute;left:{{ x.l }};top:16px;width:12px;height:12px;margin-left:-6px;transform:rotate(45deg);border-radius:2px;background:var(--amber)"></span><span style="position:absolute;left:{{ x.l }};top:0;transform:translateX(-50%);font-family:var(--mono);font-size:9px;color:var(--amber);white-space:nowrap">{{ x.id }}</span></sc-for>
+    </div>
+    <sc-for list="{{ sched }}" as="x" hint-placeholder-count="4"><div style="display:flex;gap:12px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line);font-size:13px"><span class="nv-num" style="font-family:var(--mono);font-size:11.5px;color:var(--amber);width:44px">{{ x.at }}</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);width:70px">{{ x.id }}</span><span style="flex:1">{{ x.n }}</span><span style="font-size:12px;color:var(--ink-3)">{{ x.p }}</span><span onClick="{{ x.remove }}" style="cursor:pointer;font-size:12.5px;color:var(--danger)">Remove</span></div></sc-for>
+  </section>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:20px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:16px;grid-column:span 2;min-width:0">
+      <sc-for list="{{ cats }}" as="c" hint-placeholder-count="3">
+        <section style="display:flex;flex-direction:column;gap:10px">
+          <span class="nv-eyebrow">{{ c.t }}</span>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:10px">
+            <sc-for list="{{ c.items }}" as="it" hint-placeholder-count="5">
+              <div onClick="{{ it.pick }}" style="cursor:pointer;display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:14px;border:1px solid {{ it.border }};background:{{ it.bg }};transition:all .15s ease" style-hover="border-color:var(--line-3)">
+                <div style="display:flex;gap:8px;align-items:center"><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ it.id }}</span><span style="flex:1"></span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:{{ it.sevC }}">{{ it.sev }}</span></div>
+                <span style="font-size:14.5px;font-weight:500;line-height:1.3">{{ it.n }}</span>
+                <span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ it.exp }}</span>
+                <div style="display:flex;gap:8px;align-items:center"><span class="nv-pill" style="padding:1px 7px;font-size:8.5px;color:{{ it.rc }};border-color:{{ it.rl }}">{{ it.res }}</span><sc-if value="{{ it.inSched }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--mono);font-size:9.5px;color:var(--amber)">SCHEDULED {{ it.at }}</span></sc-if></div>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+      </sc-for>
+    </div>
+
+    <aside style="position:sticky;top:96px;display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <span class="nv-eyebrow">Builder · {{ b.id }}</span>
+      <span style="font-family:var(--display);font-size:24px;line-height:1.15">{{ b.n }}</span>
+      <span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ b.exp }}</span>
+      <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3);padding-top:4px">INJECT AT</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ times }}" as="o" hint-placeholder-count="6"><span onClick="{{ o.go }}" class="nv-num" style="cursor:pointer;padding:6px 10px;border-radius:999px;border:1px solid {{ o.line }};background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:11px">{{ o.t }}</span></sc-for></div>
+      <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3);padding-top:4px">{{ b.pk }}</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ params }}" as="o" hint-placeholder-count="3"><span onClick="{{ o.go }}" style="cursor:pointer;padding:6px 10px;border-radius:999px;border:1px solid {{ o.line }};background:{{ o.bg }};color:{{ o.color }};font-size:12px">{{ o.t }}</span></sc-for></div>
+      <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--ink-3);padding-top:4px">ASSERTIONS CHECKED AT THE END</span>
+      <sc-for list="{{ b.asserts }}" as="a" hint-placeholder-count="3"><span style="font-size:12.5px;line-height:1.45;color:var(--ink-2)">✓ {{ a }}</span></sc-for>
+      <button onClick="{{ add }}" style="cursor:pointer;margin-top:4px;padding:11px 16px;border-radius:12px;border:0;background:var(--amber);color:#160E02;font-size:14px;font-weight:500">{{ addT }}</button>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1240,&quot;height&quot;:1500},&quot;schedule&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;{id:string,at:string,p:string}[]&quot;},&quot;onSchedule&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(list: object[]) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 'SCN-001', at: '09:15', par: 0 };
+  lib() {
+    return [
+      ['Market', [
+        ['SCN-001', 'Gap down 2% at open', 'HIGH', 'Stops fill at the gap price and are reported apart from their triggers; no limit is breached.', 'PASS · SIM-0412', ['Fills recorded below trigger, not at it', 'Daily loss limit holds', 'No new entries for 5 min'], 'Size', ['−2%', '−3%', '−4%']],
+        ['SCN-002', 'Gap down 3% at open', 'HIGH', 'Drawdown limit checks fire before any new entry; risk-reducing exits run in order of risk.', 'PASS · SIM-0412', ['Drawdown check before entries', 'Exits ordered by risk'], 'Size', ['−3%', '−5%']],
+        ['SCN-011', 'Volatility spike', 'MEDIUM', 'Stress is recalculated within 30 s and new entries are sized down.', 'PASS · SIM-0418', ['Stress recalculated ≤ 30 s', 'New sizes reduced'], 'VIX change', ['+1.5', '+2.5', '+5.0']],
+        ['SCN-012', 'Circuit limit on a holding', 'HIGH', 'The exit is queued and the position flagged; nothing is retried blindly.', 'SCHEDULED 6 NOV', ['Exit queued, not looped', 'Position flagged to the owner'], 'Direction', ['Lower circuit', 'Upper circuit']],
+        ['SCN-013', 'Weekly expiry pin', 'MEDIUM', 'Short-dated options exit by the time rule; no position is carried into expiry by accident.', 'PASS · SIM-0409', ['Time exit honoured', 'No accidental expiry carry'], 'Pin strike', ['ATM', 'ATM ± 100']],
+      ]],
+      ['Execution', [
+        ['SCN-003', 'Partial fills', 'MEDIUM', 'Risk and protective orders follow the filled quantity, never the requested one.', 'PASS · SIM-0417', ['Stops match filled quantity', 'Remainder cancelled at TTL'], 'Fill ratio', ['25%', '50%', '75%']],
+        ['SCN-005', 'Reject storm', 'HIGH', 'Each reject is queried before retry; a circuit breaker pauses new entries.', 'FAIL · RETRY BUDGET', ['State queried before retry', 'Breaker pauses entries'], 'Rejects', ['5 orders', '10 orders']],
+        ['SCN-006', 'Duplicate fill events', 'MEDIUM', 'Idempotency keys drop duplicates; quantity never doubles.', 'PASS · SIM-0417', ['Duplicates dropped', 'Ledger quantity unchanged'], 'Duplicates', ['1', '3']],
+        ['SCN-014', 'Slippage spike', 'MEDIUM', 'Price collars stop entries outside the band; exits still complete.', 'PASS · SIM-0416', ['Entries outside collar refused', 'Exits complete'], 'Slippage', ['×3', '×5']],
+      ]],
+      ['Operational', [
+        ['SCN-004', 'Broker WebSocket drop', 'HIGH', 'Modifications pause, stops stay at the adapter, and orders reconcile before automation resumes.', 'PASS · SIM-0418', ['Modifications paused', 'Reconciled before resuming'], 'Duration', ['60 s', '180 s', '600 s']],
+        ['SCN-007', 'LLM gateway outage', 'HIGH', 'No new plans; deterministic services keep managing every open position.', 'PASS · SIM-0418', ['No new plans', 'Positions keep their exits'], 'Duration', ['2 min', '10 min', '30 min']],
+        ['SCN-009', 'Option chain stale', 'MEDIUM', 'Index-option entries are blocked within 2 s; open spreads keep their exit rules.', 'WARN · 2.4 s', ['Entries blocked ≤ 2 s', 'Open spreads keep exits'], 'Duration', ['30 s', '90 s']],
+        ['SCN-010', 'Database failover', 'HIGH', 'Workflows resume from durable state without replaying any order command.', 'PASS · SIM-0405', ['No order replayed', 'Workflows resume'], 'Downtime', ['20 s', '60 s']],
+        ['SCN-015', 'Agent crash and quarantine', 'MEDIUM', 'The orchestrator reassigns the task; the crashed instance takes no new work.', 'PASS · SIM-0409', ['Task reassigned', 'Instance quarantined'], 'Agent', ['Strategist', 'Risk Guardian']],
+      ]],
+    ];
+  }
+  renderVals() {
+    const p = this.props, s = this.state, sched = p.schedule || [];
+    const L = this.lib(), all = L.flatMap(([, items]) => items);
+    const T0 = 33300, T1 = 55800, sec = (hm) => { const [a, b] = hm.split(':').map(Number); return a * 3600 + b * 60; }, pct = (hm) => (((sec(hm) - T0) / (T1 - T0)) * 100).toFixed(2) + '%';
+    const resTone = (r) => r.startsWith('PASS') ? ['var(--mint)', 'var(--mint-line)'] : r.startsWith('FAIL') ? ['var(--danger)', 'var(--danger-line)'] : r.startsWith('WARN') ? ['var(--amber)', 'var(--amber-line)'] : ['var(--ink-2)', 'var(--line-2)'];
+    const sevC = { HIGH: 'var(--danger)', MEDIUM: 'var(--amber)' };
+    const cats = L.map(([t, items]) => ({ t, items: items.map(([id, n, sev, exp, res]) => { const inS = sched.find(x => x.id === id), [rc, rl] = resTone(res); return { id, n, sev, sevC: sevC[sev], exp, res, rc, rl, inSched: !!inS, at: inS ? inS.at : '', border: s.sel === id ? 'var(--amber-line)' : 'var(--line)', bg: s.sel === id ? 'var(--amber-soft)' : 'var(--bg-1)', pick: () => this.setState({ sel: id, par: 0 }) }; }) }));
+    const cur = all.find(x => x[0] === s.sel) || all[0];
+    const [id, n, , exp, , asserts, pk, popts] = cur;
+    const exists = sched.find(x => x.id === id);
+    const chip = (on, t, go) => ({ t, go, line: on ? 'var(--amber-line)' : 'var(--line-2)', bg: on ? 'var(--amber-soft)' : 'transparent', color: on ? 'var(--amber)' : 'var(--ink-2)' });
+    return {
+      schedCount: `${sched.length} scheduled for the next run`,
+      ticks: ['09:15', '10:15', '11:15', '12:15', '13:15', '14:15', '15:15'].map(t => ({ t, l: pct(t) })),
+      sched: sched.slice().sort((a, b) => a.at.localeCompare(b.at)).map(x => { const it = all.find(y => y[0] === x.id); return { ...x, n: it ? it[1] : x.id, l: pct(x.at), title: `${x.at} · ${it ? it[1] : x.id} · ${x.p}`, remove: () => p.onSchedule && p.onSchedule(sched.filter(y => y.id !== x.id)) }; }),
+      cats, b: { id, n, exp, pk: pk.toUpperCase(), asserts },
+      times: ['09:15', '09:45', '10:30', '12:20', '14:00', '15:22'].map(t => chip(s.at === t, t, () => this.setState({ at: t }))),
+      params: popts.map((t, i) => chip(s.par === i, t, () => this.setState({ par: i }))),
+      addT: exists ? `Move to ${s.at} · ${popts[s.par]}` : `Add at ${s.at} · ${popts[s.par]}`,
+      add: () => p.onSchedule && p.onSchedule([...sched.filter(x => x.id !== id), { id, at: s.at, p: popts[s.par] }]),
+    };
+  }
+}
+</script>
+</body>
+</html>

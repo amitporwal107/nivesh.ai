@@ -1,0 +1,14 @@
+{
+  "stop_entries": {
+    "method": "POST", "path": "/desk/controls/STOP_NEW_ENTRIES",
+    "body": { "active": true, "reason": "Stopped from the desk header" }, "expect": [200]
+  },
+  "resume_entries": {
+    "method": "POST", "path": "/desk/controls/STOP_NEW_ENTRIES",
+    "body": { "active": false, "reason": "Resumed from the desk header" }, "expect": [200]
+  },
+  "create_account": {
+    "method": "POST", "path": "/accounts",
+    "body": { "name": "Desk A", "operating_mode": "RESEARCH", "starting_capital_rs": 1000000 }, "expect": [201]
+  }
+}

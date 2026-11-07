@@ -49,15 +49,15 @@ const sized = (a: { quantity: number | null; lots: number | null; lot_size: numb
   costs: `Charges about ${rs(a.estimated_risk_rs.costs)}`,
 });
 const EXPECT_CASH = {
-  entry: `Enter at the close, ${rs(CASH.entry.price)}`,
-  stop: `Exit if wrong ${rs(CASH.stop.price)}`,
-  targets: `Targets ${targets(CASH)}`,
+  entry: `Reference price at the close, ${rs(CASH.entry.price)}`,
+  stop: `Risk level ${rs(CASH.stop.price)}`,
+  targets: `Reward levels ${targets(CASH)}`,
   ...sized(CARD.cash.trade_plan_response.account_size),
 };
 const EXPECT_FNO = {
-  entry: `Enter at today's option prices (${rs(Math.abs(FNO.entry.net_premium_rs))} paid)`,
-  stop: `Exit if wrong ${rs(FNO.stop.price)}`,
-  targets: `Targets ${targets(FNO)}`,
+  entry: `Reference price at today's option prices (${rs(Math.abs(FNO.entry.net_premium_rs))} paid)`,
+  stop: `Risk level ${rs(FNO.stop.price)}`,
+  targets: `Reward levels ${targets(FNO)}`,
   ...sized(FNO_GET.account_size),
 };
 const LINE = ["entry", "stop", "targets", "size", "risk", "costs"] as const;
@@ -148,7 +148,7 @@ test.describe("Decision cards — the surfaces", () => {
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id);
     expect(await lineOf(card)).toEqual(EXPECT_CASH);
     await expect(card.getByTestId("dc-horizon")).toHaveText(`Hold for up to ${CASH.exit_plan.time.max_sessions} trading days`);
-    await expect(card.getByTestId("dc-status")).toHaveText("Ready to enter");
+    await expect(card.getByTestId("dc-status")).toHaveText("Ready for a paper trade");
     await expect(card.getByTestId("dc-approval")).toHaveAttribute("data-approval", "provisional");
     await expect(card.getByTestId("dc-approval")).toHaveText("Not yet checked against your limits");
     await expect(card.getByTestId("dc-sections")).toHaveCount(0);
@@ -180,7 +180,7 @@ test.describe("Decision cards — the surfaces", () => {
     await expect(card).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
     expect(await lineOf(card)).toEqual(EXPECT_FNO);
     await card.getByTestId("dc-toggle").click();
-    await expect(card.getByTestId("dc-sec-exit")).toContainText(`exit if it falls to ${rs(FNO.exit_plan.options.planned_stop)}`);
+    await expect(card.getByTestId("dc-sec-exit")).toContainText(`risk level ${rs(FNO.exit_plan.options.planned_stop)}`);
     // When the idea is wrong, in plain words (a bearish plan: a close above the exit); the plan's own sentence is kept in Technical details.
     await expect(card.getByTestId("dc-wrong-if")).toContainText(`BANKNIFTY closes above ${rs(FNO.stop.price)}`);
     await expect(card.getByTestId("dc-invalidation")).toContainText(FNO.stop.invalidation);
@@ -213,7 +213,9 @@ test.describe("Decision cards — the surfaces", () => {
 
   // UI-5 (the Strategy Builder's candidate card) went with Strategy Lab (owner, 29 Oct).
 
-  test("UI-6 the paper-trade record shows the plan it records, read by id, with its lifecycle status", async ({ page }) => {
+  // RETIRED with the Trade journal drawer (Paper Trading v2, owner 5 Nov 2026: the Live desk and journal are replaced; their URLs
+  // open Real-time P&L, builder B). The plan-by-id card on a paper trade's record has no v2 place yet: flagged to the integrator.
+  test.skip("UI-6 the paper-trade record shows the plan it records, read by id, with its lifecycle status", async ({ page }) => {
     const allowed = CARD.cash.allowed.trade_plan_response;
     const trade = { id: "t-plan", symbol: SYM, status: "open", quantity: CARD.cash.body.quantity, entry_price: CASH.entry.price, stop_price: CASH.stop.price,
       target_price: 1280, entry_rule: "at_once", opened_at: "2026-10-20T05:00:00+00:00", plan_ref: { plan_id: CASH.plan_id }, state: "POSITION_OPEN" };
@@ -306,13 +308,13 @@ test.describe("Decision cards — states", () => {
     await expect(card.getByTestId("dc-status")).toHaveText("Not tradeable", SLOW);
     await expect(card.getByTestId("dc-action")).toContainText("Paper trade off: This idea is not tradeable: MOCK: Reward : risk 0.9");
     // Why, in plain words, and what can be done (owner, 29 Oct): one line on the compact card, every way in the full card.
-    await expect(card.getByTestId("dc-ways-line")).toContainText("Why not: The possible gain is too small for the risk taken. · What you can do: Wait for a better (lower) entry price");
+    await expect(card.getByTestId("dc-ways-line")).toContainText("Why not: The possible gain is too small for the risk taken. · What you can do: Wait for a better (lower) reference price");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-rejection")).toContainText("MOCK: Reward : risk 0.9 is below the minimum 1.5.");
     const way = card.getByTestId("dc-way");
     await expect(way).toHaveCount(1);
     await expect(way).toContainText("MOCK: Reward : risk 0.9 is below the minimum 1.5.");
-    await expect(card.getByTestId("dc-way-option")).toHaveText(["Wait for a better (lower) entry price", "Choose another structure with a better payoff",
+    await expect(card.getByTestId("dc-way-option")).toHaveText(["Wait for a better (lower) reference price", "Choose another structure with a better payoff",
       "Ask an admin to loosen your minimum reward-to-risk (Risk Desk › Controls & profile, with a reason). You can tighten limits yourself, but only an admin can loosen them."]);
     await expect(card.getByTestId("dc-way-controls")).toHaveAttribute("href", "/v5/app/trader/desk?tab=risk&view=controls");
     await stockRow(page).getByTestId("desk-top10-stock-paper").click();
@@ -563,7 +565,7 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await page.goto(WATCHLIST);
     const tag = page.getByTestId(`aiw-cash-${SYM}`).getByTestId("aiw-carried");
     await expect(tag).toContainText("On the list 3 sessions · carried from 15 Oct 2026", SLOW);
-    await expect(tag.getByTestId("aiw-carried-levels")).toContainText(`First day (15 Oct 2026): entry ${rs(1190)} · stop ${rs(1150)} · target ${rs(1270)} → this list: entry ${rs(1200)}`);
+    await expect(tag.getByTestId("aiw-carried-levels")).toContainText(`First day (15 Oct 2026): reference price ${rs(1190)} · risk level ${rs(1150)} · reward level ${rs(1270)} → this list: reference price ${rs(1200)}`);
     await page.getByTestId("aiw-seg-fno").click();
     await expect(page.getByTestId("aiw-fno-BANKNIFTY").getByTestId("aiw-carried")).toHaveCount(0);       // new on the list
     // the Top 10: the newest stored list is an earlier session's, so the live idea was on it before
@@ -576,8 +578,8 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await page.goto(SCANNER);
     const t = stockRow(page).getByTestId("desk-top10-carried");
     await expect(t).toContainText("On the list 1 session · carried from 16 Oct 2026", SLOW);
-    await expect(t).toContainText(`stop ${rs(1155)}`);
-    await expect(t).toContainText(`this row's plan: entry ${rs(CASH.entry.price)} · stop ${rs(CASH.stop.price)}`);
+    await expect(t).toContainText(`risk level ${rs(1155)}`);
+    await expect(t).toContainText(`this row's plan: reference price ${rs(CASH.entry.price)} · risk level ${rs(CASH.stop.price)}`);
   });
 
   test("UI-13 the F&O idea's paper trade sends an Idempotency-Key; a retry after a failure reuses it, a new submission gets a new one", async ({ page }) => {
@@ -624,7 +626,7 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await card.getByTestId("dc-toggle").click(SLOW);
     await expect(card.getByTestId("dc-wrong-if")).toContainText(`${SYM} closes below ${rs(CASH.stop.price)}`);
     const text = await card.innerText();
-    expect(text).toContain("not a recommendation");
+    expect(text).toContain("not advice");
     expect(text).toContain("does not predict a return");
     expect(text).not.toMatch(/×ATR|\(\d+\.\d+R\)|of equity|sessions\b|risk service/);
     expect(text).not.toMatch(/\bpicks?\b|recommended|suggest|confidence/i);
@@ -670,7 +672,7 @@ test.describe("Decision cards — profit or loss today and at expiry", () => {
     await expect(sec.getByTestId("dc-payoff-line-expiry")).toHaveCount(1);
     for (const m of ["now", "exit", "t1", "t2"]) await expect(sec.getByTestId(`dc-payoff-mark-${m}`)).toHaveCount(1);
     await expect(sec.getByTestId("dc-payoff-marks")).toContainText(`BANKNIFTY now ${rs(PAY.request.reference_price)}`);
-    await expect(sec.getByTestId("dc-payoff-marks")).toContainText(`exit if wrong ${rs(FNO.stop.price)}`);
+    await expect(sec.getByTestId("dc-payoff-marks")).toContainText(`risk level ${rs(FNO.stop.price)}`);
     await expect(sec.getByTestId("dc-payoff-size")).toContainText("After charges, for 1 lot per leg × 30 (your size).");
     await expect(sec.getByTestId("dc-payoff-size")).toContainText("Option prices of 21 Oct 2026, end of day.");
     // PO-4: one row per move of R/4 (R = 4%: the farthest of the strikes, exit and targets is 1.6% away), each cell the

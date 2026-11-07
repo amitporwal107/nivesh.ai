@@ -42,13 +42,13 @@ function advice(check: string | null, code: string | null): Omit<WayForward, "ke
   const k = (code ?? "").toLowerCase();
   if (k === "min_qty_exceeds_budget" || k === "min_lot_exceeds_budget") return {
     why: `Even the smallest size (one ${k === "min_lot_exceeds_budget" ? "lot" : "share"}) would risk more than your limit for one trade.`,
-    options: ["Choose a cheaper stock or strike, or a spread, so that less money is at risk", "Use a closer exit price, so less is lost if it goes wrong", ASK_ADMIN("limit for one trade")], admin: true };
+    options: ["Choose a cheaper stock or strike, or a spread, so that less money is at risk", "Use a closer risk level, so less is lost if it goes wrong", ASK_ADMIN("limit for one trade")], admin: true };
   if (c === "per_trade_risk") return {
-    why: "The loss at the exit price would be more than your limit for one trade.",
-    options: ["Trade the smaller size your limits allow", "Use a closer exit price, so less is lost if it goes wrong", ASK_ADMIN("limit for one trade")], admin: true };
+    why: "The loss at the risk level would be more than your limit for one trade.",
+    options: ["Trade the smaller size your limits allow", "Use a closer risk level, so less is lost if it goes wrong", ASK_ADMIN("limit for one trade")], admin: true };
   if (c === "reward_risk" || /reward/.test(k)) return {
     why: "The possible gain is too small for the risk taken.",
-    options: ["Wait for a better (lower) entry price", "Choose another structure with a better payoff", ASK_ADMIN("minimum reward-to-risk")], admin: true };
+    options: ["Wait for a better (lower) reference price", "Choose another structure with a better payoff", ASK_ADMIN("minimum reward-to-risk")], admin: true };
   if (c === "position") return {
     why: "You already have as many open trades as your limits allow.",
     options: ["Close or finish another trade first", ASK_ADMIN("maximum number of open trades")], admin: true };
@@ -60,10 +60,10 @@ function advice(check: string | null, code: string | null): Omit<WayForward, "ke
     options: ["Close or reduce another open trade", "Trade a smaller size", ASK_ADMIN("exposure limit")], admin: true };
   if (c === "sector") return {
     why: "Too much of your money is already in this sector.",
-    options: ["Choose a stock from another sector", "Trim a trade in this sector", ASK_ADMIN("sector limit")], admin: true };
+    options: ["Choose a stock from another sector", "Lower the size of a trade in this sector", ASK_ADMIN("sector limit")], admin: true };
   if (c === "correlation") return {
     why: "This trade would move together with trades you already hold.",
-    options: ["Choose something less related to what you hold", "Trim a related trade"], admin: false };
+    options: ["Choose something less related to what you hold", "Lower the size of a related trade"], admin: false };
   if (c === "daily_loss" || c === "weekly_loss") return {
     why: `You have reached your loss limit for ${c === "daily_loss" ? "today" : "this week"}, so new trades are paused.`,
     options: [c === "daily_loss" ? "Wait until the next trading day" : "Wait until next week", ASK_ADMIN(c === "daily_loss" ? "daily loss limit" : "weekly loss limit")], admin: true };
@@ -86,7 +86,7 @@ function advice(check: string | null, code: string | null): Omit<WayForward, "ke
     why: "Your limits cap the size of one position (by its value or by how easily it trades).",
     options: ["Trade the smaller size your limits allow", "Choose a stock that trades more easily"], admin: false };
   if (c === "levels" || c === "structure") return {
-    why: "The plan's prices or legs do not line up (an entry, exit or target is missing or on the wrong side).",
+    why: "The plan's prices or legs do not line up (a reference price, risk level or reward level is missing or on the wrong side).",
     options: ["Rebuild the trade on Chart Analysis"], admin: false };
   if (c === "inputs") return {
     why: "Some data the check needs could not be read just now.",

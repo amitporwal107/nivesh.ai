@@ -239,19 +239,19 @@ export function flowRegime(fii: number | null, dii: number | null): string | nul
   if (fii == null || dii == null) return null;
   const bigger = Math.abs(fii) >= Math.abs(dii) ? "foreign" : "domestic";
   if (fii < 0 && dii > 0) {
-    return `Foreign institutions were net sellers and domestic institutions net buyers; the ${bigger} figure was the larger of the two.`;
+    return `Foreign institutions had a net outflow and domestic institutions a net inflow; the ${bigger} figure was the larger of the two.`;
   }
   if (fii > 0 && dii < 0) {
-    return `Foreign institutions were net buyers and domestic institutions net sellers; the ${bigger} figure was the larger of the two.`;
+    return `Foreign institutions had a net inflow and domestic institutions a net outflow; the ${bigger} figure was the larger of the two.`;
   }
-  if (fii > 0 && dii > 0) return "Both foreign and domestic institutions were net buyers over this window.";
-  if (fii < 0 && dii < 0) return "Both foreign and domestic institutions were net sellers over this window.";
+  if (fii > 0 && dii > 0) return "Both foreign and domestic institutions had a net inflow over this window.";
+  if (fii < 0 && dii < 0) return "Both foreign and domestic institutions had a net outflow over this window.";
   return "Net flows were flat over this window.";
 }
 
 /** Ships beside the regime line: the two totals are not matched trades. */
 export const FLOW_CAVEAT =
-  "These are two market-wide cash totals for the same window. Nothing here matches a buyer to a seller " +
+  "These are two market-wide cash totals for the same window. Nothing here matches one side of a trade to the other " +
   "or one stock to another, so a larger figure on one side is not evidence it absorbed the other.";
 
 export function useSmFlows(enabled: boolean, window: FlowWindow) {
@@ -501,14 +501,14 @@ export const EVIDENCE_LABEL: Record<EvidenceClass, string> = {
 export const EVIDENCE_LEGEND: Array<{ cls: Exclude<EvidenceClass, "none">; text: string }> = [
   { cls: "A", text: "disclosed holdings change" },
   { cls: "B", text: "disclosed deal, net of transfers" },
-  { cls: "C", text: "market proxy, buyer unknown" },
+  { cls: "C", text: "market proxy, who traded unknown" },
   { cls: "D", text: "direct and proxy align" },
 ];
 
 export const EVIDENCE_NOTE: Record<EvidenceClass, string> = {
   A: "An AMC's own monthly filing shows the holding changed.",
   B: "A bulk or block deal leg that was not a matched same-day transfer.",
-  C: "Delivery moved against its own baseline. The buyer is not disclosed, so this is not accumulation.",
+  C: "Delivery moved against its own baseline. Who traded is not disclosed, so this is not accumulation.",
   D: "A disclosed holdings change and a disclosed deal leg point the same way.",
   none: "No disclosed change, no deal leg and no proxy move for this name.",
 };
@@ -559,7 +559,7 @@ export function evidenceChain(r: ScannerRow): Array<{ cls: Exclude<EvidenceClass
     });
   }
   if (r.dealNetQty != null && r.dealNetQty !== 0) {
-    const side = r.dealNetQty > 0 ? "net bought" : "net sold";
+    const side = r.dealNetQty > 0 ? "show net purchases of" : "show net sales of";
     const matched = r.matchedLegs && r.matchedLegs > 0 ? ` · ${r.matchedLegs} of ${r.dealLegs} legs were matched transfers and removed` : "";
     out.push({
       cls: "B",
@@ -572,7 +572,7 @@ export function evidenceChain(r: ScannerRow): Array<{ cls: Exclude<EvidenceClass
     out.push({
       cls: "C",
       headline: `Delivery ${d > 0 ? "above" : "below"} its own 60-session baseline by ${Math.abs(d)} pp`,
-      source: "Exchange delivery percentage — a market proxy. The buyer is not disclosed.",
+      source: "Exchange delivery percentage — a market proxy. Who traded is not disclosed.",
     });
   }
   return out;
@@ -588,7 +588,7 @@ export function whatWouldWeaken(r: ScannerRow, mf: MfWindow | null): string[] {
   // alone, with the other ten houses net sellers.
   const top = r.topAmcPctOfMove;
   if (top != null && top >= 100) {
-    out.push(`A single fund house accounts for ${top}% of the net change — more than all of it, so the other ${Math.max(0, (r.amcsHolding ?? 1) - 1)} houses are net sellers. The headline percentage is one manager's decision, not a consensus.`);
+    out.push(`A single fund house accounts for ${top}% of the net change — more than all of it, so the other ${Math.max(0, (r.amcsHolding ?? 1) - 1)} houses cut their holdings on balance. The headline percentage is one manager's decision, not a consensus.`);
   } else if (top != null && top >= 60) {
     out.push(`A single fund house accounts for ${top}% of the net change, so the headline percentage rests mostly on one manager rather than on breadth.`);
   }
@@ -601,7 +601,7 @@ export function whatWouldWeaken(r: ScannerRow, mf: MfWindow | null): string[] {
   else if (r.transferDays && r.transferDays > 0) out.push(`${r.transferDays} deal day(s) in the window were pure transfers, which move ownership without net demand.`);
   if (r.dealNetQty != null && r.dealNetQty !== 0) out.push("Deal legs carry no counterparty classification, so a leg may be a market maker rather than a long-term holder.");
   if (r.fiiDeltaPp == null) out.push("No FII/DII shareholding change is disclosed for both quarters, so the foreign and domestic legs are unknown.");
-  if (r.evidence === "C") out.push("There is no disclosed holdings change at all: delivery and volume do not identify a buyer.");
+  if (r.evidence === "C") out.push("There is no disclosed holdings change at all: delivery and volume do not identify who traded.");
   const note = mfWindowNote(mf);
   if (note) out.push(note);
   if (r.mfSharesPctChg != null && Math.abs(r.mfSharesPctChg) < 1) out.push("The holdings change is under 1% of the prior position, which is small enough to be routine rebalancing.");

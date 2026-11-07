@@ -10,6 +10,11 @@
  *   hedge      Portfolio hedge     Quick Hedge: three Nifty put / put-spread choices for the equity-linked holdings, what each
  *                                  costs and does under falls (flag `portfolio_hedge`; hedge-data.ts)      (HedgeView)
  *
+ * The Scanner-to-Paper Trading views that were here on 5 Nov (Trading overview, Capital allocation, Portfolio risk:
+ * TradingOverview, CapitalAllocation, PortfolioRisk) moved into Trade Desk › Paper Trading v2 (owner, 5 Nov 2026;
+ * UI_DESIGN_V2.md §1); their URLs redirect there (desk-nav.ts RISK_TO_PAPER). The files stay, routed nowhere (no code is
+ * deleted in this release).
+ *
  * Plus, for an admin only, the job-health strip (parts.tsx JobStrip). Paper risk only: the real, broker-read portfolio's
  * risk checks are in My portfolio. The design's "Policy & runtime" view is left out (no backend); no slider anywhere.
  * Reads and writes: RiskControls.tsx, risk-controls.ts, risk-profile.ts, fnolab/governance-data.ts, ./risk-desk-data.ts.
@@ -22,10 +27,11 @@ import { LimitsView } from "./LimitsView";
 import { JobStrip } from "./parts";
 
 export type RiskDeskView = "limits" | "controls" | "log" | "hedge";
+const VIEWS: readonly RiskDeskView[] = ["limits", "controls", "log", "hedge"];
 
 export default function RiskDeskTab({ view }: { view: string | null }) {
   const { mobile } = useCopilotShell();
-  const v: RiskDeskView = view === "controls" || view === "log" || view === "hedge" ? view : "limits";
+  const v: RiskDeskView = (VIEWS as readonly string[]).includes(view ?? "") ? (view as RiskDeskView) : "limits";
   return (
     <div data-testid="risk-desk" data-view={v} className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 18 }}>
       <JobStrip />

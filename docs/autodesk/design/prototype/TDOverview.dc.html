@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:28px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <span class="nv-eyebrow">01 · Desk overview · Thu 5 Nov 2026</span>
+      <span class="nv-pill nv-pill-mint"><span class="nv-dot" style="background:var(--mint)"></span>Auto paper · Desk A</span>
+      <span class="nv-pill nv-pill-indigo">Assisted live · ZX4821</span>
+    </div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:920px">Every position is inside its limits. <em style="color:var(--amber)">{{ pendWord }}</em> {{ pendTail }}</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:680px;text-wrap:pretty">Net P&amp;L today is +₹9,888 after estimated charges. One agent is degraded: the BSE announcements feed is four minutes late, so new entries on three symbols with pending filings are blocked.</p>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Needs you · ranked by ₹ at risk</span><span onClick="{{ goApprovals }}" style="font-size:12.5px;color:var(--mint);cursor:pointer">Approval queue ›</span></div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+      <sc-for list="{{ actions }}" as="a" hint-placeholder-count="3">
+        <div onClick="{{ a.go }}" style="display:flex;align-items:center;gap:14px;padding:{{ rowPad }};border-top:1px solid {{ a.line }};cursor:pointer;transition:all .15s ease" style-hover="background:var(--bg-2)">
+          <span style="font-family:var(--display);font-size:24px;line-height:1;color:var(--ink-4);width:28px;flex:none">{{ a.n }}</span>
+          <span class="nv-dot" style="flex:none;width:8px;height:8px;background:{{ a.c }}"></span>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px"><span style="font-size:15px;font-weight:500;line-height:1.35">{{ a.t }}</span><span style="font-size:12.5px;line-height:1.45;color:var(--ink-3)">{{ a.s }}</span></div>
+          <div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:3px"><span class="nv-num" style="font-family:var(--display);font-size:22px;line-height:1;color:{{ a.c }}">{{ a.v }}</span><span class="nv-eyebrow" style="font-size:9px">{{ a.k }}</span></div>
+        </div>
+      </sc-for>
+      <sc-if value="{{ noActions }}" hint-placeholder-val="{{ false }}"><div style="padding:18px 20px;font-size:14px;color:var(--ink-3)">Nothing is waiting on you. Agents keep working inside the approved policies.</div></sc-if>
+    </div>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ tileMin }},1fr));gap:10px">
+    <sc-for list="{{ tiles }}" as="m" hint-placeholder-count="10">
+      <div onClick="{{ m.go }}" style="display:flex;flex-direction:column;gap:5px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1);cursor:pointer;transition:all .15s ease" style-hover="border-color:var(--line-3)">
+        <span class="nv-eyebrow" style="font-size:9.5px">{{ m.k }}</span>
+        <span class="nv-num" style="font-family:var(--display);font-size:24px;line-height:1.1;color:{{ m.c }}">{{ m.v }}</span>
+        <span style="font-size:11.5px;line-height:1.4;color:var(--ink-3)">{{ m.s }}</span>
+      </div>
+    </sc-for>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:14px">
+    <div onClick="{{ goPnl }}" style="cursor:pointer;display:flex;flex-direction:column;gap:14px;padding:20px 22px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap"><span class="nv-eyebrow">Net P&amp;L today · after est. charges</span><span style="font-size:12.5px;color:var(--mint)">Real-time P&amp;L ›</span></div>
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><span class="nv-num" style="font-family:var(--display);font-size:52px;line-height:1;color:var(--mint)">+₹9,888</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--ink-2)">Gross +₹11,268 − est. charges ₹1,380</span></div>
+      <div style="position:relative;height:72px">
+        <svg viewBox="0 0 300 72" preserveAspectRatio="none" style="width:100%;height:72px;display:block;overflow:visible">
+          <line x1="0" x2="300" y1="{{ zeroY }}" y2="{{ zeroY }}" stroke="var(--line-3)" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"></line>
+          <path d="{{ area }}" fill="var(--mint)" fill-opacity="0.09"></path>
+          <polyline points="{{ spark }}" fill="none" stroke="var(--mint)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+        <span style="position:absolute;right:-4px;top:{{ endTop }};width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 4px var(--mint-soft)"></span>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--ink-3)"><span>PAPER <span style="color:var(--mint)">+₹9,376</span></span><span>LIVE <span style="color:var(--mint)">+₹512</span></span><span>HIGH +₹10,240 · LOW −₹4,610</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;padding:18px 22px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding-bottom:6px"><span class="nv-eyebrow">Broker &amp; data feeds</span><span onClick="{{ goFleet }}" style="font-size:12.5px;color:var(--mint);cursor:pointer">Reliability ›</span></div>
+      <sc-for list="{{ feeds }}" as="f" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)">
+          <span class="nv-dot" style="flex:none;background:{{ f.c }}"></span>
+          <span style="flex:1;min-width:0;font-size:13.5px">{{ f.n }}</span>
+          <span style="font-family:var(--mono);font-size:11px;color:{{ f.c }};text-align:right">{{ f.s }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Agents · current task</span><span onClick="{{ goAgents }}" style="font-size:12.5px;color:var(--mint);cursor:pointer">Command centre ›</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px">
+      <sc-for list="{{ agents }}" as="g" hint-placeholder-count="5">
+        <div onClick="{{ goAgents }}" style="cursor:pointer;display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)" style-hover="border-color:var(--line-3)">
+          <div style="display:flex;align-items:center;gap:8px"><span class="nv-dot" style="background:{{ g.c }}"></span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:{{ g.c }}">{{ g.st }}</span></div>
+          <span style="font-size:14px;font-weight:500;line-height:1.3">{{ g.n }}</span>
+          <span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ g.task }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Recent agent activity · what, why, which policy, what quantity</span><span onClick="{{ goMiddle }}" style="font-size:12.5px;color:var(--mint);cursor:pointer">Audit trail ›</span></div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-columns:72px 120px minmax(0,1.4fr) minmax(0,1.3fr) 110px minmax(0,0.9fr);gap:12px;padding:10px 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-3)"><span>Time</span><span>Agent</span><span>What happened</span><span>Why</span><span>Policy</span><span>Quantity</span></div>
+        <sc-for list="{{ activity }}" as="r" hint-placeholder-count="8">
+          <div style="display:grid;grid-template-columns:72px 120px minmax(0,1.4fr) minmax(0,1.3fr) 110px minmax(0,0.9fr);gap:12px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;line-height:1.45;align-items:baseline">
+            <span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ r.t }}</span>
+            <span style="font-size:12px;color:{{ r.c }}">{{ r.a }}</span>
+            <span>{{ r.w }}</span>
+            <span style="color:var(--ink-2)">{{ r.y }}</span>
+            <span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">{{ r.p }}</span>
+            <span style="font-size:12.5px;color:var(--ink-2)">{{ r.q }}</span>
+          </div>
+        </sc-for>
+      </sc-if>
+      <sc-if value="{{ narrow }}" hint-placeholder-val="{{ false }}">
+        <sc-for list="{{ activity }}" as="r" hint-placeholder-count="8">
+          <div style="display:flex;flex-direction:column;gap:5px;padding:13px 16px;border-top:1px solid {{ r.line }}">
+            <div style="display:flex;gap:10px;align-items:baseline"><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ r.t }}</span><span style="font-size:12px;color:{{ r.c }}">{{ r.a }}</span><span style="flex:1"></span><span style="font-family:var(--mono);font-size:9.5px;color:var(--ink-3)">{{ r.p }}</span></div>
+            <span style="font-size:14px;line-height:1.4">{{ r.w }}</span>
+            <span style="font-size:12.5px;line-height:1.45;color:var(--ink-3)">{{ r.y }} · {{ r.q }}</span>
+          </div>
+        </sc-for>
+      </sc-if>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1500},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;},&quot;decided&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;Record&lt;string,string&gt;&quot;},&quot;halted&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props, m = !!p.mobile, d = p.decided || {};
+    const nav = (s, f) => () => p.nav && p.nav(s, f);
+    const C = { mint: 'var(--mint)', amber: 'var(--amber)', danger: 'var(--danger)', indigo: 'var(--indigo)', ink: 'var(--ink)', ink2: 'var(--ink-2)' };
+    const pend = ['APR-3107', 'APR-3106', 'APR-3104'].filter(id => !d[id]);
+    const firstExp = { 'APR-3107': '12:10', 'APR-3106': '12:30', 'APR-3104': '14:00' }[pend[0]];
+    const words = ['No approvals', 'One approval', 'Two approvals', 'Three approvals'];
+    const A = [
+      { id: 'APR-3106', t: 'RELIANCE, 330 shares on paper, needs your sign-off', s: 'APR-3106 · ₹4.96 L notional is above the ₹4.00 L autonomous limit · expires 12:30', v: '₹13,860', k: 'Risk to stop', c: C.amber, go: nav('approvals', 'APR-3106') },
+      { id: 'APR-3104', t: 'Roll the Bank Nifty bear put spread to 29 Dec', s: 'APR-3104 · AMD-0092 extends holding past the 23 Nov expiry · expires 14:00', v: '₹11,799', k: 'Premium at risk', c: C.indigo, go: nav('approvals', 'APR-3104') },
+      { id: 'APR-3107', t: 'Approve or reject the Nifty bull call spread on Zerodha', s: 'APR-3107 · live · 24000/24200 CE, 9 Nov · expires 12:10, first in the queue', v: '₹10,927', k: 'Max loss', c: C.amber, go: nav('approvals', 'APR-3107') },
+      { id: 'TRD-1180', t: 'ICICIBANK (live) is 1.2% above its stop', s: 'TRD-1180 · SL-M 1,402 rests at Zerodha · exits on trigger under STOP-HARD', v: '₹3,440', k: 'Left to stop', c: C.danger, go: nav('trades', 'TRD-1180') },
+    ];
+    const actions = A.filter(a => !d[a.id]).slice(0, 3).map((a, i) => ({ ...a, n: '0' + (i + 1), line: i ? 'var(--line)' : 'transparent' }));
+    const live = String(d['APR-3107'] || '').startsWith('APPROVED');
+    const tiles = [
+      ['Operating mode', 'Auto paper', 'Desk A · ZX4821 assisted · IX2207 research', C.mint, 'policies'],
+      ['Market session', 'Open', '09:15–15:30 IST · closes in 3h 48m', C.ink, null],
+      ['Agents', '4 · 1 · 0', 'Healthy · degraded · offline', C.amber, 'agents'],
+      ['Active trades', live ? '5 paper · 3 live' : '5 paper · 2 live', 'Paper and live are never netted', C.ink, 'trades'],
+      ['Pending approvals', String(pend.length), pend.length ? `First expires ${firstExp} IST` : 'Queue is clear', pend.length ? C.amber : C.mint, 'approvals'],
+      ['Open orders', live ? '3' : '2', live ? 'DLF buy 200 · LT T2 sell 60 · NIFTY spread' : 'DLF buy 200 @ 739 · LT T2 sell 60 @ 4,020', C.ink, 'trades'],
+      ['Capital deployed', '₹15.1 L', '₹77.4 L available · ₹6.4 L reserved', C.ink, 'risk'],
+      ['Open risk · margin', '0.47% · 16.4%', 'Of 3% and 40% limits', C.mint, 'risk'],
+      ['Realized · unrealized', '−₹1,470 · +₹12,738', 'Today · brokers do not split live realized', C.ink, 'pnl'],
+      ['Critical exceptions', '0', '2 warnings · 1 reconciliation item', C.mint, 'middle'],
+    ].map(([k, v, s, c, go]) => ({ k, v, s, c, go: go ? nav(go) : () => {} }));
+    const curve = [0,-652,-1003,-1072,-1301,-1450,-1288,-1046,-844,-802,-440,-488,64,296,688,1120,1358,1636,1834,2192,2470,2144,1778,1652,1646,1400,754,108,-538,-1184,-1950,-3386,-4271,-4054,-3797,-3340,-2284,-1388,-412,524,1540,2324,2948,3892,4236,5180,7004,8704,9876,9888];
+    const hi = 10240 * 1.08, lo = -4610 * 1.15, W = 300, H = 72;
+    const X = (i) => (i / (curve.length - 1)) * W, Y = (v) => H - ((v - lo) / (hi - lo)) * H;
+    const spark = curve.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const zeroY = Y(0).toFixed(1);
+    const area = `M0 ${zeroY} ` + curve.map((v, i) => `L${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ') + ` L${W} ${zeroY} Z`;
+    const feeds = [['Kite WebSocket · NSE', 'LIVE · 0.8s', C.mint], ['Zerodha · ZX4821 orders', 'OK · ACK P95 180 MS', C.mint], ['Paper engine', 'OK · 6 FILLS TODAY', C.mint], ['NSE option chain', 'SNAPSHOT 14s', C.mint], ['BSE announcements', 'LAG 4M 10S · INC-0311', C.amber], ['ICICI Direct · IX2207', 'SESSION EXPIRED', C.danger]].map(([n, s, c]) => ({ n, s, c }));
+    const agents = [['AI Trader', 'BUSY', 'Scanning the F&O universe · 187 of 212', C.mint], ['Trading Assistant', 'BUSY', 'Building PLN-2045 · ICICIBANK 1,440 CE activity', C.mint], ['Risk Guardian', 'BUSY', 'Stress-testing AMD-0092 · Bank Nifty roll', C.mint], ['Middle Office', 'IDLE', 'Waiting on you · 3 approvals routed', C.ink2], ['Tech Support', 'DEGRADED', 'BSE announcements feed lagging 4m 10s', C.amber]].map(([n, st, task, c]) => ({ n, st, task, c }));
+    const AC = { TLM: C.indigo, 'Middle Office': C.ink2, 'Risk Guardian': C.mint, Strategist: C.mint, 'Tech Support': C.amber };
+    const activity = [
+      ['11:41:52', 'TLM', 'Raised HDFCBANK stop 984 → 991', 'Price cleared +1R at 1,011.50', 'TRAIL-ATR-v2', '550 (1 lot), unchanged'],
+      ['11:38:40', 'Middle Office', 'Routed APR-3107 to you', 'Live entries always need the account owner', 'P-LIVE-v3 §2', '130 proposed'],
+      ['11:38:10', 'Risk Guardian', 'Passed PLN-2041 v2 with one warning', 'Expiry is within two sessions', 'RISK-OPT-v4', 'No change'],
+      ['11:35:44', 'Strategist', 'Replaced PLN-2041 v1 with v2', 'v1 max loss ₹14,222 was above the ₹12,500 live sizing cap', 'PLAN-AMEND', '130 proposed'],
+      ['11:31:07', 'Middle Office', 'Sent APR-3106 for human approval', '₹4.96 L notional is above the ₹4.00 L autonomous limit', 'P-PAPER-v7 §4', '330 proposed'],
+      ['11:22:30', 'Tech Support', 'Blocked new entries on 3 symbols', 'BSE announcements 4 min late; filings pending', 'DATA-FRESH-v2', 'No open quantity affected'],
+      ['11:14:03', 'TLM', 'Booked LT target 1', 'T1 3,970 triggered; filled at 3,968.50', 'EXIT-T1-50', '60 of 120 sold'],
+      ['10:47:12', 'TLM', 'Exited COFORGE at its stop', 'Stop 1,912 triggered; filled at 1,908.40', 'STOP-HARD', '75 sold · −₹4,860'],
+    ].map(([t, a, w, y, pol, q], i) => ({ t, a, w, y, p: pol, q, c: AC[a] || C.ink2, line: i ? 'var(--line)' : 'transparent' }));
+    return {
+      h1: m ? '30px' : '44px', rowPad: m ? '14px 14px' : '16px 20px', tileMin: m ? '150px' : '200px',
+      pendWord: words[pend.length], pendTail: pend.length ? `${pend.length === 1 ? 'is' : 'are'} waiting on you; the first expires at ${firstExp}.` : 'are waiting on you.',
+      actions, noActions: actions.length === 0, tiles, feeds, agents, activity, spark, area, zeroY, endTop: ((Y(9888) / H) * 100).toFixed(1) + '%',
+      wide: !m, narrow: m,
+      goApprovals: nav('approvals'), goPnl: nav('pnl'), goFleet: nav('fleet'), goAgents: nav('agents'), goMiddle: nav('middle'),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -251,8 +251,8 @@ def test_an9_expiry_soon_and_delivery_warning_for_stock_fno_only():
     ({"stop": True}, "must be a number"),
     ({"stop": 0}, "above zero"),
     ({"target": -5}, "above zero"),
-    ({}, "set a stop"),
-    ({"stop": None, "target": None, "trail_pct": None}, "set a stop"),
+    ({}, "set a risk level"),
+    ({"stop": None, "target": None, "trail_pct": None}, "set a risk level"),
     ({"trail_pct": 60}, "at most 50"),
     ({"stop": 100, "target": 100}, "cannot be the same"),
 ])

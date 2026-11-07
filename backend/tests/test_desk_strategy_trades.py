@@ -294,7 +294,7 @@ def test_an_open_strategy_is_marked_leg_by_leg_on_the_bhavcopy(api, sworld):
     # + 3.90 GST + 2.38 slippage = 28.11; 147.14 (was 147.99 at the settle marks 50 / 20)
     assert t["costs_rs"] == 147.14
     assert t["net_pnl_rs"] == pytest.approx(1250.0 - t["costs_rs"], abs=0.01)
-    assert t["costs_basis"].startswith("entry and exit sides")
+    assert t["costs_basis"].startswith("opening and closing sides")
     assert (t["mfe_rs"], t["mae_rs"], t["held_sessions"], t["checked_through"]) == (1250.0, 1250.0, 1, "2026-10-13")
     assert body["summary"]["open"] == 1 and body["summary"]["unrealized_pnl_rs"] == 1250.0
     assert sworld.history_calls[0]["kind"] == "option" and sworld.history_calls[0]["option_type"] == "CE"

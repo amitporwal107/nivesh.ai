@@ -61,7 +61,7 @@ def test_long_worked_example():
     assert s["quantity"] == 186 and s["binding"] == "risk_budget"
     assert s["gross_exposure"] == 93_930.0
     assert s["allocation_pct"] == pytest.approx(18.786)
-    assert "after the entry and stop-exit costs" in s["risk_basis"]
+    assert "after the opening and closing costs" in s["risk_basis"]
     c = r["costs"]
     assert c["entry"] == 182.09
     assert c["exit_at_stop"] == 160.86 and c["round_trip_at_stop"] == 342.95

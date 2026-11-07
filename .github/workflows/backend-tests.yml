@@ -94,6 +94,7 @@ jobs:
           tests/test_chat_instrument_search.py
           tests/test_chat_persona_routing.py
           tests/test_chat_compliance_delivery.py
+          tests/test_compliance_wording_lint.py
           tests/test_chat_session_patch.py
           tests/test_circulars_route.py
           tests/test_concentration_fund_names.py
@@ -112,6 +113,7 @@ jobs:
           tests/test_copilot_prompts_mode.py
           tests/test_copilot_visual.py
           tests/test_copilot_visual_chat.py
+          tests/test_copilot_research_answers.py
           tests/test_open_book.py
           tests/test_broker_trades.py
           tests/test_core_exceptions.py
@@ -137,6 +139,7 @@ jobs:
           tests/test_desk_paper_sim.py
           tests/test_desk_redesign_routes.py
           tests/test_desk_strategy_trades.py
+          tests/test_desk_levels_edit.py
           tests/test_desk_trading.py
           tests/test_deterministic_insights.py
           tests/test_insights_list_contract.py
@@ -155,6 +158,7 @@ jobs:
           tests/test_fno_idea_paper_trade_contract.py
           tests/test_fno_iv_history.py
           tests/test_fno_margin.py
+          tests/test_fno_oi_reconcile.py
           tests/test_fno_quotes.py
           tests/test_fno_roll.py
           tests/test_fno_routes.py
@@ -176,6 +180,7 @@ jobs:
           tests/test_intent_routing.py
           tests/test_kite_intraday.py
           tests/test_kite_live_feed.py
+          tests/test_kite_trade_side.py
           tests/test_kite_login_needed.py
           tests/test_kite_platform_login.py
           tests/test_liquid_universe.py
@@ -190,8 +195,17 @@ jobs:
           tests/test_markets_evidence_routes.py
           tests/test_markets_home_daas.py
           tests/test_market_data_switch_live_feed.py
+          tests/test_market_recovery.py
+          tests/test_market_recovery_strategies.py
+          tests/test_market_recovery_indices.py
+          tests/test_market_recovery_paper_live.py
+          tests/test_market_recovery_paper_plan.py
           nidp/tests/shared/test_market_data_source.py
           nidp/tests/shared/test_truedata_client.py
+          nidp/tests/shared/test_truedata_corporate.py
+          nidp/tests/services/test_truedata_fundamentals_transform.py
+          nidp/tests/services/test_truedata_fundamentals_service.py
+          nidp/tests/services/test_truedata_fundamentals_pg.py
           tests/test_quick_hedge_calc.py
           tests/test_quick_hedge_chat.py
           tests/test_quick_hedge_inputs.py
@@ -243,6 +257,32 @@ jobs:
           tests/test_paper_account.py
           tests/test_paper_exit_rules.py
           tests/test_paper_fills_pnl.py
+          tests/test_paper_pnl.py
+          tests/test_paper_pnl_live.py
+          tests/test_paper_pnl_spt.py
+          tests/test_paper_v2_analytics.py
+          tests/test_paper_v2_buckets.py
+          tests/test_paper_v2_fno.py
+          tests/test_paper_v2_overview.py
+          tests/test_paper_v2_policy.py
+          tests/test_paper_v2_risk.py
+          tests/test_paper_v2_routes.py
+          tests/test_paper_v2_setup_type.py
+          tests/test_exit_watch.py
+          tests/test_spt_a_api.py
+          tests/test_spt_a_opportunities.py
+          tests/test_spt_a_outcomes.py
+          tests/test_spt_a_signals.py
+          tests/test_spt_b_contract.py
+          tests/test_spt_b_core.py
+          tests/test_spt_b_pipeline.py
+          tests/test_spt_b_routes.py
+          tests/test_spt_c_execution.py
+          tests/test_spt_c_modify.py
+          tests/test_spt_c_monitor.py
+          tests/test_spt_c_orders.py
+          tests/test_spt_c_routes.py
+          tests/test_spt_config.py
           tests/test_paper_reconcile.py
           tests/test_paper_trades_routes.py
           tests/test_payoff_cost_card.py
@@ -299,6 +339,20 @@ jobs:
           tests/test_risk_routes.py
           tests/test_risk_service.py
           tests/test_rs63_readiness.py
+          tests/test_scan_builder_data.py
+          tests/test_scan_builder_daytrade.py
+          tests/test_scan_builder_early_movers.py
+          tests/test_scan_builder_engine.py
+          tests/test_scan_builder_fno_indices.py
+          tests/test_scan_builder_indicators.py
+          tests/test_scan_builder_intraday.py
+          tests/test_scan_builder_market_dashboard.py
+          tests/test_scan_builder_results.py
+          tests/test_scan_builder_routes.py
+          tests/test_scan_builder_signal_strength.py
+          tests/test_scan_builder_signals.py
+          tests/test_scan_builder_strategy_ideas.py
+          tests/test_scan_builder_tick_flow.py
           tests/test_scan_rules_v2.py
           tests/test_scanner_bar_integrity.py
           tests/test_scheme_resolver.py
@@ -350,3 +404,5 @@ jobs:
           tests/test_watchlists.py
           nidp/tests/shared/test_dq_foundation_unit.py
           nidp/tests/shared/test_dq_foundation_pg.py
+          nidp/tests/services/test_truedata_history.py
+          nidp/tests/services/test_truedata_history_pg.py

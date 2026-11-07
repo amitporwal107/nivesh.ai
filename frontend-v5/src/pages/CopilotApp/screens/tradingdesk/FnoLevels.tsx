@@ -93,7 +93,7 @@ export function LevelsView({ d, pending, failed, inLab = true }: { d?: Levels; p
   return (
     <section data-testid="desk-levels" className="cp-card flex flex-col" style={{ gap: 12, padding: 16, minWidth: 0 }}>
       <div className="flex flex-wrap items-center justify-between" style={{ gap: 6 }}>
-        <span style={{ fontSize: 15, fontWeight: 600 }}>Estimated entry, stop-loss and targets</span>
+        <span style={{ fontSize: 15, fontWeight: 600 }}>Estimated reference price, risk level and reward levels</span>
         <Pill tone="amber">Rule-based · hypothetical</Pill>
       </div>
       {pending && <span style={quiet}>Working out the levels…</span>}
@@ -106,40 +106,40 @@ export function LevelsView({ d, pending, failed, inLab = true }: { d?: Levels; p
           <div data-testid="desk-levels-a" className="flex flex-col" style={{ gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>A · Strategy levels (the combined {d.kind === "credit" ? "credit" : "debit"} structure)</span>
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
-              <Fig testId="desk-levels-entry" k={d.kind === "credit" ? "Entry · net credit" : "Entry · net debit"} v={f2(d.entry)} sub="per share, end-of-day closes" />
-              <Fig testId="desk-levels-stop" k="Stop-loss (structure value)" v={f2(d.plannedStop)} sub={`${d.kind === "credit" ? "buyback cost" : "closing value"} · loss ${f2(d.plannedStopLoss)} a share${d.totals.plannedStopLoss != null ? ` (${inr(d.totals.plannedStopLoss)} for ${d.totals.shares} shares)` : ""}`} />
-              <Fig testId="desk-levels-t1" k="Target 1 (structure value)" v={f2(d.t1)} sub={d.totals.target1Gain != null ? `gain ${inr(d.totals.target1Gain)}` : undefined} />
-              <Fig testId="desk-levels-t2" k="Target 2 (structure value)" v={f2(d.t2)} sub={d.totals.target2Gain != null ? `gain ${inr(d.totals.target2Gain)}` : undefined} />
+              <Fig testId="desk-levels-entry" k={d.kind === "credit" ? "Reference price · net credit" : "Reference price · net debit"} v={f2(d.entry)} sub="per share, end-of-day closes" />
+              <Fig testId="desk-levels-stop" k="Risk level (structure value)" v={f2(d.plannedStop)} sub={`${d.kind === "credit" ? "cost to close" : "closing value"} · loss ${f2(d.plannedStopLoss)} a share${d.totals.plannedStopLoss != null ? ` (${inr(d.totals.plannedStopLoss)} for ${d.totals.shares} shares)` : ""}`} />
+              <Fig testId="desk-levels-t1" k="Reward level 1 (structure value)" v={f2(d.t1)} sub={d.totals.target1Gain != null ? `gain ${inr(d.totals.target1Gain)}` : undefined} />
+              <Fig testId="desk-levels-t2" k="Reward level 2 (structure value)" v={f2(d.t2)} sub={d.totals.target2Gain != null ? `gain ${inr(d.totals.target2Gain)}` : undefined} />
               <Fig testId="desk-levels-rr" k="Max profit / max loss" v={`${f2(d.maxProfit)} / ${f2(d.maxLoss)}`} sub={`reward : risk ${d.riskReward == null ? dash : f2(d.riskReward)}`} />
-              <Fig testId="desk-levels-boundary" k="Maximum-loss boundary" v={d.boundary == null ? "No maximum" : f2(d.boundary)} sub={d.kind === "credit" ? "buyback cost at the maximum loss" : "structure value if both legs expire worthless: the whole debit is lost. It is a boundary, not the stop-loss."} />
+              <Fig testId="desk-levels-boundary" k="Maximum-loss boundary" v={d.boundary == null ? "No maximum" : f2(d.boundary)} sub={d.kind === "credit" ? "cost to close at the maximum loss" : "structure value if both legs expire worthless: the whole debit is lost. It is a boundary, not the risk level."} />
             </div>
           </div>
 
           <div data-testid="desk-levels-b" className="flex flex-col" style={{ gap: 4, paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>B · Underlying thesis levels ({d.underlying.view ?? "—"})</span>
             {d.underlying.view === "neutral" ? (
-              <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>Entry {f2(d.underlying.entry)} · the view holds while the underlying stays between {f2(d.underlying.low)} and {f2(d.underlying.high)}; a close outside it invalidates it.</span>
+              <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>Reference price {f2(d.underlying.entry)} · the view holds while the underlying stays between {f2(d.underlying.low)} and {f2(d.underlying.high)}; a close outside it invalidates it.</span>
             ) : (
               <span data-testid="desk-levels-underlying" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
-                Entry {f2(d.underlying.entry)} · thesis stop {f2(d.underlying.stop)} · target 1 {f2(d.underlying.target)} · target 2 {f2(d.underlying.target2)}
+                Reference price {f2(d.underlying.entry)} · thesis risk level {f2(d.underlying.stop)} · reward level 1 {f2(d.underlying.target)} · reward level 2 {f2(d.underlying.target2)}
               </span>
             )}
-            {d.underlying.basis && <span style={quiet}>Worked out as {d.underlying.basis} (model estimate for the data date), so the stop and targets here are the same ones as in A. They are not option premium levels.</span>}
+            {d.underlying.basis && <span style={quiet}>Worked out as {d.underlying.basis} (model estimate for the data date), so the risk level and reward levels here are the same ones as in A. They are not option premium levels.</span>}
             {d.underlying.view !== "neutral" && (d.underlying.wallStop != null || d.underlying.wallTarget != null) && (
               <span data-testid="desk-levels-walls" style={quiet}>Structural reference, not used above: put wall {f2(d.underlying.putWall)}, call wall {f2(d.underlying.callWall)} (the strikes with the most open interest on each side of the price).</span>
             )}
-            <span style={quiet}>The trigger (a touch, a close or another rule) is not set: Nivesh does not monitor the underlying or place exits, so these are reference levels.</span>
+            <span style={quiet}>The trigger (a touch, a close or another rule) is not set: Nivesh does not monitor the underlying or place orders, so these are reference levels.</span>
           </div>
 
           <div data-testid="desk-levels-stops" style={{ overflowX: "auto", paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 460 }}>
-              <thead><tr>{["Stop", "Rule", "Purpose"].map((h) => <th key={h} style={{ textAlign: "left", fontSize: 11, fontWeight: 500, color: "var(--cp-ink-3)", padding: "4px 8px" }}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Risk level", "Rule", "Purpose"].map((h) => <th key={h} style={{ textAlign: "left", fontSize: 11, fontWeight: 500, color: "var(--cp-ink-3)", padding: "4px 8px" }}>{h}</th>)}</tr></thead>
               <tbody>
                 {[
-                  ["Strategy stop", `combined ${d.kind === "credit" ? "buyback" : "closing"} value ${d.kind === "credit" ? "≥" : "≤"} ${f2(d.plannedStop)}`, "limits the loss on the whole position"],
-                  ["Thesis stop", d.underlying.view === "neutral" ? `underlying outside ${f2(d.underlying.low)} – ${f2(d.underlying.high)}` : `underlying at ${f2(d.underlying.stop)}`, "the view is invalidated"],
+                  ["Strategy risk level", `combined ${d.kind === "credit" ? "cost to close" : "closing value"} ${d.kind === "credit" ? "≥" : "≤"} ${f2(d.plannedStop)}`, "limits the loss on the whole position"],
+                  ["Thesis risk level", d.underlying.view === "neutral" ? `underlying outside ${f2(d.underlying.low)} – ${f2(d.underlying.high)}` : `underlying at ${f2(d.underlying.stop)}`, "the view is invalidated"],
                   ["Maximum-loss boundary", d.boundary == null ? "no maximum" : `structure value ${f2(d.boundary)}`, "the most this structure can lose"],
-                  ["Emergency risk stop", "not built: no F&O risk engine yet", "margin, data, portfolio or execution risk"],
+                  ["Emergency risk level", "not built: no F&O risk engine yet", "margin, data, portfolio or execution risk"],
                 ].map(([a, b, c]) => <tr key={a} style={{ borderTop: "1px solid var(--line-2)" }}><td style={{ padding: "6px 8px", fontSize: 12 }}>{a}</td><td style={{ padding: "6px 8px", fontSize: 12, fontFamily: "var(--mono)" }}>{b}</td><td style={{ padding: "6px 8px", fontSize: 12, color: "var(--cp-ink-3)" }}>{c}</td></tr>)}
               </tbody>
             </table>
@@ -157,12 +157,12 @@ export function LevelsView({ d, pending, failed, inLab = true }: { d?: Levels; p
               <span style={{ fontSize: 13, fontWeight: 600 }}>C · Legs (monitoring, not separate trades)</span>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 460 }}>
-                  <thead><tr>{["Leg", "Position", "Entry", "Delta", "Theta", "Vega"].map((h) => <th key={h} style={{ textAlign: "left", fontSize: 11, fontWeight: 500, color: "var(--cp-ink-3)", padding: "4px 8px" }}>{h}</th>)}</tr></thead>
+                  <thead><tr>{["Leg", "Position", "Reference price", "Delta", "Theta", "Vega"].map((h) => <th key={h} style={{ textAlign: "left", fontSize: 11, fontWeight: 500, color: "var(--cp-ink-3)", padding: "4px 8px" }}>{h}</th>)}</tr></thead>
                   <tbody>
                     {d.legs.map((l, i) => (
                       <tr key={i} data-testid="desk-levels-leg" style={{ borderTop: "1px solid var(--line-2)" }}>
                         <td style={{ padding: "6px 8px", fontSize: 12, fontFamily: "var(--mono)" }}>{l.strike == null ? dash : f2(l.strike).replace(/\.00$/, "")} {l.kind === "call" ? "CE" : l.kind === "put" ? "PE" : ""}</td>
-                        <td style={{ padding: "6px 8px", fontSize: 12 }}>{l.side === "buy" ? "Buy" : l.side === "sell" ? "Sell" : dash}</td>
+                        <td style={{ padding: "6px 8px", fontSize: 12 }}>{l.side === "buy" ? "Long" : l.side === "sell" ? "Short" : dash}</td>
                         <td style={{ padding: "6px 8px", fontSize: 12, fontFamily: "var(--mono)" }}>{f2(l.entry)}</td>
                         <td style={{ padding: "6px 8px", fontSize: 12, fontFamily: "var(--mono)" }}>{sg(l.delta)}</td>
                         <td style={{ padding: "6px 8px", fontSize: 12, fontFamily: "var(--mono)" }}>{sg(l.theta)}</td>
@@ -172,7 +172,7 @@ export function LevelsView({ d, pending, failed, inLab = true }: { d?: Levels; p
                   </tbody>
                 </table>
               </div>
-              <span style={quiet}>Entry prices are end-of-day closes. A current executable price per leg needs live option quotes, which are not available here; the structure’s value is a model estimate. The legs are for diagnosis and execution, not independent stops.</span>
+              <span style={quiet}>Reference prices are end-of-day closes. A current executable price per leg needs live option quotes, which are not available here; the structure’s value is a model estimate. The legs are for diagnosis and execution, not independent risk levels.</span>
             </div>
           )}
 
@@ -203,7 +203,7 @@ export function LevelsView({ d, pending, failed, inLab = true }: { d?: Levels; p
           <div data-testid="desk-levels-loss-figures" className="flex flex-col" style={{ gap: 4, paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Why the loss figures differ</span>
             <span style={quiet}>
-              Maximum loss before costs {inr(d.costs.maxLossGross == null ? null : Math.abs(d.costs.maxLossGross))}. The plotted net loss adds the entry costs ({inr(d.costs.entry)}); capital at risk {inr(d.costs.capitalAtRisk)} is the worst net loss with entry and exit costs on every leg
+              Maximum loss before costs {inr(d.costs.maxLossGross == null ? null : Math.abs(d.costs.maxLossGross))}. The plotted net loss adds the opening costs ({inr(d.costs.entry)}); capital at risk {inr(d.costs.capitalAtRisk)} is the worst net loss with opening and closing costs on every leg
               (round trip {inr(d.costs.roundTrip)}, an assumed cost model). They are one position with different cost treatments, not different positions.
               {d.costs.capitalBasis ? ` Basis: ${d.costs.capitalBasis}.` : ""}{inLab ? " Funds and margin needed are Zerodha’s calculator, shown above." : ""}
             </span>

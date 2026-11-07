@@ -1075,13 +1075,13 @@ function RecommendationBlock({ rec }: { rec: NonNullable<InstrumentDetailData["r
     !v?.stance ? null : (
       <div className="flex items-start gap-3">
         <span className="text-[12.5px] text-ink-3 w-20 shrink-0 pt-0.5">{horizon}</span>
-        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide ${v.tone === "pos" ? "bg-[rgb(var(--pos)/0.12)] text-pos" : v.tone === "neg" ? "bg-[rgb(var(--neg)/0.12)] text-neg" : "bg-[rgb(var(--warm)/0.12)] text-warm"}`}>{v.stance.toUpperCase()}</span>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide ${v.tone === "pos" ? "bg-[rgb(var(--pos)/0.12)] text-pos" : v.tone === "neg" ? "bg-[rgb(var(--neg)/0.12)] text-neg" : "bg-[rgb(var(--warm)/0.12)] text-warm"}`}>{(({ buy: "Strong", hold: "Neutral", sell: "Weak" } as Record<string, string>)[v.stance.toLowerCase()] ?? v.stance).toUpperCase()}</span>
         {v.rationale && <span className="text-[12.5px] text-ink-2 leading-snug">{v.rationale}</span>}
       </div>
     );
   return (
     <div>
-      <Heading>Recommendation</Heading>
+      <Heading>Score reading</Heading>
       <div className="mt-2.5 flex flex-col gap-2.5">
         {row("Long-term", rec.long_term)}
         {row("Short-term", rec.short_term)}
@@ -2881,7 +2881,7 @@ function CapitalGainsWidget({ data, onAction }: { data: any; onAction?: (a: Widg
           <span className="text-[11px] text-ink-3">{header.period}</span>
         </div>
         {empty ? (
-          <p className="text-[14px] text-ink-2 leading-relaxed mt-2">No realised gains recorded for this FY — no sell/redeem transactions. This covers <b>booked</b> gains, not unrealised.</p>
+          <p className="text-[14px] text-ink-2 leading-relaxed mt-2">No realised gains recorded for this FY — no sale or redemption transactions. This covers <b>realised</b> gains, not unrealised.</p>
         ) : (
           <div className="flex flex-wrap gap-2.5 mt-3.5">
             <Tile label="STCG · 111A" value={cgINR(stcg)} />
@@ -2958,7 +2958,7 @@ function GoalBasketWidget({ data, onAction }: { data: any; onAction?: (a: Widget
       {onAction && rows.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <button onClick={() => onAction({ query: `compare ${rows.slice(0, 3).map((r: any) => r.scheme_name).join(", ")}` })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Compare these funds</button>
-          <button onClick={() => onAction({ intent: "open", query: "/recommendations" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Open recommendations →</button>
+          <button onClick={() => onAction({ intent: "open", query: "/recommendations" })} className="rounded-full border border-hairline bg-surface-1 px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2">Open fund ideas →</button>
         </div>
       )}
     </div>

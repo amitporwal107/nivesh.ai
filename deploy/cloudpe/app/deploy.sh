@@ -96,6 +96,8 @@ elif $BUILD_BACKEND; then
     log "Building backend image only..."
     dc build --pull app-backend
     dc up -d --force-recreate app-backend
+    # The desk app runs from the same image and code mount: a code change needs its process restarted too.
+    dc up -d --force-recreate app-autodesk || warn "app-autodesk did not start (only /autodesk/ is affected)"
 else
     log "Building frontend images only (v2 + v5)..."
     dc build --pull app-frontend app-frontend-v5
@@ -110,6 +112,8 @@ log "Disk after build: $(df -h / | awk 'NR==2{print $4" free ("$5" used)"}')"
 if $BUILD_BACKEND; then
     log "Waiting for nivesh-staging-app-backend to report healthy..."
     wait_container_healthy nivesh-staging-app-backend 90 2
+    # Not fatal for the main app: a subshell keeps fail()'s exit to this check.
+    ( wait_container_healthy nivesh-staging-autodesk 45 2 ) || warn "nivesh-staging-autodesk is not healthy (only /autodesk/ is affected)"
 fi
 
 if $RUN_MIGRATIONS; then
@@ -120,7 +124,23 @@ fi
 # ── Edge nginx ───────────────────────────────────────────────────────────────
 # Reload so config changes land and stale upstream IPs are dropped; if the new
 # config is broken, recreate (fails fast with the error) rather than keep the old one.
-if docker ps --format '{{.Names}}' | grep -q '^nivesh-staging-nginx$'; then
+# The edge conf is a single-file bind mount: the git reset above replaces the file
+# (a new inode) while the running container keeps the old one, so a reload re-reads
+# the OLD conf (seen 5 Nov with the /autodesk/api/ route). When the copy the edge
+# sees differs from the repo's, test the new conf in a throwaway container that
+# shares the edge's mounts and network, then restart the edge (about a second).
+EDGE_CONF="${REPO_DIR}/deploy/nivesh-staging/nginx-staging.conf"
+if docker ps --format '{{.Names}}' | grep -q '^nivesh-staging-nginx$' \
+   && ! docker exec nivesh-staging-nginx cat /etc/nginx/conf.d/staging.conf 2>/dev/null | cmp -s - "$EDGE_CONF"; then
+    log "Edge nginx conf changed: testing it, then restarting the edge..."
+    EDGE_IMAGE=$(docker inspect nivesh-staging-nginx --format '{{.Config.Image}}')
+    mapfile -t EDGE_MOUNTS < <(docker inspect nivesh-staging-nginx --format '{{range .Mounts}}{{.Source}}:{{.Destination}}:ro{{"\n"}}{{end}}' | sed '/^$/d')
+    EDGE_ARGS=()
+    for m in "${EDGE_MOUNTS[@]}"; do EDGE_ARGS+=(-v "$m"); done
+    docker run --rm --network container:nivesh-staging-nginx "${EDGE_ARGS[@]}" "$EDGE_IMAGE" nginx -t \
+        || fail "The new edge nginx conf fails nginx -t (see above); the edge keeps running the old conf."
+    docker restart nivesh-staging-nginx >/dev/null
+elif docker ps --format '{{.Names}}' | grep -q '^nivesh-staging-nginx$'; then
     log "Reloading edge nginx..."
     if docker exec nivesh-staging-nginx nginx -t >/dev/null 2>&1; then
         docker exec nivesh-staging-nginx nginx -s reload

@@ -18,7 +18,12 @@ from feature_gate import require_feature
 from services.kite_live_feed import config as cfg
 from services.kite_live_feed import gateway as gw
 from services.kite_live_feed.feed import get_feed
-from services.kite_live_feed.intraday import INTERVALS, IntradayService
+from services.kite_live_feed.intraday import INTERVALS as KITE_INTERVALS, IntradayService
+
+# The Research chart's intervals. Kite's service also serves 1m and 3m: Trade Desk › Chart Analysis asks for them through
+# /api/desk/live-chart, which reads through `read_bars` below (every interval of the service). This route keeps its own set,
+# so its 30-session reads stay at 5m and up.
+INTERVALS = ("5m", "15m", "30m", "60m")
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/research/chart-intraday", tags=["research_chart_intraday"])
@@ -68,6 +73,14 @@ async def intraday(symbol: str = SymbolPath, interval: str = Query("5m"), sessio
                    user: dict = Depends(require_feature(FLAG))) -> Dict[str, Any]:
     if interval not in INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(INTERVALS)}")
+    return await read_bars(symbol, interval, sessions)
+
+
+async def read_bars(symbol: str, interval: str, sessions: int) -> Dict[str, Any]:
+    """The Kite candles of any interval the service serves (1m to 60m), the live price merged into the candle in progress
+    only. The route above narrows the intervals; /api/desk/live-chart calls this directly."""
+    if interval not in KITE_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(KITE_INTERVALS)}")
     await _refresh_platform_token()
     feed = get_feed()
     st = await feed.read_status() or {}

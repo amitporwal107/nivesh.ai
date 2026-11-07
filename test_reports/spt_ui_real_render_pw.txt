@@ -1,0 +1,16 @@
+# SPT screens rendered from REAL staging bodies (deployed 93cfb9b6, synthetic test user, saved by the scoped check at 07:35 IST); spec copilot-app-desk-spt-real.spec.ts with SPT_REAL_DIR; bodies are not in the repo
+
+TSC_EXIT=0
+BUILD_EXIT=0
+
+Running 6 tests using 3 workers
+
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:91:3 › SPT screens on real staging bodies › REAL-2 Analytics renders the real outcome body (2.8s)
+  ✓  3 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:99:3 › SPT screens on real staging bodies › REAL-3 Settings shows the real config (mode and limits) (2.9s)
+  ✓  2 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:76:3 › SPT screens on real staging bodies › REAL-1 Opportunities lists the real opportunities (4.2s)
+  ✓  4 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:110:3 › SPT screens on real staging bodies › REAL-4 Trading overview shows the real paper equity (2.6s)
+  ✓  5 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:120:3 › SPT screens on real staging bodies › REAL-5 Capital allocation ranks the real opportunities (2.7s)
+  ✓  6 [copilot-app] › e2e/tests/copilot-app-desk-spt-real.spec.ts:130:3 › SPT screens on real staging bodies › REAL-6 Portfolio risk renders the real (empty) book (2.3s)
+
+  6 passed (7.5s)
+PW_EXIT=0

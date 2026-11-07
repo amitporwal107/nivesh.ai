@@ -28,7 +28,7 @@ export const HEDGE_MODE_LABEL: Record<HedgeModeKey, string> = { balanced: "Balan
 export const HEDGE_MODE_BLURB: Record<HedgeModeKey, string> = {
   balanced: "Protection starts where your tolerable loss ends.",
   maximum: "Protection starts earlier, at half your tolerable loss. Costs more.",
-  lowest_cost: "A put spread: cheaper, but protection stops at the fall you fear.",
+  lowest_cost: "A put spread: cheaper, but protection ends at the fall you fear.",
 };
 
 export interface HedgeRequest {
@@ -145,8 +145,8 @@ export function describeStructure(m: HedgeMode, lot: number | null): string {
   const lots = a.qty != null && lot ? Math.round(a.qty / lot) : null;
   const units = lots == null ? "" : `${lots} ${lots === 1 ? "lot" : "lots"} of the `;
   return m.structure === "put_spread" && b?.strike != null
-    ? `Buy ${units}${fmtNum(a.strike)} put, sell the ${fmtNum(b.strike)} put`
-    : `Buy ${units}${fmtNum(a.strike)} put`;
+    ? `Long ${units}${fmtNum(a.strike)} put, short the ${fmtNum(b.strike)} put`
+    : `Long ${units}${fmtNum(a.strike)} put`;
 }
 
 /** The sentence a failed call is shown as. A 403 is the flag being off for this account; a 422 is an input the route refused. */

@@ -29,7 +29,7 @@ SCANNER_ROUTE_LIMIT = 30          # rows asked of each scanner route: the same a
 DEFAULT_LIMIT, MAX_LIMIT = 8, 15
 BUCKETS = ("breakout_confirmed", "pre_breakout", "trend_continuation", "true_accumulation")   # desk-data.ts SETUP_BUCKETS order
 
-SELECTION_RULE = ("The scanner's merged list (watchlist and picks, picks win for entry, stop and target), ranked by the scanner's score, "
+SELECTION_RULE = ("The scanner's merged list (watchlist and signals, signals win for the reference price, risk and reward levels), ranked by the scanner's score, "
                   "then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference "
                   "data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least "
                   f"Rs {setup_rules.LIQUIDITY['min_traded_value_cr']:g} crore a day); the top N that pass. When the snapshot cannot be read, "
@@ -305,7 +305,7 @@ async def _select_scanner(request: Request, limit: int) -> Dict[str, Any]:
     """The scanner-only selection (the behaviour before Chartink). Private keys for the Chartink step: _merged (the merged scanner list), _rows (the
     scan snapshot rows, None when not read or unreadable) and _rows_read (whether the snapshot read was attempted)."""
     watch, picks, fails = await read_scanner(request)
-    out: Dict[str, Any] = {"source": "AI scanner (watchlist + picks), end of day", "rule": SELECTION_RULE, "limit": limit, "scan_date": None,
+    out: Dict[str, Any] = {"source": "AI scanner (watchlist + signals), end of day", "rule": SELECTION_RULE, "limit": limit, "scan_date": None,
                            "watchlist_as_of": (watch or {}).get("as_of_date"), "watchlist_version": (watch or {}).get("_classifier_version"), "signal_date": (picks or {}).get("signal_date"),
                            "considered": 0, "selected": 0, "excluded": [], "setups": [], "empty_reason": None, "source_failures": fails,
                            "gate": None, "gate_as_of": None, "_merged": [], "_rows": None, "_rows_read": False,

@@ -475,7 +475,7 @@ def deal_item(s: Dict[str, Any], d: str) -> Dict[str, Any]:
     value = {**base, "net_quantity": buy - sell, "buy_quantity": buy, "sell_quantity": sell, "latest_deal_date": latest,
              "net_pct_of_shares": round(sum(pcts), 4) if pcts else None,
              "deals": [{k: r.get(k) for k in ("as_of_date", "kind", "client_name", "deal_type", "quantity", "avg_price", "pct_of_shares")} for r in rows[:10]]}
-    head = f"{len(rows)} bulk/block deal(s) between {win.get('from')} and {win.get('to')}: bought {buy:,.0f}, sold {sell:,.0f} shares (latest {latest})."
+    head = f"{len(rows)} bulk/block deal(s) between {win.get('from')} and {win.get('to')}: purchases of {buy:,.0f}, sales of {sell:,.0f} shares (latest {latest})."
     if not pcts:
         return item(g, key, value, head + " The company's share count is missing, so the size against its shares cannot be judged; no direction is read." + partial, "neutral", s)
     net = value["net_pct_of_shares"]

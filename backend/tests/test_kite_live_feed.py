@@ -196,6 +196,7 @@ def make_feed(db=None, *, token=TOKEN, kite=None, clock=None, ticker=FakeTicker,
     async def hol(day):
         return set()
 
+    kw.setdefault("trade_sides", False)        # off unless a test turns it on (APP_ENV=staging would turn it on)
     f = LiveFeed(db or FakeDB(), holder=holder, clock=clock, sleep=clock.sleep, cadence=cadence,
                  token_getter=lambda: state["token"], key_getter=lambda: "api-key-PUBLIC",
                  kite_factory=lambda k, t: holder_kite, ticker_factory=lambda k, t: ticker(k, t),

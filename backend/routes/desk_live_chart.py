@@ -2,6 +2,9 @@
 
     GET /api/desk/live-chart/{symbol}?plan_id=&interval=15m&sessions=2
 
+interval: 1m 3m 5m 15m 30m 60m (Kite candles, sessions 1-10), 1d (the end-of-day bars, no Kite read) or 1w (weekly bars
+built from the end-of-day bars, services/desk_live_chart.weekly_bars). Anything else is 400.
+
 One answer for the chart card and the SIGNAL CONDITIONS card, so the line, the marker and the condition read the same bars:
     timeframe    the candles drawn: Kite 15m (interval, "Kite intraday", raw prices) when the platform Kite session works,
                  else the daily bars (nidp.prices_eod_adjusted) with `reason` (token_missing / token_expired / ...), so the
@@ -9,8 +12,10 @@ One answer for the chart card and the SIGNAL CONDITIONS card, so the line, the m
                  file for today is in, today's daily bar comes from Kite (services/kite_live_feed/day_quote.py): the live
                  quote in the session, the saved Kite close after it; `timeframe.today` says which (provisional), and
                  `today_why` why none was added (eod_in, feed_not_live, no_saved_close, does_not_join, ...)
-    bars         [[time, o, h, l, c, v]] of the sessions shown, with `ema20` and `rvol` aligned (services/desk_live_chart.py;
-                 worked out on extra warm-up bars that are not sent)
+    bars         [[time, o, h, l, c, v]] of the sessions shown, with `ema20`, `sma20` and `rvol` aligned
+                 (services/desk_live_chart.py; worked out on extra warm-up bars that are not sent). 1w: one bar per ISO week,
+                 time = the week's first session; the conditions stay on the daily bars and each marker points at the week
+                 bar that holds its day
     levels       the TradePlan's (?plan_id, Mongo trade_plans, the reader may open it) or, without a plan, the scanner's
                  latest signal (positional_signals): entry, stop, targets, the entry rule, valid_for_sessions, signal day
     signal       the latest scanner signal for the symbol: day, stage, revision, engine version (positional_signals)
@@ -41,16 +46,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/desk/live-chart", tags=["desk"])
 FLAG = "charting"
 SymbolPath = PathParam(..., pattern=r"^[A-Za-z0-9&\-]{1,32}$")
-INTERVAL_MINUTES = {"5m": 5, "15m": 15, "30m": 30, "60m": 60}
+INTERVAL_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
+EOD_INTERVALS = ("1d", "1w")           # asked for directly: no Kite read
+INTERVAL_NAME = {"1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m", "60m": "1h"}
+INTERVAL_LABEL = {"1m": "1M", "3m": "3M", "5m": "5M", "15m": "15M", "30m": "30M", "60m": "1H"}
 DAILY_SHOWN = 60                       # daily bars drawn in the fallback
 DAILY_READ_DAYS = 200                  # calendar days read for the fallback (EMA warm-up)
+DAILY_ASKED_SHOWN = 120                # interval=1d: daily bars drawn
+DAILY_ASKED_READ_DAYS = 260
+WEEKLY_SHOWN = 104                     # interval=1w: weekly bars drawn (two years)
+WEEKLY_READ_DAYS = 1100                # about 3 years of sessions: 104 weeks plus the 20-week warm-up
 WARMUP_SESSIONS = 2                    # extra intraday sessions read for the EMA 20 / RVOL warm-up
 SIGNAL_LOOKBACK_DAYS = 45
 PAPER_ENGINE = ("A condition met on the chart is not a fill: the paper engine fills on end-of-day bars (break above / pull back "
-                "to / at once), and a stop does not cap a loss in a gap.")
+                "to / at once), and a risk level does not cap a loss in a gap.")
 KITE_REASON = {
-    "token_missing": "Kite login needed for 15m candles: the platform Kite session is not logged in today.",
-    "token_expired": "Kite login needed for 15m candles: the platform Kite session expired.",
+    "token_missing": "Kite login needed for {name} candles: the platform Kite session is not logged in today.",
+    "token_expired": "Kite login needed for {name} candles: the platform Kite session expired.",
     "symbol_not_found": "Kite has no intraday instrument for this symbol.",
     "no_bars": "Kite returned no intraday candles for this symbol.",
     "upstream_unavailable": "Kite did not answer for intraday candles.",
@@ -140,16 +152,18 @@ async def read_holidays(start: date, end: date) -> Tuple[Optional[set], bool]:
 
 
 async def read_intraday(sym: str, interval: str, sessions: int, user: dict) -> Dict[str, Any]:
-    """The intraday chart route's own read (Kite candles, live price merged into the candle in progress only)."""
+    """The intraday chart route's own read (Kite candles, live price merged into the candle in progress only), with every
+    interval Kite's service serves: the Research route's handler keeps 5m and up, so it is not called here."""
     from routes import research_chart_intraday as rci
-    return await rci.intraday(symbol=sym, interval=interval, sessions=sessions, user=user)
+    return await rci.read_bars(sym, interval, sessions)
 
 
-async def read_daily(sym: str) -> List[list]:
-    """Daily bars (split and bonus adjusted), oldest first, through the chart-live route's reader."""
+async def read_daily(sym: str, days: int = DAILY_READ_DAYS) -> List[list]:
+    """Daily bars (split and bonus adjusted) of the last `days` calendar days, oldest first, through the chart-live route's
+    reader."""
     from routes.move_odds import _proxy
     from routes.research_chart_live import _bar
-    start = (date.today() - timedelta(days=DAILY_READ_DAYS)).isoformat()
+    start = (date.today() - timedelta(days=days)).isoformat()
     payload = await _proxy(f"/prices/adjusted/{sym}", {"limit": 1000, "start": start})
     rows = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
@@ -163,10 +177,10 @@ def _now_ist() -> datetime:
 
 @router.get("/{symbol}")
 async def live_chart(symbol: str = SymbolPath, plan_id: Optional[str] = Query(None, max_length=40),
-                     interval: str = Query("15m"), sessions: int = Query(2, ge=1, le=5),
+                     interval: str = Query("15m"), sessions: int = Query(2, ge=1, le=10),
                      user: dict = Depends(require_feature(FLAG))) -> Dict[str, Any]:
-    if interval not in INTERVAL_MINUTES:
-        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(INTERVAL_MINUTES)}")
+    if interval not in INTERVAL_MINUTES and interval not in EOD_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join([*INTERVAL_MINUTES, *EOD_INTERVALS])}")
     sym = symbol.upper()
     now = _now_ist()
     plan = None
@@ -177,35 +191,41 @@ async def live_chart(symbol: str = SymbolPath, plan_id: Optional[str] = Query(No
         if str((plan.get("instrument") or {}).get("symbol") or "").upper() != sym:
             raise HTTPException(status_code=400, detail="plan_symbol_mismatch")
 
-    # candles: Kite intraday, else daily with the reason
+    # candles: Kite intraday, else daily with the reason; 1d and 1w read the daily bars directly
     reason = None
     bars: List[list] = []
     live_merged = False
-    try:
-        got = await read_intraday(sym, interval, sessions + WARMUP_SESSIONS, user)
-        if got.get("availability") == "ok" and got.get("bars"):
-            bars, live_merged = [list(b) for b in got["bars"]], bool(got.get("live_merged"))
-        else:
-            reason = got.get("availability") or "no_bars"
-    except HTTPException as e:
-        reason = "upstream_unavailable" if e.status_code >= 500 else "intraday_refused"
+    weekly = interval == "1w"
+    if interval not in EOD_INTERVALS:
+        try:
+            got = await read_intraday(sym, interval, sessions + WARMUP_SESSIONS, user)
+            if got.get("availability") == "ok" and got.get("bars"):
+                bars, live_merged = [list(b) for b in got["bars"]], bool(got.get("live_merged"))
+            else:
+                reason = got.get("availability") or "no_bars"
+        except HTTPException as e:
+            reason = "upstream_unavailable" if e.status_code >= 500 else "intraday_refused"
     if bars:
         minutes: Optional[int] = INTERVAL_MINUTES[interval]
         keep_days = sorted({b[0][:10] for b in bars})[-sessions:]
         shown_from = next(i for i, b in enumerate(bars) if b[0][:10] in keep_days)
-        tf = {"interval": interval, "label": interval.upper(), "source": "Kite intraday", "adjusted": False, "reason": None,
+        tf = {"interval": interval, "label": INTERVAL_LABEL[interval], "source": "Kite intraday", "adjusted": False, "reason": None,
               "live_merged": live_merged, "note": "Kite candles, raw prices (not split or bonus adjusted)."}
     else:
-        bars = await read_daily(sym)
+        read_days = WEEKLY_READ_DAYS if weekly else DAILY_ASKED_READ_DAYS if interval == "1d" else DAILY_READ_DAYS
+        bars = await read_daily(sym, read_days)
         if not bars:
             raise HTTPException(status_code=404, detail="no_bars_for_symbol")
         # today before the exchange's end-of-day file: the live Kite bar in the session, the saved Kite close after it
         bars, today = await dq.extend_daily(bars, sym, now=now)
         minutes = None
-        shown_from = max(0, len(bars) - DAILY_SHOWN)
-        tf = {"interval": "1d", "label": "DAILY", "source": "nidp.prices_eod_adjusted (end of day)", "adjusted": True,
-              "reason": reason, "reason_text": KITE_REASON.get(reason or "", "Intraday candles are unavailable."),
-              "live_merged": False, "note": "Daily bars, split and bonus adjusted.",
+        shown_from = max(0, len(bars) - (DAILY_ASKED_SHOWN if interval == "1d" else DAILY_SHOWN))
+        asked = interval in EOD_INTERVALS
+        text = KITE_REASON.get(reason or "", "Intraday candles are unavailable.").format(name=INTERVAL_NAME.get(interval, interval))
+        tf = {"interval": "1w" if weekly else "1d", "label": "WEEKLY" if weekly else "DAILY", "source": "nidp.prices_eod_adjusted (end of day)",
+              "adjusted": True, "reason": None if asked else reason, "reason_text": None if asked else text,
+              "live_merged": False,
+              "note": "Weekly bars built from the daily bars, split and bonus adjusted." if weekly else "Daily bars, split and bonus adjusted.",
               "today": today if today.get("used") else None,
               "today_why": None if today.get("used") else today.get("why"), "today_text": today.get("text")}
 
@@ -233,10 +253,30 @@ async def live_chart(symbol: str = SymbolPath, plan_id: Optional[str] = Query(No
     if vb and vb["index"] >= shown_from:
         markers.append({"kind": "RVOL", "at": vb["at"], "rvol": vb["rvol"], "text": f"Volume {vb['rvol']:.1f}× the 20-bar average"})
     li = lc.last_completed(bars, minutes, now)
+    complete = li == len(bars) - 1
+    sma = lc.sma_series([b[4] for b in bars])
+    last_at = bars[-1][0]
+    chart_bars, chart_ema, chart_sma, chart_rvol = shown, ema[shown_from:], sma[shown_from:], rvol[shown_from:]
+    if weekly:
+        # The chart draws weeks; the conditions and markers above stay on the daily bars, each marker moved to its week.
+        wbars = lc.weekly_bars(bars)
+        w_from = max(0, len(wbars) - WEEKLY_SHOWN)
+        week_at = {lc.week_key(b[0]): b[0] for b in wbars[w_from:]}
+        daily_markers = [] if signals_error else lc.stage_markers([s for s in signals if s.get("signal_date")], bars)
+        if vb:
+            daily_markers.append({"kind": "RVOL", "at": vb["at"], "rvol": vb["rvol"],
+                                  "text": f"Volume {vb['rvol']:.1f}× the 20-session average on {str(vb['at'])[:10]}"})
+        markers = [{**m, "at": week_at[lc.week_key(m["at"])]} for m in daily_markers if lc.week_key(m["at"]) in week_at]
+        w_close = [b[4] for b in wbars]
+        chart_bars = wbars[w_from:]
+        chart_ema = lc.ema_series(w_close)[w_from:]
+        chart_sma = lc.sma_series(w_close)[w_from:]
+        chart_rvol = lc.rvol_series([b[5] for b in wbars])[w_from:]
+        complete = lc.week_key(now.date().isoformat()) != lc.week_key(last_at)
     return {
         "symbol": sym, "as_of": now.isoformat(), "timeframe": tf,
-        "bars": shown, "ema20": ema[shown_from:], "rvol": rvol[shown_from:],
-        "last": {"price": last_close, "at": bars[-1][0], "bar_complete": li == len(bars) - 1,
+        "bars": chart_bars, "ema20": chart_ema, "sma20": chart_sma, "rvol": chart_rvol,
+        "last": {"price": last_close, "at": last_at, "bar_complete": complete,
                  "source": ((tf.get("today") or {}).get("source") if minutes is None and tf.get("today") else ("kite_intraday" if minutes else "eod"))},
         "levels": levels,
         "signal": ({"signal_date": latest["signal_date"], "stage": latest["stage"], "kind": lc.STAGE_KIND.get(str(latest["stage"] or "").upper()),

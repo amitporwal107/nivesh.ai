@@ -4,15 +4,18 @@
  *
  *   left card   SYMBOL [state] NSE · CASH · DAILY|15M · SIGNAL … · LAST · + PAPER TRADE
  *               stats: PCR · FUT OI Δ · MAX PAIN · ATM IV · IV PCTILE · EXP. MOVE
- *               SIGNALS ON CHART: Build-up · OI walls · Max pain · Pattern · Confirmation · RVOL · Events
- *               readout · the chart (AnalysisChart.tsx: price, futures OI, OI Δ, build-up, strike ladder)
+ *               SIGNALS ON CHART: Build-up · OI walls · Max pain · Pattern · Confirmation · RVOL · Events, then the bar
+ *               signals (bar-signals.ts): Long build-up · Short covering · Volume spike · Breakout · Breakdown · Short build-up
+ *               readout · toolbar: 1m 3m 5m 15m 1h 1D 1W (timeframes.ts, ?tf=) · Candles Line Area · SMA 20
+ *               tool rail (crosshair, trend, horizontal, vertical, rectangle, Fib, measure, undo, clear; not on a phone)
+ *               the chart (AnalysisChart.tsx: price, volume, futures OI, OI Δ, build-up, strike ladder)
  *               OPTION CHAIN (OptionChain.tsx) · EXPIRY pills · LADDER modes · the summary lines
  *               RECOMMENDED STRATEGIES (RecoStrategies.tsx) · footer
  *   right       the PAPER TRADE basket (BasketPanel.tsx), beside the card from TWO_COLUMN_MIN px, else below it
  *   below       the strategy panel (StrategyPanel.tsx): legs + Greeks, margin, payoff, scenario table
  *
- *   GET /api/desk/live-chart/{sym}               candles, EMA 20, RVOL, markers, levels, signal, LAST (Kite close until EOD)
- *   GET /api/fno/{sym}/futures/oi-buildup        futures OI per bar (intraday bars / daily_bars), build-up windows
+ *   GET /api/desk/live-chart/{sym}?interval=     candles of the timeframe, EMA 20, SMA 20, RVOL, markers, levels, signal, LAST
+ *   GET /api/fno/{sym}/futures/oi-buildup        futures OI per bar (intraday bars / daily_bars, summed per week on 1W), windows
  *   GET /api/fno/{sym}/chain[/consolidated]      PCR, max pain, walls, ATM IV, expected move, the ladder and the chain
  *   GET /api/fno/{sym}/iv-history                IV percentile (null with the reason until 252 recorded sessions)
  *   GET /api/desk/chart-events/{sym}             market events (the Events chip; the owner asked for them on 29 Oct)
@@ -20,7 +23,7 @@
  *
  * Every figure is a route's; a figure the data does not give is "—" with why. Paper only; nothing is sent to a broker.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiError } from "@/services/api/errors";
 import { ErrorBlock, LoadingBlock, TONE_COLOR, fmtNum } from "../../../../../components/ui";
@@ -35,19 +38,28 @@ import type { DailyBar } from "../../../indicators";
 import { useTop10Stocks } from "../../../top10-data";
 import { useAiWatchlist } from "../../../../workspace/ai-watchlist-data";
 import { useChartEvents, useIvHistory, useLiveChart, useOiBuildup, type LiveChart, type OiSeries, type OiWindow } from "../live-chart-data";
-import { AnalysisChart, fmtLakh, type BuildupTag, type ChartLevel, type ChartMark, type EventChip, type LadderMode, type TradeLine } from "./AnalysisChart";
+import { AnalysisChart, TWO_CLICK, fmtLakh, type BuildupTag, type ChartLevel, type ChartMark, type ChartType, type DrawTool, type Drawing, type EventChip, type LadderMode, type SignalMark, type TradeLine } from "./AnalysisChart";
+import { BAR_SIGNALS, DEFAULT_SIGNALS, barSignals, type BarSignalKey, type SignalTone } from "./bar-signals";
 import { BasketPanel } from "./BasketPanel";
 import { BasketProvider, useBasket } from "./basket";
 import { SLOT_NAME, SLOTS, useAnalysisChain, type AnalysisChain, type Slot } from "./chain-data";
 import { OptionChain } from "./OptionChain";
 import { RecoStrategies } from "./RecoStrategies";
 import { StrategyPanel } from "./StrategyPanel";
+import { TIMEFRAMES, futDailySessions, tfOf, type TfKey } from "./timeframes";
 
 const mono = { fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" as const };
 const quiet = { fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" } as const;
 /** The chart card and the basket sit side by side from this width; below it they stack. */
 export const TWO_COLUMN_MIN = 1000;
-const DAILY_SESSIONS = 60;      // the live chart route draws 60 daily bars in its daily fallback
+const TONE_VAR: Record<SignalTone, string> = { mint: "var(--mint)", indigo: "var(--cp-indigo)", amber: "var(--amber)", danger: "var(--cp-danger)" };
+const TOOLS: Array<{ id: DrawTool | "undo" | "clear"; glyph: string; label: string }> = [
+  { id: "cursor", glyph: "＋", label: "Crosshair: hover for the price, drag to pan" }, { id: "trend", glyph: "╱", label: "Trend line (click two points or drag)" },
+  { id: "h", glyph: "─", label: "Horizontal line" }, { id: "v", glyph: "│", label: "Vertical line" }, { id: "rect", glyph: "▭", label: "Rectangle (click two points or drag)" },
+  { id: "fib", glyph: "☰", label: "Fib retracement (click two points or drag)" }, { id: "measure", glyph: "↔", label: "Measure (click two points or drag)" },
+  { id: "undo", glyph: "↶", label: "Undo the last drawing" }, { id: "clear", glyph: "✕", label: "Clear the drawings" },
+];
+const TOOL_NAME: Record<DrawTool, string> = { cursor: "", trend: "TREND LINE", h: "HORIZONTAL LINE", v: "VERTICAL LINE", rect: "RECTANGLE", fib: "FIB RETRACEMENT", measure: "MEASURE" };
 
 const fin = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
 const priceTxt = (v: number | null | undefined) => (fin(v) ? v.toLocaleString("en-IN", { minimumFractionDigits: v >= 1000 ? 1 : 2, maximumFractionDigits: v >= 1000 ? 1 : 2 }) : "—");
@@ -81,7 +93,7 @@ export default function ChartAnalysis() {
   const symbol = (desk.symbol ?? scan.data?.setups[0]?.symbol ?? null)?.toUpperCase() ?? null;
   if (!symbol) {
     if (scan.isPending) return <LoadingBlock label="Loading the scanner" rows={4} />;
-    return <p data-testid="ca-nosymbol" className="m-0" style={quiet}>Pick a stock with the symbol search above to open its chart.</p>;
+    return <p data-testid="ca-nosymbol" className="m-0" style={quiet}>Choose a stock with the symbol search above to open its chart.</p>;
   }
   const tpRaw = params.get("tp");
   const tp = tpRaw && /^[A-Za-z0-9_:-]{1,80}$/.test(tpRaw) ? tpRaw : null;
@@ -115,8 +127,16 @@ function openTradeOf(trades: PaperTrade[] | undefined, symbol: string, planId: s
 }
 const filled = (t: PaperTrade | null) => !!t && (t.entryStatus === "reached" || t.entryStatus === "assumed");
 
-/** The bar a window ends on: its last bar inside [start, end) (intraday); the bar of its day (daily). */
-function barOfWindow(bars: DailyBar[], w: OiWindow, daily: boolean): number {
+/** The weekly bar holding a day: the last bar starting on or before it (−1 before the first bar). */
+function weekOf(bars: DailyBar[], day: string): number {
+  let at = -1;
+  for (let i = 0; i < bars.length && bars[i].day.slice(0, 10) <= day.slice(0, 10); i += 1) at = i;
+  return at;
+}
+
+/** The bar a window ends on: its last bar inside [start, end) (intraday); the bar of its day (daily); its week (weekly). */
+function barOfWindow(bars: DailyBar[], w: OiWindow, daily: boolean, weekly = false): number {
+  if (weekly) return weekOf(bars, w.end || w.day);
   if (daily) return bars.findIndex((b) => b.day.slice(0, 10) === (w.end || w.day).slice(0, 10));
   let at = -1;
   bars.forEach((b, i) => { if (b.day >= w.start && b.day < w.end) at = i; });
@@ -149,10 +169,17 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
   const planId = tp ?? row?.trade_plan_id ?? row?.trade_plan?.plan_id ?? (idea as { trade_plan?: { plan_id?: string } | null } | null)?.trade_plan?.plan_id ?? null;
   const meta = useLiveMeta();
   const open = meta.session === "open";
-  const q = useLiveChart(symbol, planId, open);
+  const [params, setParams] = useSearchParams();
+  const tf = tfOf(params.get("tf"));
+  const setTf = useCallback((k: TfKey) => {
+    setParams((p) => { const n = new URLSearchParams(p); n.set("tf", k); return n; }, { replace: true });
+  }, [setParams]);
+  const q = useLiveChart(symbol, planId, open, { interval: tf.interval, sessions: tf.sessions });
   const d = q.data ?? null;
-  const daily = d?.timeframe.interval === "1d";
-  const oiQ = useOiBuildup(symbol, open, daily ? DAILY_SESSIONS : 0);
+  const weekly = d?.timeframe.interval === "1w";
+  const daily = d?.timeframe.interval === "1d" || weekly;      // end-of-day bars drawn (asked for, or Kite's fallback)
+  const futDaily = daily ? futDailySessions(tf, d?.bars.length ?? 0) : 0;
+  const oiQ = useOiBuildup(symbol, open, futDaily, tf.eod ? { interval: "15m", sessions: 2, window: weekly ? 5 : 4 } : { interval: tf.interval, sessions: tf.sessions, window: 4 });
   const iv = useIvHistory(symbol);
   const ev = useChartEvents(symbol);
   const paper = usePaperTrades();
@@ -160,6 +187,13 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
   const [slot, setSlot] = useState<Slot>("current");
   const [mode, setMode] = useState<LadderMode>("oi");
   const [on, setOn] = useState<Record<ToggleKey, boolean>>({ build: true, walls: true, pain: true, pattern: true, conf: true, rvol: true, events: true });
+  const [sigOn, setSigOn] = useState<Record<BarSignalKey, boolean>>(DEFAULT_SIGNALS);
+  const [chartType, setChartType] = useState<ChartType>("candles");
+  const [smaOn, setSmaOn] = useState(true);
+  const [tool, setTool] = useState<DrawTool>("cursor");
+  const [drawings, setDrawings] = useState<Partial<Record<TfKey, Drawing[]>>>({});
+  const mine = drawings[tf.key] ?? [];
+  const setMine = (f: (cur: Drawing[]) => Drawing[]) => setDrawings((all) => ({ ...all, [tf.key]: f(all[tf.key] ?? []) }));
   const [sel, setSel] = useState<number | null>(null);
   const [active, setActive] = useState<number | null>(null);
   const [box, setBox] = useState<HTMLDivElement | null>(null);
@@ -174,14 +208,33 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
   const series: OiSeries | null = oi ? (slot === "consolidated" ? oi.consolidated : oi.contracts.find((c) => c.slot === slot) ?? null) : null;
   const trade = openTradeOf(paper.data?.trades, symbol, planId);
 
-  // futures OI and its change on the chart's bars
+  // futures OI, its change and the futures price change (one contract each) on the chart's bars
   const fut = useMemo(() => {
     if (!series || !bars.length) return null;
     const oiArr: Array<number | null> = bars.map(() => null);
     const chg: Array<number | null> = bars.map(() => null);
+    const price: Array<number | null> = bars.map(() => null);
     if (daily) {
-      const byDay = new Map(series.daily_bars.map((b) => [b[0].slice(0, 10), b]));
-      bars.forEach((b, i) => { const r = byDay.get(b.day.slice(0, 10)); if (r) { oiArr[i] = r[3]; chg[i] = r[4]; } });
+      // the session's close change, within one contract (a roll is never a change)
+      const pchg = new Map<string, number>();
+      series.daily_bars.forEach((r, k) => {
+        const prev = k > 0 ? series.daily_bars[k - 1] : null;
+        if (prev && prev[5] === r[5] && fin(r[1]) && fin(prev[1])) pchg.set(r[0].slice(0, 10), r[1] - prev[1]);
+      });
+      if (weekly) {
+        // a week: the OI at its last session, the OI and price changes summed over its sessions
+        const add = (arr: Array<number | null>, i: number, v: number | null | undefined) => { if (fin(v)) arr[i] = (arr[i] ?? 0) + v; };
+        series.daily_bars.forEach((r) => {
+          const i = weekOf(bars, r[0]);
+          if (i < 0) return;
+          if (fin(r[3])) oiArr[i] = r[3];
+          add(chg, i, r[4]);
+          add(price, i, pchg.get(r[0].slice(0, 10)));
+        });
+      } else {
+        const byDay = new Map(series.daily_bars.map((b) => [b[0].slice(0, 10), b]));
+        bars.forEach((b, i) => { const r = byDay.get(b.day.slice(0, 10)); if (r) { oiArr[i] = r[3]; chg[i] = r[4]; price[i] = pchg.get(b.day.slice(0, 10)) ?? null; } });
+      }
     } else {
       // Kite 15m futures candles [t, close, volume, oi], one baseline bar before the first shown (contract A)
       const ms = (t: string) => Date.parse(t);
@@ -192,10 +245,13 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
         oiArr[i] = v;
         const prev = k != null && k > 0 ? series.bars[k - 1][3] : null;
         chg[i] = fin(v) && fin(prev) ? v - prev : null;     // the same contract's bar-on-bar change
+        const c = k != null ? series.bars[k][1] : null, pc = k != null && k > 0 ? series.bars[k - 1][1] : null;
+        price[i] = fin(c) && fin(pc) ? c - pc : null;
       });
     }
-    return oiArr.some(fin) ? { oi: oiArr, change: chg, label: SLOT_NAME[slot] } : null;
-  }, [series, bars, daily, slot]);
+    return oiArr.some(fin) ? { oi: oiArr, change: chg, price, label: SLOT_NAME[slot] } : null;
+  }, [series, bars, daily, weekly, slot]);
+  const sigs = useMemo(() => barSignals(bars, d?.rvol ?? [], fut ? { price: fut.price, oi: fut.change } : null), [bars, d, fut]);
   const windows = series ? (daily ? series.daily_windows : series.windows) : [];
   const lastWindow = [...windows].reverse().find((w) => w.label != null) ?? null;
 
@@ -234,15 +290,15 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
   if (chain && on.pain && fin(chain.maxPain)) levels.push({ key: "max-pain", value: chain.maxPain, label: "MAX PAIN", color: "var(--amber)" });
   const buildups: BuildupTag[] = on.build ? windows.flatMap((w) => {
     if (!w.label || w.label === "neutral") return [];
-    const i1 = barOfWindow(bars, w, daily);
+    const i1 = barOfWindow(bars, w, daily, weekly);
     if (i1 < 0) return [];
-    const i0 = Math.max(0, i1 - (daily ? Math.max(1, w.bars) : Math.max(1, w.bars)) + 1);
+    const i0 = weekly ? i1 : Math.max(0, i1 - Math.max(1, w.bars) + 1);
     const meta = BUILDUP_META[w.label];
     return [{ i0, i1, tag: TAG[w.label], color: TONE_COLOR[meta.tone], soft: SOFT[meta.tone] ?? "transparent",
       title: `${meta.label} (${meta.rule}) ${w.start.slice(11, 16) || fmtDay(w.day)}–${w.end.slice(11, 16)}: price ${signedTxt(w.price_change)}, OI ${fmtLakh(w.oi_change, true)}` }];
   }) : [];
   const events: EventChip[] = on.events ? (ev.data?.events ?? []).flatMap((e) => {
-    const i = bars.findIndex((b) => b.day.slice(0, 10) === e.date);
+    const i = weekly ? weekOf(bars, e.date) : bars.findIndex((b) => b.day.slice(0, 10) === e.date);
     if (i < 0) return [];
     const [glyph, color] = GLYPH[e.kind] ?? ["•", "var(--cp-ink-2)"];
     const r = e.reaction;
@@ -250,30 +306,39 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
     return [{ i, glyph, color, kind: e.kind, title: `${fmtDay(e.date)} ${e.title}${reaction}` }];
   }) : [];
 
+  // ── bar signals (the pills after the seven above) ──
+  const sigMeta = new Map(BAR_SIGNALS.map((m) => [m.key, m]));
+  const signals: SignalMark[] = sigs.filter((g) => sigOn[g.key]).map((g) => {
+    const m = sigMeta.get(g.key)!;
+    const b = bars[g.i];
+    return { i: g.i, key: g.key, up: m.up, color: TONE_VAR[m.tone], title: `${m.label}, ${daily ? fmtDay(b.day) : `${fmtDay(b.day)} ${b.day.slice(11, 16)}`}: ${m.rule}` };
+  });
+  const sigCount = (k: BarSignalKey) => sigs.filter((g) => g.key === k).length;
+
   // ── the basket's lines: the underlying levels (STOP / TGT drag) and the cash entry ──
   const und = basket.legs.filter((l) => l.kind === "FUT" || l.kind === "CASH");
   const cashOnly = basket.legs.length > 0 && basket.legs.every((l) => l.kind === "CASH");
   const tradeLines: TradeLine[] = [];
   und.forEach((l) => {
     const entry = l.kind === "CASH" ? basket.levels.cashEntry ?? l.entry : l.entry;
-    tradeLines.push({ key: `${l.kind}-entry`, value: entry, label: l.kind === "CASH" ? "C ENTRY" : "F ENTRY", color: "var(--cp-ink-2)", drag: l.kind === "CASH" && cashOnly ? "cashEntry" : null });
+    tradeLines.push({ key: `${l.kind}-entry`, value: entry, label: l.kind === "CASH" ? "C REF PRICE" : "F REF PRICE", color: "var(--cp-ink-2)", drag: l.kind === "CASH" && cashOnly ? "cashEntry" : null });
   });
   if (basket.legs.length) {
-    if (fin(basket.levels.stop)) tradeLines.push({ key: "stop", value: basket.levels.stop, label: "STOP", color: "var(--cp-danger)", drag: "stop" });
-    if (fin(basket.levels.target)) tradeLines.push({ key: "target", value: basket.levels.target, label: "TGT", color: "var(--mint)", drag: "target" });
+    if (fin(basket.levels.stop)) tradeLines.push({ key: "stop", value: basket.levels.stop, label: "RISK LEVEL", color: "var(--cp-danger)", drag: "stop" });
+    if (fin(basket.levels.target)) tradeLines.push({ key: "target", value: basket.levels.target, label: "REWARD LEVEL", color: "var(--mint)", drag: "target" });
   } else {
     // no basket yet: the plan's or the signal's own levels, not draggable
-    if (fin(d.levels.entry)) tradeLines.push({ key: "sig-entry", value: d.levels.entry, label: "ENTRY", color: "var(--cp-ink-2)" });
-    if (fin(d.levels.stop)) tradeLines.push({ key: "sig-stop", value: d.levels.stop, label: "STOP", color: "var(--cp-danger)" });
+    if (fin(d.levels.entry)) tradeLines.push({ key: "sig-entry", value: d.levels.entry, label: "REF PRICE", color: "var(--cp-ink-2)" });
+    if (fin(d.levels.stop)) tradeLines.push({ key: "sig-stop", value: d.levels.stop, label: "RISK LEVEL", color: "var(--cp-danger)" });
     const t1 = d.levels.targets[0]?.price;
-    if (fin(t1)) tradeLines.push({ key: "sig-t1", value: t1, label: d.levels.targets[0]?.name ?? "T1", color: "var(--mint)" });
+    if (fin(t1)) tradeLines.push({ key: "sig-t1", value: t1, label: "REWARD 1", color: "var(--mint)" });
   }
 
   // ── readout ──
   const ai = active ?? bars.length - 1;
   const ab = bars[ai];
   const aOi = fut?.oi[ai] ?? null, aChg = fut?.change[ai] ?? null;
-  const readout = ab ? `${daily ? fmtDay(ab.day) : `${fmtDay(ab.day)} ${ab.day.slice(11, 16)}`} · O ₹${priceTxt(ab.open)} · H ₹${priceTxt(ab.high)} · L ₹${priceTxt(ab.low)} · C ₹${priceTxt(ab.close)} · Vol ${fmtLakh(ab.volume)}` : "—";
+  const readout = ab ? `${weekly ? `Week of ${fmtDay(ab.day)}` : daily ? fmtDay(ab.day) : `${fmtDay(ab.day)} ${ab.day.slice(11, 16)}`} · O ₹${priceTxt(ab.open)} · H ₹${priceTxt(ab.high)} · L ₹${priceTxt(ab.low)} · C ₹${priceTxt(ab.close)} · Vol ${fmtLakh(ab.volume)}` : "—";
 
   // ── stats ──
   const ivp = iv.data?.iv_percentile;
@@ -287,9 +352,9 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
     { k: "PCR", v: chain?.pcr != null ? chain.pcr.toFixed(2) : "—", c: "var(--cp-ink)", n: noChain ?? "put OI ÷ call OI" },
     { k: "FUT OI Δ", v: futChg != null ? fmtLakh(futChg, true) : "—", c: futChg == null ? "var(--cp-ink)" : futChg >= 0 ? "var(--mint)" : "var(--cp-danger)", n: futChg != null ? `${pctTxt(futChgPct ?? null)} · ${futWhen}` : oiQ.data?.kind === "none" ? oiQ.data.message : oiQ.isPending ? "loading" : "no futures OI" },
     { k: "MAX PAIN", v: chain?.maxPain != null ? fmtNum(chain.maxPain, 0) : "—", c: "var(--amber)", n: chain?.maxPain != null && fin(lastPrice) ? `${signedTxt(chain.maxPain - lastPrice, 0)} vs last` : noChain ?? "—" },
-    { k: "ATM IV", v: chain?.atmIv != null ? `${chain.atmIv.toFixed(1)}%` : "—", c: "var(--cp-ink)", n: chain?.atmIv != null ? `model, end of day ${dayMonth(chain.asOf)}` : slot === "consolidated" ? "pick an expiry" : noChain ?? "not available" },
+    { k: "ATM IV", v: chain?.atmIv != null ? `${chain.atmIv.toFixed(1)}%` : "—", c: "var(--cp-ink)", n: chain?.atmIv != null ? `model, end of day ${dayMonth(chain.asOf)}` : slot === "consolidated" ? "choose an expiry" : noChain ?? "not available" },
     { k: "IV PCTILE", v: ivp != null ? `${Math.round(ivp)}` : "not recorded", c: ivp != null ? "var(--cp-ink)" : "var(--cp-ink-2)", small: ivp == null, n: ivp != null ? `of ${iv.data?.sessions ?? "—"} recorded sessions` : iv.data?.reason ?? (iv.isPending ? "loading" : "needs 252 recorded sessions") },
-    { k: "EXP. MOVE", v: chain?.expectedMove != null ? `±${priceTxt(chain.expectedMove)}` : "—", c: "var(--cp-indigo)", n: chain?.expectedMovePct != null ? `${chain.expectedMovePct.toFixed(2)}% to expiry` : slot === "consolidated" ? "pick an expiry" : noChain ?? "not available" },
+    { k: "EXP. MOVE", v: chain?.expectedMove != null ? `±${priceTxt(chain.expectedMove)}` : "—", c: "var(--cp-indigo)", n: chain?.expectedMovePct != null ? `${chain.expectedMovePct.toFixed(2)}% to expiry` : slot === "consolidated" ? "choose an expiry" : noChain ?? "not available" },
   ];
 
   // ── summary lines ──
@@ -305,7 +370,7 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
       <span data-testid="ca-symbol" style={{ fontFamily: "var(--display)", fontSize: mobile ? 28 : 34, lineHeight: 1 }}>{symbol}</span>
       <span data-testid="ca-state" data-state={state} style={{ ...mono, fontSize: 11, color: stateColor === "ink" ? "var(--cp-ink-2)" : `var(--${stateColor})`, border: `1px solid ${stateColor === "ink" ? "var(--line-3)" : `var(--${stateColor}-line)`}`, background: stateColor === "ink" ? "transparent" : `var(--${stateColor}-soft)`, borderRadius: 6, padding: "4px 9px" }}>{state.replace("_", " ")}</span>
       <span data-testid="ca-meta" style={{ ...mono, fontSize: 11, letterSpacing: "0.1em", color: "var(--cp-ink-3)" }}>
-        NSE · CASH · {daily ? "DAILY" : d.timeframe.label}{d.signal ? ` · SIGNAL ${dayMonth(d.signal.signal_date)}${d.signal.revision ? ` R${d.signal.revision}` : ""}` : " · NO SCANNER SIGNAL"}
+        NSE · CASH · {d.timeframe.label}{d.signal ? ` · SIGNAL ${dayMonth(d.signal.signal_date)}${d.signal.revision ? ` R${d.signal.revision}` : ""}` : " · NO SCANNER SIGNAL"}
       </span>
       <div style={{ flex: 1 }} />
       <span data-testid="ca-last" data-source={live ? "kite_live" : today?.source ?? d.last.source ?? undefined} className="cp-num" style={{ ...mono, fontSize: 11, letterSpacing: "0.1em", color: "var(--cp-ink-3)" }}>
@@ -342,13 +407,67 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
             {t.label}
           </button>
         ))}
+        <span aria-hidden style={{ width: 1, height: 18, background: "var(--line-3)", margin: "0 2px" }} />
+        {BAR_SIGNALS.map((m) => {
+          const act = sigOn[m.key];
+          const c = TONE_VAR[m.tone];
+          return (
+            <button key={m.key} type="button" data-testid={`ca-sig-${m.key}`} aria-pressed={act} title={`${m.up ? "▲ under the bar" : "▼ over the bar"}: ${m.rule}. ${sigCount(m.key)} on these bars.`}
+              onClick={() => setSigOn((x) => ({ ...x, [m.key]: !x[m.key] }))}
+              style={{ cursor: "pointer", whiteSpace: "nowrap", fontSize: 12, fontWeight: 500, borderRadius: 999, padding: "5px 12px", border: `1px solid ${act ? `var(--${m.tone}-line)` : "var(--line-3)"}`, background: act ? `var(--${m.tone}-soft)` : "transparent", color: act ? c : "var(--cp-ink-2)" }}>
+              <span aria-hidden style={{ color: act ? c : "var(--cp-ink-3)", fontSize: 9, marginRight: 5 }}>{m.up ? "▲" : "▼"}</span>{m.label}
+            </button>
+          );
+        })}
       </div>
       {/* readout */}
       <div data-testid="ca-readout" aria-live="polite" className="cp-num" style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em", color: "var(--cp-ink-3)", lineHeight: 1.5 }}>
         {readout} · <span style={{ color: "var(--cp-indigo)" }}>FUT OI {fmtLakh(aOi)}</span> · <span style={{ color: aChg == null ? undefined : aChg >= 0 ? "var(--mint)" : "var(--cp-danger)" }}>Δ {fmtLakh(aChg, true)} ({pctTxt(pctOf(aChg, aOi))})</span>
       </div>
-      {/* the chart */}
-      <div style={{ marginTop: 6 }}>
+      {/* toolbar: timeframe, chart type, SMA 20 */}
+      <div data-testid="ca-toolbar" className="flex flex-wrap items-center" style={{ marginTop: 10, gap: 6, padding: 6, background: "var(--bg-2)", border: "1px solid var(--cp-line)", borderRadius: 10 }}>
+        {!mobile && <span style={{ fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 500, color: "var(--cp-ink)", padding: "0 8px" }}>{symbol}</span>}
+        {!mobile && <span aria-hidden style={{ width: 1, height: 18, background: "var(--line-3)" }} />}
+        <div role="group" aria-label="Timeframe" className="flex flex-wrap" style={{ gap: 2 }}>
+          {TIMEFRAMES.map((t) => (
+            <button key={t.key} type="button" data-testid={`ca-tf-${t.key}`} aria-pressed={tf.key === t.key} onClick={() => setTf(t.key)} style={toolBtn(tf.key === t.key)}>{t.label}</button>
+          ))}
+        </div>
+        <span aria-hidden style={{ width: 1, height: 18, background: "var(--line-3)", margin: "0 2px" }} />
+        <div role="group" aria-label="Chart type" className="flex" style={{ gap: 2 }}>
+          {(["candles", "line", "area"] as ChartType[]).map((k) => (
+            <button key={k} type="button" data-testid={`ca-type-${k}`} aria-pressed={chartType === k} onClick={() => setChartType(k)} style={toolBtn(chartType === k)}>{k === "candles" ? "Candles" : k === "line" ? "Line" : "Area"}</button>
+          ))}
+        </div>
+        <span aria-hidden style={{ width: 1, height: 18, background: "var(--line-3)", margin: "0 2px" }} />
+        <button type="button" data-testid="ca-sma-toggle" aria-pressed={smaOn} onClick={() => setSmaOn((v) => !v)} style={{ ...toolBtn(smaOn), color: smaOn ? "var(--amber)" : "var(--cp-ink-3)" }}>SMA 20</button>
+        <div style={{ flex: 1 }} />
+        <span data-testid="ca-tf-meta" className="cp-num" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--cp-ink-3)", padding: "0 8px" }}>
+          {q.isPlaceholderData ? `Loading ${tf.label} candles…` : `NSE · ${d.timeframe.label} · IST`}
+        </span>
+      </div>
+      {/* the chart, with the drawing tools on its left */}
+      <div className="flex min-w-0" style={{ marginTop: 8, gap: 10, opacity: q.isPlaceholderData ? 0.55 : 1 }}>
+        {!mobile && bars.length > 0 && (
+          <div role="toolbar" aria-label="Drawing tools" aria-orientation="vertical" className="flex flex-col" style={{ gap: 4, paddingRight: 8, borderRight: "1px solid var(--cp-line)", flex: "none" }}>
+            {TOOLS.map((t) => {
+              const act = t.id === tool;
+              const off = (t.id === "undo" || t.id === "clear") && mine.length === 0;
+              return (
+                <button key={t.id} type="button" data-testid={`ca-tool-${t.id}`} aria-pressed={t.id === "undo" || t.id === "clear" ? undefined : act} aria-label={t.label} title={t.label} disabled={off}
+                  onClick={() => {
+                    if (t.id === "undo") setMine((cur) => cur.slice(0, -1));
+                    else if (t.id === "clear") setMine(() => []);
+                    else setTool(t.id);
+                  }}
+                  style={{ ...toolBtn(act), width: 30, padding: "7px 0", fontSize: 14, textAlign: "center", border: `1px solid ${act ? "var(--line-3)" : "transparent"}`, opacity: off ? 0.4 : 1, cursor: off ? "default" : "pointer" }}>
+                  {t.glyph}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="min-w-0" style={{ flex: 1 }}>
         {bars.length ? (
           <AnalysisChart bars={bars} intraday={!daily} ema={d.ema20} marks={marks} confirms={confirms} levels={levels} tradeLines={tradeLines} last={lastPrice}
             fut={fut} futEmpty={oiQ.isPending ? "Reading the futures OI…" : oiQ.data?.kind === "none" ? oiQ.data.message : oiQ.isError ? "The futures OI did not load." : daily ? "No daily futures OI for these sessions." : "No futures OI for these bars."}
@@ -356,11 +475,19 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
             ladder={chain ? { rows: chain.rows, mode, selected, atm: chain.atm, putWall: chain.putWall?.strike ?? null, callWall: chain.callWall?.strike ?? null, onSelect: setSel } : null}
             ladderEmpty={notFno ? `${symbol} is not in F&O` : ch.view.status === "none" ? ch.view.message : null}
             onPriceClick={cashOnly ? (p) => basket.setLevels({ cashEntry: p }) : undefined}
-            onDrag={(key, p) => basket.setLevels(key === "stop" ? { stop: p } : key === "target" ? { target: p } : { cashEntry: p })} />
+            onDrag={(key, p) => basket.setLevels(key === "stop" ? { stop: p } : key === "target" ? { target: p } : { cashEntry: p })}
+            chartType={chartType} sma={smaOn ? d.sma20 : null} signals={signals}
+            tool={mobile ? "cursor" : tool} drawings={mine} onDraw={(x) => setMine((cur) => [...cur, x])} viewKey={`${symbol}-${d.timeframe.interval}`} />
         ) : <span style={quiet}>No candles to draw.</span>}
+        </div>
       </div>
-      <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-4)", lineHeight: 1.6 }}>
-        BUILD-UP BY {daily ? "4-SESSION" : "4-BAR"} WINDOW · LB LONG BUILD-UP · SB SHORT BUILD-UP · SC SHORT COVERING · LU LONG UNWINDING{basket.legs.length ? " · DRAG STOP OR TGT TO MOVE IT" : ""}{events.length ? " · R RESULTS · B BOARD · F FILING · C CORPORATE ACTION · M MACRO · X F&O EXPIRY · $ FII/DII DAY" : ""}
+      {!mobile && tool !== "cursor" && (
+        <div data-testid="ca-tool-hint" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-indigo)" }}>
+          {TOOL_NAME[tool]}: {TWO_CLICK.has(tool) ? "CLICK TWO POINTS ON THE PRICE PANE, OR DRAG · ESC CANCELS" : "CLICK THE PRICE PANE"} · ＋ RETURNS TO THE CROSSHAIR
+        </div>
+      )}
+      <div data-testid="ca-legend" style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-4)", lineHeight: 1.6 }}>
+        {signals.length || BAR_SIGNALS.some((m) => sigOn[m.key]) ? "▲ ▼ BAR SIGNALS: HOVER A TRIANGLE FOR ITS RULE · " : ""}{smaOn ? "SMA 20 AMBER · " : ""}EMA 20 INDIGO · DRAG TO PAN, WHEEL TO ZOOM · BUILD-UP BY {weekly ? "5-SESSION" : daily ? "4-SESSION" : "4-BAR"} WINDOW · LB LONG BUILD-UP · SB SHORT BUILD-UP · SC SHORT COVERING · LU LONG UNWINDING{basket.legs.length ? " · DRAG THE RISK OR REWARD LEVEL TO MOVE IT" : ""}{events.length ? " · R RESULTS · B BOARD · F FILING · C CORPORATE ACTION · M MACRO · X F&O EXPIRY · $ FII/DII DAY" : ""}
       </div>
       {oi && (oi.missing_note || (slot !== "consolidated" && oi.missing_slots.includes(slot))) && <span style={{ ...quiet, fontSize: 11, marginTop: 4 }}>{oi.missing_note}</span>}
 
@@ -444,6 +571,11 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
       {basket.legs.length > 0 && <StrategyPanel symbol={symbol} chain={chain && chain.tradable ? chain : null} refPrice={lastPrice} refAsOf={chain?.asOf ?? d.last.at.slice(0, 10)} compact={mobile} />}
     </div>
   );
+}
+
+function toolBtn(on: boolean) {
+  return { cursor: "pointer", whiteSpace: "nowrap" as const, fontFamily: "var(--mono)", fontSize: 12, fontWeight: 500, padding: "6px 10px", borderRadius: 6, border: 0,
+    background: on ? "var(--bg-4)" : "transparent", color: on ? "var(--cp-ink)" : "var(--cp-ink-3)" };
 }
 
 function Line({ testid, tone, tag, children }: { testid: string; tone: string; tag: string; children: ReactNode }) {

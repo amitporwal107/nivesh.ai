@@ -1,0 +1,25 @@
+$ cd /home/deploy/nivesh-wt-spt-c/backend && sudo -n docker run --rm --network none -v /home/deploy/nivesh-wt-spt-c:/work:ro -w /work/backend -e PYTHONDONTWRITEBYTECODE=1 -e MONGO_URL=mongodb://localhost:27017 -e DB_NAME=unit_test -e OPENAI_API_KEY=unit-test-placeholder nivesh/backend:staging python -m pytest tests/test_spt_c_*.py tests/test_paper*.py tests/test_desk_trading*.py tests/test_exit_rules*.py -q
+# run at 2026-11-05 02:33:35 IST, worktree HEAD 7f3b24da + uncommitted test-report files
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 45%]
+........................................................................ [ 60%]
+........................................................................ [ 75%]
+........................................................................ [ 90%]
+............................................                             [100%]
+=============================== warnings summary ===============================
+../../usr/local/lib/python3.11/site-packages/starlette/formparsers.py:12
+  /usr/local/lib/python3.11/site-packages/starlette/formparsers.py:12: PendingDeprecationWarning: Please use `import python_multipart` instead.
+    import multipart
+
+../../usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:263
+  /usr/local/lib/python3.11/site-packages/google/api_core/_python_version_support.py:263: FutureWarning: You are using a Python version (3.11.18) which Google will stop supporting in new releases of google.api_core once it reaches its end of life (2027-10-24). Please upgrade to the latest Python version, or at least Python 3.12, to continue receiving updates for google.api_core past that date.
+    warnings.warn(message, FutureWarning)
+
+../../usr/local/lib/python3.11/site-packages/_pytest/cacheprovider.py:475
+  /usr/local/lib/python3.11/site-packages/_pytest/cacheprovider.py:475: PytestCacheWarning: could not create cache path /work/backend/.pytest_cache/v/cache/nodeids: [Errno 30] Read-only file system: '/work/backend/pytest-cache-files-3338bkhz'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+476 passed, 3 warnings in 13.11s
+# exit code: 0

@@ -107,7 +107,7 @@ function Top10Carry({ day, segment, symbol, boardDay, plan, testId }: {
 function StockPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: string | null }) {
   if (idea.trade_plan !== undefined) {
     if (!idea.trade_plan) {
-      return <span data-testid="desk-top10-paper-none" style={quiet}>{idea.symbol} has no trade plan on this scan (no entry with a stop below it). Open the plan to see why.</span>;
+      return <span data-testid="desk-top10-paper-none" style={quiet}>{idea.symbol} has no trade plan on this scan (no reference price with a risk level below it). Open the plan to see why.</span>;
     }
     const bucket = idea.scanner.bucket;
     return <PlanPaperTrade tp={idea.trade_plan} symbol={idea.symbol} sized={sizedShares(idea)} testPrefix="desk-top10-paper"
@@ -123,7 +123,7 @@ function ScannerLevelsPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: str
   const [qty, setQty] = useState(sized != null ? String(sized) : "");
   const { entry, stop, target, bucket } = idea.scanner;
   if (entry == null || stop == null || !(entry > stop)) {
-    return <span data-testid="desk-top10-paper-none" style={quiet}>A paper trade needs the scanner’s entry and a stop below it; {idea.symbol} has none on this scan. Open the plan to record one there.</span>;
+    return <span data-testid="desk-top10-paper-none" style={quiet}>A paper trade needs the scanner’s reference price and a risk level below it; {idea.symbol} has none on this scan. Open the plan to record one there.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
   const rule = entryRuleFor(entry, idea.scanner.close, { stage: idea.scanner.stage, bucket });
@@ -149,7 +149,7 @@ function ScannerLevelsPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: str
         </Btn>
       </span>
       <span style={quiet}>
-        At the scanner’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-top10-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{maxHoldNote(maxHold)}{sized != null ? `; ${fmtNum(sized)} is the plan’s sized quantity` : ""}. Simulated; nothing is sent to a broker.
+        At the scanner’s levels: reference price {fmtPrice(entry)} (<span data-testid="desk-top10-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), risk level {fmtPrice(stop)}{sendTarget != null ? `, reward level ${fmtPrice(sendTarget)}` : ", no reward level"}{maxHoldNote(maxHold)}{sized != null ? `; ${fmtNum(sized)} is the plan’s sized quantity` : ""}. Simulated; nothing is sent to a broker.
       </span>
       {paper.isSuccess && <span role="status" data-testid="desk-top10-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {idea.symbol} at {fmtPrice(entry)}.</span>}
       {paper.isError && <span role="alert" data-testid="desk-top10-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}
@@ -294,7 +294,7 @@ function StockBoard() {
       )}
       {board && (
         <p data-testid="desk-top10-stocks-note" className="m-0" style={quiet}>
-          {board.ranking_note ?? "Ordered by the scanner’s evidence."} Ideas for review, not recommendations; entry, stop and target are the plan’s, and nothing is sent to a broker.
+          {board.ranking_note ?? "Ordered by the scanner’s evidence."} Ideas for review, not advice; reference price, risk level and reward level are the plan’s, and nothing is sent to a broker.
         </p>
       )}
     </section>
@@ -521,7 +521,7 @@ function IdeasBasis({ which, referenceSession }: { which: "stocks" | "fno"; refe
 
 // ── the widget ───────────────────────────────────────────────────────────
 
-export const IDEAS_FOOTER = "Ideas, not recommendations. The rank orders ideas; our test found no measurable ranking skill.";
+export const IDEAS_FOOTER = "Ideas, not advice. The rank orders ideas; our test found no measurable ranking skill.";
 
 /**
  * Market Overview's Top AI ideas. `referenceSession`: the newest session whose end-of-day data must exist now (GET
@@ -539,7 +539,7 @@ export function ScannerTop10({ referenceSession = null, onScorecard, onSeeAll }:
       id="scanner.top10"
       testId="desk-top10"
       title="Top AI candidates"
-      meta={<span style={{ fontSize: 9.5 }}>End of day · ideas for review, not recommendations</span>}
+      meta={<span style={{ fontSize: 9.5 }}>End of day · ideas for review, not advice</span>}
       actions={onSeeAll ? (
         <button type="button" data-testid="desk-top10-see-all" onClick={onSeeAll} className="cp-chip" title="Every ranked candidate: Trade Desk › AI Scanner">See all ›</button>
       ) : undefined}

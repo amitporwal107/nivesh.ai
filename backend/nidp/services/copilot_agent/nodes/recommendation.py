@@ -26,7 +26,7 @@ Style:
 - ≤ 300 words, plain text (no markdown)
 - Stocks: table — Symbol | Score/10 | Signal | RSI | PE | Key Reason
 - Funds:  table — Fund | Category | 3Y CAGR | Sharpe | TER | Reason
-- Max 5 picks; bold the top pick
+- Max 5 ideas, ordered for review; bold the first
 - Note the user's risk profile if mentioned
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
@@ -201,7 +201,7 @@ _P_BUILD_PORTFOLIO = re.compile(
 )
 
 _BUILDER_INTRO = (
-    "Let's build your portfolio. Pick a goal and I'll shape a real, ranked mix "
+    "Let's build your portfolio. Choose a goal and I'll shape a real, ranked mix "
     "to your risk profile — every fund scored on live V3 quality, not samples."
 )
 
@@ -217,7 +217,7 @@ _P_STRATEGY_LAB = re.compile(
 )
 
 _STRATEGY_LAB_INTRO = (
-    "Opening the Strategy Lab. Pick a universe, choose a factor template, then "
+    "Opening the Strategy Lab. Choose a universe, then a factor template, then "
     "screen and backtest it on live, corp-action-adjusted data — right here in chat."
 )
 
@@ -441,7 +441,7 @@ async def _fetch_recommendation_data(state: CopilotState) -> List[ToolResult]:
         logger.warning("recommendation data fetch failed: %s", exc)
         results.append(ToolResult(
             ok=False, tool_name="recommendation_tools",
-            summary="Recommendation data unavailable", error=str(exc),
+            summary="Screen data unavailable", error=str(exc),
         ))
 
     return results

@@ -16,6 +16,7 @@ from nidp.services.truedata_fundamentals import service as S
 from nidp.services.truedata_fundamentals import transform as T
 from nidp.services.truedata_fundamentals.cache import RawCache
 from nidp.services.truedata_fundamentals.loader import References
+from nidp.shared import deploy_env
 from nidp.shared import market_data_source as mds
 from nidp.shared.sources import truedata as td
 
@@ -75,9 +76,14 @@ class FakeClient:
 
 
 class FakeWarehouse:
-    def __init__(self, known=("AAAA",)):
+    def __init__(self, known=("AAAA",), database="nidp_staging"):
         self.known = set(known)
-        self.loads, self.rollbacks, self.ref_calls = [], [], 0
+        self.database = database                     # what current_database() would answer
+        self.loads, self.rollbacks, self.ref_calls, self.gate_calls = [], [], 0, 0
+
+    async def load_gate(self, env=None):             # the real shared rule, on this fake's database name
+        self.gate_calls += 1
+        return deploy_env.classify(self.database, env if env is not None else {})
 
     async def references(self, symbols=None):
         self.ref_calls += 1
@@ -114,6 +120,7 @@ class FakeJob:
 
     async def finalize(self, status, error_message=None, error_class=None):
         self.final = (status, error_message)
+        self.error_class = error_class
 
 
 def lists_for(fy_id=100, h1_id=200):
@@ -134,10 +141,14 @@ def go(coro):
     return asyncio.run(coro)
 
 
+STAGING_ENV = {"NIDP_HOME": "/opt/nidp-staging"}
+
+
 def run_job(tmp_path, client=None, warehouse=None, resolution=SHADOW, clock=None, **kw):
     clock = clock or Clock()
     FakeJob.instances.clear()
     kw.setdefault("anchor_days", 220)
+    kw.setdefault("environ", STAGING_ENV)
     return go(S.run(days=kw.pop("days", 10), today=TODAY, raw_root=tmp_path, client=client,
                     warehouse=warehouse or FakeWarehouse(), resolution=resolution, job_factory=FakeJob,
                     clock=clock.now, sleep=clock.sleep, **kw))
@@ -270,6 +281,24 @@ def test_tc29_offline_uses_cache_only(tmp_path):
     assert rep["status"] == "OK" and rep["fetch"]["calls"] == 0 and len(wh.loads[0][0]) == 2
 
 
+def test_uf06_job_hands_the_warehouse_nothing_for_an_anchorless_millions_company(tmp_path):
+    from .test_truedata_fundamentals_transform import anchorless_store
+    (fy, h1), store = anchorless_store(symbol="NOAN")
+    lists = {date(2026, 5, 20): [{"id": fy.id, "file_time": fy.file_time, "scripcode": "9", "Symbol": "NOAN",
+                                  "ReportingQuarter": "Yearly", "Nature": "Consolidated"}],
+             date(2026, 10, 28): [{"id": h1.id, "file_time": h1.file_time, "scripcode": "9", "Symbol": "NOAN",
+                                   "ReportingQuarter": "Second quarter", "Nature": "Consolidated"}]}
+    wh = FakeWarehouse(known=("NOAN",))                  # our revenue is AAAA's only, no shares: no anchor for NOAN
+    rep = run_job(tmp_path, FakeClient(lists, store), wh)
+    assert rep["status"] == "OK", rep
+    assert wh.loads[0][0] == [] and rep["transform"]["offers"] == {} and rep["transform"]["units"] == {}
+    assert [(r["kind"], r["period_end"], r["why"]) for r in rep["rejected"]] == [
+        ("balance_sheet", "2026-09-30",
+         "unit unknown (no revenue or share-capital anchor (filing rounding text 'Millions' is not trusted))"),
+        ("finance_costs", "2026-09-30", "unit unknown (no revenue or share-capital anchor)")]
+    assert FakeJob.instances[0].rows_inserted == 0
+
+
 def test_tc29_cache_reads_legacy_failure_files_as_empty(tmp_path):
     cache = RawCache(tmp_path)
     cache.write("pl", 7, {"status": "Invalid Type", "Records": ""})              # as the 2 Nov fetch stored it
@@ -323,3 +352,87 @@ def test_tc30_rollback_cli(monkeypatch):
     monkeypatch.setattr(cli, "rollback", fake_rollback)
     monkeypatch.setattr("nidp.shared.storage.pg.close_pool", fake_close)
     assert cli.main(["--rollback", rid]) == 0 and seen == [rid]
+
+
+# ── TC-39 the cron file is staging-only ──────────────────────────────────────────────────────────────────────
+
+REPO = __import__("pathlib").Path(__file__).resolve().parents[4]
+
+
+def test_tc39_production_cron_is_built_from_the_staging_feed_file_only():
+    """deploy/cloudpe-prod/deploy-nidp.sh writes production's /etc/cron.d/nidp by rewriting
+    deploy/cloudpe/nidp/nidp-staging.cron. This job is not in that file, so it can never be scheduled on production."""
+    prod = (REPO / "deploy" / "cloudpe-prod" / "deploy-nidp.sh").read_text()
+    sources = set(__import__("re").findall(r"deploy/cloudpe/nidp/[\w.-]+\.cron", prod))
+    assert sources == {"deploy/cloudpe/nidp/nidp-staging.cron"}
+    assert "truedata" not in prod.lower()
+    assert "truedata_fundamentals" not in (REPO / "deploy" / "cloudpe" / "nidp" / "nidp-staging.cron").read_text()
+    ours = (REPO / "deploy" / "cloudpe" / "nidp" / "nidp-staging-truedata-fundamentals.cron").read_text()
+    lines = [x for x in ours.splitlines() if x.strip() and not x.lstrip().startswith("#") and "=" not in x.split()[0]]
+    assert lines == ["15 21 * * 1-5  nidp-staging  NIDP_MAX_ATTEMPTS=1 /opt/nidp-staging/run_service.sh "
+                     "truedata_fundamentals --days 10 --max-minutes 75"]
+    assert "NIDP_HOME=/opt/nidp-staging" in ours
+
+
+# ── TC-35..TC-38 staging only (owner, 3 Nov 2026) ────────────────────────────────────────────────────────────
+
+def test_tc35_staging_database_runs(tmp_path):
+    for env in (STAGING_ENV, {}):                                   # NIDP_HOME may be unset: the database decides
+        wh = FakeWarehouse(database="nidp_staging")
+        rep = run_job(tmp_path, FakeClient(lists_for(), statements()), wh, environ=env)
+        assert rep["status"] == "OK" and rep["environment"] == "staging" and len(wh.loads) == 1
+
+
+@pytest.mark.parametrize("database,env", [
+    ("nidp", STAGING_ENV),                                          # rows would land in production's database
+    ("nidp", {}),
+    ("nidp_staging", {"NIDP_HOME": "/opt/nidp"}),                   # prod run_service.sh / prod cron
+    ("nidp_staging", {**STAGING_ENV, "NIDP_ENV": "production"}),
+    ("nidp_staging", {**STAGING_ENV, "APP_ENV": "prod"}),
+])
+def test_tc36_any_production_signal_refuses_calls_nothing_writes_no_data(tmp_path, database, env):
+    client, wh = FakeClient(lists_for(), statements()), FakeWarehouse(database=database)
+    rep = run_job(tmp_path, client, wh, environ=env)
+    assert rep["status"] == "SKIPPED" and rep["verdict"] == "NOT_STAGING" and rep["environment"] == "production"
+    assert client.calls == [] and wh.ref_calls == 0 and wh.loads == []          # no TrueData, no data read or write
+    assert not any(tmp_path.iterdir())                                           # no raw cache either
+    job = FakeJob.instances[0]
+    assert job.final[0] == "SKIPPED" and job.error_class == "NOT_STAGING"
+
+
+@pytest.mark.parametrize("database,env", [
+    ("postgres", {}),                                               # some other database
+    ("postgres", {"NIDP_ENV": "staging"}),                          # NIDP_ENV=staging alone is not trusted
+    ("nidp_staging", {"NIDP_HOME": "/home/someone"}),               # conflicting: staging database, odd home
+    ("", {}),                                                       # current_database() unreadable
+])
+def test_tc37_unknown_or_conflicting_refuses_fail_closed(tmp_path, database, env):
+    client, wh = FakeClient(lists_for(), statements()), FakeWarehouse(database=database)
+    rep = run_job(tmp_path, client, wh, environ=env)
+    assert rep["verdict"] == "NOT_STAGING" and rep["environment"] == "unknown"
+    assert client.calls == [] and wh.ref_calls == 0 and wh.loads == []
+    assert FakeJob.instances[0].error_class == "NOT_STAGING"
+    rep = run_job(tmp_path, client, wh, environ=env, dry_run=True)                # dry run: refused, no job row
+    assert rep["verdict"] == "NOT_STAGING" and FakeJob.instances == [] and client.calls == []
+
+
+def test_tc37_switch_off_is_still_checked_first(tmp_path):
+    wh = FakeWarehouse(database="nidp")
+    rep = run_job(tmp_path, FakeClient(), wh, resolution=CURRENT)
+    assert rep["verdict"] == "SWITCHED_OFF" and wh.gate_calls == 0
+
+
+@pytest.mark.parametrize("database", ["nidp_staging", "nidp", "postgres"])
+def test_tc38_rollback_is_allowed_in_every_environment(database):
+    wh = FakeWarehouse(database=database)
+    rid = str(uuid.uuid4())
+    rep = go(S.rollback(rid, warehouse=wh))
+    assert wh.rollbacks == [rid] and rep["provenance_rows"] == 3 and wh.gate_calls == 0
+
+
+def test_tc38_shared_gate_module_is_the_pr455_copy():
+    """deploy_env.py is shared with PR #455 (truedata_history / truedata_macro) and must stay byte-identical."""
+    import hashlib
+    src = (REPO / "backend" / "nidp" / "shared" / "deploy_env.py").read_bytes()
+    blob = hashlib.sha1(b"blob %d\0" % len(src) + src).hexdigest()
+    assert blob == "83b493120f5b2f5d357613f59319106d59d6baa0"

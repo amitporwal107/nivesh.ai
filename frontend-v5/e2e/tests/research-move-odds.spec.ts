@@ -760,8 +760,8 @@ test.describe("Move odds v7 — ratings, filters, stock view", () => {
     expect(await chips.allInnerTexts()).toEqual(card.research_rail.map((r: { primary: string }) => r.primary));
     await expect(chips.first()).toHaveText("Worth buying now?");
     const rec = card.lens_views.buy_verdict.recommendation;
-    await expect(c).toContainText("Recommendation");                                       // BUY/HOLD/SELL kept, as the owner chose
-    await expect(c).toContainText(rec.long_term.stance.toUpperCase());
+    await expect(c).toContainText("Score reading");                                       // owner 3 Nov wording rule: no BUY/HOLD/SELL shown
+    await expect(c).toContainText(({ buy: "STRONG", hold: "NEUTRAL", sell: "WEAK" } as Record<string, string>)[rec.long_term.stance.toLowerCase()]);
     await chips.filter({ hasText: "How's it performed?" }).click();
     await expect(c).toContainText("Where price sits");
     await expect(chips.filter({ hasText: "How's it performed?" })).toHaveAttribute("aria-selected", "true");

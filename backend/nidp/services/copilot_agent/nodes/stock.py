@@ -34,29 +34,31 @@ Style:
 - Section: **Trend** — up / down / sideways with one key reason
 - Never write the words bullish or bearish (the compliance filter removes them): say up, down or
   sideways for a trend, and long or short for a trade's side.
+- Never call a valuation cheap, expensive, undervalued or overvalued: give the PE/PB beside the
+  sector's and the stock's own history and let the figures speak.
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
-If asked about price targets, analyst estimates or future guidance, say plainly
-that we do not have analyst feeds — only historical exchange filings.
+If asked for analyst estimates, future guidance or a price level to aim for (never use "price target"), say
+plainly that we do not have analyst feeds — only historical exchange filings.
 """ + ANTI_HALLUCINATION_RULES + """
 
 TRADE PLAN RULES (only when the message carries a TRADE_PLAN data block — the
 desk's own rule-based plan for this stock, built from end-of-day data):
-- Add a last section **How to trade it (an idea, not a recommendation)** of at
+- Add a last section **The desk's plan (an idea to review, not advice)** of at
   most 6 short bullets: why the setup exists (the evidence that supports the
-  direction), the entry trigger and that entry waits until it is confirmed,
-  the invalidation (stop) level and what it means, the capital at risk, the
-  targets, and what to do next (watch for the trigger; the card above has the
-  full plan and "Open in Strategy Lab").
+  direction), the reference price (the trigger) and that the plan waits until it
+  is confirmed, the invalidation (the risk level) and what it means, the capital
+  at risk, the reward levels, and what to watch next (the trigger; the card above
+  has the full plan and "Open in Strategy Lab").
 - Quote ONLY figures that appear in TRADE_PLAN. Never compute, round into new
-  levels, or invent an entry, stop, target, price or quantity.
+  levels, or invent a reference price, risk level, reward level, price or quantity.
 - If TRADE_PLAN says the direction was ASSUMED, say so in one short line and
   offer the opposite view.
 - If TRADE_PLAN says no card is shown (no setup, or the data is not enough), do
-  not describe any entry or stop: say there is no setup to trade now, give the
+  not describe any reference price or risk level: say there is no setup now, give the
   reasons it lists, and what would have to change.
-- A conditional setup is not a signal: never say "buy now" or call it a
-  confirmed signal. Do not use "recommend", "pick" or "suggested trade".
+- A conditional setup is not a signal: never use "buy now" or call it a
+  confirmed signal. Never use "recommend", "pick" or "suggested trade".
 - The **Trend** section stays about the analysis; the trade idea lives only
   in its own section."""
 
@@ -132,11 +134,44 @@ async def _fetch_stock_data(symbol: str) -> list:
         )]
 
 
+# Research Copilot W1 (owner, 3 Nov 2026): a research answer card (services/copilot_visual/research_builders.py) sends its facts
+# with research_intents.WORDING_RULE. Such a question is explained from the card alone. Asked live on staging with the template
+# above, the explanation added this node's own tool figures (a provider's "PAT YoY +4.5%" beside the card's filed +15.4%) and
+# verdict words ("relatively cheap valuation", "bullish bias"), which the owner's rule forbids.
+RESEARCH_CARD_MARK = "WORDING RULE for this research answer"
+_RESEARCH_SYSTEM = """You are the Stock Analyst for Nivesh AI, an Indian investment platform. A research card built from the
+platform's filed statements and end-of-day data is already shown above your answer. Its figures are in the VISUAL_ANSWER data
+block of the user's message; that block is your TOOL_DATA, and you have no other.
+
+Explain what the card shows for the question asked, in at most 150 words of plain sentences, with no headings and no sections:
+- Quote only figures that appear in the VISUAL_ANSWER block, each with its date or period. Never compute a new figure and never
+  bring in any other source, indicator or score.
+- Say plainly what the card marks as not in our data, missing or not applicable.
+- A flagged check is a prompt to read further, not a verdict on the company.
+- Follow the WORDING RULE in the data block exactly. Also never write bullish or bearish, never describe a valuation as cheap,
+  expensive, attractive or rich, and never say what the reader should do.
+""" + ANTI_HALLUCINATION_RULES
+
+
+async def _explain_research_card(state: CopilotState, user_msg: str) -> dict:
+    """The research card's explanation: the card's facts only (no tool reads, no template, no instrument card)."""
+    llm = make_chat_llm(temperature_for(0.1))
+    resp = await llm.ainvoke([
+        {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _RESEARCH_SYSTEM},
+        {"role": "user", "content": user_msg},
+    ])
+    answer_text = text_of(resp)
+    response = AgentResponse(agent=AgentName.STOCK, text=answer_text, widget_type=WidgetType.NONE, widget_data={}, tool_results=[])
+    return {"tool_results": [], "response": response, "messages": [AIMessage(content=answer_text)]}
+
+
 async def stock_node(state: CopilotState) -> dict:
     user_msg = next(
         (m.content for m in reversed(state.messages) if hasattr(m, "type") and m.type == "human"),
         "",
     )
+    if RESEARCH_CARD_MARK in (user_msg or ""):
+        return await _explain_research_card(state, user_msg)
     # The intent classifier already resolves a symbol when it can; if it didn't
     # (e.g. an ambiguous message), resolve from the raw text here too. Both paths
     # use the same resolver so lowercase tickers and company names work.

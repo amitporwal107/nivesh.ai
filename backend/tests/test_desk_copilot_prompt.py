@@ -40,7 +40,7 @@ def test_only_the_desk_surface_sets_a_desk_persona(surface, persona, want):
 def test_desk_questions_get_the_prd_answer_structure_in_order():
     text = pf.frame_for_persona("active_trader", "trader")
     assert text.startswith(pf.frame_for_persona("active_trader"))
-    labels = ["1) Direct answer", "2) Evidence", "3) As of", "4) Upside factors and downside factors", "5) Key uncertainties",
+    labels = ["1) Direct answer", "2) Evidence", "3) As of", "4) Factors for and factors against", "5) Key uncertainties",
               "6) What would invalidate this view", "7) Sources", "8) Where to look"]
     pos = [text.index(lab) for lab in labels]
     assert pos == sorted(pos)
@@ -56,8 +56,10 @@ def test_investor_wording_adds_plain_language():
 
 @pytest.mark.parametrize("desk", [None, "", "advisor", "trading_desk"])
 def test_other_surfaces_keep_the_framing_they_had(desk):
-    assert pf.frame_for_persona("swing_trader", desk) == pf._FRAMING["swing_trader"]
-    assert pf.frame_for_persona(None, desk) == pf._DEFAULT_FRAMING
+    # Every answer prompt also carries the owner's wording rule (3 Nov 2026), on any surface.
+    rule = "\n\n" + pf.VOCABULARY_RULE
+    assert pf.frame_for_persona("swing_trader", desk) == pf._FRAMING["swing_trader"] + rule
+    assert pf.frame_for_persona(None, desk) == pf._DEFAULT_FRAMING + rule
 
 
 def test_the_state_carries_the_desk_persona_and_defaults_to_none():

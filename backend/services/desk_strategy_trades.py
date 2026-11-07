@@ -123,9 +123,9 @@ FUTURES_HEDGED_NOTE = ("This structure holds a future: margin calls, gaps and da
                        "not treated as defined risk even where an option caps the payoff at expiry.")
 EXIT_TEXT = {
     "stop": "The underlying's end-of-day bar touched the plan's invalidation level.",
-    "target": "The underlying's end-of-day bar touched the plan's target level.",
-    "premium_stop": "The whole structure's value on the end-of-day marks reached its premium stop (strategy_levels).",
-    "premium_target": "The whole structure's value on the end-of-day marks reached its premium target 1 (strategy_levels).",
+    "target": "The underlying's end-of-day bar touched the plan's reward level.",
+    "premium_stop": "The whole structure's value on the end-of-day marks reached its premium risk level (strategy_levels).",
+    "premium_target": "The whole structure's value on the end-of-day marks reached its premium reward level 1 (strategy_levels).",
     "expiry": "Every leg with an expiry has expired and been settled.",
     "time": "Held for the most sessions the plan allows.",
     "manual": "Closed by you at the last end-of-day marks.",
@@ -395,7 +395,7 @@ def new_strategy_trade(user_id: str, body: Any, now: Optional[datetime] = None) 
     risk = check_defined_risk(legs)
     if risk["futures_exposure"] and stop is None:
         # A future has no defined loss, so the plan's invalidation level on the underlying is what ends it.
-        raise Err("futures_stop_required", "A structure with a futures leg needs a stop on the underlying "
+        raise Err("futures_stop_required", "A structure with a futures leg needs a risk level on the underlying "
                                            "(stop_underlying): a future's loss is not capped by the structure.")
     rule = body.get("entry_rule")
     if rule is not None and rule != "at_once":
@@ -444,7 +444,7 @@ def new_strategy_trade(user_id: str, body: Any, now: Optional[datetime] = None) 
     doc["entry_record_hash"] = record_hash(doc)
     doc["events"] = [
         {"type": "created", "at": stamp, "session": None, "text": "Strategy paper trade recorded with its signal and legs; saved as they are, never edited."},
-        {"type": "entered", "at": stamp, "session": None, "text": "Entry assumed at the recorded leg prices (at once); not checked against a bar."},
+        {"type": "entered", "at": stamp, "session": None, "text": "Opened at the recorded leg prices (at once); not checked against a bar."},
     ]
     return doc
 
@@ -545,7 +545,7 @@ def simulate_strategy(trade: Dict[str, Any], bars: List[Dict[str, Any]], leg_row
     else:
         timeline = sorted({d for rows in by_day for d in rows if d > opened})
         flags.append(_flag("underlying_bars_missing",
-                           "The underlying has no end-of-day bars on record, so its stop and target were not checked "
+                           "The underlying has no end-of-day bars on record, so its risk and reward levels were not checked "
                            "and expiry settlement uses the bhavcopy's own underlying price."))
     pnl_path: List[float] = []
     for day in timeline:
@@ -669,7 +669,7 @@ def _exit_for_session(trade, bar, day, direction, stop, target, states, legs, ou
         if step_ex is not None:
             level_state = replace(level_state, closed=False)          # the legs, not the step, decide the close
     elif (stop is not None or target is not None) and not any(f["code"] == "underlying_bar_missing" for f in flags):
-        flags.append(_flag("underlying_bar_missing", "The underlying has no end-of-day bar this session; its stop and target "
+        flags.append(_flag("underlying_bar_missing", "The underlying has no end-of-day bar this session; its risk and reward levels "
                            "were not checked for it.", day))
     premium = _premium_exit(plan, out.get("structure_value_per_unit"))
     reason: Optional[str] = None
@@ -683,7 +683,7 @@ def _exit_for_session(trade, bar, day, direction, stop, target, states, legs, ou
             flags.append(_flag("both_in_range", base.BOTH_IN_RANGE_NOTE, day))
         if step_ex["gapped"]:
             flags.append(_flag("gap_through_stop", f"The underlying opened at {base._rupees(bar['open'])}, beyond the invalidation "
-                               "level: a real exit would have been worse than the session's closing marks may show.", day, bar["open"]))
+                               "level: a real close would have been worse than the session's closing marks may show.", day, bar["open"]))
     elif premium == "stop":
         reason, basis, note = "stop", "premium", EXIT_TEXT["premium_stop"]
     elif kind == "target":
@@ -802,8 +802,8 @@ def _greek_review(trade, plan, legs, states, bar, by_day, day, flags) -> None:
     else:
         crossed, level = abs(delta) > GREEK_NEUTRAL_LIMIT, f"beyond ±{GREEK_NEUTRAL_LIMIT}"
     if crossed and len(flags) < MAX_FLAGS:
-        flags.append(_flag("greek_review", f"Net delta {round(delta, 3)} a unit is {level} (entry {round(d0, 3)}): the "
-                           "strategy_levels Greek rule says review the position. A flag, not an exit.", day, round(delta, 4)))
+        flags.append(_flag("greek_review", f"Net delta {round(delta, 3)} a unit is {level} (at the open {round(d0, 3)}): the "
+                           "strategy_levels Greek rule says review the position. A flag, not a close.", day, round(delta, 4)))
 
 
 # ── costs and money figures ─────────────────────────────────────────────────
@@ -1097,7 +1097,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         observations = sim["observations"] if sim else None
         held = sim["held_sessions"] if sim else None
         checked = sim["checked_through"].isoformat() if sim and sim["checked_through"] else None
-        costs_basis = (f"entry and exit sides, every leg; the exit side estimated at the last marks; {base.costs_text(doc.get('cost_model'))}"
+        costs_basis = (f"opening and closing sides, every leg; the closing side estimated at the last marks; {base.costs_text(doc.get('cost_model'))}"
                        if costs is not None else None)
         pnls = [_leg_pnl(leg, m) for leg, m in zip(legs, marks)]
     else:
@@ -1111,7 +1111,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         breakdown = doc.get("costs_breakdown")
         mfe, mae = doc.get("mfe_rs"), doc.get("mae_rs")
         observations, held, checked = doc.get("observations"), doc.get("held_sessions"), doc.get("checked_through")
-        costs_basis = (f"entry and exit sides, every leg, at the closing marks; {base.costs_text(doc.get('cost_model'))}"
+        costs_basis = (f"opening and closing sides, every leg, at the closing marks; {base.costs_text(doc.get('cost_model'))}"
                        if costs is not None else None)
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     entries = [leg["entry_price"] for leg in legs]
@@ -1131,7 +1131,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         "legs": [public_leg(leg, marks[i], mark_dates[i], bases[i], pnls[i], flags) for i, leg in enumerate(legs)],
         "net_premium_rs": net_premium(legs, entries),
         "mark_premium_rs": net_premium(legs, marks),
-        "net_premium_basis": "premium paid (negative) or received (positive) by the option legs at entry, lots × lot size",
+        "net_premium_basis": "premium paid (negative) or received (positive) by the option legs at the open, lots × lot size",
         "gross_pnl_rs": gross, "costs_rs": costs, "costs_breakdown": breakdown, "costs_basis": costs_basis, "net_pnl_rs": net,
         "unrealized_pnl_rs": gross if is_open else None,
         "realized_pnl_rs": None if is_open else doc.get("realized_pnl_rs"),

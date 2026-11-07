@@ -39,7 +39,7 @@ export function AnswerModels() {
       query={models}
       what="The answer models"
       isEmpty={(rows) => rows.length === 0}
-      empty={{ title: "No answer models are configured", body: "The backend returned an empty model list, so the chat has no model to pick." }}
+      empty={{ title: "No answer models are configured", body: "The backend returned an empty model list, so the chat has no model to choose." }}
       emptyTestId="tools-models-empty"
     >
       {(rows) => (

@@ -879,16 +879,17 @@ async def _latest_futures(sym: str) -> Tuple[str, Optional[float], Optional[int]
     return as_of, spot, find_lot_size(rows), shape_futures(live, spot)
 
 
-OI_INTERVALS = ("5m", "15m", "30m", "60m")
+OI_INTERVALS = ("1m", "3m", "5m", "15m", "30m", "60m")
+OPTION_INTERVALS = ("5m", "15m", "30m", "60m")        # the options pane keeps its own set (one read per strike and side)
 
 
 @router.get("/{symbol}/futures/oi-buildup")
 async def futures_oi_buildup(
     request: Request,
     symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
-    interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
+    interval: str = Query("15m", description="1m | 3m | 5m | 15m | 30m | 60m"),
     window: int = Query(4, ge=1, le=12, description="Bars per window"),
-    sessions: int = Query(2, ge=1, le=5, description="Sessions of windows sent"),
+    sessions: int = Query(2, ge=1, le=10, description="Sessions of windows sent"),
     daily: int = Query(0, ge=0, le=fno_oi_windows.DAILY_MAX,
                        description="Bhavcopy sessions of daily_bars / daily_windows per slot (0 = none)"),
 ) -> Dict[str, Any]:
@@ -1117,8 +1118,8 @@ async def options_intraday(
     (services/fno_options_intraday.py). Reloads the stored platform Kite login first. 200 with `availability` other than ok
     when Kite cannot answer. Read only: nothing is written and nothing is sent to a broker."""
     await get_current_user(request)
-    if interval not in OI_INTERVALS:
-        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
+    if interval not in OPTION_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OPTION_INTERVALS)}")
     sym = symbol.upper()
     from routes.research_chart_intraday import get_service
     from services.kite_live_feed.feed import get_feed

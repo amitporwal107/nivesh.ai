@@ -1073,7 +1073,7 @@ async def get_signal_record(request: Request,
         "state": {"live": current is not None,
                   "stage": current["setup"]["stage"] if current else None,
                   "outcomes": outcomes, "outcomes_error": outcomes_error,
-                  "outcomes_basis": "positional_outcomes: target / stop hit per horizon, written by the outcome job; "
+                  "outcomes_basis": "positional_outcomes: reward / risk level reached per horizon, written by the outcome job; "
                                     "empty until a horizon is evaluated"},
         "note": note,
         "source": "positional_signals (the live revision) and positional_signals_history (each superseded revision, "
@@ -1494,7 +1494,7 @@ _CALIBRATION_MEASURES = {
     "ci95": "95% Wilson interval for the hit rate, from sample_count and moves_count.",
 }
 _CALIBRATION_NOT_MEASURED = {
-    "median_return": "Not stored: the labeller keeps each scan's maximum excursion, not a realised exit return.",
+    "median_return": "Not stored: the labeller keeps each scan's maximum excursion, not a realised closing return.",
     "costs": "None applied: the labels are price-only, with no brokerage, slippage or taxes.",
     "benchmark": "None: the labels are not compared with an index over the same sessions.",
     "out_of_sample": ("None: the buckets are fitted on every labelled scan; no later period is held out. "
@@ -1827,7 +1827,7 @@ def _size_position(
             "risk_basis": _BASKET_RISK_BASIS}
 
 
-_BASKET_RISK_BASIS = ("loss at the stop after estimated round-trip costs (the desk cost card: brokerage, STT, exchange "
+_BASKET_RISK_BASIS = ("loss at the risk level after estimated round-trip costs (the desk cost card: brokerage, STT, exchange "
                       "charge, SEBI fee, stamp duty, GST and slippage; DP charges and income tax not included)")
 
 
@@ -1844,21 +1844,21 @@ from services.strategy_engine.backtest import (  # noqa: E402
 )
 
 _SCENARIO_CAVEATS = (
-    "A stop price does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, "
-    "so the loss can be larger than shown.",
+    "A risk level does not guarantee the closing price: a gap or thin trading can fill the close beyond the risk "
+    "level, so the loss can be larger than shown.",
     "Costs are estimates from the desk cost card, the model a paper trade records: brokerage (a desk assumption of ₹20 "
     "a side, not a broker's tariff), STT, exchange charge, SEBI fee, stamp duty, GST, and slippage of 0.05% a side that "
     "also stands in for the spread; DP charges and income tax are not included.",
     "Illustrative only: nothing is sent to a broker and no order is placed.",
 )
 _SCENARIO_METHOD = (
-    "PRD §8.5, long only: risk per share = entry − stop; reward per share = target − entry; reward : risk = reward ÷ "
-    "risk; quantity = the most shares whose loss at the stop AFTER the entry and stop-exit costs stays within the risk "
-    "budget; then capped by floor(capital × max allocation % ÷ entry) and the maximum quantity, and rounded down to the "
-    "lot size. Costs per side = brokerage + STT + exchange charge + SEBI fee + stamp duty (buy) + GST + traded value × "
-    "slippage % (the desk cost card, equity delivery); net loss at the stop = gross loss + entry and stop-exit costs; "
-    "net profit at the target = gross profit − entry and target-exit costs. Portfolio weights assume the buy is new "
-    "money added to the portfolio."
+    "PRD §8.5, long only: risk per share = reference price − risk level; reward per share = reward level − reference "
+    "price; reward : risk = reward ÷ risk; quantity = the most shares whose loss at the risk level AFTER the opening and "
+    "closing costs stays within the risk budget; then capped by floor(capital × max allocation % ÷ reference price) and "
+    "the maximum quantity, and rounded down to the lot size. Costs per side = brokerage + STT + exchange charge + SEBI "
+    "fee + stamp duty (opening side) + GST + traded value × slippage % (the desk cost card, equity delivery); net loss at "
+    "the risk level = gross loss + opening and closing costs; net profit at the reward level = gross profit − opening "
+    "and closing costs. Portfolio weights assume the position is new money added to the portfolio."
 )
 
 
@@ -1915,17 +1915,17 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
 
     problems = []
     if not (entry > 0):
-        problems.append(_scenario_problem("entry", "entry_not_positive", "The entry must be a price above zero."))
+        problems.append(_scenario_problem("entry", "entry_not_positive", "The reference price must be a price above zero."))
     if not (stop > 0):
-        problems.append(_scenario_problem("stop", "stop_not_positive", "The stop must be a price above zero."))
+        problems.append(_scenario_problem("stop", "stop_not_positive", "The risk level must be a price above zero."))
     if entry > 0 and stop > 0 and not (stop < entry):
         problems.append(_scenario_problem(
             "stop", "stop_not_below_entry",
-            f"For a long position the stop (₹{stop:,.2f}) must be below the entry (₹{entry:,.2f})."))
+            f"For a long position the risk level (₹{stop:,.2f}) must be below the reference price (₹{entry:,.2f})."))
     if target is not None and not (target > entry):
         problems.append(_scenario_problem(
             "target", "target_not_above_entry",
-            f"For a long position the target (₹{target:,.2f}) must be above the entry (₹{entry:,.2f})."))
+            f"For a long position the reward level (₹{target:,.2f}) must be above the reference price (₹{entry:,.2f})."))
     if budget is None or not (budget > 0):
         problems.append(_scenario_problem(
             "risk", "needs_capital_or_risk_budget",
@@ -1965,7 +1965,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "gross_exposure": round(gross, 2),
         "allocation_pct": round(gross / capital * 100.0, 6) if capital else None,
         "max_alloc_pct": max_alloc_pct,
-        "risk_basis": "the loss at the stop after the entry and stop-exit costs fits the risk budget",
+        "risk_basis": "the loss at the risk level after the opening and closing costs fits the risk budget",
     }
 
     warnings = []
@@ -1974,7 +1974,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         warnings.append(_scenario_problem(
             "risk", "no_whole_share",
             f"The risk budget (₹{budget:,.2f}) does not cover one share's risk (₹{risk_ps:,.2f}) plus the round-trip "
-            f"costs at the stop, so no whole share fits."))
+            f"costs at the risk level, so no whole share fits."))
     else:
         at_stop = _card.round_trip("equity_delivery", qty, entry, stop, model=desk_model)
         at_target = _card.round_trip("equity_delivery", qty, entry, target, model=desk_model) if target is not None else None
@@ -2013,7 +2013,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
                                    if outcomes else None),
             "impact_at_target_pct": (round(outcomes["profit_at_target_net"] / portfolio_value * 100.0, 6)
                                      if outcomes and outcomes["profit_at_target_net"] is not None else None),
-            "assumption": "The buy is new money added to the portfolio; weights are of the portfolio after the buy.",
+            "assumption": "The position is new money added to the portfolio; weights are of the portfolio after it is added.",
         }
 
     return {**base, "valid": True, "problems": [], "warnings": warnings, "per_share": per_share,

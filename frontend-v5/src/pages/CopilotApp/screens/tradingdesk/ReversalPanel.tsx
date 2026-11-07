@@ -60,12 +60,12 @@ const QUADRANT_TEXT: Record<Quadrant, { label: string; tone: Tone }> = {
 
 const COMPONENT_TEXT: Record<string, string> = {
   sector: "Sector rotation", technical: "Technical setup", momentum: "Stock momentum",
-  fundamental: "Fundamental quality", catalyst: "Catalysts & events", valuation_risk: "Valuation & downside risk",
+  fundamental: "Fundamental quality", catalyst: "Catalysts & events", valuation_risk: "Valuation & loss risk",
 };
 
 const SIGNAL_TEXT: Record<string, string> = {
   higher_low: "Higher low", low_not_new: "No new low", rsi_recovery: "RSI recovering", ema20_reclaim: "Back above EMA20",
-  rs_vs_index: "Beats the index", volume_participation: "Buyers on volume", above_ema50: "Above EMA50", roc5: "5-session return", roc20: "20-session return",
+  rs_vs_index: "Beats the index", volume_participation: "Up-day volume", above_ema50: "Above EMA50", roc5: "5-session return", roc20: "20-session return",
 };
 
 const label = (m: Record<string, string>, k: string) => m[k] ?? k.replace(/_/g, " ");
@@ -123,7 +123,7 @@ function Detail({ r, asOf }: { r: ReversalRow; asOf: string | null }) {
         <p style={{ ...small, margin: 0 }}>{r.why.now ?? "—"}</p>
         {h("What would invalidate it")}
         <p style={{ ...small, margin: 0 }} data-testid="desk-rev-invalidates">{r.why.invalidates ?? "—"}</p>
-        {h("Entry trigger (hypothetical)")}
+        {h("Trigger level (hypothetical)")}
         <p style={{ ...small, margin: 0 }}>{r.why.trigger ?? "—"}</p>
       </div>
       <div>
@@ -152,7 +152,7 @@ function Detail({ r, asOf }: { r: ReversalRow; asOf: string | null }) {
         </ul>
         {h("Levels (hypothetical, not sent to a broker)")}
         <p style={{ ...small, margin: 0 }} data-testid="desk-rev-levels">
-          Close {fmtPrice(r.levels.close)}{live ? <b data-testid="desk-rev-live" data-kind={live.kind} style={{ color: "var(--mint)", fontWeight: 500 }}> · {live.kind === "live" ? "live" : "Kite close"} {fmtPrice(live.ltp)}{live.kind === "live" ? " (Kite)" : ""}</b> : null} · trigger {fmtPrice(r.levels.resistance)} · invalidation {fmtPrice(r.levels.invalidation)} · target {fmtPrice(r.levels.target)} · reward/risk {r.levels.rewardRisk == null ? "—" : fmtNum(r.levels.rewardRisk, 2)}
+          Close {fmtPrice(r.levels.close)}{live ? <b data-testid="desk-rev-live" data-kind={live.kind} style={{ color: "var(--mint)", fontWeight: 500 }}> · {live.kind === "live" ? "live" : "Kite close"} {fmtPrice(live.ltp)}{live.kind === "live" ? " (Kite)" : ""}</b> : null} · trigger {fmtPrice(r.levels.resistance)} · invalidation {fmtPrice(r.levels.invalidation)} · reward level {fmtPrice(r.levels.target)} · reward/risk {r.levels.rewardRisk == null ? "—" : fmtNum(r.levels.rewardRisk, 2)}
         </p>
       </div>
     </div>
@@ -270,7 +270,7 @@ export default function ReversalPanel({ chips, plain, selected, onOpen }: { chip
         <span className="cp-eyebrow" style={{ fontSize: 9, marginRight: 8 }}>Reversal · rule</span>
         Within {near}% of the lowest low of the last 252 sessions — (close ÷ low − 1) × 100. Being near the low is only a screen. A stock is a candidate when at
         least {d?.rows[0]?.requiredTrue ?? 3} of 6 independent signals confirm stabilization: a higher low, no new low for 5+ sessions, RSI recovering, price back above a rising EMA20,
-        outperforming the Nifty 500, and buyers outweighing sellers on volume. Hard gates (liquidity, pledge, distress, broken support) remove a stock whatever its score.
+        outperforming the Nifty 500, and up-day volume outweighing down-day volume. Hard gates (liquidity, pledge, distress, broken support) remove a stock whatever its score.
         {rules ? <span className="cp-mono-note" data-testid="desk-rev-rules-version"> · {rules}</span> : null}
       </div>
 
@@ -295,7 +295,7 @@ export default function ReversalPanel({ chips, plain, selected, onOpen }: { chip
           <div data-testid="desk-rev-footnote" className="flex flex-col" style={{ gap: 4, padding: "12px 18px", borderTop: rowBorder, ...small }}>
             <span>
               The score is rule-based: six parts with untuned hypothesis weights ({Object.entries(d.weights).map(([k, v]) => `${label(COMPONENT_TEXT, k).toLowerCase()} ${fmtNum(v)}`).join(", ") || "—"}). It ranks setups; it is not a probability and has not been validated out of sample.
-              A part that could not be measured says Unknown and is left out of the total (the percentage scored shows how much was measured). Entry trigger, invalidation and target are hypothetical and are never sent to a broker. Research and paper trading only.
+              A part that could not be measured says Unknown and is left out of the total (the percentage scored shows how much was measured). Trigger level, invalidation and reward level are hypothetical and are never sent to a broker. Research and paper trading only.
             </span>
             {d.dataLimits.map((x) => <span key={x} data-testid="desk-rev-limit">• {x}</span>)}
             <span>Source: {d.source ?? "—"}.</span>

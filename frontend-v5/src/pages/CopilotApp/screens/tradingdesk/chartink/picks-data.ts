@@ -28,7 +28,7 @@ export function useChartinkPicks() {
     queryFn: async ({ signal }) => {
       const res = await http({ path: `${CHARTINK_PICKS_PATH}?limit=${PICKS_LIMIT}`, signal, noRetry: true });
       const r = PicksSchema.safeParse(res.data);
-      if (!r.success) throw new ApiError("contract_drift", "The Chartink best picks were not in the expected form.", { cause: r.error });
+      if (!r.success) throw new ApiError("contract_drift", "The Chartink ideas were not in the expected form.", { cause: r.error });
       return r.data;
     },
   });

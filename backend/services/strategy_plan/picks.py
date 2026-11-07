@@ -40,7 +40,7 @@ LABELS = {"scan_confluence": "Scan confluence", "trend": "Trend (EMA)", "momentu
 TONE = {"supports": "up", "neutral": "flat", "conflicts": "down", "unavailable": "na", "not_applicable": "na"}
 CREDIT = {"supports": 1.0, "neutral": CFG["neutral_credit"], "conflicts": 0.0, "unavailable": 0.0}
 ACTION = {"long": "Long idea: the long side of the plan below (cash, futures, defined-risk options, combinations).",
-          "short": "Avoid new longs. Short side only through futures or defined-risk options (no naked short options); the plan below lists what the evidence supports."}
+          "short": "Short-side idea: no new longs in this view. Short side only through futures or defined-risk options (no naked short options); the plan below lists what the evidence supports."}
 DIRECTIONS = ("all", "long", "short")
 RANKING_NOTE = (CFG["rule"] + " The score ranks the evidence; it is not a probability, not a forecast and not a promise. Your Chartink scans are your own screens and have "
                 "not been validated.")
@@ -169,7 +169,7 @@ def atr_factor(it: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return factor("atr_risk", "unavailable", (it or {}).get("interpretation") or "ATR(14) needs 15 usable sessions.", None, (it or {}).get("source"), (it or {}).get("source_as_of"))
     cls = setup_rules.risk_class(pct)
     state = {"low": "supports", "medium": "neutral", "high": "conflicts"}[cls]
-    return factor("atr_risk", state, f"ATR(14) is {pct:.2f}% of the close: {cls} gap and stop risk (bands {setup_rules.RISK_BANDS['low_below_pct']:g}% and {setup_rules.RISK_BANDS['high_above_pct']:g}%).",
+    return factor("atr_risk", state, f"ATR(14) is {pct:.2f}% of the close: {cls} gap risk around the risk level (bands {setup_rules.RISK_BANDS['low_below_pct']:g}% and {setup_rules.RISK_BANDS['high_above_pct']:g}%).",
                   {"atr_pct": pct, "risk_class": cls}, it.get("source"), it.get("source_as_of"))
 
 

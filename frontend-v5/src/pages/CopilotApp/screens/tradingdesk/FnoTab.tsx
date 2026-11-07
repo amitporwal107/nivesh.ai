@@ -264,7 +264,7 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
       </div>
       {problem?.kind === "choose" && (
         <div id="desk-fno-symbol-problem" role="group" aria-label={`F&O stocks matching ${problem.query}`} className="flex flex-wrap items-center" style={{ gap: 8 }}>
-          <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Several F&O stocks match “{problem.query}”. Pick one:</span>
+          <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Several F&O stocks match “{problem.query}”. Choose one:</span>
           {problem.options.map((o) => (
             <button
               key={o.symbol}
@@ -367,7 +367,7 @@ function ExpiryChooser({ oc, futures, symbol, onPick }: { oc: ReturnType<typeof 
     <span className="inline-flex flex-wrap items-center" style={{ gap: 8 }}>
       <Segmented<string> label="Expiry" testId="desk-fno-expiry" value={expiry} onChange={onPick} options={opts} />
       <select
-        aria-label="Pick an expiry date" data-testid="desk-fno-expiry-date" value={expiry} onChange={(e) => onPick(e.target.value)}
+        aria-label="Choose an expiry date" data-testid="desk-fno-expiry-date" value={expiry} onChange={(e) => onPick(e.target.value)}
         className="cp-num" style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid var(--cp-line, rgba(255,255,255,0.18))", background: "var(--bg-2)", color: "var(--cp-ink)", fontSize: 11 }}
       >
         {pool.map((e) => <option key={e.expiry} value={e.expiry}>{`${fmtDay(e.expiry)} · ${futDays.includes(e.expiry) ? "monthly" : "weekly"} · ${fmtNum(e.days_to_expiry)}d`}</option>)}

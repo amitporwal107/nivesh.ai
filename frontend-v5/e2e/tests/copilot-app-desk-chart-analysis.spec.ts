@@ -282,8 +282,8 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     await page.getByTestId("ca-expiry-consolidated").click();
     await expect.poll(() => seen.chain).toContain("consolidated");
     await expect(page.getByTestId("ca-stat-pcr")).toContainText("0.91");
-    await expect(page.getByTestId("ca-stat-atm-iv")).toContainText("pick an expiry");
-    await expect(page.getByTestId("ca-stat-exp-move")).toContainText("pick an expiry");
+    await expect(page.getByTestId("ca-stat-atm-iv")).toContainText("choose an expiry");
+    await expect(page.getByTestId("ca-stat-exp-move")).toContainText("choose an expiry");
     await expect(page.locator('[data-testid="ca-ladder-row"][data-strike="1240"]')).toHaveAttribute("data-call", String(CONSOLIDATED.strikes.find((s) => s.strike === 1240)!.call.oi));
     await expect(page.getByTestId("ca-sum-buildup")).toContainText("Consolidated");
   });
@@ -386,5 +386,347 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     const text = await page.getByTestId("ca-card").innerText();
     expect(text).toContain("EDUCATIONAL · PAPER ONLY");
     expect(text).not.toMatch(/\b(pick|picks|buy now|sell now|guaranteed)\b/i);
+  });
+});
+
+// ── Timeframes, chart tools and bar signals (test_reports/chart_analysis_signals_TESTCASES.md F1–F15) ──────────────────
+// MOCK — not real data: the same mocked routes, with the live-chart answer chosen by the `interval` asked for.
+const LIVE_5M = { ...LIVE_FIX, timeframe: { ...LIVE_FIX.timeframe, interval: "5m", label: "5M" }, rvol: LIVE_FIX.rvol.map((v, i) => (i === 28 ? 2.4 : v)) };
+const LIVE_1H = { ...LIVE_FIX, timeframe: { ...LIVE_FIX.timeframe, interval: "60m", label: "1H" } };
+const LIVE_1D = { ...LIVE_DAY, symbol: "FIXFNO", timeframe: { ...LIVE_DAY.timeframe, reason: null, reason_text: null } };
+const WEEK_DAYS = Array.from({ length: 12 }, (_, i) => new Date(Date.UTC(2026, 7, 3 + i * 7)).toISOString().slice(0, 10));   // Mondays
+const WEEKLY: Bar[] = WEEK_DAYS.map((d, i) => [d, 1180 + i * 3, 1192 + i * 3, 1176 + i * 3, 1186 + i * 3, 20_000_000]);
+const LIVE_1W = { ...LIVE_1D, timeframe: { ...LIVE_1D.timeframe, interval: "1w", label: "WEEKLY" }, bars: WEEKLY,
+  ema20: WEEKLY.map(() => null), sma20: WEEKLY.map(() => null), rvol: WEEKLY.map(() => null), last: { price: WEEKLY[11][4], at: DAYS[59], bar_complete: false, source: "eod" } };
+
+async function setupTf(page: Page, o: { phone?: boolean } = {}) {
+  const seen = await setup(page, o);
+  const live: string[] = [];
+  await page.route("**/api/desk/live-chart/*", (r) => {
+    const u = new URL(r.request().url());
+    live.push(u.search);
+    const iv = u.searchParams.get("interval");
+    return json(r, iv === "5m" ? LIVE_5M : iv === "60m" ? LIVE_1H : iv === "1d" ? LIVE_1D : iv === "1w" ? LIVE_1W : LIVE_FIX);
+  });
+  await page.route("**/api/fno/*/futures/oi-buildup*", (r) => {
+    seen.oi.push(r.request().url());
+    return json(r, new URL(r.request().url()).searchParams.get("daily") ? { ...OI_DAY, symbol: "FIXFNO" } : OI_FIX);
+  });
+  return { ...seen, live };
+}
+const lastQ = (list: string[]) => new URLSearchParams(list[list.length - 1] ?? "");
+
+test.describe("MOCK — not real data: Chart Analysis timeframes, chart tools and bar signals", () => {
+  test("F1–F3 timeframe pills: 15m by default; 5m and 1h ask both routes for their interval and sessions", async ({ page }) => {
+    const seen = await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    await expect(page.getByTestId("ca-symbol")).toHaveText("FIXFNO", SLOW);
+    for (const k of ["1m", "3m", "5m", "15m", "1h", "1D", "1W"]) await expect(page.getByTestId(`ca-tf-${k}`)).toBeVisible();
+    await expect(page.getByTestId("ca-tf-15m")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("ca-tf-meta")).toHaveText("NSE · 15M · IST");
+    expect(lastQ(seen.live).get("interval")).toBe("15m");
+
+    await page.getByTestId("ca-tf-5m").click();
+    await expect(page.getByTestId("ca-meta")).toContainText("NSE · CASH · 5M", SLOW);
+    await expect(page.getByTestId("ca-tf-5m")).toHaveAttribute("aria-pressed", "true");
+    expect(lastQ(seen.live).get("interval")).toBe("5m");
+    expect(lastQ(seen.live).get("sessions")).toBe("3");
+    await expect.poll(() => seen.oi.some((u) => { const q = new URL(u).searchParams; return q.get("interval") === "5m" && q.get("sessions") === "3" && !q.get("daily"); })).toBe(true);
+    expect(params(page).get("tf")).toBe("5m");
+
+    await page.getByTestId("ca-tf-1h").click();
+    await expect(page.getByTestId("ca-meta")).toContainText("NSE · CASH · 1H", SLOW);
+    await expect(page.getByTestId("ca-tf-meta")).toHaveText("NSE · 1H · IST");
+    expect(lastQ(seen.live).get("interval")).toBe("60m");
+    expect(lastQ(seen.live).get("sessions")).toBe("10");
+    await expect.poll(() => seen.oi.some((u) => { const q = new URL(u).searchParams; return q.get("interval") === "60m" && q.get("sessions") === "10"; })).toBe(true);
+
+    // a deep link keeps the timeframe
+    await page.goto(CHART("FIXFNO", "&tf=5m"));
+    await expect(page.getByTestId("ca-tf-5m")).toHaveAttribute("aria-pressed", "true", SLOW);
+    await expect(page.getByTestId("ca-meta")).toContainText("5M");
+  });
+
+  test("F4 1D and 1W read end-of-day bars; 1W sums the bhavcopy futures per week", async ({ page }) => {
+    const seen = await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    await expect(page.getByTestId("ca-symbol")).toHaveText("FIXFNO", SLOW);
+    await page.getByTestId("ca-tf-1D").click();
+    await expect(page.getByTestId("ca-card")).toHaveAttribute("data-interval", "1d", SLOW);
+    expect(lastQ(seen.live).get("interval")).toBe("1d");
+    await expect(page.getByTestId("ca-kite-fallback")).toHaveCount(0);                     // asked for, not a fallback
+    await expect(page.getByTestId("ca-candle")).toHaveCount(DAILY.length);
+    await expect(page.getByTestId("ca-fut-oi")).toHaveCount(1, SLOW);
+
+    await page.getByTestId("ca-tf-1W").click();
+    await expect(page.getByTestId("ca-card")).toHaveAttribute("data-interval", "1w", SLOW);
+    await expect(page.getByTestId("ca-meta")).toContainText("NSE · CASH · WEEKLY");
+    expect(lastQ(seen.live).get("interval")).toBe("1w");
+    await expect.poll(() => seen.oi.some((u) => { const q = new URL(u).searchParams; return q.get("daily") === "250" && q.get("window") === "5"; })).toBe(true);
+    await expect(page.getByTestId("ca-candle")).toHaveCount(WEEKLY.length);
+    await expect(page.getByTestId("ca-fut-oi")).toHaveCount(1, SLOW);
+    await expect(page.getByTestId("ca-fut-chg")).toHaveCount(WEEKLY.length);              // one summed change per week
+    await expect(page.getByTestId("ca-readout")).toContainText("Week of");
+  });
+
+  test("F5–F7 chart type, SMA 20 and the volume pane", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    await expect(page.getByTestId("ca-candle")).toHaveCount(BARS.length, SLOW);
+    await expect(page.getByTestId("ca-vol")).toHaveCount(BARS.length);
+    await page.getByTestId("ca-type-line").click();
+    await expect(page.getByTestId("ca-line")).toHaveCount(1);
+    await expect(page.getByTestId("ca-candle")).toHaveCount(0);
+    await expect(page.getByTestId("ca-area")).toHaveCount(0);
+    await page.getByTestId("ca-type-area").click();
+    await expect(page.getByTestId("ca-area")).toHaveCount(1);
+    await expect(page.getByTestId("ca-line")).toHaveCount(1);
+    await page.getByTestId("ca-type-candles").click();
+    await expect(page.getByTestId("ca-candle")).toHaveCount(BARS.length);
+    // SMA 20: the mock sends no sma20 on 15m, so nothing is drawn; 5m's mock has none either: the route's array is what is drawn
+    await expect(page.getByTestId("ca-sma-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("ca-sma")).toHaveCount(0);
+  });
+
+  test("F6 SMA 20 draws the route's sma20 and hides with its toggle", async ({ page }) => {
+    await setupTf(page);
+    await page.route("**/api/desk/live-chart/*", (r) => json(r, { ...LIVE_FIX, sma20: BARS.map((_, i) => (i < 19 ? null : 1192 + i * 0.3)) }));
+    await page.goto(CHART("FIXFNO"));
+    await expect(page.getByTestId("ca-sma")).toHaveCount(1, SLOW);
+    await page.getByTestId("ca-sma-toggle").click();
+    await expect(page.getByTestId("ca-sma")).toHaveCount(0);
+    await page.getByTestId("ca-sma-toggle").click();
+    await expect(page.getByTestId("ca-sma")).toHaveCount(1);
+  });
+
+  test("F8 bar signals: triangles only where the rule holds; each pill shows and hides its own", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    const sig = (k: string) => page.locator(`[data-testid="ca-signal"][data-key="${k}"]`);
+    // default: Long build-up and Volume spike on. Bar 31: futures +3 with OI +65,000 (≥ 2× the 20-bar mean size): long build-up
+    await expect(page.getByTestId("ca-sig-long_buildup")).toHaveAttribute("aria-pressed", "true", SLOW);
+    await expect(sig("long_buildup")).toHaveCount(1);
+    await expect(sig("long_buildup")).toHaveAttribute("data-i", "31");
+    await expect(sig("volume_spike")).toHaveCount(0);                                        // the 15m mock's RVOL never reaches 2
+    // bar 30: futures +2 with OI −55,000: short covering
+    await page.getByTestId("ca-sig-short_covering").click();
+    await expect(sig("short_covering")).toHaveCount(1);
+    await expect(sig("short_covering")).toHaveAttribute("data-i", "30");
+    // bars 25 and 26 close above the 20 bars before them
+    await page.getByTestId("ca-sig-breakout").click();
+    await expect(sig("breakout")).toHaveCount(2);
+    await page.getByTestId("ca-sig-breakdown").click();
+    await expect(sig("breakdown")).toHaveCount(0);
+    await page.getByTestId("ca-sig-long_buildup").click();
+    await expect(sig("long_buildup")).toHaveCount(0);
+    // 5m mock: RVOL 2.4 on bar 28
+    await page.getByTestId("ca-tf-5m").click();
+    await expect(page.getByTestId("ca-meta")).toContainText("5M", SLOW);
+    await expect(sig("volume_spike")).toHaveCount(1);
+    await expect(sig("volume_spike")).toHaveAttribute("data-i", "28");
+  });
+
+  test("F9–F10 drawing tools: horizontal, trend with a preview, Fib, measure, undo and clear", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    const hit = page.getByTestId("ca-price-hit");
+    await expect(hit).toBeVisible(SLOW);
+    await hit.scrollIntoViewIfNeeded();
+    const box = (await hit.boundingBox())!;
+    const at = (fx: number, fy: number) => ({ position: { x: box.width * fx, y: box.height * fy } });
+    const drawings = page.getByTestId("ca-drawing");
+    await expect(page.getByTestId("ca-tool-undo")).toBeDisabled();
+
+    await page.getByTestId("ca-tool-h").click();
+    await expect(page.getByTestId("ca-tool-hint")).toContainText("HORIZONTAL LINE");
+    await hit.click(at(0.5, 0.3));
+    await expect(drawings).toHaveCount(1);
+    await expect(drawings.first()).toHaveAttribute("data-kind", "h");
+
+    await page.getByTestId("ca-tool-trend").click();
+    await hit.click(at(0.2, 0.7));
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.4);
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(1);
+    await hit.click(at(0.6, 0.35));
+    await expect(drawings).toHaveCount(2);
+    await expect(page.locator('[data-testid="ca-drawing"][data-kind="trend"]')).toHaveCount(1);
+
+    await page.getByTestId("ca-tool-fib").click();
+    await hit.click(at(0.3, 0.8));
+    await hit.click(at(0.7, 0.2));
+    await expect(page.getByTestId("ca-fib-level")).toHaveCount(7);
+
+    await page.getByTestId("ca-tool-measure").click();
+    await hit.click(at(0.25, 0.7));
+    await hit.click(at(0.75, 0.3));
+    const label = page.getByTestId("ca-measure-label");
+    await expect(label).toHaveCount(1);
+    expect(Number(await label.getAttribute("data-change"))).toBeGreaterThan(0);
+    expect(Number(await label.getAttribute("data-bars"))).toBeGreaterThan(10);
+    await expect(drawings).toHaveCount(4);
+
+    await page.getByTestId("ca-tool-undo").click();
+    await expect(drawings).toHaveCount(3);
+    await expect(page.getByTestId("ca-measure-label")).toHaveCount(0);
+    await page.getByTestId("ca-tool-clear").click();
+    await expect(drawings).toHaveCount(0);
+    // drawings belong to their timeframe
+    await page.getByTestId("ca-tool-h").click();
+    await hit.click(at(0.5, 0.5));
+    await expect(drawings).toHaveCount(1);
+    await page.getByTestId("ca-tf-5m").click();
+    await expect(page.getByTestId("ca-meta")).toContainText("5M", SLOW);
+    await expect(drawings).toHaveCount(0);
+    await page.getByTestId("ca-tf-15m").click();
+    await expect(page.getByTestId("ca-meta")).toContainText("15M", SLOW);
+    await expect(drawings).toHaveCount(1);
+  });
+
+  test("G1–G7 drawing gestures: press-drag-release, two clicks with a dot at once, a release past the edge, Esc", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    const hit = page.getByTestId("ca-price-hit");
+    await expect(hit).toBeVisible(SLOW);
+    await hit.scrollIntoViewIfNeeded();
+    const box = (await hit.boundingBox())!;
+    const P = (fx: number, fy: number) => [box.x + box.width * fx, box.y + box.height * fy] as const;
+    const dragFromTo = async (a: readonly [number, number], b: readonly [number, number]) => {
+      await page.mouse.move(...a);
+      await page.mouse.down();
+      await page.mouse.move(...b, { steps: 8 });
+      await page.mouse.up();
+    };
+    const drawings = page.getByTestId("ca-drawing");
+    const kind = (k: string) => page.locator(`[data-testid="ca-drawing"][data-kind="${k}"]`);
+
+    // G1 trend by press, drag, release (the preview follows the drag; nothing is left pending)
+    await page.getByTestId("ca-tool-trend").click();
+    await page.mouse.move(...P(0.2, 0.7));
+    await page.mouse.down();
+    await page.mouse.move(...P(0.4, 0.5), { steps: 6 });
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(1);
+    await page.mouse.move(...P(0.6, 0.3), { steps: 6 });
+    await page.mouse.up();
+    await expect(kind("trend")).toHaveCount(1);
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(0);
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(0);
+
+    // G2 rect, Fib and measure by drag
+    await page.getByTestId("ca-tool-rect").click();
+    // a second drag right after the first: without `user-select: none` the first drag selected chart text, and a press on
+    // the selection started the browser's own drag, which cancelled this pointer (pointercancel) and nothing was drawn
+    await dragFromTo(P(0.3, 0.3), P(0.5, 0.6));
+    await expect(kind("rect")).toHaveCount(1);
+    await page.getByTestId("ca-tool-fib").click();
+    await dragFromTo(P(0.3, 0.8), P(0.7, 0.2));
+    await expect(page.getByTestId("ca-fib-level")).toHaveCount(7);
+    await page.getByTestId("ca-tool-measure").click();
+    await dragFromTo(P(0.25, 0.7), P(0.75, 0.3));
+    const label = page.getByTestId("ca-measure-label");
+    await expect(label).toHaveCount(1);
+    expect(Number(await label.getAttribute("data-change"))).toBeGreaterThan(0);
+    expect(Number(await label.getAttribute("data-bars"))).toBeGreaterThan(10);
+    await expect(drawings).toHaveCount(4);
+
+    // G3 two clicks still work, and the first point shows at once
+    await page.getByTestId("ca-tool-trend").click();
+    await page.mouse.click(...P(0.15, 0.4));
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(1);
+    await page.mouse.click(...P(0.45, 0.2));
+    await expect(kind("trend")).toHaveCount(2);
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(0);
+
+    // G4 H and V by one click; H by a short drag lands at the release
+    await page.getByTestId("ca-tool-h").click();
+    await page.mouse.click(...P(0.5, 0.25));
+    await expect(kind("h")).toHaveCount(1);
+    await page.getByTestId("ca-tool-v").click();
+    await page.mouse.click(...P(0.55, 0.5));
+    await expect(kind("v")).toHaveCount(1);
+    await page.getByTestId("ca-tool-h").click();
+    await dragFromTo(P(0.5, 0.5), P(0.5, 0.75));
+    await expect(kind("h")).toHaveCount(2);
+    await expect(drawings).toHaveCount(8);
+
+    // G5 a release past the plot's right edge ends on the last bar in view
+    await page.getByTestId("ca-tool-clear").click();
+    await expect(drawings).toHaveCount(0);
+    await page.getByTestId("ca-tool-trend").click();
+    await dragFromTo(P(0.4, 0.5), [box.x + box.width + 60, box.y + box.height * 0.3]);
+    await expect(kind("trend")).toHaveCount(1);
+    const chart = page.getByTestId("ca-chart");
+    const lastI = Number(await chart.getAttribute("data-end")) - 1;
+    const lastX = Number(await page.locator(`[data-testid="ca-candle"][data-i="${lastI}"] line`).getAttribute("x1"));
+    const endX = Number(await kind("trend").locator("line").getAttribute("x2"));
+    expect(Math.abs(endX - lastX)).toBeLessThan(0.5);
+
+    // G7 Esc after the first click: no dot, no preview, nothing drawn
+    await page.mouse.click(...P(0.3, 0.4));
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("ca-draw-anchor")).toHaveCount(0);
+    await expect(page.getByTestId("ca-draw-preview")).toHaveCount(0);
+    await expect(drawings).toHaveCount(1);
+    await expect(page.getByTestId("ca-tool-trend")).toHaveAttribute("title", /click two points or drag/);
+    await page.getByTestId("ca-tool-rect").click();
+    await expect(page.getByTestId("ca-tool-hint")).toContainText("CLICK TWO POINTS ON THE PRICE PANE, OR DRAG");
+  });
+
+  test("F11–F12 crosshair price tag; wheel zoom, drag pan and Reset view", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    const hit = page.getByTestId("ca-price-hit");
+    await expect(hit).toBeVisible(SLOW);
+    await hit.scrollIntoViewIfNeeded();
+    const box = (await hit.boundingBox())!;
+    const chart = page.getByTestId("ca-chart");
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    await expect(page.getByTestId("ca-crosshair")).toHaveCount(1);
+    const v = Number(await page.getByTestId("ca-cross-price").getAttribute("data-value"));
+    expect(v).toBeGreaterThan(1150);
+    expect(v).toBeLessThan(1260);
+
+    await expect(chart).toHaveAttribute("data-bars", String(BARS.length));
+    await page.mouse.wheel(0, -400);
+    await expect.poll(async () => Number(await chart.getAttribute("data-bars"))).toBeLessThan(BARS.length);
+    await expect(chart).toHaveAttribute("data-end", String(BARS.length));
+    const shown = Number(await chart.getAttribute("data-bars"));
+    // drag to the right: older bars come into view
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5, { steps: 6 });
+    await page.mouse.up();
+    await expect.poll(async () => Number(await chart.getAttribute("data-end"))).toBeLessThan(BARS.length);
+    await expect(chart).toHaveAttribute("data-bars", String(shown));
+    await page.getByTestId("ca-view-reset").click();
+    await expect(chart).toHaveAttribute("data-bars", String(BARS.length));
+    await expect(chart).toHaveAttribute("data-end", String(BARS.length));
+    await expect(page.getByTestId("ca-view-reset")).toHaveCount(0);
+  });
+
+  test("F14 390 px: the timeframe pills are there, no drawing tools, no sideways scroll", async ({ page }) => {
+    await setupTf(page, { phone: true });
+    await page.goto(CHART("FIXFNO"));
+    await expect(page.getByTestId("ca-tf-1h")).toBeVisible(SLOW);
+    await expect(page.getByTestId("ca-tool-trend")).toHaveCount(0);
+    await page.getByTestId("ca-tf-5m").click();
+    await expect(page.getByTestId("ca-meta")).toContainText("5M", SLOW);
+    await noSideScroll(page);
+  });
+
+  test("F15 wording: the new controls never say buy, sell, stop loss, target, entry, pick or recommend", async ({ page }) => {
+    await setupTf(page);
+    await page.goto(CHART("FIXFNO"));
+    await expect(page.getByTestId("ca-toolbar")).toBeVisible(SLOW);
+    await page.getByTestId("ca-tool-measure").click();
+    const texts = [
+      await page.getByTestId("ca-toolbar").innerText(),
+      await page.getByRole("group", { name: "Signals on chart" }).innerText(),
+      await page.getByTestId("ca-legend").innerText(),
+      await page.getByTestId("ca-tool-hint").innerText(),
+      ...(await page.getByRole("toolbar", { name: "Drawing tools" }).getByRole("button").evaluateAll((els) => els.map((e) => e.getAttribute("title") ?? ""))),
+      ...(await page.locator('[data-testid^="ca-sig-"]').evaluateAll((els) => els.map((e) => e.getAttribute("title") ?? ""))),
+    ].join(" | ");
+    expect(texts).not.toMatch(/\b(buy|sell|stop ?loss|target|entry|exit|pick|recommend\w*)\b/i);
   });
 });

@@ -9,7 +9,8 @@ shows no figure from it. The unit tests replace these functions.
     shareholding      DaaS /v1/shareholding/{symbol} (nidp.shareholding_pattern): NSE's own rows (NSE_SHP) and screener.in's
     features_latest   DaaS /v1/features/stocks/{symbol}/latest (nidp.stock_features_daily): the newest feature row
     pe_history        DaaS /v1/features/stocks/{symbol}: the stored daily P/E (pe_ttm) since the feature history starts
-    amc               DaaS /v1/smart-money/amc (nidp.mf_holdings_deltas): which fund houses changed their disclosed holding
+    amc               DaaS /v1/desk/smart-money/amc (nidp.mf_holdings_deltas): which fund houses changed their disclosed holding
+                      (the smart-money router is mounted under /desk; /v1/smart-money/amc does not exist and answers 404)
     universe          routes.positional._scan_snapshot (DaaS /v1/features/scan-snapshot, cached): every stock's sector label and
                       NSE industry on the latest features day
     features_on       DaaS POST /v1/features/bulk: the feature rows of up to 300 stocks on one day
@@ -58,7 +59,7 @@ async def pe_history(symbol: str, limit: int = 600) -> List[Dict[str, Any]]:
 
 
 async def amc(symbol: str) -> Dict[str, Any]:
-    body = await rd._daas("/smart-money/amc", {"symbol": symbol})
+    body = await rd._daas("/desk/smart-money/amc", {"symbol": symbol})
     if not isinstance(body, dict) or not isinstance(body.get("rows"), list):
         raise RuntimeError("smart-money/amc sent no rows list")
     return body

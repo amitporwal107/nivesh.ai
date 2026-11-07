@@ -2,7 +2,7 @@
  * Smart trading desk · 03 Market Desk — the deeper context after the trader's paper trades (the owner's workflow of
  * 2026-10-27; docs/desk_redesign_20261027/PLAN.md §1 and step "Market Desk"). One frame for every view: the view
  * switcher (the shell's), then a view head (eyebrow, one sentence, the parts of the view and where related data lives),
- * then the view. At most two levels: tab → view; `section=` scrolls to a part of a view.
+ * then the view. Two levels (tab → view), three for the Screener (its sub-views); `section=` scrolls to a part of a view.
  *
  *   intel       Market Intelligence   IntelTab (filings, SEBI circulars, bulk / block deals), the sector-rotation readout
  *                                     (SectorReadout.tsx) and the Events calendar (EventsTab), as the owner's design draws it
@@ -13,7 +13,21 @@
  *   research    Stock Research        ChartTab (chart, fundamentals, filings, setup) for one stock (?sym=), with the
  *                                     symbol strip: the stock shown, its option chain in Smart Money › F&O, and the full
  *                                     chart workspace
- *   screener    Screener              the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
+ *   screener    Screener              three sub-views (sub=, desk-nav.ts SUB_VIEWS; owner, 3 Nov: the Chartink-style scans live
+ *                                     under the existing Screener):
+ *                                       screens    the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
+ *                                       dashboard  scan-dashboard/ScanDashboard.tsx: Chartink dashboards on our own data, one tab each
+ *                                                  (dash=: absent = 247498 "Atlas fresh", daytrade = 503347 "Day trade"), each
+ *                                                  widget with its criteria, refreshed every 10 s while the market is open
+ *                                       builder    scan-builder/ScanBuilder.tsx: your own scans (filters · columns · group/sort) run on
+ *                                                  our data (the old view=scanbuilder URL lands here)
+ *                                     dashboard and builder need the `scan_builder` flag (the switcher hides them otherwise; each
+ *                                     says it is not enabled)
+ *   recovery    Market Recovery       market-recovery/MarketRecovery.tsx (owner, 3 Nov; docs/market_recovery/DESIGN.md): the recovery
+ *                                     check and Nifty 500 breadth, the sector leaders, the recovery candidates with their plans, and
+ *                                     the high scorers left out as possible false signals. Needs the `market_recovery` flag (the
+ *                                     switcher hides it otherwise; the view says it is not enabled). Its plan labels are the
+ *                                     owner's standard words (Entry zone · Stop loss · Target 1 · Target 2), on this view only.
  *
  * Watchlists and the Idea scorecard are Trade Desk's in the owner's design (27 Oct 19:40 IST): the scorecard component is
  * tradingdesk/scorecard/IdeaScorecard.tsx, for the Trade Desk tab to mount; ?tab=market&view=watchlists|scorecard opens
@@ -44,11 +58,14 @@ const FnoTab = lazy(() => import("../../FnoTab"));
 const ChartTab = lazy(() => import("../../ChartTab"));
 const SectorHeatmap = lazy(() => import("../../../SectorHeatmap"));
 const Screener = lazy(() => import("../../../Screener"));
+const ScanBuilder = lazy(() => import("./scan-builder/ScanBuilder"));
+const ScanDashboard = lazy(() => import("./scan-dashboard/ScanDashboard"));
+const MarketRecovery = lazy(() => import("./market-recovery/MarketRecovery"));
 
 /** The F&O lab's views on Smart Money: build-up, candidates, indices and the option chain. */
 const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
 
-export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener";
+export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener" | "recovery";
 
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)", textAlign: "left" };
 
@@ -162,10 +179,10 @@ function useGoView() {
   }, [setParams]);
 }
 
-export default function MarketDesk({ view }: { view: string | null }) {
+export default function MarketDesk({ view, sub = null }: { view: string | null; sub?: string | null }) {
   const desk = useDesk();
   const goView = useGoView();
-  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener"] as const).find((x) => x === view) ?? "intel";
+  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener", "recovery"] as const).find((x) => x === view) ?? "intel";
   const jump = (section: string, go: () => void) => () => { go(); scrollTo(section); };
 
   switch (v) {
@@ -195,6 +212,18 @@ export default function MarketDesk({ view }: { view: string | null }) {
           <Hosted id="sectors" name="Sector Rotation"><SectorHeatmap /></Hosted>
         </>
       );
+    case "recovery":
+      return (
+        <>
+          <ViewHead
+            view={v}
+            label="Market Recovery"
+            line="Is the market recovering, which sectors lead, and which Nifty 500 stocks are recovering faster than the market."
+            elsewhere={<>The sector heatmap and rotation matrix are in <button type="button" data-testid="md-to-sectors" onClick={() => goView("sectors")} style={linkBtn}>Sector Rotation ›</button></>}
+          />
+          <Hosted id="recovery" name="Market Recovery"><MarketRecovery /></Hosted>
+        </>
+      );
     case "research":
       return (
         <>
@@ -210,6 +239,32 @@ export default function MarketDesk({ view }: { view: string | null }) {
         </>
       );
     case "screener":
+      if (sub === "dashboard") {
+        return (
+          <>
+            <ViewHead
+              view={v}
+              label="Screener · Scan dashboard"
+              line="Chartink scan dashboards on our own data: Kite live quotes over NSE end-of-day bars, refreshed every 10 seconds while the market is open."
+              elsewhere="Each widget lists its criteria; a dimmed line is not applied yet and says why."
+            />
+            <Hosted id="scandashboard" name="the Scan dashboard"><ScanDashboard /></Hosted>
+          </>
+        );
+      }
+      if (sub === "builder") {
+        return (
+          <>
+            <ViewHead
+              view={v}
+              label="Screener · Scan builder"
+              line="Build your own stock scans on our live data: Kite quotes over NSE end-of-day bars, with fundamentals."
+              elsewhere="Daily, weekly and monthly candles today; 5-minute, 15-minute and hourly candles are the next step."
+            />
+            <Hosted id="scanbuilder" name="the Scan Builder"><ScanBuilder /></Hosted>
+          </>
+        );
+      }
       return (
         <>
           <ViewHead

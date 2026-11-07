@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <section style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-eyebrow">09 · Middle office</span><span class="nv-pill nv-pill-indigo">Independent controller</span><span class="nv-pill">Tenant TNT-01 · 3 accounts</span></div>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1 }};line-height:1.06;letter-spacing:-0.02em;text-wrap:pretty;max-width:900px">No hard breaches today. <em style="color:{{ recC }}">{{ recWord }}</em> {{ recTail }}</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.55;color:var(--ink-3);max-width:700px">Everything the desk did today, by account: approvals, breaches, broker links and reconciliation. Any workflow can be replayed step by step from its stored events.</p>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(auto-fill,minmax({{ tileMin }},1fr));gap:10px">
+    <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="8"><div onClick="{{ t.go }}" style="cursor:pointer;display:flex;flex-direction:column;gap:4px;padding:13px 15px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)" style-hover="border-color:var(--line-3)"><span class="nv-eyebrow" style="font-size:9px">{{ t.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;line-height:1.1;color:{{ t.c }}">{{ t.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ t.s }}</span></div></sc-for>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <span class="nv-eyebrow">Accounts</span>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden"><div style="overflow-x:auto"><div style="min-width:860px">
+      <div style="display:grid;grid-template-columns:minmax(0,1.4fr) 130px 100px 80px 80px minmax(0,1.3fr) minmax(0,1fr) 110px;gap:12px;padding:10px 18px;font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-3)"><span>Account</span><span>Mode</span><span style="text-align:right">Equity</span><span style="text-align:right">Open</span><span style="text-align:right">Pending</span><span>Breaches</span><span>Reconciliation</span><span>Broker</span></div>
+      <sc-for list="{{ accounts }}" as="a" hint-placeholder-count="3"><div style="display:grid;grid-template-columns:minmax(0,1.4fr) 130px 100px 80px 80px minmax(0,1.3fr) minmax(0,1fr) 110px;gap:12px;padding:12px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center"><span style="font-weight:500">{{ a.n }}</span><span><span class="nv-pill" style="padding:2px 8px;font-size:9px;color:{{ a.mc }};border-color:{{ a.ml }}">{{ a.mode }}</span></span><span class="nv-num" style="text-align:right">{{ a.eq }}</span><span class="nv-num" style="text-align:right">{{ a.open }}</span><span class="nv-num" style="text-align:right">{{ a.pend }}</span><span style="font-size:12px;color:{{ a.bc }}">{{ a.br }}</span><span style="font-size:12px;color:{{ a.rc }}">{{ a.rec }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:{{ a.kc }}">{{ a.brk }}</span></div></sc-for>
+    </div></div></div>
+  </section>
+
+  <div style="display:grid;grid-template-columns:{{ twoCols }};gap:16px;align-items:start">
+    <section style="display:flex;flex-direction:column;gap:12px;padding:18px 20px;border-radius:14px;border:1px solid {{ rec.line }};background:var(--bg-1)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-family:var(--display);font-size:24px">Reconciliation</span><span class="nv-pill" style="color:{{ rec.c }};border-color:{{ rec.line }}">{{ rec.st }}</span></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><span style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">REC-0418 · ZX4821 · TRD-1180 ICICIBANK</span><span style="font-size:14px;line-height:1.5">Average price differs: broker 1,428.55, ledger 1,428.50. ₹0.05 × 200 = ₹10.</span><span style="font-size:12.5px;line-height:1.5;color:var(--ink-3)">For live accounts, broker-confirmed fills are authoritative. The ledger keeps both figures and their sources.</span></div>
+      <sc-if value="{{ rec.open }}" hint-placeholder-val="{{ true }}"><div style="display:flex;gap:10px;flex-wrap:wrap"><button onClick="{{ accept }}" style="cursor:pointer;padding:10px 16px;border-radius:12px;border:0;background:var(--mint);color:#06120B;font-size:13.5px;font-weight:500">Accept broker figure</button><button onClick="{{ hold }}" style="cursor:pointer;padding:10px 16px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13.5px">Wait for contract note</button></div></sc-if>
+      <span style="font-size:12.5px;color:var(--ink-2)">{{ rec.note }}</span>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px solid var(--line)"><span class="nv-eyebrow" style="font-size:9.5px">Matched today</span><sc-for list="{{ matched }}" as="mm" hint-placeholder-count="3"><div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px"><span style="color:var(--ink-2)">{{ mm.k }}</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--mint)">{{ mm.v }}</span></div></sc-for></div>
+    </section>
+    <section style="display:flex;flex-direction:column;gap:10px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span style="font-family:var(--display);font-size:24px">Risk breaches</span>
+      <span style="font-size:13px;color:var(--mint)">0 hard breaches · nothing was overridden</span>
+      <sc-for list="{{ soft }}" as="b" hint-placeholder-count="2"><div style="display:flex;flex-direction:column;gap:3px;padding:10px 0;border-top:1px solid var(--line)"><div style="display:flex;gap:8px;align-items:center"><span style="font-family:var(--mono);font-size:9.5px;letter-spacing:0.08em;color:var(--amber)">SOFT</span><span style="font-size:13.5px">{{ b.t }}</span></div><span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ b.s }}</span></div></sc-for>
+      <div style="display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px solid var(--line)"><span class="nv-eyebrow" style="font-size:9.5px">Agent health</span><sc-for list="{{ agents }}" as="g" hint-placeholder-count="5"><div style="display:flex;gap:10px;align-items:center;font-size:12.5px"><span class="nv-dot" style="background:{{ g.c }}"></span><span style="flex:1">{{ g.n }}</span><span style="font-family:var(--mono);font-size:10px;color:{{ g.c }}">{{ g.st }}</span></div></sc-for></div>
+    </section>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:14px;padding:{{ pad }};border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card)">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:220px"><span style="font-family:var(--display);font-size:26px;line-height:1.1">Workflow replay</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3)">WF-88412 · BEL long · TRD-1192 · correlation c-7f3a91</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onClick="{{ prev }}" style="cursor:pointer;width:38px;height:38px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:15px">‹</button>
+        <button onClick="{{ play }}" style="cursor:pointer;height:38px;padding:0 16px;border-radius:10px;border:1px solid var(--mint-line);background:var(--mint-soft);color:var(--mint);font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase">{{ playT }}</button>
+        <button onClick="{{ next }}" style="cursor:pointer;width:38px;height:38px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:15px">›</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <sc-for list="{{ steps }}" as="st" hint-placeholder-count="13">
+        <div onClick="{{ st.pick }}" style="cursor:pointer;display:grid;grid-template-columns:{{ stepCols }};gap:6px 14px;align-items:baseline;padding:9px 12px;border-radius:10px;background:{{ st.bg }};opacity:{{ st.op }}">
+          <span style="font-family:var(--display);font-size:18px;color:{{ st.nc }}">{{ st.n }}</span>
+          <span style="font-size:13px;font-weight:500">{{ st.who }}</span>
+          <span style="font-size:12.5px;line-height:1.45;color:var(--ink-2)">{{ st.io }}</span>
+          <span class="nv-num" style="font-family:var(--mono);font-size:10.5px;color:var(--ink-3);text-align:right">{{ st.t }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><span style="font-family:var(--display);font-size:24px">Audit search</span><span style="flex:1"></span><input value="{{ q }}" onInput="{{ onQ }}" placeholder="Trade, plan, approval, agent or policy ID" style="flex:0 1 340px;min-width:0;padding:9px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-size:13px;outline:none"></div>
+    <span class="nv-eyebrow" style="font-size:9.5px">{{ resCount }}</span>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <sc-for list="{{ results }}" as="r" hint-placeholder-count="6"><div style="display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline;padding:11px 18px;border-top:1px solid {{ r.line }}"><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--ink-3);min-width:64px">{{ r.t }}</span><span style="flex:1 1 280px;font-size:13.5px">{{ r.x }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.04em;color:var(--ink-3)">{{ r.ref }}</span></div></sc-for>
+      <sc-if value="{{ noRes }}" hint-placeholder-val="{{ false }}"><div style="padding:14px 18px;font-size:13px;color:var(--ink-3)">No audit record matches.</div></sc-if>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:1800},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;decided&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;Record&lt;string,string&gt;&quot;},&quot;nav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(screen: string, focus?: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { rec: 'open', step: 12, playing: false, q: 'TRD-1192' };
+  componentWillUnmount() { clearInterval(this.iv); }
+  renderVals() {
+    const p = this.props, m = !!p.mobile, s = this.state, d = p.decided || {};
+    const nav = (sc, f) => () => p.nav && p.nav(sc, f);
+    const pend = ['APR-3107', 'APR-3106', 'APR-3104'].filter(id => !d[id]).length;
+    const recOpen = s.rec === 'open';
+    const tiles = [['Accounts', '3', '2 trading · 1 research', 'var(--ink)', null], ['Agent health', '4 / 5', 'Tech Support degraded', 'var(--amber)', 'agents'], ['Active trades', '7', '5 paper · 2 live', 'var(--ink)', 'trades'], ['Pending approvals', String(pend), pend ? 'Oldest expires 12:10' : 'Queue clear', pend ? 'var(--amber)' : 'var(--mint)', 'approvals'], ['Risk breaches', '0 · 2', 'Hard · soft', 'var(--mint)', 'risk'], ['Capital used', '15.1% · 21.7%', 'Desk A · ZX4821', 'var(--ink)', 'risk'], ['Broker links', '1 of 2', 'ICICI Direct needs sign-in', 'var(--amber)', 'fleet'], ['Reconciliation', recOpen ? '1 open' : '0 open', recOpen ? 'REC-0418 · ₹10' : 'All matched', recOpen ? 'var(--amber)' : 'var(--mint)', null]].map(([k, v, s2, c, go]) => ({ k, v, s: s2, c, go: go ? nav(go) : () => {} }));
+    const accounts = [
+      ['Paper · Desk A', 'AUTO PAPER', 'indigo', '₹1.02 Cr', '5', '2', '1 soft · HDFCBANK at 91% of cap', 'var(--amber)', 'Matched 11:40', 'var(--mint)', 'PAPER ENGINE OK', 'var(--mint)'],
+      ['Zerodha · ZX4821', 'ASSISTED LIVE', 'mint', '₹25.1 L', '2', '1', '1 soft · ICICIBANK near stop', 'var(--amber)', recOpen ? '1 item · REC-0418' : 'Matched 11:44', recOpen ? 'var(--amber)' : 'var(--mint)', 'OK · ACK 180 MS', 'var(--mint)'],
+      ['ICICI Direct · IX2207', 'RESEARCH', 'ink', '—', '0', '0', 'None', 'var(--ink-3)', 'Not read', 'var(--ink-3)', 'SIGN IN', 'var(--danger)'],
+    ].map(([n, mode, mt, eq, open, pd, br, bc, rec, rc, brk, kc]) => ({ n, mode, mc: mt === 'ink' ? 'var(--ink-2)' : `var(--${mt})`, ml: mt === 'ink' ? 'var(--line-2)' : `var(--${mt}-line)`, eq, open, pend: pd, br, bc, rec, rc, brk, kc }));
+    const W = [['AI Trader', 'Market data → signal SIG-10255 · score 71', '09:52:10 · 1.8 s'], ['Trading Assistant', 'Signal + constraints → proposal PLN-2033 v1 · 900 shares', '09:58:31 · 5.2 s'], ['Risk Guardian', 'Proposal + portfolio → RSK-5512 PASS', '10:01:12 · 0.9 s'], ['Trading Assistant', 'Risk report → no revision needed', '10:01:13 · 0.2 s'], ['Middle Office', 'Validated plan → APR-3101 APPROVED within delegated authority', '10:04:12 · 0.4 s'], ['Capital allocator', 'Authorized plan → RSV-7712 ₹3,98,250 reserved', '10:04:13 · 0.1 s'], ['Execution controller', 'Plan + reservation → intent EXI-5521', '10:04:19 · 0.2 s'], ['Paper adapter', 'Intent → submitted, filled 900 @ 441.85', '10:04:31 · 11.6 s'], ['Lifecycle manager', 'Confirmed fill → ACTIVE_POSITION TRD-1192 · stop 432', '10:04:31 · 0.1 s'], ['Risk Guardian', 'Position + market → RSK-5528 within plan', '11:30:00 · continuous'], ['Lifecycle manager', 'Events + policy → trail armed at 452, stop resting', '11:30:00 · ongoing'], ['Reconciliation', 'Paper state → matched, 900 @ 441.85', '11:40:00 · 0.3 s'], ['Trade journal', 'Final record → waits for the exit', 'Open']];
+    const steps = W.map(([who, io, t], i) => ({ n: String(i + 1).padStart(2, '0'), who, io, t, bg: i === s.step ? 'var(--bg-3)' : 'transparent', op: i <= s.step ? '1' : '0.42', nc: i === s.step ? 'var(--mint)' : 'var(--ink-4)', pick: () => this.setState({ step: i }) }));
+    const AUD = [['10:04:31', 'TRD-1192 filled 900 @ 441.85 on the paper engine', 'TRD-1192 · EXI-5521 · PAPER'], ['10:04:12', 'APR-3101 approved BEL within delegated authority', 'APR-3101 · TRD-1192 · P-PAPER-v7'], ['11:30:00', 'RSK-5528 re-evaluated TRD-1192: within plan', 'RSK-5528 · TRD-1192'], ['11:41:52', 'TLM raised HDFCBANK stop 984 → 991', 'TRD-1189 · TRAIL-ATR-v2'], ['11:38:40', 'APR-3107 routed to the account owner', 'APR-3107 · PLN-2041 v2 · P-LIVE-v3'], ['11:31:07', 'APR-3106 routed: notional above ₹4.00 L', 'APR-3106 · PLN-2038 · P-PAPER-v7'], ['11:22:30', 'Entries blocked on 3 symbols during a BSE feed lag', 'INC-0311 · DATA-FRESH-v2'], ['11:14:03', 'LT target 1 booked, 60 of 120 sold', 'TRD-1183 · EXIT-T1-50'], ['10:47:12', 'COFORGE stop exit, 75 sold at 1,908.40', 'TRD-1184 · STOP-HARD'], ['09:47:09', 'ICICIBANK live fill 200 @ 1,428.55 (broker)', 'TRD-1180 · REC-0418 · ZX4821'], ['09:16:40', 'Kite WebSocket recovered in 34 s; 2 orders reconciled', 'INC-0310'], ['09:12:02', 'Policy P-PAPER-v7 loaded for the session', 'P-PAPER-v7 · TNT-01']];
+    const userRows = Object.entries(d).map(([id, raw]) => { const [v, at] = String(raw).split('@'); return [at, `${id} ${v.replace('_', ' ').toLowerCase()} by amit.p`, `${id} · APPROVAL`]; });
+    const q = s.q.trim().toLowerCase();
+    const results = [...userRows, ...AUD].filter(r => !q || (r[1] + ' ' + r[2]).toLowerCase().includes(q)).map(([t, x, ref], i) => ({ t, x, ref, line: i ? 'var(--line)' : 'transparent' }));
+    const play = () => {
+      if (s.playing) { clearInterval(this.iv); this.setState({ playing: false }); return; }
+      this.setState({ playing: true, step: 0 });
+      clearInterval(this.iv);
+      this.iv = setInterval(() => this.setState(x => { if (x.step >= 12) { clearInterval(this.iv); return { playing: false }; } return { step: x.step + 1 }; }), 700);
+    };
+    return {
+      h1: m ? '30px' : '44px', tileMin: m ? '150px' : '170px', twoCols: m ? 'minmax(0,1fr)' : 'minmax(0,1fr) minmax(0,1fr)', pad: m ? '18px 16px' : '20px 22px', stepCols: m ? '28px minmax(0,1fr) auto' : '34px 170px minmax(0,1fr) 140px',
+      recWord: recOpen ? 'One reconciliation item' : 'Reconciliation is clear', recTail: recOpen ? 'is waiting on a contract note.' : 'after you accepted the broker figure.', recC: recOpen ? 'var(--amber)' : 'var(--mint)',
+      tiles, accounts,
+      rec: recOpen ? { st: 'AWAITING CONTRACT NOTE', c: 'var(--amber)', line: 'var(--amber-line)', open: true, note: 'Contract notes usually arrive by 18:30. No position quantity is in doubt.' } : s.rec === 'accepted' ? { st: 'RESOLVED', c: 'var(--mint)', line: 'var(--mint-line)', open: false, note: 'Ledger adjusted to 1,428.55 by amit.p; the original 1,428.50 is kept with its source.' } : { st: 'HELD UNTIL EOD', c: 'var(--indigo)', line: 'var(--indigo-line)', open: false, note: 'Will match automatically when the contract note is imported at end of day.' },
+      accept: () => this.setState({ rec: 'accepted' }), hold: () => this.setState({ rec: 'held' }),
+      matched: [['Paper · Desk A · 5 positions, 6 fills', 'MATCHED 11:40'], ['SUNPHARMA · Zerodha', 'MATCHED 11:40'], ['COFORGE close · paper', 'MATCHED 10:47']].map(([k, v]) => ({ k, v })),
+      soft: [['HDFCBANK at 91% of the 6% instrument cap', 'Paper · Desk A · no new HDFCBANK risk can be added without breaching'], ['ICICIBANK 1.2% above its stop', 'ZX4821 · SL-M rests at the broker; no action required']].map(([t, s2]) => ({ t, s: s2 })),
+      agents: [['AI Trader', 'BUSY', 'var(--mint)'], ['Trading Assistant', 'BUSY', 'var(--mint)'], ['Risk Guardian', 'BUSY', 'var(--mint)'], ['Middle Office', 'IDLE', 'var(--ink-2)'], ['Tech Support', 'DEGRADED', 'var(--amber)']].map(([n, st, c]) => ({ n, st, c })),
+      steps, play, playT: s.playing ? 'Pause' : 'Replay', prev: () => this.setState(x => ({ step: Math.max(0, x.step - 1) })), next: () => this.setState(x => ({ step: Math.min(12, x.step + 1) })),
+      q: s.q, onQ: (e) => this.setState({ q: e.target.value }), results, noRes: results.length === 0, resCount: `${results.length} record${results.length === 1 ? '' : 's'}${q ? ' for “' + s.q + '”' : ''}`,
+    };
+  }
+}
+</script>
+</body>
+</html>

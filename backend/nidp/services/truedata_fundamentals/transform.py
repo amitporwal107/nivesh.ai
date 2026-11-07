@@ -8,7 +8,9 @@ each one caused a real defect or a near miss:
   * LevelOfRoundingUsedInFinancialStatements is usually blank → `infer_units`: TrueData FY revenue / our FY revenue,
     accepted only within 1.5x of a unit factor (units are >= 10x apart, so a ratio between 1.5x and 6.7x decides
     nothing: RADICO's revenue is gross of excise, ratio 3.475, and a 3x tolerance loaded it 10x too small); else the
-    share-capital anchor; else the filing's own rounding text; else the row is REFUSED. Never guessed.
+    share-capital anchor; else the row is REFUSED. Never guessed: the filing's own rounding text is NOT a unit source
+    (3 Nov 2026: SWIGGY's Sep-2024 filing says "Millions" over crore values; MANYAVAR, VIMTALABS and KICL have no
+    anchor and say "Millions" while their values are crore-consistent, so they would have loaded 10x too small).
   * CurrentLiabilities is often 0 while Liabilities and NoncurrentLiabilities are filled → CL = L − NCL.
   * Bank-format statements (OtherAssetsGroup.Advances > 0) are not mapped: current ratio means nothing for a bank.
   * Cash flow: fiscal-year filings only. nidp.nse_financials_cashflow is annual and v_stock_fundamentals_latest divides
@@ -38,9 +40,6 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 FACTORS: Dict[str, float] = {"crore": 1.0, "million": 10.0, "lakh": 100.0, "thousand": 1e4, "rupee": 1e7}
 UNIT_TOLERANCE = 1.5
-ROUNDING_WORDS = {"crore": "crore", "crores": "crore", "lakh": "lakh", "lakhs": "lakh", "lacs": "lakh",
-                  "millions": "million", "million": "million", "thousands": "thousand", "thousand": "thousand",
-                  "rupees": "rupee", "actual": "rupee"}
 
 H1_FY = frozenset({"Second quarter", "Half yearly", "Yearly"})            # filings that carry a balance sheet
 QUARTER_LABELS = frozenset({"First quarter", "Second quarter", "Third quarter", "Yearly"})   # quarter-only P&L exists
@@ -319,14 +318,19 @@ def infer_units(fy_pnls: Mapping[Tuple[str, str], Sequence[Tuple[Filing, Mapping
 
 def unit_for(filing: Filing, units: Mapping[Tuple[str, str], Unit], notes: Mapping[Tuple[str, str], str],
              gi: Optional[Mapping[str, Any]]) -> Tuple[Optional[Unit], str]:
-    """The company's anchored unit, else the filing's own rounding text, else (None, why)."""
+    """The company's anchored unit (revenue or share capital), else (None, why): the filing is REFUSED. The filing's
+    LevelOfRoundingUsedInFinancialStatements text never decides a unit (it is wrong for real filings, see the module
+    docstring); it is only quoted in the reason."""
     if filing.key in units:
         return units[filing.key], ""
+    why = "no revenue or share-capital anchor"
+    note = notes.get(filing.key)
+    if note:
+        why += f": {note}"
     word = str((gi or {}).get("LevelOfRoundingUsedInFinancialStatements") or "").strip()
-    w = ROUNDING_WORDS.get(word.lower())
-    if w:
-        return Unit(w, f"filing rounding '{word}'"), ""
-    return None, notes.get(filing.key, "no anchor and no rounding text")
+    if word:
+        why += f" (filing rounding text '{word[:40]}' is not trusted)"
+    return None, why
 
 
 def capital_mismatch(statement_capital: Optional[float], unit: Unit) -> Optional[str]:
@@ -478,9 +482,9 @@ def cash_flow_offer(filing: Filing, cf: Mapping[str, Any], al: Optional[Mapping[
         why.append("no CFO")
     if cfo is not None and cfi is not None and cff is not None and net is not None:
         scale = max(abs(cfo), abs(cfi), abs(cff), 1.0)
-        target = before if before is not None else net - fx
-        if abs((cfo + cfi + cff) - target) > max(IDENTITY_TOLERANCE * scale, 2.0):
-            why.append(f"CFO+CFI+CFF {cfo + cfi + cff:.0f} != net change before FX {target:.0f}")
+        expected = before if before is not None else net - fx
+        if abs((cfo + cfi + cff) - expected) > max(IDENTITY_TOLERANCE * scale, 2.0):
+            why.append(f"CFO+CFI+CFF {cfo + cfi + cff:.0f} != net change before FX {expected:.0f}")
     if why:
         out.rejects.append(Reject("cash_flow", filing.symbol, period_end, filing.id, "; ".join(why)))
         return None
@@ -553,24 +557,24 @@ def fy_pnl_candidates(all_filings: Sequence[Filing], keys: Iterable[Tuple[str, s
     return out
 
 
-def statements_needed(targets: Sequence[Filing], all_filings: Sequence[Filing], finance_costs: bool = True,
+def statements_needed(window_filings: Sequence[Filing], all_filings: Sequence[Filing], finance_costs: bool = True,
                       rank: Optional[Mapping[str, int]] = None) -> List[Tuple[str, int]]:
     """(kind, filing id) to have in the cache, in fetch order. Company by company (`rank`: lower first, e.g. largest
     market cap): its latest FY P&L (unit anchor), then the balance sheet and cash flow of each half-year / fiscal-year
     filing; after every company, the quarter-only P&Ls (finance costs). A run cut short has the most useful part."""
     rank = rank or {}
     last = len(rank) + 1
-    fy = fy_pnl_candidates(all_filings, {f.key for f in targets})
+    fy = fy_pnl_candidates(all_filings, {f.key for f in window_filings})
     first: List[Tuple[int, str, int, Tuple[str, int]]] = []
     for key, cands in fy.items():
         first.append((rank.get(key[0], last), key[0], 0, ("pl", cands[0].id)))
-    for f in targets:
+    for f in window_filings:
         if f.quarter in H1_FY:
             first.append((rank.get(f.symbol, last), f.symbol, 1, ("al", f.id)))
             first.append((rank.get(f.symbol, last), f.symbol, 2, ("cf", f.id)))
     need = [n for *_, n in sorted(first, key=lambda x: x[:3] + (x[3][1],))]
     if finance_costs:
-        need += [("plq", f.id) for f in sorted(targets, key=lambda f: (rank.get(f.symbol, last), f.symbol, f.id))
+        need += [("plq", f.id) for f in sorted(window_filings, key=lambda f: (rank.get(f.symbol, last), f.symbol, f.id))
                  if f.quarter in QUARTER_LABELS]
     seen, ordered = set(), []
     for n in need:
@@ -580,15 +584,15 @@ def statements_needed(targets: Sequence[Filing], all_filings: Sequence[Filing], 
     return ordered
 
 
-def build(targets: Sequence[Filing], all_filings: Sequence[Filing], get: Getter, ours: OurFinancials,
+def build(window_filings: Sequence[Filing], all_filings: Sequence[Filing], get: Getter, ours: OurFinancials,
           shares: Mapping[str, float], finance_costs: bool = True) -> TransformResult:
-    """Offers for the target filings. `all_filings` (deduped, nature-filtered) supplies the fiscal-year P&Ls that
+    """Offers for the load window's filings. `all_filings` (deduped, nature-filtered) supplies the fiscal-year P&Ls that
     anchor each company's unit. A statement `get` returns None for (not fetched) is counted, never guessed."""
     out = TransformResult()
-    cands = fy_pnl_candidates(all_filings, {f.key for f in targets})
+    cands = fy_pnl_candidates(all_filings, {f.key for f in window_filings})
     fy_pnls = {k: [(f, get("pl", f.id)) for f in v] for k, v in cands.items()}
     out.units, out.unit_notes = infer_units(fy_pnls, ours, shares)
-    for f in targets:
+    for f in window_filings:
         out.counts["filings"] += 1
         if f.quarter in H1_FY:
             al = get("al", f.id)

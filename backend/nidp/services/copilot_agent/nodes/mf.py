@@ -36,14 +36,14 @@ When asked "Is this a good fund?" or "Should I continue?":
 3. Call out any Q1 strengths or Q4 red flags in quartile data
 4. Flag ⚠️ red-flag lifecycle events prominently (manager changes, TER hikes, mergers)
 5. Mention if TER is creeping up from disclosure trail
-6. Give a clear CONTINUE / REVIEW / EXIT recommendation with reasoning
+6. Give the fund's status on these checks — FITS / REVIEW / DOES NOT FIT — with reasoning (a fit check, not advice)
 
 Style:
 - ≤ 350 words, plain text (no markdown)
 - 1-year, 3-year, 5-year CAGR comparisons where available
 - Risk metrics (Sharpe, max drawdown) if available
 - Overlap % between funds if user asked about overlap
-- Top-3 recommendation as plain lines if user asked for best funds
+- The top 3 funds that fit, ordered for review, as plain lines if user asked for best funds
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 """ + ANTI_HALLUCINATION_RULES
 
@@ -226,7 +226,7 @@ REQUIRED ORDER (do not reorder):
 2. Count block — a block-bar, then one reading sentence:
      Holdings you own:     ████████  {N}
      Distinct strategies:  █████     {D}   ({why they collapse})
-     Could trim to:        ████      {T}
+     Could consolidate to: ████      {T}
    Then: "{N} funds, but {D} real bets; {T} would lose nothing."
    N = mf_count. D = N minus the Regular+Direct duplicates and near-identical
    funds. T = N minus removable_fund_count.
@@ -283,7 +283,7 @@ REQUIRED ORDER:
 1. One-line summary: how many pairs overlap and the single biggest fix.
 2. Cost fix (only if regular_direct_duplicate_pairs > 0), one "→" line per scheme:
    → {Scheme}: redirect SIP to Direct, switch existing units across.
-   Close: "Same fund, lower cost. Switching is a sell+rebuy — check exit load
+   Close: "Same fund, lower cost. Switching is a redemption and a fresh purchase — check exit load
    and capital-gains tax first."
 3. Redundancy review (only if cross_fund_overlap_pairs > 0), one "→" line each:
    → {Fund A} vs {Fund B}: ~{x}% overlap — keep one. {one-line question}

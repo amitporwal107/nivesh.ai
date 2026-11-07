@@ -78,7 +78,7 @@ export function ScenarioFan({ bars, name, trigger = null, invalidation = null, t
 
   const levelsList = [
     trigger != null ? { label: words.entry, value: trigger } : null,
-    invalidation != null ? { label: investor ? "Exit if below" : "Invalidation", value: invalidation } : null,
+    invalidation != null ? { label: investor ? "Risk level" : "Invalidation", value: invalidation } : null,
   ].filter((x): x is { label: string; value: number } => x != null);
 
   // Scenario pane

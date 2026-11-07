@@ -329,13 +329,13 @@ def test_bt7_adherence_is_assessed_only_where_a_stop_or_plan_was_in_force():
     a = broker_review.adherence(trip(), None, None)
     assert a["cell"] == "No plan recorded" and not a["assessed"] and a["facts"] == []                               # never guessed
     b = broker_review.adherence(trip(exit_=94.0), lv(stop=96.0), None)
-    assert b["cell"] == "Stop not honoured" and any("beyond your stop" in f["text"] and f["tone"] == "warn" for f in b["facts"])
+    assert b["cell"] == "Risk level not honoured" and any("beyond your risk level" in f["text"] and f["tone"] == "warn" for f in b["facts"])
     c = broker_review.adherence(trip(exit_=98.0), lv(stop=96.0), None)
-    assert c["cell"] == "Exited before the stop"
+    assert c["cell"] == "Closed before the risk level"
     d = broker_review.adherence(trip(exit_=112.0), lv(stop=96.0, target=110.0), None)
-    assert d["cell"] == "Target reached"
+    assert d["cell"] == "Reward level reached"
     e = broker_review.adherence(trip(direction="short", entry=100.0, exit_=104.0), lv(stop=102.0), None)           # a short's stop is above
-    assert e["cell"] == "Stop not honoured"
+    assert e["cell"] == "Risk level not honoured"
 
 
 def test_bt7b_a_stop_set_after_the_trade_closed_and_a_plan_recorded_after_it_opened_are_not_used():
@@ -347,12 +347,12 @@ def test_bt7b_a_stop_set_after_the_trade_closed_and_a_plan_recorded_after_it_ope
 
 def test_bt7c_a_plan_gives_the_entry_offset_a_conflict_and_options_are_compared_by_direction_only():
     a = broker_review.adherence(trip(entry=102.0, exit_=108.0), None, pl())
-    assert any("2.00% above the plan's entry" in f["text"] for f in a["facts"]) and a["assessed"] and a["cell"] in ("Within your stop", "Plan recorded")
+    assert any("2.00% above the plan's reference price" in f["text"] for f in a["facts"]) and a["assessed"] and a["cell"] in ("Within your risk level", "Plan recorded")
     b = broker_review.adherence(trip(), None, pl(direction="bearish"))
-    assert b["cell"] in ("Against the plan", "Stop not honoured") and any("against a bearish plan" in f["text"] for f in b["facts"])
+    assert b["cell"] in ("Against the plan", "Risk level not honoured") and any("against a short plan" in f["text"] for f in b["facts"])
     c = broker_review.adherence(trip(kind="option", instrument="PE", exit_=90.0), lv(stop=96.0), pl(direction="bearish"))
     assert not any("beyond" in f["text"] for f in c["facts"])                              # a premium is not compared with a level on the underlying
-    assert any("same way as the bearish plan" in f["text"] for f in c["facts"])             # a long put is a bearish view
+    assert any("same way as the short plan" in f["text"] for f in c["facts"])             # a long put is a bearish view
 
 
 # ── BT-8: the review ─────────────────────────────────────────────────────────
@@ -398,7 +398,7 @@ def test_bt8b_broker_round_trips_are_a_labelled_section_beside_the_paper_review(
     assert k["Round trips closed"] == "1" and k["Wins / losses"] == "0 / 1" and k["Realised P&L"] == "−₹50.00" and k["Unmatched legs"] == "1"
     trips = next(b for b in p["blocks"] if b.get("id") == "broker_trips")
     row = trips["rows"][0]
-    assert row["badge"] == "Broker" and row["cells"]["plan"] == "Stop not honoured" and row["cells"]["pnl"] == -50.0
+    assert row["badge"] == "Broker" and row["cells"]["plan"] == "Risk level not honoured" and row["cells"]["pnl"] == -50.0
     assert "gross" in trips["columns"][6]["label"]
     rules = next(b for b in p["blocks"] if b.get("id") == "broker_rules")
     assert any("1 of 1 round trip" in i["text"] for i in rules["items"])

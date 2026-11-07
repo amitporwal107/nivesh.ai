@@ -253,7 +253,7 @@ def test_route_without_a_kite_session_falls_back_to_the_bhavcopy_day(monkeypatch
 
 def test_route_refuses_an_unknown_interval_and_is_get_only(monkeypatch):
     c = _fno_client(monkeypatch, FakeFutService({"availability": "token_missing"}), _eod_reply)
-    assert c.get("/api/fno/HDFCBANK/futures/oi-buildup?interval=1m").status_code == 400
+    assert c.get("/api/fno/HDFCBANK/futures/oi-buildup?interval=2m").status_code == 400
     assert c.post("/api/fno/HDFCBANK/futures/oi-buildup").status_code == 405
     methods = {m for r in lc_route.router.routes for m in r.methods}
     assert methods == {"GET"}
@@ -340,8 +340,12 @@ def test_stage_markers_follow_the_scanners_stage_changes():
 
 # ── TC-10 / TC-14 the live-chart route ───────────────────────────────────────
 
-def _lc_client(monkeypatch, *, intraday=None, daily=None, signals=([], None), plan=None, kite_today=None):
-    """kite_today: a day_quote.day_quotes answer for the daily fallback (default: no Kite quote, why no_saved_close)."""
+def _lc_client(monkeypatch, *, intraday=None, daily=None, signals=([], None), plan=None, kite_today=None, seen=None):
+    """kite_today: a day_quote.day_quotes answer for the daily fallback (default: no Kite quote, why no_saved_close).
+    seen: a dict that collects the reads asked for ("intraday": [(interval, sessions)], "daily": [days])."""
+    seen = seen if seen is not None else {}
+    seen.setdefault("intraday", [])
+    seen.setdefault("daily", [])
     async def day_quotes(symbols, now=None, feed=None):
         return kite_today or {"source": None, "day": None, "as_of": None, "quotes": {}, "why": "no_saved_close"}
 
@@ -349,11 +353,13 @@ def _lc_client(monkeypatch, *, intraday=None, daily=None, signals=([], None), pl
         return {"user_id": "u1", "email": "u1@example.com"}
 
     async def read_intraday(sym, interval, sessions, user):
+        seen["intraday"].append((interval, sessions))
         if isinstance(intraday, Exception):
             raise intraday
         return intraday or {"availability": "token_missing", "bars": []}
 
-    async def read_daily(sym):
+    async def read_daily(sym, days=None):
+        seen["daily"].append(days)
         return daily or []
 
     async def read_signals(sym, since):
@@ -464,7 +470,7 @@ def test_live_chart_plan_checks_and_signal_db_down(monkeypatch):
     assert c.get("/api/desk/live-chart/ICICIBANK?plan_id=tp_abc").status_code == 400
     b = c.get("/api/desk/live-chart/HDFCBANK?plan_id=tp_abc").json()
     assert b["markers_error"] == "the signal database is not reachable" and all(m["kind"] == "RVOL" for m in b["markers"])
-    assert c.get("/api/desk/live-chart/HDFCBANK?interval=1m").status_code == 400
+    assert c.get("/api/desk/live-chart/HDFCBANK?interval=2m").status_code == 400
 
 
 def test_a_list_with_two_months_is_read_again_and_the_answer_says_which_are_missing(monkeypatch):
@@ -489,3 +495,158 @@ def test_a_list_with_two_months_is_read_again_and_the_answer_says_which_are_miss
     s._cache.clear()
     again = run(s.futures_bars("HDFCBANK", "15m", 2))
     assert len(again["contracts"]) == 3 and k.reads == 2
+
+
+# ── chart-analysis timeframes (test_reports/chart_analysis_signals_TESTCASES.md B1-B8) ──────────────────────────────
+
+def test_b1_five_minute_candles_read_kite_at_5m_with_the_warm_up_and_send_sma20(monkeypatch):
+    seen = {}
+    bars = _intraday_bars()
+    c = _lc_client(monkeypatch, intraday={"availability": "ok", "bars": bars, "live_merged": False}, seen=seen)
+    r = c.get("/api/desk/live-chart/HDFCBANK?interval=5m&sessions=3")
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert seen["intraday"] == [("5m", 3 + lc_route.WARMUP_SESSIONS)] and seen["daily"] == []
+    assert b["timeframe"]["interval"] == "5m" and b["timeframe"]["label"] == "5M" and b["timeframe"]["reason"] is None
+    assert len(b["sma20"]) == len(b["ema20"]) == len(b["rvol"]) == len(b["bars"])
+
+
+def test_b2_one_hour_takes_ten_sessions_and_is_labelled_1h(monkeypatch):
+    seen = {}
+    c = _lc_client(monkeypatch, intraday={"availability": "ok", "bars": _intraday_bars(), "live_merged": False}, seen=seen)
+    r = c.get("/api/desk/live-chart/HDFCBANK?interval=60m&sessions=10")
+    assert r.status_code == 200, r.text
+    assert seen["intraday"] == [("60m", 10 + lc_route.WARMUP_SESSIONS)]
+    assert r.json()["timeframe"]["label"] == "1H"
+    for iv in ("1m", "3m", "30m"):
+        assert c.get(f"/api/desk/live-chart/HDFCBANK?interval={iv}").status_code == 200, iv
+
+
+def test_b3_daily_asked_for_reads_no_kite_and_has_no_reason(monkeypatch):
+    seen = {}
+    daily = _daily_through("2026-10-26", 180)
+    c = _lc_client(monkeypatch, intraday={"availability": "ok", "bars": _intraday_bars()}, daily=daily, seen=seen)
+    b = c.get("/api/desk/live-chart/HDFCBANK?interval=1d").json()
+    assert seen["intraday"] == [] and seen["daily"] == [lc_route.DAILY_ASKED_READ_DAYS]
+    assert b["timeframe"]["interval"] == "1d" and b["timeframe"]["label"] == "DAILY"
+    assert b["timeframe"]["reason"] is None and b["timeframe"]["reason_text"] is None
+    assert len(b["bars"]) == lc_route.DAILY_ASKED_SHOWN and b["bars"][-1][0] == "2026-10-26"
+
+
+def test_b4_weekly_bars_are_built_from_the_daily_bars_and_markers_move_to_their_week(monkeypatch):
+    seen = {}
+    daily = _daily_through("2026-10-23", 600)          # ends on a Friday: whole weeks
+    sigs = [{"signal_date": "2026-10-21", "stage": "EARLY_BREAKOUT", "revision": 1, "entry": 300.0, "stop": 280.0, "target": 320.0,
+             "engine_version": "v2", "computed_at": None, "live": True}]
+    c = _lc_client(monkeypatch, daily=daily, signals=(sigs, None), seen=seen)
+    b = c.get("/api/desk/live-chart/HDFCBANK?interval=1w").json()
+    assert seen["intraday"] == [] and seen["daily"] == [lc_route.WEEKLY_READ_DAYS]
+    assert b["timeframe"]["interval"] == "1w" and b["timeframe"]["label"] == "WEEKLY" and b["timeframe"]["reason"] is None
+    assert len(b["bars"]) == lc_route.WEEKLY_SHOWN
+    last_week = [d for d in daily if d[0] >= "2026-10-19"]
+    assert b["bars"][-1] == ["2026-10-19", last_week[0][1], max(d[2] for d in last_week), min(d[3] for d in last_week), last_week[-1][4],
+                             sum(d[5] for d in last_week)]
+    assert all(date.fromisoformat(x[0]).weekday() == 0 for x in b["bars"])   # every week of the fixture starts on a Monday
+    assert len(b["ema20"]) == len(b["sma20"]) == len(b["rvol"]) == len(b["bars"])
+    assert [m["at"] for m in b["markers"] if m["kind"] == "READY"] == ["2026-10-19"]
+    assert b["last"]["at"] == "2026-10-23" and b["last"]["price"] == daily[-1][4]
+
+
+def test_b4_weekly_aggregation_skips_missing_days():
+    days = [["2026-10-19", 10, 12, 9, 11, 100], ["2026-10-21", 11, 15, 10, 14, 50], ["2026-10-26", 14, 14, 13, 13.5, 10]]
+    assert lc.weekly_bars(days) == [["2026-10-19", 10.0, 15.0, 9.0, 14.0, 150.0], ["2026-10-26", 14.0, 14.0, 13.0, 13.5, 10.0]]
+
+
+def test_b5_an_unknown_interval_is_400_and_too_many_sessions_422(monkeypatch):
+    c = _lc_client(monkeypatch)
+    assert c.get("/api/desk/live-chart/HDFCBANK?interval=2h").status_code == 400
+    assert c.get("/api/desk/live-chart/HDFCBANK?interval=5m&sessions=11").status_code == 422
+    assert c.get("/api/desk/live-chart/HDFCBANK?interval=5m&sessions=0").status_code == 422
+
+
+def test_b6_kite_down_at_5m_falls_back_to_daily_and_names_the_interval(monkeypatch):
+    daily = _daily_through("2026-10-26", 90)
+    c = _lc_client(monkeypatch, daily=daily)
+    b = c.get("/api/desk/live-chart/HDFCBANK?interval=5m").json()
+    assert b["timeframe"]["interval"] == "1d" and b["timeframe"]["reason"] == "token_missing"
+    assert b["timeframe"]["reason_text"].startswith("Kite login needed for 5m candles")
+    b = c.get("/api/desk/live-chart/HDFCBANK?interval=60m").json()
+    assert b["timeframe"]["reason_text"].startswith("Kite login needed for 1h candles")
+    assert len(b["bars"]) == lc_route.DAILY_SHOWN
+
+
+def test_b7_sma20_is_the_mean_of_the_last_twenty_closes():
+    closes = [float(i) for i in range(1, 31)]
+    s = lc.sma_series(closes)
+    assert s[:19] == [None] * 19
+    assert s[19] == 10.5 and s[29] == 20.5
+
+
+def test_b8_oi_buildup_takes_one_and_three_minute_bars_and_ten_sessions(monkeypatch):
+    svc = FakeFutService({"availability": "token_missing", "contracts": []})
+    c = _fno_client(monkeypatch, svc, daas_reply=_eod_reply)
+    for iv in ("1m", "3m"):
+        r = c.get(f"/api/fno/HDFCBANK/futures/oi-buildup?interval={iv}&window=4&sessions=10")
+        assert r.status_code == 200, (iv, r.text)
+    assert svc.asked == [("HDFCBANK", "1m", 11), ("HDFCBANK", "3m", 11)]
+    assert c.get("/api/fno/HDFCBANK/futures/oi-buildup?interval=2m").status_code == 400
+    assert c.get("/api/fno/HDFCBANK/futures/oi-buildup?interval=5m&sessions=11").status_code == 422
+
+
+def test_b8_kite_names_for_one_and_three_minutes():
+    assert it.INTERVALS["1m"][0] == "minute" and it.INTERVALS["3m"][0] == "3minute"
+    k = FutKite()
+    r = run(_svc(k).futures_bars("hdfcbank", "1m", 1))
+    assert r["availability"] == "ok"
+    assert {c[2] for c in k.calls if c[0] == "hist_oi"} == {"minute"}
+
+
+# --- the real intraday read path (3 Nov, after #463 on staging: 1m / 3m fell back to daily) -------------------------------
+# The tests above stub `read_intraday`; these run it, with only Kite itself (the service), the feed and the token reload
+# replaced, so a narrower interval check anywhere on the path shows up here.
+
+def _real_read_path(monkeypatch):
+    from routes import research_chart_intraday as rci
+    asked = []
+
+    class Feed:
+        async def read_status(self):
+            return {"state": "live", "session": "open", "cadence_seconds": 5}
+
+        async def read_snapshot(self):
+            return {"quotes": [], "data_at": None}
+
+    class Service:
+        async def bars(self, sym, interval, sessions, *, session_open=False, live_ltp=None):
+            if interval not in it.INTERVALS:          # the real service's own check
+                raise ValueError("unsupported interval")
+            asked.append((sym, interval, sessions))
+            return {"availability": "ok", "bars": [["2026-10-27T09:15:00+05:30", 100.0, 101.0, 99.0, 100.5, 1000.0]],
+                    "live_merged": False}
+
+    async def no_reload():
+        return None
+
+    monkeypatch.setattr(rci, "get_feed", lambda: Feed())
+    monkeypatch.setattr(rci, "get_service", lambda: Service())
+    monkeypatch.setattr(rci, "_refresh_platform_token", no_reload)
+    return asked
+
+
+def test_real_read_serves_every_intraday_interval_of_the_route(monkeypatch):
+    asked = _real_read_path(monkeypatch)
+    for interval in lc_route.INTERVAL_MINUTES:
+        got = run(lc_route.read_intraday("PETRONET", interval, 3, {"user_id": "u1"}))
+        assert got["availability"] == "ok", interval
+    assert [a[1] for a in asked] == list(lc_route.INTERVAL_MINUTES)
+    assert {"1m", "3m"} <= set(lc_route.INTERVAL_MINUTES)
+
+
+def test_research_route_keeps_5m_and_up(monkeypatch):
+    from routes import research_chart_intraday as rci
+    asked = _real_read_path(monkeypatch)
+    with pytest.raises(HTTPException) as e:
+        run(rci.intraday(symbol="PETRONET", interval="1m", sessions=1, user={"user_id": "u1"}))
+    assert e.value.status_code == 400
+    run(rci.intraday(symbol="PETRONET", interval="5m", sessions=1, user={"user_id": "u1"}))
+    assert asked == [("PETRONET", "5m", 1)]

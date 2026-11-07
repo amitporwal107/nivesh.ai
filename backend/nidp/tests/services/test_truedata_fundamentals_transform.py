@@ -1,5 +1,6 @@
 """TrueData fundamentals: pure transform and load planning — TC-06..TC-17 (+ plan rules of TC-18..TC-21) of
-test_reports/truedata_fundamentals_job_TESTCASES.md.
+test_reports/truedata_fundamentals_job_TESTCASES.md, and UF-01..UF-05 of
+test_reports/truedata_unit_fallback_fix_TESTCASES.md (an anchorless filing is refused; its rounding text is no unit).
 
 Every payload is SYNTHETIC, built with the key names TrueData used on 2 Nov 2026 (the real answers are under NDA and
 are not in the repository). The numbers model the cases that mattered: a TCS-like crore filer, a lakh filer, a
@@ -202,15 +203,35 @@ def test_tc11_unit_tolerance_is_1_5x():
     assert T.nearest_unit(0) is None and T.nearest_unit(None) is None
 
 
-def test_tc12_rounding_text_then_refuse():
+@pytest.mark.parametrize("word", ["Millions", "Lakhs", "Crores", "Thousands", "Actual"])
+def test_tc12_uf01_no_anchor_is_refused_the_rounding_text_is_never_a_unit(word):
+    # 3 Nov 2026: MANYAVAR / VIMTALABS / KICL have no anchor and say "Millions" over crore-consistent values
     f = filing(13, symbol="NOREF")
-    u, why = T.unit_for(f, {}, {}, {"LevelOfRoundingUsedInFinancialStatements": "Lakhs"})
-    assert (u.name, u.how) == ("lakh", "filing rounding 'Lakhs'")
-    u, why = T.unit_for(f, {}, {}, {"LevelOfRoundingUsedInFinancialStatements": ""})
-    assert u is None and why == "no anchor and no rounding text"
+    u, why = T.unit_for(f, {}, {}, {"LevelOfRoundingUsedInFinancialStatements": word})
+    assert u is None
+    assert why == f"no revenue or share-capital anchor (filing rounding text '{word}' is not trusted)"
     out = T.TransformResult()
-    assert T.balance_sheet_offer(filing(13, symbol="NOREF"), al(), None, why, out) is None
-    assert out.rejects[0].reason.startswith("unit unknown")
+    assert T.balance_sheet_offer(f, al(rounding=word), u, why, out) is None
+    assert out.rejects[0].reason == f"unit unknown ({why})"
+
+
+def test_tc12_uf02_no_anchor_blank_text_and_anchor_note_kept():
+    f = filing(13, symbol="NOREF")
+    assert T.unit_for(f, {}, {}, {"LevelOfRoundingUsedInFinancialStatements": ""}) == \
+        (None, "no revenue or share-capital anchor")
+    assert T.unit_for(f, {}, {}, None) == (None, "no revenue or share-capital anchor")
+    notes = {f.key: "revenue anchor mismatch ratio 3.475"}
+    assert T.unit_for(f, {}, notes, {"LevelOfRoundingUsedInFinancialStatements": "Millions"}) == \
+        (None, "no revenue or share-capital anchor: revenue anchor mismatch ratio 3.475 "
+               "(filing rounding text 'Millions' is not trusted)")
+    assert not hasattr(T, "ROUNDING_WORDS")                     # nothing left to map a rounding word to a unit
+
+
+def test_tc12_anchored_unit_wins_over_the_rounding_text():
+    f = filing(13, symbol="AAAA")
+    anchored = T.Unit("crore", "revenue anchor (annual row) ratio 1", 10.0)
+    assert T.unit_for(f, {f.key: anchored}, {}, {"LevelOfRoundingUsedInFinancialStatements": "Lakhs"}) == \
+        (anchored, "")
 
 
 # ── TC-13..15 balance sheet ──────────────────────────────────────────────────────────────────────────────────
@@ -330,6 +351,65 @@ def test_tc17_bank_pnl_and_missing_field_are_skipped_not_rejected():
     del p["Expenses"]["NonOperating"]["InterestExpense"]
     assert T.finance_cost_offer(filing(quarter="Second quarter"), p, CRORE, "", Q_OURS, out) is None
     assert out.counts == Counter(fc_bank_format_skipped=1, fc_no_interest_field=1) and not out.rejects
+
+
+# ── unit decision over the whole pass (fix of 3 Nov 2026: the rounding text is never a unit) ─────────────────
+
+def anchorless_store(word="Millions", symbol="NOAN"):
+    """MANYAVAR-like: a FY P&L exists, but we hold no revenue and no shares for the company (no anchor at all); every
+    balance sheet says `word`. Filings: FY 2026-03-31 (id 300), H1 2026-09-30 (id 400)."""
+    fy = filing(300, "2026-05-20T18:00:00", symbol=symbol, quarter="Yearly")
+    h1 = filing(400, "2026-10-28T18:00:00", symbol=symbol, quarter="Second quarter")
+    store = {("pl", 300): pl(revenue=29000.0, puc="240"), ("al", 300): al(rounding=word), ("cf", 300): cf(),
+             ("plq", 300): pl("2026-01-01", "2026-03-31", revenue=7300.0, interest=3.0),
+             ("al", 400): al(fy_start="2026-04-01", fy_end="2027-03-31", quarter="Second quarter", rounding=word),
+             ("cf", 400): cf(start="2026-04-01", end="2026-09-30"),
+             ("plq", 400): pl("2026-07-01", "2026-09-30", revenue=7400.0, interest=3.0)}
+    return [fy, h1], store
+
+
+def test_uf03_build_anchorless_millions_company_offers_nothing():
+    fl, store = anchorless_store()
+    o = ours(("AAAA", "2026-03-31", True, "annual", 2600.0))         # revenue of another company only
+    res = T.build(fl, fl, lambda k, i: store.get((k, i)), o, {"AAAA": 1e8})
+    assert res.offers == [] and res.units == {}
+    rb = "unit unknown (no revenue or share-capital anchor (filing rounding text 'Millions' is not trusted))"
+    rf = "unit unknown (no revenue or share-capital anchor)"           # quarter P&L: no balance sheet text to quote
+    assert sorted((r.kind, str(r.period_end), r.reason) for r in res.rejects) == [
+        ("balance_sheet", "2026-03-31", rb), ("balance_sheet", "2026-09-30", rb), ("cash_flow", "2026-03-31", rb),
+        ("finance_costs", "2026-03-31", rf), ("finance_costs", "2026-09-30", rf)]
+    assert res.counts["cf_half_year_not_loaded"] == 1
+
+
+def test_uf04_build_anchored_company_still_loads_in_its_anchored_unit():
+    fy = filing(100, "2026-04-20T18:00:00", quarter="Yearly")
+    store = {("pl", 100): pl(revenue=2600.0), ("al", 100): al(rounding="Lakhs"), ("cf", 100): cf(),
+             ("plq", 100): pl("2026-01-01", "2026-03-31", revenue=640.0, interest=3.0)}
+    o = ours(("AAAA", "2026-03-31", True, "annual", 2600.0), ("AAAA", "2026-03-31", True, "quarterly", 640.0))
+    res = T.build([fy], [fy], lambda k, i: store.get((k, i)), o, {})
+    assert not res.rejects
+    by = {x.kind: x for x in res.offers}
+    assert sorted(by) == ["balance_sheet", "cash_flow", "finance_costs"]
+    assert {(x.unit, x.unit_how) for x in res.offers} == {("crore", "revenue anchor (annual row) ratio 1")}
+    assert by["balance_sheet"].values["current_assets_cr"] == D("600.0")       # crore as filed, not / 100
+    assert by["cash_flow"].values["cfo_cr"] == D("520.0")
+    assert by["finance_costs"].values == {"finance_costs_cr": D("3.0")}
+
+
+def test_uf05_swiggy_like_pre_ipo_filing_is_still_refused():
+    # anchored crore on a FY P&L with paid-up capital 261; the pre-IPO H1 filing shows 13,440 and says "Millions"
+    fy = filing(500, "2026-05-09T18:00:00", symbol="SWGY", quarter="Yearly")
+    h1 = filing(501, "2024-12-19T18:00:00", symbol="SWGY", quarter="Second quarter")
+    store = {("pl", 500): pl(revenue=21000.0, puc="261"), ("al", 500): al(cap=261.0), ("cf", 500): cf(),
+             ("al", 501): al(fy_start="2024-04-01", fy_end="2025-03-31", quarter="Second quarter", cap=13440.1,
+                             rounding="Millions"),
+             ("cf", 501): cf(start="2024-04-01", end="2024-09-30")}
+    o = ours(("SWGY", "2026-03-31", True, "annual", 21000.0))
+    res = T.build([fy, h1], [fy, h1], lambda k, i: store.get((k, i)), o, {}, finance_costs=False)
+    assert [(x.kind, str(x.period_end)) for x in res.offers] == [("balance_sheet", "2026-03-31"),
+                                                                 ("cash_flow", "2026-03-31")]
+    assert [(r.kind, str(r.period_end), r.reason) for r in res.rejects] == [
+        ("balance_sheet", "2024-09-30", "share capital 13440.1 vs anchor 261 (unit may differ from the anchor filing)")]
 
 
 # ── whole pass: build + statements_needed ───────────────────────────────────────────────────────────────────

@@ -231,7 +231,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await page.goto(`${APP}/tool/recommend`);
     await expect(page.getByTestId("recommend-count")).toHaveText("Six");
     await expect(page.getByTestId("recommend-card")).toHaveCount(6);
-    await expect(page.getByTestId("recommend-card-title").first()).toHaveText("Trim HDFC Balanced, Advantage Fund -, Regular Plan -, Growth");
+    await expect(page.getByTestId("recommend-card-title").first()).toHaveText("Lower weight in HDFC Balanced, Advantage Fund -, Regular Plan -, Growth");
     await expect(page.getByTestId("recommend-card-amount").first()).toHaveText("₹7.29 L");
     await expect(page.getByTestId("recommend-card-amount").nth(1)).toHaveText("₹36.06 L");
     await expect(page.getByTestId("recommend-freed")).toHaveText("₹15.48 L");

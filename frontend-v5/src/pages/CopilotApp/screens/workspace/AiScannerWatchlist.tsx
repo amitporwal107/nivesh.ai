@@ -131,7 +131,7 @@ function ScannerLevelsPaperTrade({ e, listDate }: { e: CashEntry; listDate: stri
   const [qty, setQty] = useState(e.sized_shares != null ? String(e.sized_shares) : "");
   const { entry, stop, target, bucket } = e.scanner;
   if (entry == null || stop == null || !(entry > stop)) {
-    return <span data-testid="aiw-paper-none" style={quiet}>A paper trade needs the scanner’s entry and a stop below it; {e.symbol} has none. Open the plan to record one there.</span>;
+    return <span data-testid="aiw-paper-none" style={quiet}>A paper trade needs the scanner’s reference price and a risk level below it; {e.symbol} has none. Open the plan to record one there.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
   const rule = entryRuleFor(entry, e.scanner.close, { bucket });
@@ -155,7 +155,7 @@ function ScannerLevelsPaperTrade({ e, listDate }: { e: CashEntry; listDate: stri
           {paper.isSuccess ? "Added" : paper.isPending ? "Adding…" : "Add paper trade"}
         </Btn>
       </span>
-      <span style={quiet}>At the scanner’s levels on {shortDay(listDate)}: entry {fmtPrice(entry)} (<span data-testid="aiw-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{maxHoldNote(maxHold)}. Simulated; nothing is sent to a broker.</span>
+      <span style={quiet}>At the scanner’s levels on {shortDay(listDate)}: reference price {fmtPrice(entry)} (<span data-testid="aiw-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), risk level {fmtPrice(stop)}{sendTarget != null ? `, reward level ${fmtPrice(sendTarget)}` : ", no reward level"}{maxHoldNote(maxHold)}. Simulated; nothing is sent to a broker.</span>
       {paper.isSuccess && <span role="status" data-testid="aiw-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {e.symbol} at {fmtPrice(entry)}.</span>}
       {paper.isError && <span role="alert" data-testid="aiw-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}
       {paper.isError && paper.variables && (
@@ -210,7 +210,7 @@ function CashRow({ e, listDate, quote, scan }: { e: CashEntry; listDate: string;
           )}
         </span>
         {sc.entry != null && sc.stop != null && (
-          <span className="cp-num" style={quiet}>Scanner levels: entry {fmtPrice(sc.entry)} · stop {fmtPrice(sc.stop)}{sc.target != null ? ` · target ${fmtPrice(sc.target)}` : ""}</span>
+          <span className="cp-num" style={quiet}>Scanner levels: reference price {fmtPrice(sc.entry)} · risk level {fmtPrice(sc.stop)}{sc.target != null ? ` · reward level ${fmtPrice(sc.target)}` : ""}</span>
         )}
         {e.fno_eligible && <OiLine sym={e.symbol} index={false} scan={scan} />}
         <Carried e={e} testId="aiw-carried" />
@@ -257,7 +257,7 @@ function Legs({ e, live, at }: { e: FnoEntry; live: LiveAnswer | undefined; at: 
             const q = live?.available && idx != null ? live.quotes[String(idx)] : undefined;
             return (
               <tr key={j} style={{ borderTop: "1px solid var(--cp-line)" }}>
-                <td style={{ ...td, color: l.side === "sell" ? "var(--cp-danger)" : "var(--mint)" }}>{l.side === "sell" ? "Sell" : "Buy"}</td>
+                <td style={{ ...td, color: l.side === "sell" ? "var(--cp-danger)" : "var(--mint)" }}>{l.side === "sell" ? "Short" : "Long"}</td>
                 <td style={td} className="cp-num">{l.kind === "option" ? `${fmtNum(l.strike ?? null)} ${(l.option_type ?? "").toUpperCase().startsWith("C") ? "CE" : "PE"}` : l.kind}</td>
                 <td style={td}>{l.expiry ? shortDay(l.expiry) : "—"}</td>
                 <td style={td} className="cp-num">{l.quantity != null && l.lot_size != null ? `${fmtNum(l.quantity)} × ${fmtNum(l.lot_size)}` : "—"}</td>
@@ -427,7 +427,7 @@ export function AiScannerWatchlist() {
           <ScanBasisLine b={n.scan_basis} />
           {seg === "fno" && n.regime && <span data-testid="aiw-regime" style={quiet}>Regime that day: {n.regime.label ?? "—"}{n.regime.as_of ? ` (measured ${shortDay(n.regime.as_of)})` : ""}{n.regime.india_vix != null ? ` · India VIX ${fmtNum(n.regime.india_vix, 2)}` : ""}{n.fno_staleness ? ` · ${n.fno_staleness}` : ""}</span>}
           <span data-testid="aiw-disclaimer" style={quiet}>
-            Ideas the AI scanner ranked that day, kept as they were, for review — not recommendations. Nothing is sent to a broker; paper trades are simulated. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
+            Ideas the AI scanner ranked that day, kept as they were, for review — not advice. Nothing is sent to a broker; paper trades are simulated. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
           </span>
         </div>
       </div>

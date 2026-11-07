@@ -48,7 +48,7 @@ import { FloatingCopilot, useCopilotWindow } from "./tradingdesk/copilot-window"
 import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import {
-  DESK_SECTIONS, FLAGGED_VIEWS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  DESK_SECTIONS, FLAGGED_SUBS, FLAGGED_VIEWS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
   subViewsOf,
   type DeskLocation, type DeskPlace, type DeskSection,
 } from "./tradingdesk/desk-nav";
@@ -72,6 +72,8 @@ const IdeaScorecard = lazy(() => import("./tradingdesk/scorecard/IdeaScorecard")
 const LiveChartView = lazy(() => import("./tradingdesk/tabs/trade-desk/LiveChart"));
 const Watchlist = lazy(() => import("./Watchlist"));
 const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
+/** Paper Trading v2's "02 Scanner opportunities" chip badge: proposals awaiting the user (UI_DESIGN_V2.md §1). */
+const PaperOppsBadge = lazy(() => import("./tradingdesk/tabs/trade-desk/paper/badge"));
 
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
@@ -318,10 +320,25 @@ function ViewSwitcher({ tab, view, onPick, bleed, underline }: { tab: DeskSectio
 }
 
 /** A Trade Desk section's sub-views: the design's chips, the current one filled mint. */
-function SubViewSwitcher({ subs, sub, onPick, bleed }: { subs: readonly { key: string; label: string }[]; sub: string | null; onPick: (s: string) => void; bleed?: CSSProperties }) {
+function SubViewSwitcher({ place, subs, sub, onPick, bleed }: { place: string; subs: readonly { key: string; label: string; num?: string; short?: string }[]; sub: string | null; onPick: (s: string) => void; bleed?: CSSProperties }) {
+  // A flagged sub-view (FLAGGED_SUBS) is offered only with its flag; one sub-view left needs no switcher.
+  const features = useMe().data?.features;
+  const { mobile } = useCopilotShell();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const shown = subs.filter((v) => { const flag = FLAGGED_SUBS[`${place}/${v.key}`]; return !flag || features?.[flag] === true; });
+  // Keep the pressed chip inside the row when the row scrolls (Paper Trading's six chips overflow beside the docked Copilot).
+  // Only the row's own scrollLeft moves; the page never scrolls.
+  useEffect(() => {
+    const row = rowRef.current;
+    const on = row?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!row || !on) return;
+    const r = row.getBoundingClientRect(), c = on.getBoundingClientRect();
+    if (c.left < r.left || c.right > r.right) row.scrollLeft = Math.max(0, row.scrollLeft + (c.left - r.left) - 8);
+  }, [sub, shown.length]);
+  if (shown.length <= 1) return null;
   return (
-    <div data-testid="desk-subviews" role="group" aria-label="Sub-views" className="cp-scroll flex overflow-x-auto" style={{ gap: 8, ...bleed }}>
-      {subs.map((v) => {
+    <div ref={rowRef} data-testid="desk-subviews" role="group" aria-label="Sub-views" className="cp-scroll flex overflow-x-auto" style={{ gap: 8, ...bleed }}>
+      {shown.map((v) => {
         const on = v.key === sub;
         return (
           <button key={v.key} type="button" data-testid={`desk-sub-${v.key}`} aria-pressed={on} onClick={() => onPick(v.key)}
@@ -329,7 +346,10 @@ function SubViewSwitcher({ subs, sub, onPick, bleed }: { subs: readonly { key: s
               flex: "none", padding: "6px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)",
               border: `1px solid ${on ? "var(--mint)" : "var(--line-2)"}`, background: on ? "var(--mint)" : "transparent", color: on ? "var(--bg-0)" : "var(--cp-ink-2)",
             }}>
-            {v.label}
+            {/* Paper Trading v2 numbers its views as the owner's design does: "01" small and mono before the label. */}
+            {v.num && <span data-testid={`desk-sub-${v.key}-num`} style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", opacity: 0.7, marginRight: 7 }}>{v.num}</span>}
+            {mobile && v.short ? v.short : v.label}
+            {place === "trade/paper" && v.key === "opportunities" && <Suspense fallback={null}><PaperOppsBadge on={on} /></Suspense>}
           </button>
         );
       })}
@@ -653,7 +673,7 @@ export default function TradingDeskScreen() {
     // Market Desk: its own frame (view head, symbol strip) over the hosted screens, plus the Idea scorecard.
     content = (
       <SafeWidget key="market" name="Trading desk · Market Desk">
-        <Suspense fallback={<LoadingBlock label="Loading Market Desk" rows={4} />}><MarketDesk view={loc.view} /></Suspense>
+        <Suspense fallback={<LoadingBlock label="Loading Market Desk" rows={4} />}><MarketDesk view={loc.view} sub={loc.sub ?? null} /></Suspense>
       </SafeWidget>
     );
   } else if (loc.tab === "risk") {
@@ -690,7 +710,7 @@ export default function TradingDeskScreen() {
     >
       <span className="cp-num" style={{ flex: "none", fontSize: 9.5, letterSpacing: "0.14em", color: "var(--cp-ink-4)" }}>DISCLAIMER</span>
       <span style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
-        Scanner setups are end-of-day and rules-based. Probabilities are model outputs for the next session, not buy or sell recommendations. Broker connections are read-only; Nivesh does not place orders. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
+        Scanner setups are end-of-day and rules-based. Probabilities are model outputs for the next session, not trading calls. Broker connections are read-only; Nivesh does not place orders. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
       </span>
     </footer>
   );
@@ -700,7 +720,7 @@ export default function TradingDeskScreen() {
   const views = tab4 && !redirect ? (
     <>
       <ViewSwitcher tab={tab4} view={loc.view} onPick={(v) => goPlace(tab4, v)} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} underline={tab4 === "trade"} />
-      {subs.length > 0 && <SubViewSwitcher subs={subs} sub={loc.sub ?? null} onPick={(sb) => goPlace(tab4, loc.view, { sub: sb })} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} />}
+      {subs.length > 0 && <SubViewSwitcher place={`${tab4}/${loc.view}`} subs={subs} sub={loc.sub ?? null} onPick={(sb) => goPlace(tab4, loc.view, { sub: sb })} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} />}
     </>
   ) : null;
   const rootAttrs = {

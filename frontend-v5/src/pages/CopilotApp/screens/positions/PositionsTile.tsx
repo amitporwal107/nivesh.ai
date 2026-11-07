@@ -17,7 +17,7 @@ export function usePositionsTile(): TileItem {
     s: (
       <button type="button" data-testid="ledger-open-positions-link" onClick={() => go("page/positions")}
         style={{ background: "none", border: 0, padding: 0, color: "var(--mint)", cursor: "pointer", font: "inherit" }}>
-        {q.isPending ? "Reading…" : q.isError ? "Not read · open ›" : flagged ? `${fmtNum(flagged)} near a stop · open ›` : "Broker and paper · open ›"}
+        {q.isPending ? "Reading…" : q.isError ? "Not read · open ›" : flagged ? `${fmtNum(flagged)} near a risk level · open ›` : "Broker and paper · open ›"}
       </button>
     ),
     tone: flagged ? "amber" : "ink",

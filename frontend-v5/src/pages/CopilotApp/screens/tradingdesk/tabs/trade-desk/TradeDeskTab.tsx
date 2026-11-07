@@ -1,21 +1,24 @@
 /**
- * Smart trading desk — 02 Trade Desk, the sections built here (the owner's workbench, docs/desk_redesign_20261027/PLAN.md
- * "1-REVISED"; owner decision of 27 Oct 16:15: the desk paper trades, /api/desk/paper-trades):
+ * Smart trading desk — 02 Trade Desk › Paper Trading (the owner's workbench, docs/desk_redesign_20261027/PLAN.md "1-REVISED").
  *
- *   ?tab=trade&view=paper&sub=live      Paper Trading › Live desk: the header strip (paper account, "Open risk x% of 3%",
- *                                       the exit-job line), pending entries, open positions, F&O structures with every leg
- *                                       and Roll, recent exits
- *   ?tab=trade&view=paper&sub=journal   Paper Trading › Trade journal (&trade=<id>): one trade's timeline, fills, the
- *                                       desk-cost-v2 P/L bridge "net, before income tax", stop history, the stop-first
- *                                       flag; below it every closed trade with the summary
- *   Strategy Lab (Build a trade, Backtest & validation) was removed on 29 Oct (owner); a trade is built on Chart Analysis'
- *   paper basket and its URLs open the chart (desk-nav.ts).
+ * Paper Trading v2 (owner, 5 Nov 2026: "We need to completely replace the current paper trading dashboard";
+ * docs/scanner_paper_trading/UI_DESIGN_V2.md): exactly his six views, each under the shell (paper/shell.tsx: the status
+ * strip, the account card and the mode chooser):
  *
- * The frame (TradingDesk.tsx) draws the sections, the sub-view chips and the "These are paper trades… My portfolio" line.
+ *   ?tab=trade&view=paper&sub=overview        01 Overview               paper/Overview.tsx        (builder A)
+ *   ?tab=trade&view=paper&sub=opportunities   02 Scanner opportunities  paper/Opportunities.tsx   (builder A)
+ *   ?tab=trade&view=paper&sub=allocation      03 Capital allocation     paper/Allocation.tsx      (builder B)
+ *   ?tab=trade&view=paper&sub=risk            04 Portfolio risk         paper/Risk.tsx            (builder B)
+ *   ?tab=trade&view=paper&sub=pnl             05 Real-time P&L          paper/Pnl.tsx             (builder B)
+ *   ?tab=trade&view=paper&sub=analytics       06 Strategy analytics     paper/Analytics.tsx       (builder A)
  *
- * GET /api/desk/paper-trades APPLIES EXITS, so it is read ONCE per load (usePaperTrades, shared with the frame's Market
- * Overview line; no polling) and every sub-view uses that one answer. A write (close, roll, a new trade) refreshes it.
- * Nothing is sent to a broker.
+ * The old sub-views' URLs redirect (desk-nav.ts PAPER_OLD_SUBS: live, journal → pnl; settings → allocation; the Risk Desk's
+ * overview / allocation / portfolio → overview / allocation / risk). No code is deleted in this release: the pre-v2 screens
+ * (Live desk, Trade journal, P&L dashboard, the SPT Opportunities / Analytics / Settings) stay in the tree, routed nowhere;
+ * PaperBookTab below is kept for the same reason.
+ *
+ * The frame (TradingDesk.tsx) draws the sections, the numbered sub-view chips (with the 02 badge) and the "These are paper
+ * trades… My portfolio" line. Nothing is sent to a broker.
  */
 import { useSearchParams } from "react-router-dom";
 import { LoadingBlock } from "../../../../components/ui";
@@ -26,6 +29,14 @@ import { ClosedView, OpenPendingView } from "./BookViews";
 import { HeaderStrip } from "./HeaderStrip";
 import { JournalPanel, type JournalTrade } from "./Journal";
 import { quiet } from "./parts";
+import { PaperAllocation } from "./paper/Allocation";
+import { PaperAnalytics } from "./paper/Analytics";
+import { usePaperAccount } from "./paper/api-a";
+import { PaperOpportunities } from "./paper/Opportunities";
+import { PaperOverview } from "./paper/Overview";
+import { PaperPnl } from "./paper/Pnl";
+import { PaperRisk } from "./paper/Risk";
+import { PaperShell } from "./paper/shell";
 
 /** The journal's trade: ?trade=<id>, else the newest closed trade, else the newest open one. */
 function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
@@ -41,7 +52,32 @@ function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
   return open;
 }
 
-export default function TradeDeskTab({ sub, onSub }: {
+/** The six Paper Trading v2 views (desk-nav.ts SUB_VIEWS "trade/paper"); anything else is the default, 01 Overview. */
+const V2_SUBS = ["overview", "opportunities", "allocation", "risk", "pnl", "analytics"] as const;
+type V2Sub = (typeof V2_SUBS)[number];
+
+export default function TradeDeskTab({ sub }: {
+  sub: string | null; onSub: (sub: string, extra?: Record<string, string>) => void;
+}) {
+  const acct = usePaperAccount();
+  const accountId = acct.data?.accountId ?? null;
+  const v: V2Sub = (V2_SUBS as readonly string[]).includes(sub ?? "") ? (sub as V2Sub) : "overview";
+  return (
+    <div data-testid="td-tab" data-section="paper" data-sub={v} className="flex min-w-0 flex-col" style={{ gap: 18 }}>
+      <PaperShell acct={acct} />
+      {v === "overview" ? <PaperOverview />
+        : v === "opportunities" ? <PaperOpportunities mode={acct.data?.config?.mode ?? null} />
+        : v === "allocation" ? <PaperAllocation accountId={accountId} />
+        : v === "risk" ? <PaperRisk accountId={accountId} />
+        : v === "pnl" ? <PaperPnl accountId={accountId} />
+        : <PaperAnalytics accountId={accountId} />}
+    </div>
+  );
+}
+
+/** Retained, not routed (Paper Trading v2, owner 5 Nov: no code is deleted in this release). Live desk and Trade journal:
+ *  both read the one paper-trades answer. */
+export function PaperBookTab({ sub, onSub }: {
   sub: string | null; onSub: (sub: string, extra?: Record<string, string>) => void;
 }) {
   const desk = useDesk();

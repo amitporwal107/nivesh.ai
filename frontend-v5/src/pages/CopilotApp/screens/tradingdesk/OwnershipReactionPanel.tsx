@@ -327,7 +327,7 @@ export default function OwnershipReactionPanel() {
       title="Historical Smart Money Movement"
       actions={
         <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
-          <Pill tone="amber" title="This panel describes a quarter that has already finished. It is not predictive and not a recommendation.">
+          <Pill tone="amber" title="This panel describes a quarter that has already finished. It is not predictive and not advice.">
             Retrospective · explains the past
           </Pill>
           {feed?.asOf && (

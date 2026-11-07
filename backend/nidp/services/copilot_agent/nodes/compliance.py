@@ -18,6 +18,38 @@ from ..schemas import AgentResponse, CopilotState, ToolResult
 
 logger = logging.getLogger(__name__)
 
+# ── Wording rule (owner, 3 Nov 2026: "do not use words like buy, stop loss, target") ─────────────────────
+# Nivesh is not a SEBI-registered Research Analyst, so no answer may read like a trading call. One instruction, shared by
+# every answer prompt (persona_framing.frame_for_persona adds it to each specialist node's system prompt). It is a prompt
+# rule only: a deterministic filter that rewrites or blocks these words in LLM output is an OWNER decision (raised 3 Nov,
+# not approved), so wording_hits() below only COUNTS them (logged per answer; tests/test_compliance_wording_lint.py WL-5).
+# _ADVICE_RE is the pre-existing scrub, unchanged. Each line that names a word to avoid says "never use", so the prompt
+# lint (tests/test_chat_compliance_delivery.py cc6) can tell a ban from a demand.
+VOCABULARY_RULE = (
+    "WORDING RULE (Nivesh is not a SEBI-registered Research Analyst, so nothing may read like a trading call):\n"
+    "- Never use these words as calls or labels: buy, sell, stop loss, SL, target, T1, T2, entry, exit, book profits, "
+    "accumulate, trim, upside, downside, price target, recommend, recommendation, pick, suggested trade, best trade.\n"
+    "- Say instead: 'long' / 'short' for a side or a leg (e.g. 'Long 1 NIFTY 24000 CE'); 'reference price' for an entry "
+    "level; 'risk level' for a stop; 'reward level' (reward level 1 / 2) for a target; 'loss at risk level' for the loss "
+    "at a stop; 'close' only for the user's own paper position.\n"
+    "- Never give a verdict: never use bullish, bearish, undervalued, overvalued, cheap or expensive about a stock, a "
+    "valuation or the market; say up, down or sideways for a trend and compare a valuation with figures (PE vs its "
+    "sector and its own history).\n"
+    "- Call candidates ideas that fit the rules, ordered for review; describe, never instruct."
+)
+
+# Words the WORDING RULE bans, as they would appear in an answer (counted, never rewritten: see the note above).
+_WORDING_HIT_RE = re.compile(
+    r"\b(?:buy(?:ing)?|sell(?:ing)?|stop[- ]?loss(?:es)?|sl|targets?|t1|t2|entry|exit|book(?:ing)?\s+profits?|accumulate|"
+    r"trim|upside|downside|recommend\w*|picks?|price\s+targets?|suggested\s+trades?|bullish|bearish|undervalued|"
+    r"overvalued|cheap|expensive)\b", re.IGNORECASE)
+_WORDING_ALLOW_RE = re.compile(r"\bexit\s+load\b|\b(?:long|short)\s+build[- ]?ups?\b", re.IGNORECASE)
+
+
+def wording_hits(text: str) -> List[str]:
+    """The WORDING RULE words in an answer, lower-cased, in order. A measurement only: nothing is rewritten or blocked."""
+    return [m.group(0).lower() for m in _WORDING_HIT_RE.finditer(_WORDING_ALLOW_RE.sub(" ", text or ""))]
+
 _DISCLAIMER = (
     "\n\n---\n*⚠️ DISCLAIMER: AI-generated analysis for educational purposes only. "
     "Past performance does not guarantee future results. "
@@ -59,9 +91,9 @@ _DEFAULT_FOLLOW_UPS = {
         "Show me a goal trade-off",
     ],
     "recommendation": [
-        "Show one-click SIP for the top pick",
-        "Compare the top 3 picks",
-        "Why this and not the second pick?",
+        "Show one-click SIP for the first idea",
+        "Compare the top 3 ideas",
+        "Why this and not the second idea?",
     ],
 }
 
@@ -154,8 +186,8 @@ _ADVICE_RE = re.compile(
     r"|\bgood\s+time\s+to\s+(?:buy|sell|enter|exit)\b|\bwhether\s+to\s+(?:buy|sell)\b",
     re.IGNORECASE,
 )
-_ADVICE_NOTE = ("\n\n*Factual filings/data only — Nivesh Copilot does not give buy/sell/hold "
-                "advice, price targets, or price predictions.*")
+_ADVICE_NOTE = ("\n\n*Factual filings/data only — Nivesh Copilot does not give investment advice, "
+                "trading calls, price levels to act on or price predictions.*")
 
 
 def _scrub_advice(text: str) -> tuple[str, bool]:
@@ -163,7 +195,7 @@ def _scrub_advice(text: str) -> tuple[str, bool]:
     Returns (scrubbed_text, had_advice)."""
     if not _ADVICE_RE.search(text):
         return text, False
-    return _ADVICE_RE.sub("[factual data only — no recommendation]", text), True
+    return _ADVICE_RE.sub("[factual data only — not advice]", text), True
 
 
 async def compliance_node(state: CopilotState) -> dict:
@@ -190,6 +222,11 @@ async def compliance_node(state: CopilotState) -> dict:
     text, had_advice = _scrub_advice(text)
     if had_advice:
         text = text.rstrip() + _ADVICE_NOTE
+
+    # 2c. Wording rule (3 Nov 2026): count, never rewrite (a hard filter is an owner decision).
+    hits = wording_hits(text)
+    if hits:
+        logger.warning("wording rule: %d banned-word hit(s) in the answer: %s", len(hits), sorted(set(hits))[:10])
 
     # 3. Grounding check
     grounding = _grounding_ok(text, state.tool_results or [])

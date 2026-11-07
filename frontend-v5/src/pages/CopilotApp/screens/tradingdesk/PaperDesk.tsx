@@ -88,14 +88,14 @@ function Confirm({ testId, children, yes, onYes, onNo, pending, error }: {
 
 type ReasonWords = { label: string; investor: string; tone: Tone };
 const REASON: Record<ExitReason, ReasonWords> = {
-  stop: { label: "Stop", investor: "Exit if wrong", tone: "danger" },
-  trailing_stop: { label: "Trailing stop", investor: "Locked-in exit", tone: "danger" },
-  target: { label: "Target", investor: "Exit if right", tone: "mint" },
-  time: { label: "Time exit", investor: "Held long enough", tone: "ink" },
-  trend: { label: "Trend exit", investor: "Trend turned", tone: "ink" },
+  stop: { label: "Risk level", investor: "Closed at the risk level", tone: "danger" },
+  trailing_stop: { label: "Trailing risk level", investor: "Closed at the raised risk level", tone: "danger" },
+  target: { label: "Reward level", investor: "Closed at the reward level", tone: "mint" },
+  time: { label: "Time close", investor: "Held long enough", tone: "ink" },
+  trend: { label: "Trend close", investor: "Trend turned", tone: "ink" },
   manual: { label: "Closed by you", investor: "Closed by you", tone: "ink" },
   risk_control: { label: "Risk control", investor: "Closed by a risk limit", tone: "amber" },
-  entry_not_reached: { label: "Entry not reached", investor: "Never bought", tone: "amber" },
+  entry_not_reached: { label: "Reference price not reached", investor: "Never opened", tone: "amber" },
   cancelled: { label: "Cancelled", investor: "Cancelled", tone: "ink" },
 };
 
@@ -107,31 +107,31 @@ function reasonWords(known: ExitReason | StrategyExitReason | null, code: string
 
 /** A stop version's reason in words. */
 const STOP_REASON: Record<string, string> = {
-  initial: "initial stop",
+  initial: "initial risk level",
   trailing_atr: "raised by the ATR trail",
 };
 
 const ENTRY_STATUS: Record<EntryStatus, { trader: string; investor: string; tone: Tone }> = {
-  assumed: { trader: "Filled when recorded", investor: "Bought when added", tone: "ink" },
-  reached: { trader: "Entry reached", investor: "Bought", tone: "mint" },
-  waiting: { trader: "Waiting for entry", investor: "Waiting to buy", tone: "amber" },
-  not_reached: { trader: "Entry not reached", investor: "Never bought", tone: "amber" },
+  assumed: { trader: "Filled when recorded", investor: "Opened when added", tone: "ink" },
+  reached: { trader: "Reference price reached", investor: "Opened", tone: "mint" },
+  waiting: { trader: "Waiting for the reference price", investor: "Waiting to open", tone: "amber" },
+  not_reached: { trader: "Reference price not reached", investor: "Never opened", tone: "amber" },
 };
 
 const RULE_NAME: Record<EntryRule, { trader: string; investor: string }> = {
-  at_once: { trader: "At once", investor: "Buy now" },
-  break_above: { trader: "Break above", investor: "Buy above" },
-  pullback_to: { trader: "Pull back to", investor: "Buy on a dip to" },
+  at_once: { trader: "At once", investor: "At the current price" },
+  break_above: { trader: "Break above", investor: "Long above" },
+  pullback_to: { trader: "Pull back to", investor: "Long on a dip to" },
 };
 
 /** The words the block uses, trader or investor (design-spec §10). */
 function wordsFor(investor: boolean) {
   return investor
-    ? { entry: "Buy price", stop: "Exit if wrong", target: "Exit if right", gross: "Before costs", net: "After costs", mfe: "Best point", mae: "Worst point",
-        rule: "When it buys", obs: "Days checked", unrealised: "Gain now", realised: "Gain taken",
+    ? { entry: "Reference price", stop: "Risk level", target: "Reward level", gross: "Before costs", net: "After costs", mfe: "Best point", mae: "Worst point",
+        rule: "When it opens", obs: "Days checked", unrealised: "Gain now", realised: "Gain taken",
         premium: "Paid or received", mark: "Worth now", legs: "Parts of the trade", signal: "Why it was opened", lifecycle: "What happened" }
-    : { entry: "Entry", stop: "Stop", target: "Target", gross: "Gross", net: "Net after costs", mfe: "MFE", mae: "MAE",
-        rule: "Entry rule", obs: "Observations", unrealised: "Unrealised P&L", realised: "Realised P&L",
+    : { entry: "Reference price", stop: "Risk level", target: "Reward level", gross: "Gross", net: "Net after costs", mfe: "MFE", mae: "MAE",
+        rule: "Opening rule", obs: "Observations", unrealised: "Unrealised P&L", realised: "Realised P&L",
         premium: "Net premium", mark: "Mark", legs: "Legs", signal: "Signal (saved, never edited)", lifecycle: "Lifecycle" };
 }
 
@@ -162,7 +162,7 @@ function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules:
   const raised = t.status === "open" && t.currentStop != null && t.stop != null && t.currentStop !== t.stop;
   const exitRule = [
     `${w.stop} ${fmtPrice(t.stop)}${raised ? ` (now ${fmtPrice(t.currentStop)})` : ""}`,
-    t.target != null ? `${w.target.toLowerCase()} ${fmtPrice(t.target)}` : "no target",
+    t.target != null ? `${w.target.toLowerCase()} ${fmtPrice(t.target)}` : "no reward level",
     t.maxHoldSessions != null ? `or the close of session ${fmtNum(t.maxHoldSessions)} held` : null,
   ].filter(Boolean).join(", ");
   const exitWords = reasonWords(t.exitReason, t.exitReasonCode, REASON);
@@ -170,7 +170,7 @@ function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules:
     <ol className="m-0 flex flex-col" style={{ gap: 2, paddingLeft: 18 }}>
       {t.stopHistory.map((v, i) => (
         <li key={`${v.version ?? i}-${v.session ?? "entry"}`} data-testid="desk-paper-stop-version" data-reason={v.reason} data-version={v.version ?? ""}>
-          {fmtPrice(v.stop)} · {v.session ? `set at the ${fmtDay(v.session)} close, in force from the next session` : "at entry"} · {STOP_REASON[v.reason] ?? v.reason}
+          {fmtPrice(v.stop)} · {v.session ? `set at the ${fmtDay(v.session)} close, in force from the next session` : "when opened"} · {STOP_REASON[v.reason] ?? v.reason}
         </li>
       ))}
     </ol>
@@ -183,23 +183,23 @@ function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules:
         </li>
       ))}
     </ul>
-  ) : "None — stop, target and time only";
+  ) : "None — risk level, reward level and time only";
   const rows: Array<[string, ReactNode, string]> = [
     ["Signal time", t.signalAt ? (t.signalAt.length === 10 ? fmtDay(t.signalAt) : fmtStamp(t.signalAt)) : t.source?.signalDate ? `${fmtDay(t.source.signalDate)} (scan date)` : "— not recorded", "signal"],
     [w.rule, <>{RULE_NAME[t.entryRule][investor ? "investor" : "trader"]} {fmtPrice(t.entry)}{t.entryWindowSessions != null ? ` · waits ${plural(t.entryWindowSessions, "session")}` : ""}{book.entryRules[t.entryRule] ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{book.entryRules[t.entryRule]}</span> : null}</>, "rule"],
-    ["Entry", <>{status ? status[investor ? "investor" : "trader"] : "—"}{t.entrySession ? ` · ${fmtDay(t.entrySession)}` : ""}{t.simEntryPrice != null ? ` · simulated at ${fmtPrice(t.simEntryPrice)}` : ""}</>, "entry"],
-    ["Exit rule", exitRule, "exit-rule"],
-    ["Research exit rules", exitRules, "exit-rules"],
-    ["Stop history", stopHistory, "stop-history"],
+    ["Opening", <>{status ? status[investor ? "investor" : "trader"] : "—"}{t.entrySession ? ` · ${fmtDay(t.entrySession)}` : ""}{t.simEntryPrice != null ? ` · simulated at ${fmtPrice(t.simEntryPrice)}` : ""}</>, "entry"],
+    ["Close rule", exitRule, "exit-rule"],
+    ["Research close rules", exitRules, "exit-rules"],
+    ["Risk level history", stopHistory, "stop-history"],
     ["Quantity", fmtNum(t.quantity), "qty"],
-    ["Estimated costs", <>{t.estCostsAtTarget != null ? `${fmtINR(t.estCostsAtTarget)} at the target · ` : ""}{t.estCostsAtStop != null ? `${fmtINR(t.estCostsAtStop)} at the stop` : "—"}{t.costModel?.slippagePctPerSide != null && t.costModel.brokerageRsPerSide != null ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{fmtNum(t.costModel.slippagePctPerSide, 2)}% of the traded value + {fmtINR(t.costModel.brokerageRsPerSide)} a side{t.costModel.version === "desk-cost-v2" ? " + STT, exchange, SEBI, stamp duty and GST" : ""}{t.costModel.name ? ` (${t.costModel.name}${t.costModel.version ? `, ${t.costModel.version}` : ""})` : ""}</span> : null}</>, "est-costs"],
+    ["Estimated costs", <>{t.estCostsAtTarget != null ? `${fmtINR(t.estCostsAtTarget)} at the reward level · ` : ""}{t.estCostsAtStop != null ? `${fmtINR(t.estCostsAtStop)} at the risk level` : "—"}{t.costModel?.slippagePctPerSide != null && t.costModel.brokerageRsPerSide != null ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{fmtNum(t.costModel.slippagePctPerSide, 2)}% of the traded value + {fmtINR(t.costModel.brokerageRsPerSide)} a side{t.costModel.version === "desk-cost-v2" ? " + STT, exchange, SEBI, stamp duty and GST" : ""}{t.costModel.name ? ` (${t.costModel.name}${t.costModel.version ? `, ${t.costModel.version}` : ""})` : ""}</span> : null}</>, "est-costs"],
     ["Strategy version", t.strategyVersion ?? "— not recorded", "strategy"],
     ["Rationale", t.rationale ?? t.note ?? "— not recorded", "rationale"],
     [w.obs, t.observations != null ? `${plural(t.observations, "session")} read${t.heldSessions != null ? ` · ${fmtNum(t.heldSessions)} held` : ""}` : "— not recorded", "obs"],
-    ["Exit", t.status === "closed" ? <>{exitWords ? exitWords[investor ? "investor" : "label"] : "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitPrice != null ? ` · ${fmtPrice(t.exitPrice)}` : ""}</> : "Open", "exit"],
+    ["Close", t.status === "closed" ? <>{exitWords ? exitWords[investor ? "investor" : "label"] : "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitPrice != null ? ` · ${fmtPrice(t.exitPrice)}` : ""}</> : "Open", "exit"],
     [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2") ? <span data-testid="desk-paper-record-costs-breakdown" style={{ display: "block", color: "var(--cp-ink-3)" }}>{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2")}</span> : null}{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
     [`${w.mfe} · ${w.mae}`, <>{signedPct(t.mfePct)}{t.mfeRs != null ? ` (${fmtINR(t.mfeRs, { signed: true })})` : ""} · {signedPct(t.maePct)}{t.maeRs != null ? ` (${fmtINR(t.maeRs, { signed: true })})` : ""}</>, "excursion"],
-    ["Rules version", <>{t.rulesVersion ?? "— before versions were recorded"}{t.exitRulesVersion ? ` · exits ${t.exitRulesVersion}` : ""}</>, "version"],
+    ["Rules version", <>{t.rulesVersion ?? "— before versions were recorded"}{t.exitRulesVersion ? ` · close rules ${t.exitRulesVersion}` : ""}</>, "version"],
   ];
   return (
     <div data-testid="desk-paper-record" data-id={t.id} className="flex flex-col" style={{ gap: 8, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--cp-line)", background: "var(--bg-2)" }}>
@@ -256,14 +256,14 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
   const rows: Array<[string, ReactNode, string]> = [
     ["Plan", <>{t.summaryText} · {dir}{t.referencePrice != null ? ` · ${t.underlying} was ${fmtPrice(t.referencePrice)}` : ""}{t.strategyPlanId ? ` · plan ${t.strategyPlanId}` : ""}{t.tradePlanId ? ` · trade plan ${t.tradePlanId}` : ""}</>, "plan"],
     ["Lifecycle", <>{t.state ? t.state.replace(/_/g, " ").toLowerCase() : "—"}{t.rolledFrom ? ` · rolled from ${t.rolledFrom}` : ""}{t.rolledTo ? ` · rolled to ${t.rolledTo}` : ""}</>, "state"],
-    ["Exit rule", levels, "exit-rule"],
+    ["Close rule", levels, "exit-rule"],
     ...(pp ? [[
       "Premium levels",
-      <>{pp.kind === "credit" ? "Credit" : pp.kind === "debit" ? "Debit" : "Structure"} {perUnit(pp.entryPerUnit)} a unit · stop {perUnit(pp.stopPerUnit)} · T1 {perUnit(pp.t1PerUnit)} · T2 {perUnit(pp.t2PerUnit)}{pp.unitShares != null ? ` · unit = ${fmtNum(pp.unitShares)} shares` : ""}{t.structureValuePerUnit != null ? ` · now ${fmtPrice(t.structureValuePerUnit)}` : ""}<span style={{ display: "block", color: "var(--cp-ink-3)" }}>The whole structure on its end-of-day marks{pp.kind === "credit" ? " (the cost to buy it back)" : " (what it would sell for)"}{pp.version ? `; ${pp.version}` : ""}.</span></>,
+      <>{pp.kind === "credit" ? "Credit" : pp.kind === "debit" ? "Debit" : "Structure"} {perUnit(pp.entryPerUnit)} a unit · risk level {perUnit(pp.stopPerUnit)} · reward level 1 {perUnit(pp.t1PerUnit)} · reward level 2 {perUnit(pp.t2PerUnit)}{pp.unitShares != null ? ` · unit = ${fmtNum(pp.unitShares)} shares` : ""}{t.structureValuePerUnit != null ? ` · now ${fmtPrice(t.structureValuePerUnit)}` : ""}<span style={{ display: "block", color: "var(--cp-ink-3)" }}>The whole structure on its end-of-day marks{pp.kind === "credit" ? " (the cost to close it)" : " (what closing it would receive)"}{pp.version ? `; ${pp.version}` : ""}.</span></>,
       "premium-plan",
     ] as [string, ReactNode, string]] : []),
-    ["Exit", t.status === "closed" ? <>{reason ?? "—"}{t.exitBasis ? ` (${t.exitBasis === "premium" ? "premium levels" : "underlying levels"})` : ""}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitNote ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{t.exitNote}</span> : null}</> : "Open", "exit"],
-    [w.premium, <><span title={premiumTitle(t.netPremiumRs)}>{t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"}</span>{t.markPremiumRs != null ? ` at entry · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}</>, "premium"],
+    ["Close", t.status === "closed" ? <>{reason ?? "—"}{t.exitBasis ? ` (${t.exitBasis === "premium" ? "premium levels" : "underlying levels"})` : ""}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitNote ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{t.exitNote}</span> : null}</> : "Open", "exit"],
+    [w.premium, <><span title={premiumTitle(t.netPremiumRs)}>{t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"}</span>{t.markPremiumRs != null ? ` when opened · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}</>, "premium"],
     [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2") ? <span data-testid="desk-paper-record-costs-breakdown" style={{ display: "block", color: "var(--cp-ink-3)" }}>{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2")}</span> : null}{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
     [`${w.mfe} · ${w.mae}`, <>{t.mfeRs != null ? fmtINR(t.mfeRs, { signed: true }) : "—"} · {t.maeRs != null ? fmtINR(t.maeRs, { signed: true }) : "—"}<span style={{ display: "block", color: "var(--cp-ink-3)" }}>End-of-session P&amp;L of the whole position, not intraday.</span></>, "excursion"],
     [w.obs, t.observations != null ? `${plural(t.observations, "session")} read${t.heldSessions != null ? ` · ${fmtNum(t.heldSessions)} held` : ""}` : "— not read", "obs"],
@@ -301,7 +301,7 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
                 <tr key={leg.index} data-testid="desk-paper-strategy-leg" data-index={leg.index} style={{ borderTop: "1px solid var(--cp-line)" }}>
                   <td style={{ padding: "6px 10px" }}>
                     {leg.label} · {fmtNum(leg.lotSize)} per lot
-                    <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Entry from {leg.priceSource ?? "— source not recorded"}</span>
+                    <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Reference price from {leg.priceSource ?? "— source not recorded"}</span>
                   </td>
                   <td data-testid="desk-paper-strategy-leg-entry" className="cp-num" style={{ padding: "6px 10px", textAlign: "right" }}>{fmtPrice(leg.entry)}</td>
                   <td data-testid="desk-paper-strategy-leg-mark" className="cp-num" style={{ padding: "6px 10px", textAlign: "right" }} title={leg.markBasisText ?? undefined}>
@@ -328,7 +328,7 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
           <dt style={{ color: "var(--cp-ink-3)" }}>Evidence</dt>
           <dd data-testid="desk-paper-signal-evidence" className="m-0" style={{ overflowWrap: "anywhere" }}>{sg.evidenceSummary ?? "— not recorded"}</dd>
         </dl>
-        {t.entryRecordIntact === false && <span data-testid="desk-paper-record-tampered" role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>The stored legs or signal no longer match what was saved at entry. Treat this record as unreliable.</span>}
+        {t.entryRecordIntact === false && <span data-testid="desk-paper-record-tampered" role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>The stored legs or signal no longer match what was saved when it was opened. Treat this record as unreliable.</span>}
       </div>
       {t.tradePlanId && (
         <div data-testid="desk-paper-record-plan" className="flex flex-col" style={{ gap: 4 }}>
@@ -461,8 +461,8 @@ export function PaperTradesBlock() {
       }] : []),
     ];
     const tiles: Array<{ k: string; v: ReactNode; sub: ReactNode; testId: string }> = [
-      { k: "Open", v: fmtNum(s?.open ?? open.length), sub: s?.entryPending ? `${fmtNum(s.entryPending)} waiting for the entry` : "Marked at the last close", testId: "desk-paper-open" },
-      { k: "Closed", v: fmtNum(s?.closed ?? closed.length), sub: s ? `${fmtNum(s.wins)} won · ${fmtNum(s.losses)} lost${s.notEntered ? ` · ${fmtNum(s.notEntered)} never entered` : ""}` : "", testId: "desk-paper-closed" },
+      { k: "Open", v: fmtNum(s?.open ?? open.length), sub: s?.entryPending ? `${fmtNum(s.entryPending)} waiting for the reference price` : "Marked at the last close", testId: "desk-paper-open" },
+      { k: "Closed", v: fmtNum(s?.closed ?? closed.length), sub: s ? `${fmtNum(s.wins)} won · ${fmtNum(s.losses)} lost${s.notEntered ? ` · ${fmtNum(s.notEntered)} never opened` : ""}` : "", testId: "desk-paper-closed" },
       {
         k: w.realised, v: <Pnl rs={s?.realizedRs ?? null} />, testId: "desk-paper-realised",
         sub: <>Gross · <span data-testid="desk-paper-net-realised">{s?.netRealizedRs != null ? fmtINR(s.netRealizedRs, { signed: true }) : "—"}</span> after costs</>,
@@ -516,9 +516,9 @@ export function PaperTradesBlock() {
       { key: "stock", header: "Stock", width: "minmax(110px,1.2fr)", render: (t) => <SymbolCell symbol={t.symbol} size={20} testId="desk-paper-symbol" sub={t.closedAt ? `Closed ${fmtDay(t.closedAt)}` : undefined} /> },
       { key: "qty", header: "Qty", align: "right", num: true, width: "56px", render: (t) => fmtNum(t.quantity) },
       { key: "entry", header: w.entry, align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.entry) },
-      { key: "exit", header: "Exit", align: "right", num: true, width: "88px", render: (t) => <span data-testid="desk-paper-exit">{fmtPrice(t.exitPrice)}</span> },
+      { key: "exit", header: "Close price", align: "right", num: true, width: "88px", render: (t) => <span data-testid="desk-paper-exit">{fmtPrice(t.exitPrice)}</span> },
       {
-        key: "reason", header: "Exit reason", width: "128px",
+        key: "reason", header: "Close reason", width: "128px",
         render: (t) => (
           <span data-testid="desk-paper-reason" data-reason={t.exitReasonCode ?? ""} title={t.exitNote ?? undefined}>
             {(() => {
@@ -569,7 +569,7 @@ export function PaperTradesBlock() {
               onYes={() => close.mutate(picked.id, { onSuccess: () => setConfirm(null) })}
             >
               {picked.entryStatus === "waiting"
-                ? <>Cancel the {picked.symbol} paper trade? Its entry has not been reached, so there is no position and no P&amp;L. It is simulated: no order is placed.</>
+                ? <>Cancel the {picked.symbol} paper trade? Its reference price has not been reached, so there is no position and no P&amp;L. It is simulated: no order is placed.</>
                 : <>Close the {picked.symbol} paper trade ({fmtNum(picked.quantity)} shares) at its last close{picked.lastClose != null ? `, ${fmtPrice(picked.lastClose)}${picked.lastCloseDate ? ` (end of day ${fmtDay(picked.lastCloseDate)})` : ""}` : ""}? It is simulated: no order is placed.</>}
             </Confirm>
           )}
@@ -610,18 +610,18 @@ export function PaperTradesBlock() {
               </div>
             )}
             <span data-testid="desk-strategy-rules" style={quiet}>
-              Each leg is marked on its own contract: a future at its settle price, an option at its settle (else close), on the NSE F&amp;O bhavcopy, end of day. A strategy closes when the share touches its stop or target, when every leg has expired (options at intrinsic value), or after the sessions allowed; the legs close at that session's marks. Futures losses can exceed the margin posted. Rules {d.strategyTrades[0]?.rulesVersion ?? "desk-paper-v3"}.
+              Each leg is marked on its own contract: a future at its settle price, an option at its settle (else close), on the NSE F&amp;O bhavcopy, end of day. A strategy closes when the share touches its risk level or reward level, when every leg has expired (options at intrinsic value), or after the sessions allowed; the legs close at that session's marks. Futures losses can exceed the margin posted. Rules {d.strategyTrades[0]?.rulesVersion ?? "desk-paper-v3"}.
             </span>
           </div>
         )}
         {shown && <TradeRecord t={shown} book={d} investor={investor} />}
         {shownStrategy && <StrategyRecord t={shownStrategy} investor={investor} />}
         <span data-testid="desk-paper-rules" style={quiet}>
-          {d.orders ?? "Simulated: no order is placed."} Marks and exits use end-of-day daily bars{d.checkedThrough ? `, checked through ${fmtDay(d.checkedThrough)}` : d.asOf ? ` through ${fmtDay(d.asOf)}` : ""}{d.source ? ` (${d.source})` : ""}. A session whose low reaches the stop closes the trade at the stop; one whose high reaches the target closes it at the target; one that reaches both closes it at the stop.
+          {d.orders ?? "Simulated: no order is placed."} Marks and closes use end-of-day daily bars{d.checkedThrough ? `, checked through ${fmtDay(d.checkedThrough)}` : d.asOf ? ` through ${fmtDay(d.asOf)}` : ""}{d.source ? ` (${d.source})` : ""}. A session whose low reaches the risk level closes the trade at the risk level; one whose high reaches the reward level closes it at the reward level; one that reaches both closes it at the risk level.
           {cost?.slippagePctPerSide != null && cost.brokerageRsPerSide != null
             ? <> Net figures take off estimated costs: <span data-testid="desk-paper-cost-model">{fmtNum(cost.slippagePctPerSide, 2)}% of the traded value + {fmtINR(cost.brokerageRsPerSide)} a side</span>{cost.name ? ` (${cost.name})` : ""}.</>
             : null}
-          {d.rulesVersion ? ` Rules ${d.rulesVersion}.` : ""} MFE and MAE are the best and worst points reached from the fill through the exit session.
+          {d.rulesVersion ? ` Rules ${d.rulesVersion}.` : ""} MFE and MAE are the best and worst points reached from the fill through the closing session.
         </span>
       </div>
     );

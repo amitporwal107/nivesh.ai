@@ -58,8 +58,8 @@ COLLECTION = "trade_plans"
 DESK_ENTRY_RULE = {"at_close": "at_once", "stop_trigger": "break_above", "limit_pullback": "pullback_to", "at_premium": "at_once"}
 ORDER_TEXT = {
     "at_close": "at the session's close (the desk records it at once, inside that session's range)",
-    "stop_trigger": "a buy-stop: enters when the price trades at or above the trigger",
-    "limit_pullback": "a limit: enters when the price pulls back to the level",
+    "stop_trigger": "a trigger: opens when the price trades at or above it",
+    "limit_pullback": "a limit: opens when the price pulls back to the level",
     "at_premium": "every leg at its end-of-day premium (NSE F&O bhavcopy close)",
 }
 DEFAULT_ENTRY_WINDOW = 5          # sessions a conditional entry waits (services/desk_trading.DEFAULT_ENTRY_WINDOW)
@@ -161,9 +161,9 @@ EVIDENCE_KEYS = (
 )
 WARNING_LABELS = {"event": "Event", "liquidity": "Liquidity", "concentration": "Concentration", "correlation": "Correlation"}
 CONCENTRATION_AT_ENTRY = ("Depends on your account: position and sector exposure are checked by the account's risk decision "
-                          "at entry (the Phase 1 risk service), not stored on a plan that every user reads.")
+                          "when a trade is recorded (the Phase 1 risk service), not stored on a plan that every user reads.")
 CORRELATION_NONE = ("Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked "
-                    "at entry, is the concentration control.")
+                    "when a trade is recorded, is the concentration control.")
 NOT_READ = "Not read for this plan (a roll carries the rolled trade's thesis; no new evidence was read)."
 BOARD_NOT_COMPUTED = ("Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's "
                       "own evidence is in its Strategy Builder plan.")
@@ -275,8 +275,8 @@ def gap_risk_text(segment: str, slippage_pct: Optional[float]) -> str:
         return ("Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole "
                 "structure's value at once; its defined maximum loss bounds it.")
     slip = f"{slippage_pct:g}% a side" if slippage_pct is not None else "the cost card's slippage"
-    return (f"A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the "
-            f"desk's fill model), which can be worse than the stop. The cost estimate's slippage ({slip}) covers the spread, "
+    return (f"A risk level is a level, not a guaranteed price: a session that opens through it is filled at that open (the "
+            f"desk's fill model), which can be worse than the risk level. The cost estimate's slippage ({slip}) covers the spread, "
             f"not a gap.")
 
 
@@ -374,7 +374,7 @@ def linear_plan(plan: Dict[str, Any], c: Dict[str, Any]) -> Optional[Dict[str, A
         "targets": targets,
         "size": _size(c, inputs, lot),
         "sizing_inputs": sizing_inputs(inputs),
-        "costs": {"model": model.get("version"), "basis": f"a round trip of {units} unit(s) from the entry to the stop",
+        "costs": {"model": model.get("version"), "basis": f"a round trip of {units} unit(s) from the reference price to the risk level",
                   "units": units, "breakdown_at_stop": desk.round_trip_breakdown(units, float(entry), float(stop), model, segment=seg, long=up),
                   "excluded": ["DP charges", "income tax", "gap slippage beyond the cost card's slippage"],
                   "gap_risk": gap_risk_text(c["segment"], model.get("slippage_pct_per_side"))},
@@ -463,12 +463,12 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
     if underlying_stop is not None:
         stop_u, stop_why = underlying_stop.get("price"), underlying_stop.get("rationale")
     else:
-        stop_u, stop_why = opt.get("underlying_stop"), "the underlying price at which the whole structure is worth its planned premium stop (strategy_levels)"
+        stop_u, stop_why = opt.get("underlying_stop"), "the underlying price at which the whole structure is worth its planned premium risk level (strategy_levels)"
     if underlying_targets is None:
         underlying_targets = [{"name": "t1", "price": opt.get("underlying_t1"),
-                               "rule": "the underlying price at which the structure reaches its premium target 1 (strategy_levels)"},
+                               "rule": "the underlying price at which the structure reaches its premium reward level 1 (strategy_levels)"},
                               {"name": "t2", "price": opt.get("underlying_t2"),
-                               "rule": "the underlying price at which the structure reaches its premium target 2 (strategy_levels)"}]
+                               "rule": "the underlying price at which the structure reaches its premium reward level 2 (strategy_levels)"}]
     if not directional or (stop_u is not None and not ((stop_u < reference) if up else (stop_u > reference))):
         stop_u = None
     risk_u = abs(reference - stop_u) if stop_u is not None else None
@@ -482,7 +482,7 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
     stop_b = {"price": r2(stop_u), "method": "underlying" if stop_u is not None else "premium",
               "premium_stop": opt.get("planned_stop"), "atr": None, "atr_multiple": None, "distance_atr": None,
               "swing_ref": None, "measured_from": r2(reference),
-              "rationale": stop_why if stop_u is not None else "no underlying stop: the structure's premium stop and its max loss bound it",
+              "rationale": stop_why if stop_u is not None else "no underlying risk level: the structure's premium risk level and its max loss bound it",
               "invalidation": "the thesis is wrong if the underlying closes beyond this level"}
     clean = [{"kind": l.get("kind"), "side": l.get("side"), "lots": int(l.get("quantity") or l.get("lots") or 1),
               "lot_size": int(l.get("lot_size") or 1), "entry_price": r2(l.get("entry_price")), "expiry": l.get("expiry"),
@@ -516,7 +516,7 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
                  "risk_pct_of_equity": None, "equity_basis": None, "binding": "the structure's lots",
                  "missing": ["capital (no equity basis on a board idea)"], "costs_included": capital_at_risk_rs is not None},
         "sizing_inputs": sized_with,
-        "costs": {"model": dict(desk.COST_MODEL).get("version"), "basis": "every leg, entry and exit side, at the entry premiums",
+        "costs": {"model": dict(desk.COST_MODEL).get("version"), "basis": "every leg, opening and closing side, at the opening premiums",
                   "breakdown_round_trip_at_entry": breakdown, "excluded": ["exchange margin", "income tax"],
                   "gap_risk": gap_risk_text("options", None)},
         "exit_plan": _exit_plan(stop_b, targets, None, opt),
@@ -648,20 +648,20 @@ def validate(tp: Dict[str, Any]) -> List[Dict[str, str]]:
     up = d != "bearish"
     stop = (tp.get("stop") or {}).get("price")
     if (tp.get("stop") or {}).get("method") not in STOP_METHODS:
-        bad("stop_method", "the stop's method is not recorded")
+        bad("stop_method", "the risk level's method is not recorded")
     if (tp.get("strategy") or {}).get("segment") in ("cash", "futures"):
         entry = (tp.get("entry") or {}).get("price")
         if entry is None or entry <= 0:
-            bad("entry", "no entry price")
+            bad("entry", "no reference price")
         elif stop is None or (stop >= entry if up else stop <= entry):
-            bad("stop_side", "the stop is not on the loss side of the entry")
+            bad("stop_side", "the risk level is not on the loss side of the reference price")
         else:
             risk = abs(entry - stop)
             for t in tp.get("targets") or []:
                 if (t["price"] <= entry) if up else (t["price"] >= entry):
-                    bad("target_side", f"target {t['name']} is not on the profit side of the entry")
+                    bad("target_side", f"reward level {t['name']} is not on the profit side of the reference price")
                 elif t.get("r_multiple") is None or abs(r_multiple(t["price"], entry, risk, up) - t["r_multiple"]) > 0.011:
-                    bad("r_multiple", f"target {t['name']}'s R multiple does not match its price")
+                    bad("r_multiple", f"reward level {t['name']}'s R multiple does not match its price")
         sz = tp.get("size") or {}
         if sz.get("status") == "complete" and sz.get("risk_rs") is not None and sz.get("risk_budget_rs") is not None \
                 and sz["risk_rs"] > sz["risk_budget_rs"] + 0.01:
@@ -672,7 +672,7 @@ def validate(tp: Dict[str, Any]) -> List[Dict[str, str]]:
             bad("legs", "a leg has no premium")
         ref = (tp.get("entry") or {}).get("reference_close")
         if stop is not None and ref is not None and d in ("bullish", "bearish") and (stop >= ref if up else stop <= ref):
-            bad("stop_side", "the underlying stop is not on the loss side of the reference price")
+            bad("stop_side", "the underlying risk level is not on the loss side of the reference price")
     if not tp.get("data_as_of"):
         bad("data_as_of", "no data timestamps")
     return out

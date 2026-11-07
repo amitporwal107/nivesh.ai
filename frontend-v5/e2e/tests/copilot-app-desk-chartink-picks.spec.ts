@@ -108,7 +108,7 @@ const PICKS = [
   pick({ rank: 1, symbol: "ZEDCO", name: "Zed Industries Ltd", score: 86.7, scans: { aligned: [S1001, S1006], opposed: [], count: 2 }, factors: ZED_FACTORS, preferred: "cash:breakout_continuation", strategies: ZED_STRATS, plan_inputs: PLAN_IN("ZEDCO"),
     reasons_for: reasons(["scan_confluence", "Scan confluence", "2 of your enabled bullish Chartink scans listed it."], ["trend", "Trend (EMA)", "Trend up: close 250.00 vs EMA50 230.00."], ["momentum", "Momentum (MACD, 20-day change, RSI)", "MACD histogram +1.50."]),
     reasons_against: [] }),
-  pick({ rank: 2, symbol: "MOONCORP", name: "Moon Corp Ltd", score: 79.7, direction: "short", action: "Avoid new longs. Short side only through futures or defined-risk options (no naked short options); the plan below lists what the evidence supports.",
+  pick({ rank: 2, symbol: "MOONCORP", name: "Moon Corp Ltd", score: 79.7, direction: "short", action: "Short-side idea: no new longs in this view. Short side only through futures or defined-risk options (no naked short options); the plan below lists what the evidence supports.",
     scans: { aligned: [S1005, S1007], opposed: [], count: 2 }, factors: MOON_FACTORS, strategies: MOON_STRATS, plan_inputs: PLAN_IN("MOONCORP", "bearish"), available_weight_pct: 90,
     reasons_for: reasons(["trend", "Trend (EMA)", "Trend down."]), unavailable: reasons(["fundamentals", "Fundamentals quality", "Only 1 of 3 quality figures are readable."]) }),
   pick({ rank: 3, symbol: "TESTBRK", name: "Test Breakout Ltd", source: "both", in_ai_scanner: true, ai_score: 71, score: 73.5, scans: { aligned: [S1001, S1006], opposed: [], count: 2 }, factors: TB_FACTORS, strategies: TB_STRATS,

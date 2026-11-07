@@ -72,6 +72,7 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
     await page.goto(LIMITS);
     await expect(page.getByTestId("desk-view-hedge")).toBeVisible(SLOW);             // the switcher has rendered (evaluateAll does not wait)
     const keys = await page.getByTestId("desk-views").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    // The Scanner-to-Paper Trading views were here for a day and moved to Trade Desk › Paper Trading v2 (owner, 5 Nov); hedge stays last.
     expect(keys).toEqual(["desk-view-limits", "desk-view-controls", "desk-view-log", "desk-view-hedge"]);
     await expect(page.getByTestId("desk-view-hedge")).toHaveText("Portfolio hedge");
     await page.getByTestId("desk-view-hedge").click();
@@ -122,7 +123,7 @@ test.describe("MOCK — not real data: Risk Desk › Portfolio hedge", () => {
     await expect(page.getByTestId("hedge-choice-maximum")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("hedge-choice-balanced")).toHaveAttribute("aria-pressed", "false");
     const low = mode(OK, "lowest_cost");
-    await expect(page.getByTestId("hedge-choice-lowest_cost-what")).toContainText(`${low.legs[0].strike.toLocaleString("en-IN")} put, sell the ${low.legs[1].strike.toLocaleString("en-IN")} put`);
+    await expect(page.getByTestId("hedge-choice-lowest_cost-what")).toContainText(`${low.legs[0].strike.toLocaleString("en-IN")} put, short the ${low.legs[1].strike.toLocaleString("en-IN")} put`);
     await page.getByTestId("hedge-choice-lowest_cost").click();
     await expect(page.getByTestId("hedge-scenarios")).toHaveAttribute("data-mode", "lowest_cost");
     await expect(page.getByTestId("hedge-row--20")).toContainText(inr(row(low, -20).hedge_pnl_rs, true));

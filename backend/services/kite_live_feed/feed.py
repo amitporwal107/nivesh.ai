@@ -9,7 +9,9 @@ unavailable or silent, by REST `quote()` in batches of at most 500 with at least
 The universe is indices, Nifty 500, F&O underlyings, the near-month futures and, for LIVE_OPTION_UNDERLYINGS (default NIFTY
 and BANKNIFTY), the options of the LIVE_OPTION_EXPIRIES nearest expiries within LIVE_OPTION_STRIKES_EACH_SIDE strikes of the
 money, re-centred on every universe rebuild. Futures and options are in 'full' mode (open interest and market depth); quotes
-keep the top of book (bid/ask and their quantities) when Kite sends depth.
+keep the top of book (bid/ask and their quantities) when Kite sends depth. With trade sides on (trade_side.enabled(): on staging,
+or KITE_FEED_TRADE_SIDES=1) the cash stocks are in 'full' mode too, and each cash quote carries the day's buyer- and
+seller-initiated prints counted from the ticks (ask_trades, bid_trades, ask_volume, bid_volume, sides_since; trade_side.py).
 
 Besides the snapshot, a second task on the leader (`run_cache`, every second) writes the quotes that changed to Redis, one
 key per symbol (`quote_cache`), and at each minute of the open session one replay document to `kite_live_minute`.
@@ -37,6 +39,7 @@ from . import gateway as gw
 from . import platform_token as pt
 from . import quote_cache as qc
 from . import token_alert as ta
+from . import trade_side as ts
 from . import universe as uni
 
 logger = logging.getLogger(__name__)
@@ -178,7 +181,7 @@ class LiveFeed:
                  key_getter=cfg.get_api_key, kite_factory=gw.default_kite_factory,
                  ticker_factory=gw.default_ticker_factory, load_holidays=cfg.load_holidays,
                  load_nifty500=uni.nifty500_symbols, force_rest: Optional[bool] = None, notifier=None,
-                 provider: str = "kite"):
+                 provider: str = "kite", trade_sides: Optional[bool] = None):
         self.db = db
         # "kite" (default) or "truedata" (services/truedata_live/serve.py injects TrueData's client and ticker): with
         # TrueData there is no Kite platform token to refresh and no morning Kite-login alert, and the states say TrueData.
@@ -245,6 +248,10 @@ class LiveFeed:
         self.data_at: Optional[datetime] = None
         self.snapshot: Optional[dict] = None
         self.alerter = ta.TokenAlerter(db, notifier=notifier or ta.default_notifier)
+        on = ts.enabled() if trade_sides is None else trade_sides
+        self._sides: Optional[ts.TradeSides] = ts.TradeSides() if on else None
+        self._sides_epoch: Optional[int] = None  # the ticker's connect count the counts are based on (a reconnect rebases)
+        self._sides_warned_at = float("-inf")
 
     # ── ticks from the WebSocket thread ──────────────────────────────────────
     def _on_tick(self, token: int, tick: dict) -> None:
@@ -256,10 +263,41 @@ class LiveFeed:
                        tick.get("oi"), tick.get("exchange_timestamp") or tick.get("last_trade_time"), now, tick.get("depth"))
         if q:
             self._decorate(sym, q, tick.get("oi_day_high"), tick.get("oi_day_low"), "ws")
+            if self._sides is not None and self._kind(sym) == "EQ":
+                self._count_sides(sym, q, now)
             with self._qlock:
                 self.quotes[sym] = q
                 self._dirty.add(sym)
             self.data_at = now
+
+    def _count_sides(self, sym: str, q: dict, now: datetime) -> None:
+        """Count this cash tick's print into the day's buyer/seller sides and put the running counts on the quote. A failure
+        only leaves the counts off this quote (logged at most once a minute, the class name only); the quote still goes out."""
+        try:
+            n = getattr(self._ticker, "connects", 0)
+            if n != self._sides_epoch:
+                if self._sides_epoch is not None:
+                    self._sides.rebase()          # the socket reconnected: volume traded meanwhile is not put on a side
+                self._sides_epoch = n
+            q.update(self._sides.on_tick(sym, now.astimezone(cfg.IST).date(), q.get("ltp"), q.get("volume"),
+                                         q.get("bid"), q.get("ask"), now))
+        except Exception as e:  # noqa: BLE001 — counting must never drop a quote
+            t = time.monotonic()
+            if t - self._sides_warned_at >= 60.0:
+                self._sides_warned_at = t
+                logger.warning("live feed: trade-side count failed (%s)", type(e).__name__)
+
+    def _carry_sides(self, sym: str, q: dict, now: datetime) -> None:
+        """A REST quote keeps the day's counts so far (REST snapshots are seconds apart, so they are never classified)."""
+        if self._sides is None or self._kind(sym) != "EQ":
+            return
+        try:
+            c = self._sides.counts(sym, now.astimezone(cfg.IST).date())
+        except Exception as e:  # noqa: BLE001
+            logger.debug("live feed: trade-side read failed (%s)", type(e).__name__)
+            return
+        if c:
+            q.update(c)
 
     def _decorate(self, sym: str, q: dict, oi_high: Any, oi_low: Any, source: str) -> None:
         """Every quote says how it arrived (ws | rest). A futures quote names its underlying, expiry and lot size and carries the
@@ -279,7 +317,11 @@ class LiveFeed:
         return ("NFO:" if sym in self._futs or sym in self._opt_meta else "NSE:") + sym
 
     def _full_tokens(self) -> set:
-        return {self.token_map[s] for s in list(self._futs) + list(self._opt_meta) if s in self.token_map}
+        """Futures and options always; the cash stocks too when trade sides are on (they need the order book)."""
+        syms = list(self._futs) + list(self._opt_meta)
+        if self._sides is not None:
+            syms += [s for s in self.ordered if self._kind(s) == "EQ"]
+        return {self.token_map[s] for s in syms if s in self.token_map}
 
     def _kind(self, sym: str) -> str:
         if sym in self._futs:
@@ -457,6 +499,7 @@ class LiveFeed:
                                    v.get("timestamp"), stamp, v.get("depth"))
                     if q:
                         self._decorate(sym, q, v.get("oi_day_high"), v.get("oi_day_low"), "rest")
+                        self._carry_sides(sym, q, stamp)
                         self.quotes[sym] = q
                         self._dirty.add(sym)
                         read += 1
@@ -466,6 +509,9 @@ class LiveFeed:
     def _start_ticker(self, key: str, token: str) -> None:
         self._ticker = gw.TickerSource(key, token, self._on_tick, factory=self.ticker_factory)
         self._ticker.full_tokens = self._full_tokens()
+        if self._sides is not None:
+            self._sides.rebase()                  # a new socket: every stock's next tick is a baseline
+            self._sides_epoch = None
         self._ws_started = time.monotonic()
         self._ticker.start([self.token_map[s] for s in self.ordered])
 

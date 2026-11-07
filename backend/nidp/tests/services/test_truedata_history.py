@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from nidp.shared import deploy_env
 from nidp.shared import market_data_source as mds
 from nidp.shared.sources import truedata as td
 from nidp.services.truedata_history import bars as B
@@ -22,6 +23,13 @@ from nidp.services.truedata_history import service as H
 from nidp.services.truedata_macro import service as M
 
 READY = {"TRUEDATA_USERNAME": "u", "TRUEDATA_PASSWORD": "p"}
+
+
+@pytest.fixture(autouse=True)
+def _no_host_environment(monkeypatch):
+    """The gate reads NIDP_HOME / NIDP_ENV / APP_ENV: keep the runner's own out of these tests."""
+    for k in ("NIDP_HOME", "NIDP_ENV", "APP_ENV"):
+        monkeypatch.delenv(k, raising=False)
 
 
 def switch(source: str, env=None):
@@ -206,9 +214,10 @@ def client(transport):
 
 
 class Conn:
-    def __init__(self, fetch_answers=None):
+    def __init__(self, fetch_answers=None, database="nidp_staging"):
         self.answers = fetch_answers or {}
         self.sql = []
+        self.database = database                     # what current_database() answers (the staging gate)
 
     async def fetch(self, q, *a):
         self.sql.append(q)
@@ -219,6 +228,10 @@ class Conn:
 
     async def fetchval(self, q, *a):
         self.sql.append(q)
+        if "current_database()" in q:
+            if isinstance(self.database, Exception):
+                raise self.database
+            return self.database
         return 0
 
     async def copy_records_to_table(self, table, records, columns):
@@ -484,3 +497,75 @@ def test_tc17_research_long_route(route_client):
     assert a == ("ITCX", date(2010, 1, 1), date(2024, 3, 31), 2, 4)
     assert c.get("/v1/prices/research-long/itcx", headers={"X-API-Key": "nvd_t_x"},
                  params={"start": "2010-13-01"}).status_code == 400
+
+
+# ── TC-21 staging only (owner, 3 Nov 2026: "keep on staging.. on prod please use our snapshot data") ─────────────────
+
+@pytest.mark.parametrize("db, env, expected", [
+    ("nidp_staging", {}, "staging"),
+    ("nidp_staging", {"NIDP_HOME": "/opt/nidp-staging"}, "staging"),
+    ("nidp_staging", {"NIDP_HOME": "/opt/nidp-staging/", "APP_ENV": "staging"}, "staging"),
+    ("nidp", {}, "production"),
+    ("nidp", {"NIDP_HOME": "/opt/nidp"}, "production"),
+    ("nidp_staging", {"NIDP_HOME": "/opt/nidp"}, "production"),           # conflicting: any production signal refuses
+    ("nidp_staging", {"NIDP_ENV": "production"}, "production"),
+    ("nidp_staging", {"APP_ENV": "Prod"}, "production"),
+    ("nivesh", {}, "unknown"),
+    ("nidp_test", {"NIDP_ENV": "staging"}, "unknown"),                    # NIDP_ENV=staging alone never allows
+    ("nidp_staging", {"NIDP_HOME": "/tmp/somewhere"}, "unknown"),
+    (None, {}, "unknown"),
+])
+def test_tc21_gate_allows_staging_only_and_fails_closed(db, env, expected):
+    v = deploy_env.classify(db, env)
+    assert v.environment == expected and v.allowed == (expected == "staging")
+    if expected == "production":
+        assert "staging only" in v.reason
+
+
+def test_tc21_gate_a_failing_query_is_unknown_and_refused():
+    v = asyncio.run(deploy_env.truedata_load_gate(Conn(database=RuntimeError("down")), {}))
+    assert (v.environment, v.allowed) == ("unknown", False)
+
+
+def _data_sql(conn):
+    return [q for q in conn.sql if q.lstrip().upper().startswith(("INSERT", "DELETE", "UPDATE", "CREATE", "COPY"))]
+
+
+@pytest.mark.parametrize("db, env", [("nidp", {}), ("nidp_staging", {"NIDP_HOME": "/opt/nidp"}), ("nivesh", {})])
+def test_tc21_loader_off_staging_calls_nothing_writes_nothing_records_skipped(db, env, tmp_path):
+    hist, wh, over = case(lambda d: 700.0)
+    (tmp_path / "raw").mkdir(), (tmp_path / "ov").mkdir()
+    write_raw(tmp_path / "raw", "RELI", hist)
+    write_raw(tmp_path / "ov", "RELI", over)
+    conn = Conn({"prices_eod_adjusted": [{"symbol": "RELI", "as_of_date": d, "adj_close": c} for d, c in wh]}, database=db)
+    runs = JobRuns()
+    for kw in ({}, {"raw_dir": str(tmp_path / "raw"), "overlap_dir": str(tmp_path / "ov")}):
+        rep = asyncio.run(H.load(["RELI"], client=client(Transport(forbid=True)), switch=switch("shadow"),
+                                 pool=Pool(conn), job_run_factory=runs, env=env, **kw))
+        assert rep["verdict"] == "NOT_STAGING" and rep["job_status"] == "SKIPPED" and "rows_inserted" not in rep
+    assert [r.final for r in runs.runs] == [("SKIPPED", "NOT_STAGING")] * 2 and _data_sql(conn) == []
+    rep = asyncio.run(H.load(["RELI"], client=client(Transport(forbid=True)), switch=switch("shadow"), pool=Pool(conn),
+                             job_run_factory=JobRuns(forbid=True), env=env, dry_run=True))
+    assert rep["verdict"] == "NOT_STAGING" and "job_status" not in rep
+    assert not [q for q in conn.sql if "prices_eod_adjusted" in q]       # refused before reading anything else
+
+
+@pytest.mark.parametrize("db, env", [("nidp", {}), ("nidp_staging", {"APP_ENV": "production"}), ("unit_test", {})])
+def test_tc21_macro_off_staging_calls_nothing_writes_nothing_records_skipped(db, env):
+    conn, runs = Conn(database=db), JobRuns()
+    rep = asyncio.run(M.refresh(client=client(Transport(forbid=True)), switch=switch("shadow"), pool=Pool(conn),
+                                job_run_factory=runs, env=env, now_ist=datetime(2026, 11, 3, 0, 15)))
+    assert rep["verdict"] == "NOT_STAGING" and rep["job_status"] == "SKIPPED" and rep["environment"] != "staging"
+    assert [r.final for r in runs.runs] == [("SKIPPED", "NOT_STAGING")] and _data_sql(conn) == []
+    assert not [q for q in conn.sql if "fred_macro" in q]
+    rep = asyncio.run(M.refresh(client=client(Transport(forbid=True)), switch=switch("shadow"), pool=Pool(conn),
+                                job_run_factory=JobRuns(forbid=True), env=env, dry_run=True))
+    assert rep["verdict"] == "NOT_STAGING" and "job_status" not in rep
+
+
+def test_tc21_on_staging_the_macro_job_runs():
+    tr = Transport({"ZINC-I": [bar(date(2026, 11, 2), 300)]})
+    rep = asyncio.run(M.refresh(client=client(tr), switch=switch("shadow"), pool=Pool(Conn(database="nidp_staging")),
+                                env={"NIDP_HOME": "/opt/nidp-staging"}, codes=["ZINC-I"], dry_run=True,
+                                now_ist=datetime(2026, 11, 3, 0, 15)))
+    assert rep["environment"] == "staging" and rep["verdict"] == "DRY_RUN" and [c[0] for c in tr.calls] == ["ZINC-I"]

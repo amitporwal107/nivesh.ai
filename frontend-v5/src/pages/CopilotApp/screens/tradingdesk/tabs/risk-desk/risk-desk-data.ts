@@ -204,7 +204,7 @@ export function limitUse(field: string, limit: number | null, live: RiskLive | n
 // ── admin: job health ────────────────────────────────────────────────────
 
 export const JOBS = [
-  { job: "check_desk_alerts", label: "Exit check" },
+  { job: "check_desk_alerts", label: "Close check" },
   { job: "positional_engine", label: "AI scanner" },
 ] as const;
 

@@ -94,14 +94,14 @@ def long_put(chain, spot, lot_size, expiry, strike, lots=1, underlying="X", toda
 
 def bull_call_spread(chain, spot, lot_size, expiry, long_strike, short_strike, lots=1, underlying="X", today=None, costs=None):
     if not long_strike < short_strike:
-        raise TemplateError("strike_order", "Bull call spread: buy the lower strike, sell the higher.")
+        raise TemplateError("strike_order", "Bull call spread: long the lower strike, short the higher.")
     legs = [_opt(chain, "buy", "call", long_strike, lots, lot_size, expiry), _opt(chain, "sell", "call", short_strike, lots, lot_size, expiry)]
     return _result("bull_call_spread", legs, underlying, spot, today, costs, chain.get("as_of"))
 
 
 def bear_put_spread(chain, spot, lot_size, expiry, long_strike, short_strike, lots=1, underlying="X", today=None, costs=None):
     if not long_strike > short_strike:
-        raise TemplateError("strike_order", "Bear put spread: buy the higher strike, sell the lower.")
+        raise TemplateError("strike_order", "Bear put spread: long the higher strike, short the lower.")
     legs = [_opt(chain, "buy", "put", long_strike, lots, lot_size, expiry), _opt(chain, "sell", "put", short_strike, lots, lot_size, expiry)]
     return _result("bear_put_spread", legs, underlying, spot, today, costs, chain.get("as_of"))
 
@@ -118,7 +118,7 @@ def iron_condor(chain, spot, lot_size, expiry, long_put_strike, short_put_strike
 def bull_put_spread(chain, spot, lot_size, expiry, long_strike, short_strike, lots=1, underlying="X", today=None, costs=None):
     """A credit spread: sell the higher-strike put, buy the lower-strike put."""
     if not long_strike < short_strike:
-        raise TemplateError("strike_order", "Bull put spread: sell the higher strike, buy the lower.")
+        raise TemplateError("strike_order", "Bull put spread: short the higher strike, long the lower.")
     legs = [_opt(chain, "buy", "put", long_strike, lots, lot_size, expiry), _opt(chain, "sell", "put", short_strike, lots, lot_size, expiry)]
     return _result("bull_put_spread", legs, underlying, spot, today, costs, chain.get("as_of"))
 
@@ -126,7 +126,7 @@ def bull_put_spread(chain, spot, lot_size, expiry, long_strike, short_strike, lo
 def bear_call_spread(chain, spot, lot_size, expiry, short_strike, long_strike, lots=1, underlying="X", today=None, costs=None):
     """A credit spread: sell the lower-strike call, buy the higher-strike call."""
     if not short_strike < long_strike:
-        raise TemplateError("strike_order", "Bear call spread: sell the lower strike, buy the higher.")
+        raise TemplateError("strike_order", "Bear call spread: short the lower strike, long the higher.")
     legs = [_opt(chain, "sell", "call", short_strike, lots, lot_size, expiry), _opt(chain, "buy", "call", long_strike, lots, lot_size, expiry)]
     return _result("bear_call_spread", legs, underlying, spot, today, costs, chain.get("as_of"))
 
@@ -316,9 +316,9 @@ def _illustration(name: str) -> Dict[str, Any]:
     expiry = (_ILLUSTRATION_DAY + timedelta(days=_ILLUSTRATION_DAYS)).isoformat()
     ctx: Dict[str, Any] = {"spot": _ILLUSTRATION_SPOT, "underlying": "ILLUSTRATION", "today": _ILLUSTRATION_DAY}
     if name in ("long_future", "short_future"):
-        ctx.update(lot_size=1, expiry=expiry, as_of=_ILLUSTRATION_DAY.isoformat(), source="illustration: entry 100")
+        ctx.update(lot_size=1, expiry=expiry, as_of=_ILLUSTRATION_DAY.isoformat(), source="illustration: reference price 100")
     elif name == "cash_long":
-        ctx.update(as_of=_ILLUSTRATION_DAY.isoformat(), source="illustration: entry 100")
+        ctx.update(as_of=_ILLUSTRATION_DAY.isoformat(), source="illustration: reference price 100")
     else:
         ctx.update(chain=_illustration_chain(), lot_size=1, expiry=expiry)
     built = fn(**ctx, **params)

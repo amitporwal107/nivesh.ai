@@ -266,9 +266,9 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     // Comparative, never causal: two market-wide totals are not matched trades, and saying one
     // "absorbed" the other claims they traded the same securities.
     await expect(page.getByTestId("desk-smart-money-regime"))
-      .toContainText("Foreign institutions were net sellers and domestic institutions net buyers; the domestic figure was the larger of the two.");
+      .toContainText("Foreign institutions had a net outflow and domestic institutions a net inflow; the domestic figure was the larger of the two.");
     await expect(page.getByTestId("desk-smart-money-regime"))
-      .toContainText("Nothing here matches a buyer to a seller or one stock to another");
+      .toContainText("Nothing here matches one side of a trade to the other or one stock to another");
     // The caveat itself uses the word ("not evidence it absorbed the other"), so pin the CLAIM.
     await expect(page.getByTestId("desk-smart-money-regime")).not.toContainText("absorbed the foreign selling");
     await expect(screen(page)).toContainText("regime line is rules-based, not a model");
@@ -304,7 +304,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(screen(page)).toContainText("158 of 158 stocks priced");
     // The ranking must be checkable by hand: 45225 + 24993 added, 1375 reduced, net 68843.
     const totals = page.getByTestId("desk-smart-money-sector-totals");
-    await expect(totals).toContainText("Added");
+    await expect(totals).toContainText("Raised");
     await expect(totals).toContainText("70,218");
     await expect(totals).toContainText("1,375");
     await expect(totals).toContainText("68,843");
@@ -368,7 +368,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     const legend = page.getByTestId("desk-smart-money-legend");
     await expect(legend).toContainText("disclosed holdings change");
     await expect(legend).toContainText("disclosed deal, net of transfers");
-    await expect(legend).toContainText("market proxy, buyer unknown");
+    await expect(legend).toContainText("market proxy, who traded unknown");
     await expect(legend).toContainText("direct and proxy align");
   });
 
@@ -395,7 +395,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(page.getByTestId("desk-smart-money-proxy-banner"))
       .toContainText("Market-proxy evidence only. This is not labelled institutional accumulation.");
     await expect(panel).toContainText("Proxy signal");
-    await expect(panel).toContainText("delivery and volume do not identify a buyer");
+    await expect(panel).toContainText("delivery and volume do not identify who traded");
     await expect(panel).not.toContainText("Accumulation");
   });
 
@@ -428,7 +428,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(screen(page)).toBeVisible(SLOW);
     await expect(screen(page)).toContainText("Historical market reaction: no validated study available.");
     const foot = page.getByTestId("desk-smart-money-disclaimer");
-    await expect(foot).toContainText("Smart money is evidence, not a buy signal.");
+    await expect(foot).toContainText("Smart money is evidence, not a trading signal.");
     await expect(foot).toContainText("deal disclosures may not identify beneficial intent");
     await expect(foot).toContainText("Educational market intelligence, not investment advice");
   });
@@ -526,8 +526,8 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(k).toContainText("FII net flow · cash");
     await expect(k).toContainText("DII net flow · cash");
     // A net flow crosses zero, so the change is absolute ₹ cr and worded, never a percentage.
-    await expect(k).toContainText("28,217 cr more buying than the preceding window");
-    await expect(k).toContainText("6,189 cr less buying than the preceding window");
+    await expect(k).toContainText("28,217 cr more net inflow than the preceding window");
+    await expect(k).toContainText("6,189 cr less net inflow than the preceding window");
     await expect(k).not.toContainText("+22%");
     // Holdings compare the previous SCORING DATE, which the card names.
     await expect(k).toContainText("46%");
@@ -587,7 +587,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(panel).not.toContainText("11 fund houses raised on net and 0 cut");
     // +12.58% looks broad-based; 121% of it is one house, so the rest are net sellers.
     await expect(panel).toContainText("A single fund house accounts for 121% of the net change");
-    await expect(panel).toContainText("the other 10 houses are net sellers");
+    await expect(panel).toContainText("the other 10 houses cut their holdings on balance");
     await expect(panel).toContainText("More houses cut than raised (6 against 3)");
   });
 });

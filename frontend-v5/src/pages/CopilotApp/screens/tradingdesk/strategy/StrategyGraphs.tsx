@@ -84,7 +84,7 @@ export function StrategyGraphs({
             </>
           )}
           <TrustLine
-            testId="payoff-trust" source="Nivesh payoff calculation from the legs' entry prices" asOf={asOf} mode={dataMode} maker="rules" method={method}
+            testId="payoff-trust" source="Nivesh payoff calculation from the legs' reference prices" asOf={asOf} mode={dataMode} maker="rules" method={method}
             status={errorText ? "failed" : stale ? "stale" : null}
           />
         </div>
@@ -104,7 +104,7 @@ export function StrategyGraphs({
       <Section title={investor ? "Your positions" : "Legs"}>
         <div className="flex min-w-0 flex-col" style={{ gap: 10 }}>
           <LegTable underlying={base.underlying} legs={base.legs} perLeg={response?.expiry?.per_leg ?? null} unavailable={response?.pre_expiry?.unavailable ?? []} persona={persona} />
-          <TrustLine testId="legs-trust" source="Entry prices as given with each leg" asOf={asOf} mode={dataMode} />
+          <TrustLine testId="legs-trust" source="Reference prices as given with each leg" asOf={asOf} mode={dataMode} />
         </div>
       </Section>
 

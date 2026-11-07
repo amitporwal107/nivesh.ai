@@ -173,7 +173,7 @@ def test_an_open_trade_is_marked_gross_and_net_with_the_path_so_far(api, world):
     assert t["costs_rs"] == round(buy(100, 10) + sell(102, 10), 2) == 50.46 and t["net_pnl_rs"] == -30.46
     assert (t["mfe_pct"], t["mae_pct"], t["observations"]) == (4.0, -2.0, 1)
     # The basis now says what the figure includes (gate 4: risk and cost figures say whether costs are in them).
-    assert t["costs_basis"] == "entry at the fill, exit side estimated at the last close; " + svc.COSTS_CARD_TEXT
+    assert t["costs_basis"] == "opening side at the fill, closing side estimated at the last close; " + svc.COSTS_CARD_TEXT
 
 
 def test_same_session_stop_and_target_stays_a_stop_with_costs_at_the_stop(api, world):

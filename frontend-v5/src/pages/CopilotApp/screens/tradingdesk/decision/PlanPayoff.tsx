@@ -147,8 +147,8 @@ function PayoffBody({ ask, plan, today, data, errorText, pending, retry }: {
   const lotSize = (plan.instrument.lot_size ?? null) as number | null;
   const marks = [
     { key: "now", price: ref, label: `${sym} now ${fmtPrice(ref)}`, color: "var(--cp-ink-2)" },
-    ...(plan.stop.price != null ? [{ key: "exit", price: plan.stop.price, label: `exit if wrong ${fmtPrice(plan.stop.price)}`, color: "var(--cp-danger)" }] : []),
-    ...plan.targets.filter((t) => t.price != null).map((t, i) => ({ key: `t${i + 1}`, price: t.price as number, label: `target ${i + 1} ${fmtPrice(t.price)}`, color: "var(--mint)" })),
+    ...(plan.stop.price != null ? [{ key: "exit", price: plan.stop.price, label: `risk level ${fmtPrice(plan.stop.price)}`, color: "var(--cp-danger)" }] : []),
+    ...plan.targets.filter((t) => t.price != null).map((t, i) => ({ key: `t${i + 1}`, price: t.price as number, label: `reward level ${i + 1} ${fmtPrice(t.price)}`, color: "var(--mint)" })),
   ];
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
@@ -206,8 +206,8 @@ function PayoffBody({ ask, plan, today, data, errorText, pending, retry }: {
       )}
       {pre && (
         <span style={quiet}>
-          Today&rsquo;s line is an estimate: each option is valued from the price swings its entry price implies, and real prices
-          can differ. The expiry line is exact at the prices shown. An idea to review, not a recommendation.
+          Today&rsquo;s line is an estimate: each option is valued from the price swings its reference price implies, and real prices
+          can differ. The expiry line is exact at the prices shown. An idea to review, not advice.
         </span>
       )}
     </div>

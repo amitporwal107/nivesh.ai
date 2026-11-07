@@ -533,7 +533,7 @@ def test_b3_smart_money(src):
     r = blocks(p, "ranked")[0]
     assert [row["symbol"] for row in r["rows"]] == ["AAA", "CCC"] and r["rows"][0]["ask"] == "Trade plan for AAA"
     assert blocks(p, "heatmap")[0]["cells"][0]["label"] == "IT"
-    assert "FIIs sold a net ₹100.00 Cr" in p["headline"]["text"]
+    assert "FIIs had a net outflow of ₹100.00 Cr" in p["headline"]["text"]
 
 
 def test_b4_smart_money_missing_flows_and_refused_buildup(src, monkeypatch):
@@ -577,7 +577,7 @@ def test_b7_breakouts(src):
     c = blocks(p, "candles")[0]
     assert c["symbol"] == "LT" and [lv["kind"] for lv in c["levels"]] == ["resistance", "stop"]
     assert blocks(p, "bars")[0]["items"] == [{"label": "LT", "value": 2.1, "tone": "up", "sub": None}]
-    assert p["follow_ups"][0]["query"] == "Entry, target and stop-loss for LT"
+    assert p["follow_ups"][0]["query"] == "Reference price, risk and reward levels for LT"
 
 
 def test_b8_empty_bucket_says_so(src):
@@ -614,7 +614,7 @@ def test_b10_stock_decision_status_comes_from_the_plan(src, status, decided, lab
         c = blocks(p, "candles")[0]
         assert [lv["kind"] for lv in c["levels"]] == ["entry", "stop", "target"] and set(c["overlays"]) == {"ema20", "ema50", "ema200"}
         k = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
-        assert k == {"Entry": "₹1,840.00", "Stop": "₹1,790.00", "First target": "₹1,940.00",
+        assert k == {"Reference price": "₹1,840.00", "Risk level": "₹1,790.00", "First reward level": "₹1,940.00",
                      "Reward:risk": "2.0×", "Size": "12 shares", "Max loss": "₹640.50"}
         assert d["invalidation"] == "MOCK: a close below the base (₹1,790.00)"
         assert {"text": "Trend: MOCK above the 50-day", "met": True} in d["conditions"]
@@ -647,7 +647,7 @@ def test_b10_an_option_plan_shows_its_net_premium_and_no_entry_line(src):
     p = build("stock_decision", "PNB", message="Is PNB a buy now?",
               trade_idea=SimpleNamespace(plan=plan, widget=None, sized={"status": "not_sizable"}))
     d = p["decision"]
-    assert d["reason"] == "Covered call (MOCK): net premium ₹12,617.50, stop ₹842.95 (underlying)."
+    assert d["reason"] == "Covered call (MOCK): net premium ₹12,617.50, risk level ₹842.95 (underlying)."
     assert all("another candidate" not in c["text"] for c in d["conditions"])          # a setup is not "waiting" on them
     assert "entry None" not in p["headline"]["text"] and "net premium ₹12,617.50" in p["headline"]["text"]
     k = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
@@ -706,7 +706,7 @@ def test_b14_open_trades(src):
     assert [row["symbol"] for row in r["rows"]] == ["AAA", "BBB"]
     assert r["rows"][0]["cells"] == {"symbol": "AAA", "qty": 10, "entry": 100.0, "last": 108.0, "stop": 92.0,
                                      "target": 120.0, "pnl": 80.0}
-    assert r["rows"][0]["ask"] == "Should I book profits or hold AAA?"
+    assert r["rows"][0]["ask"] == "Close or hold AAA? Show my trade's levels"
     assert p["headline"]["text"] == "2 open paper trades, unrealised ₹30.00."
 
 
@@ -784,9 +784,9 @@ def test_b21_direction_and_stop_changed_since_it_was_recorded(src, monkeypatch):
     p = build("trade_validity", "TVSMOTOR", message="Is TVSMOTOR still valid?")
     texts = [i["text"] for i in blocks(p, "list")[0]["items"]]
     assert any("Direction changed: recorded bearish, today" in t for t in texts)
-    assert any("Stop moved: recorded ₹1,700.00" in t for t in texts)
+    assert any("Risk level moved: recorded ₹1,700.00" in t for t in texts)
     c = blocks(p, "candles")[0]
-    assert any(lv["label"].startswith("Recorded entry") for lv in c["levels"])
+    assert any(lv["label"].startswith("Recorded reference price") for lv in c["levels"])
 
 
 def test_b22_no_earlier_plan_on_record(src, monkeypatch):
@@ -812,10 +812,10 @@ def test_b23_no_setup_today_though_one_was_recorded(src, monkeypatch):
 def test_b24_an_open_trade_shows_its_own_levels_and_pnl(src):
     p = build("exit_options", "AAA", message="Should I book profits or hold AAA?")
     kp = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
-    assert kp["Entry"] == "₹100.00" and kp["Unrealised P&L"] == "₹80.00"
-    assert "Distance to stop" in kp and "Distance to target" in kp
+    assert kp["Reference price"] == "₹100.00" and kp["Unrealised P&L"] == "₹80.00"
+    assert "Distance to risk level" in kp and "Distance to reward level" in kp
     assert "unrealised ₹80.00" in p["headline"]["text"]
-    assert any("does not tell you to exit or hold" in n["text"] for n in blocks(p, "notice"))
+    assert any("does not tell you to close or hold" in n["text"] for n in blocks(p, "notice"))
     c = blocks(p, "candles")[0]
     assert {lv["kind"] for lv in c["levels"]} == {"stop", "target"}
 
@@ -874,20 +874,20 @@ def test_b28_the_days_record(src):
     p = review()
     assert p["as_of"] == "2026-10-30" and p["title"] == "Your trading review · 30 Oct 2026"
     k = kp(p)
-    assert (k["Closed"]["value"], k["Closed"]["sub"]) == ("2", "1 not entered")                 # B-36
+    assert (k["Closed"]["value"], k["Closed"]["sub"]) == ("2", "1 not opened")                 # B-36
     assert k["Wins / losses"]["value"] == "1 / 1" and k["Win rate"]["value"] == "50%"
     assert k["Realised P&L"]["value"] == "−₹40.00" and k["Realised P&L"]["tone"] == "down"      # 95 − 135
     assert k["Average R"]["value"] == "+0.35R"                                                   # (2.00 − 1.30) / 2
     rows = blocks(p, "ranked")[0]["rows"]
     assert [r["symbol"] for r in rows] == ["AAA", "BBB", "CCC"]
     assert rows[0]["cells"]["r"] == "+2.00R" and rows[1]["cells"]["r"] == "−1.30R"
-    assert rows[1]["cells"]["exit"] == "Stop" and rows[2]["cells"]["exit"] == "Entry not reached"
+    assert rows[1]["cells"]["exit"] == "Risk level" and rows[2]["cells"]["exit"] == "Reference price not reached"
     assert rows[2]["cells"]["pnl"] is None and rows[0].get("ask") is None
     exits = listed(p, "exits")
-    assert exits[0] == "2 of 2 exits came from the plan's own rules (1 stop, 1 target); 0 were closed by you."
-    assert any(t.startswith("1 stop exit filled below the stop (BBB)") for t in exits)
+    assert exits[0] == "2 of 2 closes came from the plan's own rules (1 risk level, 1 reward level); 0 were closed by you."
+    assert any(t.startswith("1 risk-level close filled below the risk level (BBB)") for t in exits)
     assert "Largest result: AAA +₹95.00; smallest: BBB −₹135.00." in exits
-    assert any("closed without an entry" in t for t in exits)
+    assert any("closed without opening" in t for t in exits)
     curve = next(b for b in blocks(p, "bars") if b["id"] == "curve")
     assert curve["unit"] == "₹" and curve["orientation"] == "v"
     assert [(i["label"], i["value"]) for i in curve["items"]] == [("20 Oct", 95.0), ("28 Oct", 131.0), ("30 Oct", 91.0)]
@@ -900,7 +900,7 @@ def test_b34_risk_checks_counted_once_with_the_top_refusal(src):
     p = review()
     checks = listed(p, "risk_checks")
     # rd1 was superseded by rd6 (its reservation refused): 5 requests, not 6.
-    assert checks[0] == "5 entry requests checked: 0 allowed, 1 reduced, 4 refused."
+    assert checks[0] == "5 paper-trade requests checked: 0 allowed, 1 reduced, 4 refused."
     assert checks[1] == "Refused for sector exceeded (2×): MOCK sector_exceeded message"
     assert "Refused for plan levels mismatch (1×): MOCK plan_levels_mismatch message" in checks
     since = next(a for n, a in src.calls if n == "risk_decisions")[1]
@@ -916,14 +916,14 @@ def test_b29_nothing_today_falls_back_to_the_latest_session_with_its_date(src):
                                      "1 paper trade closed: 1 win, 0 losses, net +₹36.00.")
     assert p["data_quality"]["stale"] is True                       # older than the previous session: said, not hidden
     assert any("28 Oct 2026, older than the previous session" in n["text"] for n in blocks(p, "notice"))
-    assert any(n["text"] == "No entry request was checked by the risk rules on 28 Oct 2026." for n in blocks(p, "notice"))
+    assert any(n["text"] == "No paper-trade request was checked by the risk rules on 28 Oct 2026." for n in blocks(p, "notice"))
 
 
 def test_b30_the_week(src):
     p = review("week")
     assert p["title"] == "Your trading review · 26 Oct – 30 Oct 2026" and p["as_of"] == "2026-10-30"
     assert p["headline"]["text"] == "3 paper trades closed this week: 2 wins, 1 loss, net −₹4.00."
-    assert listed(p, "risk_checks")[0] == "6 entry requests checked: 0 allowed, 1 reduced, 5 refused."
+    assert listed(p, "risk_checks")[0] == "6 paper-trade requests checked: 0 allowed, 1 reduced, 5 refused."
     assert p["follow_ups"][0]["query"] == "What did I learn from today's trades?"
 
 
@@ -934,7 +934,7 @@ def test_b31_nothing_on_record(src):
     assert not blocks(p, "kpis") and not blocks(p, "ranked") and not blocks(p, "bars")       # nothing invented
     texts = [n["text"] for n in blocks(p, "notice")]
     assert "No closed paper trades are on record yet." in texts
-    assert "No entry request was checked by the risk rules on 30 Oct 2026." in texts
+    assert "No paper-trade request was checked by the risk rules on 30 Oct 2026." in texts
     assert p["as_of"] == "2026-10-30" and p["headline"]["tone"] == "neutral"
 
 
@@ -943,8 +943,8 @@ def test_b32_the_trades_read_fails(src):
     p = review()
     assert any("MOCK closed_trades down" in m for m in p["data_quality"]["missing"])
     assert not blocks(p, "kpis") and not blocks(p, "ranked") and not blocks(p, "bars")
-    assert listed(p, "risk_checks")[0].startswith("5 entry requests checked")
-    assert p["headline"]["text"] == ("Your closed paper trades could not be read; the risk checks refused 4 of 5 entry "
+    assert listed(p, "risk_checks")[0].startswith("5 paper-trade requests checked")
+    assert p["headline"]["text"] == ("Your closed paper trades could not be read; the risk checks refused 4 of 5 paper-trade "
                                      "requests on 30 Oct 2026.")
 
 
@@ -965,17 +965,17 @@ def test_b35_no_stop_to_measure_against(src):
         closed("ZZZ", stop=101.0, fill=100.0, out=99.0, net=-12.0)]
     p = review()
     k = kp(p)
-    assert k["Average R"]["value"] == "+2.00R" and k["Average R"]["sub"] == "1 of 3 had a stop to measure against, before costs"
+    assert k["Average R"]["value"] == "+2.00R" and k["Average R"]["sub"] == "1 of 3 had a risk level to measure against, before costs"
     rows = {r["symbol"]: r["cells"] for r in blocks(p, "ranked")[0]["rows"]}
     assert rows["NIFTY"]["r"] is None and rows["ZZZ"]["r"] is None
-    assert rows["NIFTY"]["exit"] == "Target · Bull call spread" and rows["NIFTY"]["stop"] == 22800.0
+    assert rows["NIFTY"]["exit"] == "Reward level · Bull call spread" and rows["NIFTY"]["stop"] == 22800.0
     assert rows["NIFTY"]["planned"] is None and rows["NIFTY"]["out"] is None
 
 
 def test_b35b_no_stop_at_all(src):
     src.v["closed_trades"] = [closed("ZZZ", stop=None, out=99.0, net=-12.0)]
     k = kp(review())
-    assert k["Average R"]["value"] is None and k["Average R"]["sub"] == "no trade had a stop to measure against"
+    assert k["Average R"]["value"] is None and k["Average R"]["sub"] == "no trade had a risk level to measure against"
 
 
 def test_b37_wording_and_follow_ups(src):
@@ -991,10 +991,10 @@ def test_b37_wording_and_follow_ups(src):
 def test_b38_facts_carry_the_review(src):
     f = facts(review())
     assert f.startswith("VISUAL_ANSWER (daily_review)")
-    assert "The record · 30 Oct 2026: Closed 2 (1 not entered)" in f
-    assert "Plan vs actual · 3 closed (columns: Stock, Exit, Planned entry, Fill, Stop, Target, Exit price, R, Net P&L)" in f
+    assert "The record · 30 Oct 2026: Closed 2 (1 not opened)" in f
+    assert "Plan vs actual · 3 closed (columns: Stock, Close, Planned reference price, Fill, Risk level, Reward level, Close price, R, Net P&L)" in f
     assert "Equity curve: cumulative realised P&L [₹]: 20 Oct 95.00; 28 Oct 131.00; 30 Oct 91.00" in f
-    assert "What the risk checks said: 5 entry requests checked" in f
+    assert "What the risk checks said: 5 paper-trade requests checked" in f
 
 
 def test_b39_the_readers_are_plain_reads(monkeypatch):
@@ -1728,7 +1728,7 @@ def test_sc10_the_answer_reads_the_rules_first_then_what_was_not_used_then_the_m
     first = ranked["rows"][0]
     assert first["symbol"] == "FX000" and first["ask"] == "Trade plan for FX000"
     assert first["cells"] == {"rank": 1, "symbol": "FX000", "sector": "Banks", "mcap": "1,00,000", "roe": "30.0", "de": "0.00"}
-    assert "Showing 25 of 103 matching stocks, largest companies first." in ranked["note"] and "not recommendations" in ranked["note"]
+    assert "Showing 25 of 103 matching stocks, largest companies first." in ranked["note"] and "not advice" in ranked["note"]
     assert p["headline"]["text"] == "103 stocks match your filters."
     sent = [a for n, a in src.calls if n == "screen_run"][0][0]
     assert sent == {"conditions": [{"key": "roe", "op": "over", "value": 20.0}, {"key": "de", "op": "under", "value": 0.5}], "bucket": "large"}

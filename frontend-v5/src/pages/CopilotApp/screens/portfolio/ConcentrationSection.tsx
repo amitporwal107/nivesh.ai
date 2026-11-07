@@ -146,7 +146,7 @@ const AXIS_TABLE = {
     count: "Funds",
     emptyTitle: "No fund houses to show",
     emptyBody: "AMC exposure appears once this portfolio holds mutual funds or ETFs.",
-    question: (r: AxisRow) => `Is ${fmtPct(r.item?.pct)} of my fund money with ${r.name} too much, and which ${r.name} funds would you trim first?`,
+    question: (r: AxisRow) => `Is ${fmtPct(r.item?.pct)} of my fund money with ${r.name} too much, and how would I rebalance my ${r.name} funds?`,
   },
   group: {
     title: "Groups · share of your exposure to business groups",

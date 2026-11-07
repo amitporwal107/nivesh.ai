@@ -258,11 +258,11 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
   // questions it is built to answer. The last one names a real client.
   const first = queue[0];
   const prompts: Array<{ label: string; query: string }> = [
-    { label: "Which clients are off their target allocation?", query: "Which clients are deviating more than 10% from their target allocation? List the bucket that is off." },
+    { label: "Which clients are off their planned allocation?", query: "Which clients are deviating more than 10% from their planned allocation? List the bucket that is off." },
     { label: "Which clients are lagging the Nifty 50?", query: "Show clients whose portfolios are lagging NIFTY 50 by more than 5%. Include AUM and gap size." },
     { label: "Who has over 40% in one fund or stock?", query: "List clients with more than 40% of their portfolio in a single fund or stock. Show the position and weight." },
     { label: "Which clients stopped their SIPs recently?", query: "Which of my clients have stopped or paused SIPs in the last 3 months? Show last contribution date." },
-    ...(first ? [{ label: `Draft a review for ${first.name}`, query: `Draft a portfolio review for my client ${first.name}: what changed, the top issue and the recommended next step.` }] : []),
+    ...(first ? [{ label: `Draft a review for ${first.name}`, query: `Draft a portfolio review for my client ${first.name}: what changed, the top issue and the next step to consider.` }] : []),
   ];
 
   const queueShown = allQueue ? queue : queue.slice(0, QUEUE_PREVIEW);
@@ -276,7 +276,7 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
         title={n > 0
           ? <><span data-testid="advisor-attention-count">{n}</span> {n === 1 ? "client needs" : "clients need"} you <em style={{ color: "var(--amber)" }}>today</em>.</>
           : <>No client needs you <em>today</em>.</>}
-        sub={`Your ${clients.length === 1 ? "client is" : `${fmtNum(clients.length)} clients are`} ranked on portfolio weakness, risk, assets, pending recommendations and time since the last review. Open any client in the Copilot to work on their plan.`}
+        sub={`Your ${clients.length === 1 ? "client is" : `${fmtNum(clients.length)} clients are`} ranked on portfolio weakness, risk, assets, pending plan steps and time since the last review. Open any client in the Copilot to work on their plan.`}
       />
 
       <Tiles items={tiles} />
@@ -285,7 +285,7 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
         <Eyebrow>Needs attention · ranked by priority</Eyebrow>
         {n === 0 ? (
           <div data-testid="advisor-queue-empty">
-            <EmptyBlock title="Every client is on track" body="No client has a risk flag, a pending recommendation or an overdue review right now." />
+            <EmptyBlock title="Every client is on track" body="No client has a risk flag, a pending plan step or an overdue review right now." />
           </div>
         ) : (
           queueShown.map((p) => <QueueRow key={p.profile_id} p={p} onOpen={onOpen} openingId={openingId} />)

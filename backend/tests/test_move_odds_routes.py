@@ -266,7 +266,7 @@ def test_tc104_stock_card_is_the_copilot_card_behind_the_flag(monkeypatch):
     body = r.json()["data"]
     assert body["widget_type"] == "instrument_detail"
     assert body["data"] == build_research_hub("stock", copy.deepcopy(widget))     # the copilot's card, unchanged
-    assert body["data"]["research_rail"][0]["primary"] == "Worth buying now?"
+    assert body["data"]["research_rail"][0]["primary"] == "Scores today"
     assert body["data"]["lens_views"]["buy_verdict"]["recommendation"]["short_term"]["stance"] == "Sell"   # BUY/HOLD/SELL kept
 
     n = len(calls)

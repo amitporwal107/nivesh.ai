@@ -23,9 +23,9 @@ const RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
 
 /** How the paper trade fills, in plain words (the desk's entry rules: desk-trading.ts ENTRY_RULE_SHORT). */
 const FILL_PLAIN: Record<EntryRule, string> = {
-  at_once: "it enters at once, at the entry price",
-  break_above: "it enters only when a later day trades up to the entry",
-  pullback_to: "it enters only when a later day dips back to the entry",
+  at_once: "it opens at once, at the reference price",
+  break_above: "it opens only when a later day trades up to the reference price",
+  pullback_to: "it opens only when a later day dips back to the reference price",
 };
 
 const holdText = (days: number | undefined) => (days != null ? `, and closes after ${days} trading day${days === 1 ? "" : "s"}` : "");
@@ -66,7 +66,7 @@ export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix 
   return (
     <span className="flex min-w-0 flex-col" style={{ gap: 6 }}>
       <span data-testid={`${testPrefix}-plan`} data-plan-id={tp.plan_id} style={{ ...quiet, color: "var(--cp-ink-2)" }}>
-        Enter {entryText(tp)} · exit if wrong {stopText(tp)} · targets {targetsText(tp)}
+        Opens {entryText(tp)} · risk level {stopText(tp)} · reward levels {targetsText(tp)}
       </span>
       {blocked ? (
         <span data-testid={`${testPrefix}-blocked`} role="note" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{blocked}</span>

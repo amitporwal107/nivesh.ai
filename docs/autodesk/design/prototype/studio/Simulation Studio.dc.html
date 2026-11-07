@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+<style>
+html,body{margin:0;padding:0;background:#06080F}
+*{box-sizing:border-box}
+a{color:var(--mint);text-decoration:none}
+a:hover{color:var(--ink)}
+button,input,select{font-family:inherit}
+</style>
+</helmet>
+<div data-theme="{{ theme }}" class="nv-frame" style="min-height:100vh;background:var(--bg-0);color:var(--ink);font-family:var(--sans)">
+  <header style="position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:12px clamp(16px,3vw,36px);border-bottom:1px solid var(--line);background:var(--bg-glass);backdrop-filter:blur(20px) saturate(140%);-webkit-backdrop-filter:blur(20px) saturate(140%)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="nv-mark" style="width:30px;height:30px;font-size:19px">न</span>
+      <div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--display);font-size:21px;line-height:1">Simulation studio</span><span class="nv-eyebrow" style="font-size:9px">Nivesh · trading desk simulator</span></div>
+    </div>
+    <span class="nv-pill nv-pill-indigo"><span class="nv-dot" style="background:var(--indigo)"></span>Simulated · isolated · no broker route</span>
+    <span style="flex:1"></span>
+    <nav style="display:flex;flex-wrap:wrap;gap:4px">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><span onClick="{{ t.go }}" style="cursor:pointer;padding:8px 14px;border-radius:999px;font-size:13px;border:1px solid {{ t.line }};background:{{ t.bg }};color:{{ t.color }};transition:all .15s ease">{{ t.t }}</span></sc-for>
+    </nav>
+    <div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--bg-2)"><sc-for list="{{ themes }}" as="o" hint-placeholder-count="2"><button onClick="{{ o.go }}" style="cursor:pointer;border:0;padding:6px 11px;border-radius:999px;background:{{ o.bg }};color:{{ o.color }};font-family:var(--mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase">{{ o.t }}</button></sc-for></div>
+    <a href="Trading Desk.dc.html" style="font-size:12.5px">Trading desk ›</a>
+  </header>
+  <main style="width:100%;max-width:1320px;margin:0 auto;padding:28px clamp(16px,3vw,36px) 80px">
+    <sc-if value="{{ v_day }}" hint-placeholder-val="{{ true }}"><dc-import name="SimDay" run-key="{{ runKey }}" on-nav="{{ go }}" hint-size="100%,1700px"></dc-import></sc-if>
+    <sc-if value="{{ v_setup }}" hint-placeholder-val="{{ false }}"><dc-import name="SimSetup" schedule="{{ schedule }}" on-create="{{ create }}" on-nav="{{ go }}" hint-size="100%,1600px"></dc-import></sc-if>
+    <sc-if value="{{ v_scen }}" hint-placeholder-val="{{ false }}"><dc-import name="SimScenarios" schedule="{{ schedule }}" on-schedule="{{ setSchedule }}" hint-size="100%,1400px"></dc-import></sc-if>
+    <sc-if value="{{ v_runs }}" hint-placeholder-val="{{ false }}"><dc-import name="SimRuns" run-key="{{ runKey }}" on-nav="{{ go }}" hint-size="100%,1400px"></dc-import></sc-if>
+    <sc-if value="{{ v_trace }}" hint-placeholder-val="{{ false }}"><dc-import name="SimTrace" hint-size="100%,1400px"></dc-import></sc-if>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;view&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;day&quot;,&quot;setup&quot;,&quot;scen&quot;,&quot;runs&quot;,&quot;trace&quot;],&quot;default&quot;:&quot;day&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;}}">
+class Component extends DCLogic {
+  KEY = 'nv-simstudio-v1';
+  state = (() => {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('nv-simstudio-v1') || '{}'); } catch (e) {}
+    return {
+      view: this.props.view || saved.view || 'day', theme: this.props.theme || saved.theme || 'dark', runKey: saved.runKey || 0,
+      schedule: saved.schedule || [{ id: 'SCN-004', at: '10:30', p: '180 s' }, { id: 'SCN-011', at: '12:20', p: 'VIX +2.5' }, { id: 'SCN-007', at: '14:00', p: '10 min' }, { id: 'SCN-009', at: '15:22', p: '90 s' }],
+    };
+  })();
+  save(patch) { this.setState(patch, () => { try { const { view, theme, runKey, schedule } = this.state; localStorage.setItem(this.KEY, JSON.stringify({ view, theme, runKey, schedule })); } catch (e) {} }); }
+  componentDidUpdate(pp) { const p = this.props; if (p.view && p.view !== pp.view) this.save({ view: p.view }); if (p.theme && p.theme !== pp.theme) this.save({ theme: p.theme }); }
+  renderVals() {
+    const s = this.state;
+    const go = (v) => { this.save({ view: v }); if (typeof window !== 'undefined') window.scrollTo(0, 0); };
+    const TABS = [['day', 'Trading day'], ['setup', 'New simulation'], ['scen', 'Scenario library'], ['runs', 'Run history'], ['trace', 'Agent trace']];
+    return {
+      theme: s.theme, runKey: s.runKey, schedule: s.schedule, go,
+      create: () => { this.save({ runKey: s.runKey + 1, view: 'day' }); if (typeof window !== 'undefined') window.scrollTo(0, 0); },
+      setSchedule: (list) => this.save({ schedule: list }),
+      tabs: TABS.map(([v, t]) => ({ t, go: () => go(v), line: s.view === v ? 'var(--indigo-line)' : 'transparent', bg: s.view === v ? 'var(--indigo-soft)' : 'transparent', color: s.view === v ? 'var(--indigo)' : 'var(--ink-2)' })),
+      themes: [['dark', 'Dark'], ['light', 'Light']].map(([v, t]) => ({ t, go: () => this.save({ theme: v }), bg: s.theme === v ? 'var(--mint)' : 'transparent', color: s.theme === v ? '#06120B' : 'var(--ink-2)' })),
+      v_day: s.view === 'day', v_setup: s.view === 'setup', v_scen: s.view === 'scen', v_runs: s.view === 'runs', v_trace: s.view === 'trace',
+    };
+  }
+}
+</script>
+</body>
+</html>

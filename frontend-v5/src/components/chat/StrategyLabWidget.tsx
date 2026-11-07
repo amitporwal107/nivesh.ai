@@ -62,11 +62,11 @@ const predText = (p: Predicate) =>
 
 // Contextual "AI QuantAssist" guidance per step.
 const GUIDANCE: Record<StepIdx, string> = {
-  0: "Pick the pool of stocks to screen against. All liquid NSE stocks is point-in-time: a backtest on it has no survivorship bias.",
+  0: "Choose the pool of stocks to screen against. All liquid NSE stocks is point-in-time: a backtest on it has no survivorship bias.",
   1: "Choose a factor template — each is an editable rule set (quality, value, momentum…).",
-  2: "Run the entry rules against the latest data to see the ranked candidates.",
+  2: "Run the selection rules against the latest data to see the ranked candidates.",
   3: "Backtest across a window. Slippage + brokerage are baked in; prices are corp-action adjusted.",
-  4: "Save the strategy and export its target portfolio. Live order placement is advisory-only.",
+  4: "Save the strategy and export its screened portfolio. Live order placement is advisory-only.",
 };
 
 export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; seed_name?: string }; onAction?: unknown }) {
@@ -145,7 +145,7 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
   // Export the target portfolio = the current screen's ranked candidates (equal-weight).
   const exportTargets = () => {
     const cands = screen?.candidates ?? [];
-    if (!cands.length) { push({ kind: "info", title: "Run the screen first to build a target portfolio" }); return; }
+    if (!cands.length) { push({ kind: "info", title: "Run the screen first to build a screened portfolio" }); return; }
     const w = (100 / cands.length).toFixed(2);
     const cols = ["symbol", "target_weight_pct", "close", "sector"];
     const lines = [cols.join(",")].concat(
@@ -154,9 +154,9 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${(name || "strategy").toLowerCase().replace(/\s+/g, "_")}_target_portfolio.csv`;
+    a.download = `${(name || "strategy").toLowerCase().replace(/\s+/g, "_")}_screened_portfolio.csv`;
     a.click(); URL.revokeObjectURL(a.href);
-    push({ kind: "success", title: `Exported ${cands.length} target holdings` });
+    push({ kind: "success", title: `Exported ${cands.length} screened holdings` });
   };
 
   const entry = definition?.entry?.all_of ?? [];
@@ -277,8 +277,8 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
       {step === 2 && (
         <div className="flex flex-col gap-3">
           <div className="rounded-lg border border-hairline bg-surface-2 p-3">
-            <div className="text-[10px] uppercase tracking-wide text-ink-4 mb-1.5">Entry rules (all of)</div>
-            {entry.length === 0 ? <p className="text-[12px] text-ink-3 italic">No entry rules in this template.</p> : (
+            <div className="text-[10px] uppercase tracking-wide text-ink-4 mb-1.5">Selection rules (all of)</div>
+            {entry.length === 0 ? <p className="text-[12px] text-ink-3 italic">No selection rules in this template.</p> : (
               <ul className="flex flex-col gap-1">
                 {entry.map((p, i) => <li key={i} className="font-mono text-[11.5px] text-ink-2 bg-surface-1 rounded px-2 py-1">{predText(p)}</li>)}
               </ul>
@@ -383,12 +383,12 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
             </button>
             <button onClick={exportTargets} disabled={!screen?.candidates?.length} data-testid="lab-export-targets"
               className="inline-flex items-center gap-1.5 rounded-md border border-hairline px-3 py-1.5 text-[12.5px] text-ink-2 hover:bg-surface-2 disabled:opacity-50">
-              <Download className="h-3.5 w-3.5" />Export target portfolio
+              <Download className="h-3.5 w-3.5" />Export screened portfolio
             </button>
           </div>
           <div className="flex items-start gap-1.5 rounded-lg border border-hairline bg-surface-2 p-3 text-[11px] text-ink-3">
             <Rocket className="h-3.5 w-3.5 mt-0.5 shrink-0 text-accent" />
-            Deployment is advisory-only: export the target portfolio (equal-weight of the screened set) to your broker/OMS.
+            Deployment is advisory-only: export the screened portfolio (equal-weight of the screened set) to your broker/OMS.
             Automated order placement is a later, compliance-gated phase — nothing is routed to an exchange from here.
           </div>
           <Nav onBack={() => setStep(3)} />

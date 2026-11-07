@@ -87,6 +87,7 @@ class TickerSource:
         self._lock = threading.Lock()
         self.connected = False
         self.auth_failed = False
+        self.connects = 0                 # on_connect calls (KiteTicker reconnects included)
         self.last_event = 0.0
         self.last_tick = 0.0
         self.last_error = ""
@@ -140,6 +141,7 @@ class TickerSource:
     # KiteTicker callbacks (called on the ticker thread)
     def _connect(self, ws, response=None) -> None:
         self.connected, self.last_event = True, time.monotonic()
+        self.connects += 1
         with self._lock:
             toks = list(self._tokens)
         self._sub(toks)

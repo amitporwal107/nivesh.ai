@@ -142,7 +142,7 @@ export default function OpsKpisScreen() {
             "Portfolio reconciliation accuracy — a stored comparison of imported holdings against the source statement, per import",
             "Claims with traceable evidence — each answer recorded with its claims and the evidence linked to them",
             "Tool success rate and p95 latency — duration and outcome recorded for every tool call",
-            "Feed freshness within SLA — a per-source freshness target and a daily history of whether it was met (the quality gate scores one day at a time)",
+            "Feed freshness within SLA — a per-source freshness limit and a daily history of whether it was met (the quality gate scores one day at a time)",
           ]}
         />
       </Group>

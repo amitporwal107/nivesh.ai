@@ -576,8 +576,9 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-volatility")).toHaveAttribute("data-value", pct1(14.2));
 
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("desk-portfolio-record-title")).toHaveCount(0);
 
     await page.goto(`${DESK}?tab=portfolio`);
@@ -621,9 +622,9 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await mockSingleRoute(page, "**/api/portfolio/holdings-enriched*", "empty-portfolio.json");
     await portfolioData(page);
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    // Paper trades do not depend on holdings: Trade Desk's empty state shows.
-    await expect(page.getByTestId("td-open-empty")).toContainText("No open paper trades", { timeout: 15_000 });
+    // Paper trades do not depend on holdings: Paper Trading still opens. Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
 
     await page.goto(`${DESK}?tab=portfolio`);
     const empty = page.getByTestId("desk-portfolio-empty");
@@ -826,7 +827,7 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
       const r = closedRows.nth(i);
       await expect(r.getByTestId("desk-paper-exit")).toHaveText(paise(t.exit_price as number));
       await expect(r.getByTestId("desk-paper-reason")).toHaveAttribute("data-reason", t.exit_reason as string);
-      await expect(r.getByTestId("desk-paper-reason")).toContainText(t.exit_reason === "stop" ? "Stop" : "Target");
+      await expect(r.getByTestId("desk-paper-reason")).toContainText(t.exit_reason === "stop" ? "Risk level" : "Reward level");
       const realised = ((t.exit_price as number) - t.entry_price) * t.quantity;
       expect(realised).toBeCloseTo(t.realized_pnl_rs as number, 6);
       await expect(r.getByTestId("desk-paper-realised-row")).toHaveText(rupees(realised, true));
@@ -835,7 +836,7 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await expect(block.getByTestId("desk-paper-exit-notes")).toContainText(BOTH);
     await expect(block.getByTestId("desk-paper-rules")).toContainText("Simulated: no order is placed.");
     await expect(block.getByTestId("desk-paper-rules")).toContainText(`checked through ${dayY("2026-10-13")}`);
-    await expect(block.getByTestId("desk-paper-rules")).toContainText("one that reaches both closes it at the stop");
+    await expect(block.getByTestId("desk-paper-rules")).toContainText("one that reaches both closes it at the risk level");
 
     // Close asks first; Cancel sends nothing.
     const brk = openRows.filter({ hasText: "FIXBRK" });
@@ -1113,8 +1114,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(page.getByTestId("desk-portfolio-trust")).toContainText("Stored holdings in Nivesh");
     await expect(page.getByTestId("desk-risk-trust")).toHaveAttribute("data-maker", "rules");
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. Its own rules line says what the marks are.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-rules-note")).toContainText("end-of-day daily bars", { timeout: 15_000 });
+    // The Live desk's rules line went with it. Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
   });
 
   test("§8.3 read live: cash from the brokers' funds read, live value checked line by line against the last sync; duplicates and a missing price are said", async ({ page }) => {
@@ -1335,11 +1337,11 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(block.getByTestId("desk-paper-realised")).toHaveText(rupees(sim.realized_pnl_rs as number, true));
     await expect(block.getByTestId("desk-paper-net-realised")).toHaveText(rupees(sim.net_pnl_rs as number, true));
     await expect(block.getByTestId("desk-paper-open")).toHaveText("1");
-    await expect(block).toContainText("1 waiting for the entry");
+    await expect(block).toContainText("1 waiting for the reference price");
     // Open: the waiting trade has a last close but no P&L, no costs (no position yet).
     const openRow = block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXWAIT" });
     await expect(openRow.getByTestId("desk-paper-entry-status")).toHaveAttribute("data-status", "waiting");
-    await expect(openRow.getByTestId("desk-paper-entry-status")).toContainText("Waiting for entry");
+    await expect(openRow.getByTestId("desk-paper-entry-status")).toContainText("Waiting for the reference price");
     await expect(openRow.getByTestId("desk-paper-unrealised-row")).toHaveText("—");
     await expect(openRow.getByTestId("desk-paper-net-row")).toHaveText("—");
     // Closed: net after costs and MFE / MAE.
@@ -1352,16 +1354,16 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(rec).toHaveAttribute("data-id", "pt-sim");
     await expect(rec.getByTestId("desk-paper-record-signal")).toHaveText(/^12 Oct, 9:00\s?am$/i);
     await expect(rec.getByTestId("desk-paper-record-rule")).toContainText(`Break above ${paise(100)} · waits 3 sessions`);
-    await expect(rec.getByTestId("desk-paper-record-entry")).toHaveText(`Entry reached · ${dayY("2026-10-13")} · simulated at ${paise(100)}`);
-    await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Stop ${paise(95)}, target ${paise(110)}, or the close of session 10 held`);
-    await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText(`${rupees(42.1)} at the target · ${rupees(SIM_COSTS)} at the stop`);
+    await expect(rec.getByTestId("desk-paper-record-entry")).toHaveText(`Reference price reached · ${dayY("2026-10-13")} · simulated at ${paise(100)}`);
+    await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Risk level ${paise(95)}, reward level ${paise(110)}, or the close of session 10 held`);
+    await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText(`${rupees(42.1)} at the reward level · ${rupees(SIM_COSTS)} at the risk level`);
     await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText("0.05% of the traded value + ₹20 a side (strategy_engine default)");
     // A flat-model (desk-flat-v1) trade keeps its own model: no statutory components are shown, not even as ₹0.00.
     await expect(rec.getByTestId("desk-paper-record-costs-breakdown")).toHaveText(`brokerage ${paise(40)} · slippage ${paise(1.95)}`);
     await expect(rec.getByTestId("desk-paper-record-strategy")).toHaveText("positional-scanner v2");
     await expect(rec.getByTestId("desk-paper-record-rationale")).toHaveText("Broke a 20-day high on volume");
     await expect(rec.getByTestId("desk-paper-record-obs")).toHaveText("1 session read · 1 held");
-    await expect(rec.getByTestId("desk-paper-record-exit")).toHaveText(`Stop · ${dayY("2026-10-13")} · ${paise(95)}`);
+    await expect(rec.getByTestId("desk-paper-record-exit")).toHaveText(`Risk level · ${dayY("2026-10-13")} · ${paise(95)}`);
     await expect(rec.getByTestId("desk-paper-record-net")).toHaveText(rupees(sim.net_pnl_rs as number, true));
     await expect(rec.getByTestId("desk-paper-record-excursion")).toHaveText(`+12.00% (+₹240) · ${MINUS}6.00% (${MINUS}₹120)`);
     await expect(rec.getByTestId("desk-paper-record-version")).toHaveText("desk-paper-v2");
@@ -1373,7 +1375,7 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
 
     // Closing the waiting trade cancels it: the confirmation says there is no position.
     await openRow.getByTestId("desk-paper-close").click();
-    await expect(block.getByTestId("desk-paper-confirm")).toContainText("Its entry has not been reached, so there is no position and no P&L.");
+    await expect(block.getByTestId("desk-paper-confirm")).toContainText("Its reference price has not been reached, so there is no position and no P&L.");
     await expect(block.getByTestId("desk-paper-confirm-yes")).toHaveText("Cancel paper trade");
   });
 
@@ -1388,7 +1390,7 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     const closed = block.getByTestId("desk-paper-closed-table");
     const trail = closed.getByRole("row").filter({ hasText: "FIXTRAIL" });
     await expect(trail.getByTestId("desk-paper-reason")).toHaveAttribute("data-reason", "trailing_stop");
-    await expect(trail.getByTestId("desk-paper-reason")).toHaveText("Trailing stop");
+    await expect(trail.getByTestId("desk-paper-reason")).toHaveText("Trailing risk level");
     // A reason the screen does not know: the raw code on a neutral pill.
     const unknown = closed.getByRole("row").filter({ hasText: "FIXNEW" });
     await expect(unknown.getByTestId("desk-paper-reason")).toHaveAttribute("data-reason", "some_new_reason");
@@ -1397,26 +1399,26 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await trail.getByTestId("desk-paper-record-toggle").click();
     const rec = block.getByTestId("desk-paper-record");
     await expect(rec).toHaveAttribute("data-id", "pt-trail");
-    await expect(rec.getByTestId("desk-paper-record-exit")).toHaveText(`Trailing stop · ${dayY("2026-10-15")} · ${paise(1040)}`);
+    await expect(rec.getByTestId("desk-paper-record-exit")).toHaveText(`Trailing risk level · ${dayY("2026-10-15")} · ${paise(1040)}`);
     const versions = rec.getByTestId("desk-paper-stop-version");
     await expect(versions).toHaveCount(2);
     expect(await versions.evaluateAll((els) => els.map((e) => e.getAttribute("data-reason")))).toEqual(["initial", "trailing_atr"]);
-    await expect(versions.nth(0)).toHaveText(`${paise(970)} · at entry · initial stop`);
+    await expect(versions.nth(0)).toHaveText(`${paise(970)} · when opened · initial risk level`);
     await expect(versions.nth(1)).toHaveText(`${paise(1040)} · set at the ${dayY("2026-10-14")} close, in force from the next session · raised by the ATR trail`);
     const rules = rec.getByTestId("desk-paper-exit-rule");
     await expect(rules).toHaveCount(1);
     await expect(rules.first()).toHaveAttribute("data-code", "trailing_atr");
     await expect(rules.first()).toHaveText(`${TRAIL_RULE.label} (trail-atr-v1) · opt-in research rule`);
-    await expect(rec.getByTestId("desk-paper-record-version")).toHaveText("desk-paper-v2 · exits exit-rules-v1");
+    await expect(rec.getByTestId("desk-paper-record-version")).toHaveText("desk-paper-v2 · close rules exit-rules-v1");
 
     // The open trade with no opt-in rule: the default exits only, and its one (initial) stop version.
     await block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXWAIT" }).getByTestId("desk-paper-record-toggle").click();
     const rec2 = block.getByTestId("desk-paper-record");
     await expect(rec2).toHaveAttribute("data-id", "pt-wait");
-    await expect(rec2.getByTestId("desk-paper-record-exit-rules")).toHaveText("None — stop, target and time only");
+    await expect(rec2.getByTestId("desk-paper-record-exit-rules")).toHaveText("None — risk level, reward level and time only");
     await expect(rec2.getByTestId("desk-paper-exit-rule")).toHaveCount(0);
     await expect(rec2.getByTestId("desk-paper-stop-version")).toHaveCount(1);
-    await expect(rec2.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Stop ${paise(100)}, target ${paise(115)}`);
+    await expect(rec2.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Risk level ${paise(100)}, reward level ${paise(115)}`);
   });
 
   // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
@@ -1430,17 +1432,17 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
     await page.goto(`${DESK}?tab=trade&view=paper&persona=investor`);
     const block = page.getByTestId("desk-paper-trades");
-    await expect(block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXTRAIL" }).getByTestId("desk-paper-reason")).toHaveText("Locked-in exit");
+    await expect(block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXTRAIL" }).getByTestId("desk-paper-reason")).toHaveText("Closed at the raised risk level");
     await block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXRAISE" }).getByTestId("desk-paper-record-toggle").click();
     const rec = block.getByTestId("desk-paper-record");
-    await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Exit if wrong ${paise(970)} (now ${paise(1040)}), exit if right ${paise(1200)}`);
+    await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Risk level ${paise(970)} (now ${paise(1040)}), reward level ${paise(1200)}`);
   });
 
   test("investor wording: plain labels for the risk rows and the overview", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio&persona=investor`);
-    await expect(page.getByTestId("desk-risk-liquidity")).toContainText("How easy to sell");
+    await expect(page.getByTestId("desk-risk-liquidity")).toContainText("How easy to turn into cash");
     await expect(page.getByTestId("desk-risk-gap")).toContainText("Sudden overnight jumps");
     await expect(page.getByTestId("desk-risk-drawdown")).toContainText("Biggest fall · 1 year");
     const o = page.getByTestId("desk-portfolio-overview");
@@ -1466,9 +1468,10 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await page.getByTestId("desk-risk-liquidity-rule-toggle").click();
     await page.getByTestId("desk-risk-liquidity-toggle").click();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. A trade's record is its journal drawer.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=journal`);
-    await page.getByTestId("td-closed").getByRole("row").nth(1).click({ timeout: 15_000 });
-    await expect(page.getByTestId("td-journal")).toBeVisible();
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts). The trade record (the journal drawer) went with it; 390 px is checked on the v2 view.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(400);
     const o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
@@ -1492,8 +1495,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await page.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
     await page.getByTestId("desk-import-preview").click();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. A trade's record is its journal drawer.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=journal`);
-    await page.getByTestId("td-closed").getByRole("row").nth(1).click({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await page.setViewportSize({ width: 1440, height: 4200 });
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-1440-tall.png` });
@@ -1527,8 +1531,9 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
     await expect(page.getByTestId("desk-risk-overall")).toBeVisible();
     await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="unsplit"]')).toBeVisible();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-positions")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("broker-live-row")).toHaveCount(2);
@@ -1608,8 +1613,10 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await page.getByTestId("desk-risk-correlation-toggle").click();
     await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(400);
     o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
@@ -1625,8 +1632,9 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("desk-portfolio-hub")).toBeVisible();
     // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
-    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
-    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    // Paper Trading v2 (owner, 5 Nov 2026) replaced the Live desk and Trade journal: Trade Desk › Paper Trading opens the v2 shell over 01 Overview (copilot-app-desk-paper-v2-a.spec.ts).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    await expect(page.getByTestId("pv2-shell")).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-1440.png` });
     await page.setViewportSize({ width: 1440, height: 2000 });
@@ -1740,7 +1748,7 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     await expect(spread.getByTestId("desk-strategy-gross")).toHaveText(rupees(6250, true));
     await expect(spread.getByTestId("desk-strategy-net")).toHaveText(rupees(6141.87, true));
     await expect(spread.getByTestId("desk-strategy-status")).toHaveAttribute("data-reason", "target");
-    await expect(spread.getByTestId("desk-strategy-status")).toContainText("Target");
+    await expect(spread.getByTestId("desk-strategy-status")).toContainText("Reward level");
     // Open future: no option legs, so no premium and no mark premium (never 0); gross +3,750, net +3,404.
     const fut = section.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" });
     await expect(fut.getByTestId("desk-strategy-premium")).toHaveText("—");
@@ -1781,12 +1789,12 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-mark")).not.toContainText("settle");
     await expect(rec.getByTestId("desk-paper-strategy-marks-note")).toContainText("an option at its close, never its settle price");
     await expect(rec.getByTestId("desk-paper-strategy-record-premium-plan")).toHaveText(
-      `Debit ${paise(25)} a unit · stop ${paise(17.5)} · T1 ${paise(32.5)} · T2 ${paise(40)} · unit = 250 shares · now ${paise(50)}The whole structure on its end-of-day marks (what it would sell for); strategy-levels-v2.`);
+      `Debit ${paise(25)} a unit · risk level ${paise(17.5)} · reward level 1 ${paise(32.5)} · reward level 2 ${paise(40)} · unit = 250 shares · now ${paise(50)}The whole structure on its end-of-day marks (what closing it would receive); strategy-levels-v2.`);
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-date")).toHaveText(/15 Oct/);
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-pnl")).toHaveText(rupees(17500, true));
     await expect(legs.nth(1).getByTestId("desk-paper-strategy-leg-entry")).toHaveText(paise(15));
     await expect(legs.nth(1).getByTestId("desk-paper-strategy-leg-pnl")).toHaveText(rupees(-11250, true));
-    await expect(legs.nth(0)).toContainText("Entry from NSE F&O bhavcopy close, 2026-10-09");
+    await expect(legs.nth(0)).toContainText("Reference price from NSE F&O bhavcopy close, 2026-10-09");
     // The signal block: time (03:30 UTC = 9:00 IST), versions, sources, evidence.
     await expect(rec.getByTestId("desk-paper-signal-at")).toHaveText(/^12 Oct, 9:00\s?am$/i);
     await expect(rec.getByTestId("desk-paper-signal-versions")).toHaveText("strategy-rules v1.0 · no model");
@@ -1799,7 +1807,7 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     // Costs and the exit.
     await expect(rec.getByTestId("desk-paper-strategy-record-premium")).toContainText(rupees(-6250, true));
     await expect(rec.getByTestId("desk-paper-record-net")).toHaveText(rupees(6141.87, true));
-    await expect(rec.getByTestId("desk-paper-strategy-record-exit")).toContainText("Target (underlying levels)");
+    await expect(rec.getByTestId("desk-paper-strategy-record-exit")).toContainText("Reward level (underlying levels)");
     await expect(rec.getByTestId("desk-paper-strategy-record-version")).toHaveText("desk-paper-v3");
     expect(await rec.getByTestId("desk-paper-flag").evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["exit_marked_at_session_marks"]);
     // The open future's record shows the no_mark flag and the futures-loss warning.
@@ -1831,7 +1839,9 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     expect(calls.closes[0]).toEqual({ path: "/api/desk/paper-trades/st-future/close", body: {} });
   });
 
-  test("a strategy row without its legs or signal is a loud contract error, not a silently dropped trade", async ({ page }) => {
+  // RETIRED with the Live desk (Paper Trading v2, owner 5 Nov 2026): Trade Desk no longer reads /api/desk/paper-trades for the
+  // Live desk; Real-time P&L (builder B) reads the desk's structures and owns its own contract checks.
+  test.skip("a strategy row without its legs or signal is a loud contract error, not a silently dropped trade", async ({ page }) => {
     const broken = { ...spreadTrade(), legs: [] };
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([broken]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
@@ -1882,7 +1892,10 @@ test.describe("Smart trading desk — F&O roll", () => {
     return { posts, gets: () => gets };
   }
 
-  test("UI-4 the confirmation shows both legs and their prices, and Roll posts once", async ({ page }) => {
+  // RETIRED with the Live desk and the journal (Paper Trading v2, owner 5 Nov 2026), where Roll lived (StructureCard / RollAction
+  // "td-roll", JournalPanel). The v2 design (UI_DESIGN_V2.md §5) does not list Roll among the actions that move to the new views:
+  // flagged to the integrator as an action with no v2 place yet.
+  test.skip("UI-4 the confirmation shows both legs and their prices, and Roll posts once", async ({ page }) => {
     const calls = await rollPage(page, ROLL_PREVIEW);
     const row = page.getByTestId("td-structure").filter({ hasText: "Long future" });
     await row.getByTestId("td-roll-open").click({ timeout: 15_000 });
@@ -1900,7 +1913,7 @@ test.describe("Smart trading desk — F&O roll", () => {
     expect(calls.posts[0].key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
-  test("UI-4b a roll the route refuses shows its reason and offers no Roll button", async ({ page }) => {
+  test.skip("UI-4b a roll the route refuses shows its reason and offers no Roll button", async ({ page }) => {
     const calls = await rollPage(page, { eligible: false, trade_id: "st-future", refusal: { code: "roll_chain_not_ready",
       message: "The NSE F&O bhavcopy for 2026-10-27 is not in yet: it lands after 22:15 IST, and the roll records both sides at that day's close. Try again once it is in." } });
     const row = page.getByTestId("td-structure").filter({ hasText: "Long future" });
@@ -1911,7 +1924,7 @@ test.describe("Smart trading desk — F&O roll", () => {
     expect(calls.posts).toEqual([]);
   });
 
-  test("UI-4c the trade record offers the same roll", async ({ page }) => {
+  test.skip("UI-4c the trade record offers the same roll", async ({ page }) => {
     await rollPage(page, ROLL_PREVIEW);
     await page.getByTestId("td-structure").filter({ hasText: "Long future" }).getByTestId("td-structure-journal").click({ timeout: 15_000 });
     const rec = page.getByTestId("td-journal");

@@ -82,6 +82,14 @@ FILL MODEL (docs: this block is the reference; tests/test_paper_fills_pnl.py pin
                    backtest uses: gap rule on the open against the stop as of the previous close, then the intrabar touch
                    of that same stop, then the target, then time; the trail moves only after the bar.
       manual       a typed price, else the last end-of-day close; a conditional entry not yet filled is cancelled.
+    Level changes  "Modify risk" (PATCH /api/desk/paper-trades/{id}/levels, share trades only): the user may change the stop
+                   loss and the target of an OPEN trade. Each change is appended to `level_changes` [{version, at, session,
+                   stop_price, target_price, prev_stop, prev_target, changed, note}] (append-only; `session` = the IST day it
+                   was made) and applies to the bars AFTER that session: the bar of that day is still judged against the
+                   levels before the change at the evening check, so a change can never rescue a stop the day already hit
+                   (no hindsight). The stop's change is a version in `stop_history` with reason "manual"; the opt-in ATR
+                   trail measures its raises from it. A trade still waiting for its entry may be changed too (its entry
+                   rule is unchanged). `level_changes_by_session`, `levels_now` and `level_change` below.
     Quantities     the whole quantity fills or nothing does: partial fills and partial exits are NOT modelled (a
                    close takes no quantity). Adding to a position is refused (routes/desk_trading.py).
     Missing data   a session with no high or low stops the scan: the trade waits (entry not reached, or still
@@ -101,6 +109,7 @@ import logging
 import math
 import re
 import uuid
+from dataclasses import replace as _replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
@@ -128,23 +137,24 @@ SOURCE = "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the da
 PRICE_BASIS = "end of day"
 EXIT_RULE = (
     "Checked on end-of-day bars from the first session after the IST date the trade was opened: a low at or "
-    "below the stop closes it at the stop, a high at or above the target closes it at the target, and a session "
-    "that touched both counts as the stop (conservative: a daily bar does not show which came first)."
+    "below the risk level closes it at the risk level, a high at or above the reward level closes it at the reward "
+    "level, and a session that touched both counts as the risk level (conservative: a daily bar does not show which "
+    "came first)."
 )
 FIRING_RULE = (
     "Checked on end-of-day bars from the first session after the IST date the alert was made: 'above' fires "
     "when a session's high reaches the level, 'below' when its low reaches it. Shown in this list only."
 )
-BOTH_IN_RANGE_NOTE = "The stop and the target were both inside this session's range; counted as the stop (conservative)."
+BOTH_IN_RANGE_NOTE = "The risk level and the reward level were both inside this session's range; counted as the risk level (conservative)."
 
 # ── paper trades: the DaaS paper_trades field set (PRD §13.4) ────────────────
 RULES_VERSION = "desk-paper-v2"
 ENTRY_RULES = ("at_once", "break_above", "pullback_to")
 ENTRY_RULE_TEXT = {
-    "at_once": "Filled at the reference entry price when the trade was recorded (assumed, not checked against a bar).",
-    "break_above": ("Filled at the reference entry on the first session after it was recorded whose high reaches it; "
+    "at_once": "Filled at the reference price when the trade was recorded (assumed, not checked against a bar).",
+    "break_above": ("Filled at the reference price on the first session after it was recorded whose high reaches it; "
                     "a session that opened above it is flagged."),
-    "pullback_to": ("Filled at the reference entry on the first session after it was recorded whose low reaches it; "
+    "pullback_to": ("Filled at the reference price on the first session after it was recorded whose low reaches it; "
                     "a session that opened below it is flagged."),
 }
 DEFAULT_ENTRY_WINDOW = 5          # sessions a conditional entry waits before it closes as "entry_not_reached"
@@ -176,10 +186,10 @@ def costs_text(model: Optional[Dict[str, Any]]) -> str:
 
 
 ORDERS_NOTE = "Paper trades are simulated and never create a broker order."
-TIME_EXIT_NOTE = "Held for the most sessions the exit rule allows; closed at that session's close."
+TIME_EXIT_NOTE = "Held for the most sessions the close rule allows; closed at that session's close."
 TREND_EXIT_NOTE = ("Closed below its trend EMA (an opt-in research rule) at the previous close; taken at this session's open.")
-NOT_REACHED_NOTE = "The entry level was not reached within the entry window; no position was taken."
-CANCELLED_NOTE = "Closed by you before the entry level was reached; no position was taken."
+NOT_REACHED_NOTE = "The reference price was not reached within the waiting window; no position was taken."
+CANCELLED_NOTE = "Closed by you before the reference price was reached; no position was taken."
 # Exit reasons a stored trade can carry.
 EXIT_REASONS = ("stop", "trailing_stop", "target", "time", "trend", "manual", "risk_control", "entry_not_reached", "cancelled")
 _STRATEGY_VERSION_RE = re.compile(r"^[A-Za-z0-9 ._:+/#()-]{1,60}$")
@@ -210,7 +220,11 @@ _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 _TRADE_FIELDS = {"symbol", "quantity", "entry_price", "stop_price", "target_price", "note", "source",
                  "entry_rule", "entry_window_sessions", "max_hold_sessions", "signal_at", "strategy_version", "rationale",
-                 "exit_rules"}
+                 "exit_rules", "price_source"}
+#: A live-priced at-once entry (docs/market_recovery/DESIGN.md §10 B): {"kind": "kite_live", "at": ISO of the quote}. Such
+#: an entry is checked against TODAY's live day range (check_entry_live) instead of the last completed session's bars.
+PRICE_SOURCE_KINDS = ("kite_live",)
+LIVE_RANGE_TOLERANCE = 0.005            # ±0.5 % around the live day's low / high
 _ALERT_FIELDS = {"symbol", "condition", "level", "note"}
 _SOURCE_FIELDS = {"kind", "bucket", "signal_date"}
 
@@ -411,6 +425,52 @@ def clean_signal_at(raw: Any, now: datetime) -> Optional[str]:
     return _iso(moment)
 
 
+def clean_price_source(raw: Any, now: datetime) -> Optional[Dict[str, Any]]:
+    """{"kind": "kite_live", "at": ISO} — the entry price is a live Kite quote taken at `at`, on the IST day of the
+    trade and never after it (SIGNAL_SKEW). None when absent; DeskInputError invalid_price_source otherwise."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - {"kind", "at"} or raw.get("kind") not in PRICE_SOURCE_KINDS:
+        raise DeskInputError("invalid_price_source")
+    at = raw.get("at")
+    if not isinstance(at, str) or not 10 < len(at.strip()) <= 40:
+        raise DeskInputError("invalid_price_source")
+    try:
+        moment = datetime.fromisoformat(at.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise DeskInputError("invalid_price_source") from None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    if moment > now + SIGNAL_SKEW or moment.astimezone(IST).date() != now.astimezone(IST).date():
+        raise DeskInputError("invalid_price_source", "A live price must be a quote of today, not later than now.")
+    return {"kind": raw["kind"], "at": _iso(moment)}
+
+
+def check_entry_live(trade: Dict[str, Any], answer: Dict[str, Any]) -> Dict[str, Any]:
+    """A live-priced at-once entry (price_source kite_live) is filled when recorded at a price the market traded TODAY:
+    `answer` is services/kite_live_feed/day_quote.day_quotes([symbol]) (live in the session, the saved Kite close after
+    it). Returns {date, low, high, basis, at}; raises DeskInputError entry_unverifiable (no quote of the trade's day) or
+    entry_not_tradable (outside the day's low–high, ±LIVE_RANGE_TOLERANCE)."""
+    day = ist_date(trade["opened_at"]).isoformat()
+    q = (answer.get("quotes") or {}).get(trade["symbol"]) if isinstance(answer, dict) else None
+    if not q or answer.get("source") not in ("kite_live", "kite_close") or answer.get("day") != day:
+        why = (answer or {}).get("why") if isinstance(answer, dict) else None
+        raise DeskInputError("entry_unverifiable", f"No live Kite quote of {day} for {trade['symbol']}"
+                                                   + (f" ({why})" if why else "") + ", so a live entry cannot be checked.")
+    prices = [float(v) for v in (q.get("low"), q.get("high"), q.get("ltp"), q.get("open"))
+              if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0]
+    if not prices:
+        raise DeskInputError("entry_unverifiable", f"The live quote for {trade['symbol']} carries no price.")
+    low, high = min(prices), max(prices)
+    entry = float(trade["entry_price"])
+    if not low * (1 - LIVE_RANGE_TOLERANCE) <= entry <= high * (1 + LIVE_RANGE_TOLERANCE):
+        side = "below" if entry < low else "above"
+        raise DeskInputError("entry_not_tradable", (
+            f"The live price {_rupees(entry)} is {side} today's range ({day}: {_rupees(low)}–{_rupees(high)}), so it could "
+            f"not be filled at once."))
+    return {"date": day, "low": low, "high": high, "basis": answer["source"], "at": answer.get("as_of")}
+
+
 def clean_strategy_version(raw: Any) -> Optional[str]:
     if raw is None:
         return None
@@ -453,6 +513,9 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
     if body.get("max_hold_sessions") is not None:
         max_hold = _whole(body.get("max_hold_sessions"), 1, MAX_HOLD_SESSIONS, "invalid_max_hold")
     signal_at = clean_signal_at(body.get("signal_at"), moment)
+    price_source = clean_price_source(body.get("price_source"), moment)
+    if price_source is not None and entry_rule != "at_once":
+        raise DeskInputError("invalid_price_source", "A live price is an at-once entry.")
     strategy_version = clean_strategy_version(body.get("strategy_version"))
     rationale = clean_rationale(body.get("rationale"))
     try:
@@ -478,6 +541,7 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
         "rationale": rationale,
         "rules_version": RULES_VERSION,
         "exit_rules": exit_rules,
+        **({"price_source": price_source} if price_source else {}),
         "cost_model": dict(COST_MODEL),
         "opened_at": stamp,
         "status": "open",
@@ -685,6 +749,12 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
     window = int(trade.get("entry_window_sessions") or DEFAULT_ENTRY_WINDOW)
     opened = ist_date(trade["opened_at"])
     rules = trade_rules(trade)
+    # The user's level changes (PATCH .../levels, LEVEL CHANGES above): each applies to the bars AFTER its session, so the
+    # bar of the day it was made is still judged against the levels before it (no hindsight).
+    changes = level_changes_by_session(trade)
+    next_change = 0
+    applied_version = 0
+    pre_entry_stops: List[Tuple[date, float]] = []      # stops set before a conditional entry filled
     warm = rules.trailing or rules.trend                 # only an opt-in rule reads bars before the entry
     flags: List[Dict[str, Any]] = []
     out: Dict[str, Any] = {"entry_status": "waiting", "entry_session": None, "sim_entry_price": None,
@@ -699,7 +769,7 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
         day = next((b for b in bars if b["date"] == opened), None)
         if day and day["high"] is not None and day["low"] is not None and not day["low"] <= entry <= day["high"]:
             flags.append(_flag("entry_outside_day_range",
-                               f"The entry {_rupees(entry)} is outside the {opened.isoformat()} range "
+                               f"The reference price {_rupees(entry)} is outside the {opened.isoformat()} range "
                                f"({_rupees(day['low'])}–{_rupees(day['high'])}): that fill could not have happened that day.",
                                opened))
         state = er.start(entry, stop, rules, session=opened,
@@ -709,6 +779,20 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
     for bar in bars:
         if bar["date"] <= opened:
             continue
+        while next_change < len(changes) and changes[next_change][0] < bar["date"]:
+            session, ch = changes[next_change]
+            next_change += 1
+            changed = ch.get("changed") or []
+            if "stop" in changed and ch.get("stop_price") is not None:
+                stop = float(ch["stop_price"])
+                if state is not None:
+                    state = er.manual_stop(state, stop, session=session)
+                else:
+                    pre_entry_stops.append((session, stop))
+            if "target" in changed:
+                target = float(ch["target_price"]) if ch.get("target_price") is not None else None
+                rules = _replace(rules, target=target)
+            applied_version = int(ch.get("version") or applied_version)
         if bar["high"] is None or bar["low"] is None:
             logger.warning("desk_trading: the %s bar has no high/low; later sessions wait until it does", bar["date"])
             flags.append(_flag("bar_missing_high_low",
@@ -726,6 +810,7 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
                     out["entry_status"] = "not_reached"
                     out["exit"] = {"exit_reason": "entry_not_reached", "exit_price": None, "exit_session": bar["date"],
                                    "exit_note": NOT_REACHED_NOTE}
+                    out.update(current_target=target, levels_applied=applied_version)
                     return out
                 continue
             entered, entry_session = True, True
@@ -738,11 +823,13 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
             out.update(entry_status="reached", entry_session=bar["date"], sim_entry_price=fill)
             if opened_beyond:
                 flags.append(_flag("entry_gap",
-                                   f"The session opened at {_rupees(bar['open'])}, beyond the entry {_rupees(entry)}: the "
-                                   "price never traded at the entry, so the fill is the open.",
+                                   f"The session opened at {_rupees(bar['open'])}, beyond the reference price {_rupees(entry)}: the "
+                                   "price never traded at the reference price, so the fill is the open.",
                                    bar["date"], bar["open"]))
-            state = er.start(fill, stop, rules, session=bar["date"],
+            state = er.start(fill, float(trade["stop_price"]), rules, session=bar["date"],
                              warmup=[b for b in bars if b["date"] < bar["date"]] if warm else ())
+            for when, level in pre_entry_stops:                 # the levels the user set while the entry waited
+                state = er.manual_stop(state, level, session=when)
         out["held_sessions"] += 1
         out["max_high"] = bar["high"] if out["max_high"] is None else max(out["max_high"], bar["high"])
         out["min_low"] = bar["low"] if out["min_low"] is None else min(out["min_low"], bar["low"])
@@ -750,12 +837,12 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
         if entry_session and rule == "pullback_to" and target is not None and bar["high"] >= target:
             skip_target = True
             flags.append(_flag("entry_session_ambiguous",
-                               "The target was inside the entry session's range, but its high may have come before the "
-                               "fill; the target is counted from the next session.", bar["date"]))
+                               "The reward level was inside the opening session's range, but its high may have come before the "
+                               "fill; the reward level is counted from the next session.", bar["date"]))
         if entry_session and rule == "break_above" and bar["low"] <= stop:
             flags.append(_flag("entry_session_ambiguous",
-                               "The stop was inside the entry session's range and its low may have come before the fill; "
-                               "counted as the stop (conservative).", bar["date"]))
+                               "The risk level was inside the opening session's range and its low may have come before the fill; "
+                               "counted as the risk level (conservative).", bar["date"]))
         try:
             state, ex = er.step(state, bar, rules, skip_target=skip_target)
         except er.IncompleteBar:
@@ -772,6 +859,11 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
             break
     if state is not None:
         out.update(stop_history=er.public_history(state), current_stop=state.stop, stop_version=state.stop_version)
+    elif pre_entry_stops:
+        history = out["stop_history"] + [{"session": when.isoformat(), "stop": level, "reason": "manual", "version": i + 2}
+                                         for i, (when, level) in enumerate(pre_entry_stops)]
+        out.update(stop_history=history, current_stop=stop, stop_version=len(history))
+    out.update(current_target=target, levels_applied=applied_version)
     return out
 
 
@@ -782,15 +874,15 @@ def _exit_from_step(ex: Dict[str, Any], bar: Dict[str, Any], flags: List[Dict[st
         # A session that OPENS below the stop never traded at the stop: a real stop order becomes a market order and
         # fills at the open, worse than the stop (exit_rules.step returns that open).
         note = BOTH_IN_RANGE_NOTE if ex["both_in_range"] else (
-            f"Closed at the trailing stop {_rupees(ex['stop_in_force'])} (raised by the opt-in ATR trail)."
+            f"Closed at the trailing risk level {_rupees(ex['stop_in_force'])} (raised by the opt-in ATR trail)."
             if reason == "trailing_stop" else None)
         if ex["both_in_range"]:
             flags.append(_flag("both_in_range", BOTH_IN_RANGE_NOTE, day))
         if ex["gapped"]:
             flags.append(_flag("gap_through_stop",
-                               f"The session opened at {_rupees(bar['open'])}, below the stop {_rupees(ex['stop_in_force'])}: "
-                               "the price never traded at the stop, so the fill is the open and the loss is larger than "
-                               "the stop distance.", day, bar["open"]))
+                               f"The session opened at {_rupees(bar['open'])}, below the risk level {_rupees(ex['stop_in_force'])}: "
+                               "the price never traded at the risk level, so the fill is the open and the loss is larger than "
+                               "the distance to the risk level.", day, bar["open"]))
         return {"exit_reason": reason, "exit_price": ex["price"], "exit_session": day, "exit_note": note}
     if reason == "target":
         return {"exit_reason": "target", "exit_price": ex["price"], "exit_session": day, "exit_note": None}
@@ -803,6 +895,164 @@ def find_trade_exit(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[
     """(the exit the end-of-day bars show, or None; the last session checked, or None)."""
     sim = simulate(trade, bars)
     return sim["exit"], sim["checked_through"]
+
+
+# ── level changes: Modify risk (PATCH /api/desk/paper-trades/{id}/levels; FILL MODEL "Level changes") ──────────
+LEVEL_FIELDS = ("stop_price", "target_price", "note")
+MAX_LEVEL_CHANGES = 50
+LEVEL_TOLERANCE = 1e-9
+LEVEL_RULE_TEXT = ("A changed stop loss or target is in force from the next session; today's end-of-day bar is still checked "
+                   "against the levels before the change at the evening check.")
+_LEVEL_PUBLIC = ("version", "at", "session", "stop_price", "target_price", "prev_stop", "prev_target", "changed", "note")
+
+
+def level_changes_by_session(trade: Dict[str, Any]) -> List[Tuple[date, Dict[str, Any]]]:
+    """The trade's stored level changes as (session, change), oldest version first. A change whose session cannot be read
+    is skipped and logged (it was written by this module, so that is a corrupted record, not a user input)."""
+    out: List[Tuple[date, Dict[str, Any]]] = []
+    for ch in trade.get("level_changes") or []:
+        try:
+            out.append((date.fromisoformat(str(ch.get("session"))[:10]), ch))
+        except ValueError:
+            logger.error("desk_trading: trade %s has a level change without a readable session: %r", trade.get("_id"), ch)
+    out.sort(key=lambda x: int(x[1].get("version") or 0))
+    return out
+
+
+def public_level_changes(trade: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The changes as the API shows them (the idempotency key and request fingerprint stay on the record)."""
+    return [{k: ch.get(k) for k in _LEVEL_PUBLIC} for _, ch in level_changes_by_session(trade)]
+
+
+def next_weekday(day: date) -> date:
+    """The first weekday after `day`: the session a change made on `day` is first in force for. Exchange holidays are not
+    known here; the simulator, which reads the real bars, is the authority on which bar a change first meets."""
+    nxt = day + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def levels_now(trade: Dict[str, Any], sim: Optional[Dict[str, Any]], today: date) -> Dict[str, Any]:
+    """{current_stop, current_target, pending_levels} of an OPEN share trade as of the IST day `today`.
+
+    current_*       the levels in force for today's session (or the next one): the simulator's, plus any change made
+                    before today that no bar has met yet (it governs today's bar at the evening check).
+    pending_levels  {stop_loss, target, from_session, version}: the levels after the change(s) made TODAY, which the
+                    simulator applies from the next session; None when there is none."""
+    if sim is not None:
+        stop = sim.get("current_stop")
+        target = sim["current_target"] if "current_target" in sim else trade.get("target_price")
+        applied = int(sim.get("levels_applied") or 0)
+    else:                               # prices could not be read: what the evening check stored, plus later changes
+        stop = trade.get("current_stop") if trade.get("current_stop") is not None else trade.get("stop_price")
+        target = trade["current_target"] if "current_target" in trade else trade.get("target_price")
+        applied = int(trade.get("levels_applied") or 0)
+    pending: Optional[Dict[str, Any]] = None
+    for session, ch in level_changes_by_session(trade):
+        if int(ch.get("version") or 0) <= applied:
+            continue
+        changed = ch.get("changed") or []
+        if session < today:
+            if "stop" in changed:
+                stop = ch.get("stop_price")
+            if "target" in changed:
+                target = ch.get("target_price")
+            continue
+        p_stop = pending["stop_loss"] if pending else stop
+        p_target = pending["target"] if pending else target
+        pending = {"stop_loss": ch.get("stop_price") if "stop" in changed else p_stop,
+                   "target": ch.get("target_price") if "target" in changed else p_target,
+                   "from_session": next_weekday(session).isoformat(), "version": ch.get("version")}
+    return {"current_stop": stop, "current_target": target, "pending_levels": pending}
+
+
+def clean_level_request(body: Any) -> Dict[str, Any]:
+    """{stop?: float, target?: float | None, note: str | None} from a PATCH body {stop_price?, target_price?, note?}.
+    `target_price: null` removes the target. At least one of the two levels must be sent (else no_change)."""
+    body = _object(body, LEVEL_FIELDS)
+    if "stop_price" not in body and "target_price" not in body:
+        raise DeskInputError("no_change", "Send a new stop_price, a new target_price, or both.")
+    out: Dict[str, Any] = {"note": clean_note(body.get("note"))}
+    if "stop_price" in body:
+        out["stop"] = clean_price(body["stop_price"], "invalid_stop_price")
+    if "target_price" in body:
+        out["target"] = None if body["target_price"] is None else clean_price(body["target_price"], "invalid_target_price")
+    return out
+
+
+def _same(a: Optional[float], b: Optional[float]) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(float(a) - float(b)) <= LEVEL_TOLERANCE
+
+
+def level_change(trade: Dict[str, Any], req: Dict[str, Any], *, sim: Optional[Dict[str, Any]],
+                 last_bar: Optional[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
+    """The change record a valid request makes on an open share trade, or DeskInputError with the reason.
+
+    Compared with the levels the user sees as the latest (a change already waiting for the next session included):
+    nothing different → no_change. An ENTERED trade's new stop must be below, and its new target above, the last
+    end-of-day close (`last_bar`; the desk is long only): a stop at or above the price would exit at once, a target at or
+    below it is already reached. A trade still waiting for its entry is checked against its reference entry instead (the
+    create rules). The resulting stop must be below the resulting target."""
+    today = ist_date(_iso(now))
+    view = levels_now(trade, sim, today)
+    latest = view["pending_levels"]
+    cur_stop = latest["stop_loss"] if latest else view["current_stop"]
+    cur_target = latest["target"] if latest else view["current_target"]
+    new_stop = req["stop"] if "stop" in req else cur_stop
+    new_target = req["target"] if "target" in req else cur_target
+    changed = [k for k, new, cur in (("stop", new_stop, cur_stop), ("target", new_target, cur_target))
+               if k in req and not _same(new, cur)]
+    if not changed:
+        raise DeskInputError("no_change", "These are already the trade's levels; nothing was changed.")
+    if len(trade.get("level_changes") or []) >= MAX_LEVEL_CHANGES:
+        raise DeskInputError("too_many_level_changes", f"A trade keeps at most {MAX_LEVEL_CHANGES} level changes.")
+    entered = (sim["entry_status"] in ENTERED) if sim is not None else (trade.get("entry_rule") or "at_once") == "at_once"
+    if entered:
+        if last_bar is None or last_bar.get("close") is None:
+            raise DeskInputError("no_close_available", "There is no end-of-day close for this stock yet, so the new levels "
+                                                       "cannot be checked against the price.")
+        ref, day = float(last_bar["close"]), last_bar["date"]
+        when = day.isoformat() if hasattr(day, "isoformat") else str(day)
+        if "stop" in changed and new_stop >= ref:
+            raise DeskInputError("stop_not_below_price", f"The stop loss {_rupees(new_stop)} must be below the last close "
+                                                         f"{_rupees(ref)} ({when}); at or above it the trade would close at once.")
+        if "target" in changed and new_target is not None and new_target <= ref:
+            raise DeskInputError("target_not_above_price", f"The target {_rupees(new_target)} must be above the last close "
+                                                           f"{_rupees(ref)} ({when}); at or below it, it is already reached.")
+    else:
+        entry = float(trade["entry_price"])
+        if "stop" in changed and new_stop >= entry:
+            raise DeskInputError("stop_not_below_entry", f"The stop loss {_rupees(new_stop)} must be below the reference "
+                                                         f"entry {_rupees(entry)}, which has not filled yet.")
+        if "target" in changed and new_target is not None and new_target <= entry:
+            raise DeskInputError("target_not_above_entry", f"The target {_rupees(new_target)} must be above the reference "
+                                                           f"entry {_rupees(entry)}, which has not filled yet.")
+    if new_target is not None and new_stop is not None and new_stop >= new_target:
+        raise DeskInputError("stop_not_below_target", f"The stop loss {_rupees(new_stop)} must be below the target "
+                                                      f"{_rupees(new_target)}.")
+    versions = [int(ch.get("version") or 0) for ch in trade.get("level_changes") or []]
+    return {"version": (max(versions) if versions else 0) + 1, "at": _iso(now), "session": today.isoformat(),
+            "stop_price": new_stop, "target_price": new_target, "prev_stop": cur_stop, "prev_target": cur_target,
+            "changed": changed, "note": req.get("note")}
+
+
+async def record_level_change(db, trade: Dict[str, Any], change: Dict[str, Any], *, idempotency_key: Optional[str] = None,
+                              fingerprint: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Append the change, filtered on the trade being OPEN and on the number of changes it was read with, so two
+    requests that raced on the same version cannot both land and a change can never reach a closed trade. Returns the
+    trade as stored afterwards, or None when the filter did not match (closed in between, or another change landed)."""
+    seen = len(trade.get("level_changes") or [])
+    record = {**change, "idempotency_key": idempotency_key, "request_fingerprint": fingerprint}
+    owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
+    res = await db[TRADES].update_one(
+        {**owner, "status": "open", "level_version": seen if seen else {"$in": [None, 0]}},
+        {"$push": {"level_changes": record}, "$set": {"level_version": seen + 1, "updated_at": change["at"]}})
+    if not res.matched_count:
+        return None
+    return await db[TRADES].find_one(owner)
 
 
 def cost_terms(model: Optional[Dict[str, Any]] = None) -> Tuple[float, float]:
@@ -918,16 +1168,16 @@ def check_entry_tradable(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> D
     bar = last_completed_session(bars, ist_date(trade["opened_at"]))
     entry = float(trade["entry_price"])
     if bar is None:
-        raise DeskInputError("entry_unverifiable", f"No end-of-day bar is on record for {trade['symbol']}, so an entry "
-                                                   f"at once cannot be checked against the market. Use an entry that "
+        raise DeskInputError("entry_unverifiable", f"No end-of-day bar is on record for {trade['symbol']}, so a fill "
+                                                   f"at once cannot be checked against the market. Use a rule that "
                                                    f"waits for its level (break above / pull back to).")
     if not bar["low"] <= entry <= bar["high"]:
         side = "below" if entry < bar["low"] else "above"
         rule = "pull back to" if side == "below" else "break above"
         raise DeskInputError("entry_not_tradable", (
-            f"The entry {_rupees(entry)} is {side} the last completed session's range ({bar['date'].isoformat()}: "
+            f"The reference price {_rupees(entry)} is {side} the last completed session's range ({bar['date'].isoformat()}: "
             f"{_rupees(bar['low'])}–{_rupees(bar['high'])}), so it could not be filled at once. Record it with the "
-            f"entry rule \"{rule}\" to wait for that level."))
+            f"rule \"{rule}\" to wait for that level."))
     return {"date": bar["date"].isoformat(), "low": bar["low"], "high": bar["high"]}
 
 
@@ -968,6 +1218,9 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         # The exit rules' own record (exit-rules-v1): the stop in force at the exit and every version it had.
         **({"stop_history": sim["stop_history"], "current_stop": sim["current_stop"], "stop_version": sim["stop_version"],
             "exit_rules_version": sim["exit_rules_version"]} if sim and "stop_history" in sim else {}),
+        # The levels in force at the exit when the user changed them (Modify risk).
+        **({"current_target": sim.get("current_target"), "levels_applied": sim.get("levels_applied")}
+           if sim and trade.get("level_changes") and "current_target" in sim else {}),
         "updated_at": stamp,
     }
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
@@ -1088,7 +1341,9 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
         if exit_ is None:
             if persist:
                 trade = await record_entry_fill(db, trade, sim) or trade      # Phase 2.2: a conditional entry that filled
-            if persist and trade.get("exit_rules") and sim["stop_version"] > int(trade.get("stop_version") or 1):
+            if persist and (trade.get("exit_rules") or trade.get("level_changes")) and (
+                    sim["stop_version"] > int(trade.get("stop_version") or 1)
+                    or int(sim.get("levels_applied") or 0) > int(trade.get("levels_applied") or 0)):
                 trade = await record_stop(db, trade, sim, counts)
             out.append(trade)
             continue
@@ -1125,7 +1380,9 @@ async def record_stop(db, trade: Dict[str, Any], sim: Dict[str, Any], counts: Di
     reader cannot overwrite a newer stop. The replay is the source of the stop; this is its audit record."""
     stamp = _iso(utcnow())
     change = {"stop_history": sim["stop_history"], "current_stop": sim["current_stop"], "stop_version": sim["stop_version"],
-              "exit_rules_version": sim["exit_rules_version"], "updated_at": stamp}
+              "exit_rules_version": sim["exit_rules_version"], "updated_at": stamp,
+              **({"current_target": sim.get("current_target"), "levels_applied": sim.get("levels_applied")}
+                 if trade.get("level_changes") else {})}
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
     res = await db[TRADES].update_one({**owner, "status": "open", "stop_version": trade.get("stop_version")}, {"$set": change})
     if res.matched_count:
@@ -1202,7 +1459,7 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         gross = round((close - fill) * int(doc["quantity"]), 2) if entered and close is not None and fill else None
         breakdown = trade_cost_breakdown(doc, fill, close) if gross is not None else None
         costs = breakdown["total"] if breakdown else None
-        basis = (f"entry at the fill, exit side estimated at the last close; {costs_text(doc.get('cost_model'))}"
+        basis = (f"opening side at the fill, closing side estimated at the last close; {costs_text(doc.get('cost_model'))}"
                  if costs is not None else None)
     else:
         keys = ("observations", "held_sessions", "entry_session", "mfe_pct", "mae_pct", "mfe_rs", "mae_rs")
@@ -1222,7 +1479,7 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
             breakdown = trade_cost_breakdown(doc, float(fill), float(exit_price))
         if costs is None and breakdown is not None:
             costs = breakdown["total"]
-        basis = f"entry and exit at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
+        basis = f"opening and closing sides at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     if is_open and sim is not None:
         stops = {"stop_history": sim.get("stop_history") or [], "current_stop": sim.get("current_stop"),
@@ -1231,10 +1488,22 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         # A closed trade shows what was stored when it closed (nothing for one closed before exit-rules-v1).
         stops = {"stop_history": list(doc.get("stop_history") or []), "current_stop": doc.get("current_stop"),
                  "stop_version": doc.get("stop_version"), "exit_rules_version": doc.get("exit_rules_version")}
+    if is_open:
+        levels = levels_now(doc, sim, ist_date(_iso(utcnow())))
+        if doc.get("level_changes"):
+            stops["current_stop"] = levels["current_stop"]
+    else:
+        levels = {"current_stop": stops["current_stop"],
+                  "current_target": doc["current_target"] if "current_target" in doc else doc.get("target_price"),
+                  "pending_levels": None}
     return {
         "entry_rule": rule,
         "exit_rules": er.rule_labels(doc.get("exit_rules")),
         **stops,
+        "current_target": levels["current_target"],
+        "pending_levels": levels["pending_levels"],
+        "level_changes": public_level_changes(doc),
+        "level_rule": LEVEL_RULE_TEXT,
         "entry_window_sessions": doc.get("entry_window_sessions"),
         "max_hold_sessions": doc.get("max_hold_sessions"),
         "signal_at": doc.get("signal_at"),

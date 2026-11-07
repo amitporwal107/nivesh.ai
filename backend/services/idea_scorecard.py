@@ -50,7 +50,7 @@ ARM_LABELS = {
 VERDICT = "keep B0; the current ranking shows no measurable skill"
 RS63_ARM = "A2"
 RS63_STATUS = "promising, awaiting its pre-registered confirmation"
-DISCLAIMER = ("Ideas, not recommendations. The rank orders ideas; this study found no measurable ranking skill, so the "
+DISCLAIMER = ("Ideas, not advice. The rank orders ideas; this study found no measurable ranking skill, so the "
               "rank is not a prediction.")
 UNITS = {
     "rank_ic": "mean daily Spearman rank correlation between the score and the 10-session excess return",

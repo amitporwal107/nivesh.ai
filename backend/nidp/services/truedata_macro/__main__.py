@@ -10,9 +10,11 @@ Scheduled by deploy/cloudpe/nidp/nidp-staging-truedata-macro.cron (00:15 IST dai
   --rollback RUN_ID  delete exactly that run's rows (the job never rewrites a stored day). Any switch position.
 
 The market-data switch (backend/config/market_data_source.json): at `current` nothing calls TrueData and the run is
-recorded as SKIPPED (SWITCHED_OFF). Needs TRUEDATA_USERNAME / TRUEDATA_PASSWORD (or TRUEDATA_CRED_FILE) and the NIDP
-database environment.
-Exit: 0 OK / SKIPPED / up to date, 1 a series failed (run_service.sh retries; a retry fetches only what is missing).
+recorded as SKIPPED (SWITCHED_OFF). STAGING ONLY (owner, 3 Nov 2026): on production or an unknown environment
+(nidp.shared.deploy_env) nothing calls TrueData, no data is written and the run is recorded as SKIPPED (NOT_STAGING).
+Needs TRUEDATA_USERNAME / TRUEDATA_PASSWORD (or TRUEDATA_CRED_FILE) and the NIDP database environment.
+Exit codes: 0 OK / SKIPPED (switched off, not staging) / up to date; 1 a series failed (run_service.sh retries; a retry
+fetches only what is missing).
 """
 from __future__ import annotations
 

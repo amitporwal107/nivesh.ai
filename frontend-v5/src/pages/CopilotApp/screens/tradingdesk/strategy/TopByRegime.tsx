@@ -99,8 +99,8 @@ export function IdeaActions({ idea, onViewTrades, rulesVersion, levels }: {
   const stop = typeof built?.stop_underlying === "number" ? built.stop_underlying : null;
   const target = typeof built?.target_underlying === "number" ? built.target_underlying : null;
   const records = stop != null || target != null
-    ? `with the stop ${stop != null ? fmtNum(stop, 2) : DASH} and target ${target != null ? fmtNum(target, 2) : DASH} on ${idea.underlying} from the levels shown`
-    : "with no stop or target: it closes at expiry or when you close it";
+    ? `with the risk level ${stop != null ? fmtNum(stop, 2) : DASH} and reward level ${target != null ? fmtNum(target, 2) : DASH} on ${idea.underlying} from the levels shown`
+    : "with no risk level or reward level: it closes at expiry or when you close it";
   const asOf = idea.data_as_of?.chain ?? null;
 
   return (
@@ -128,7 +128,7 @@ export function IdeaActions({ idea, onViewTrades, rulesVersion, levels }: {
           type="button" className="cp-chip" data-testid="idea-paper-trade"
           disabled={!body || waiting || paper.isPending || paper.isSuccess}
           title={!body ? problem ?? "This idea cannot be recorded as a paper trade."
-            : waiting ? "Waiting for the levels, so the paper trade records the stop and target the row shows."
+            : waiting ? "Waiting for the levels, so the paper trade records the risk level and reward level the row shows."
             : `A simulated trade at the end-of-day prices shown, ${records}. Nothing is sent to a broker.`}
           onClick={() => body && paper.mutate(body)}
         >

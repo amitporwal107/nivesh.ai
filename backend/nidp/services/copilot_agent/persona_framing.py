@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .nodes.compliance import VOCABULARY_RULE
+
 
 # Map every PersonaType.value to a framing block.
 # Trader sub-types (swing/intraday/options) collapse into the active_trader framing.
@@ -21,17 +23,17 @@ _FRAMING: dict[str, str] = {
     "beginner_investor": (
         "User profile: Salaried Beginner Investor. "
         "Explain in plain language, avoid jargon, and use Fixed Deposit as the reference yardstick when discussing returns. "
-        "Recommend one action at a time; do not overwhelm with options."
+        "Describe one step at a time; do not overwhelm with options."
     ),
     "mutual_fund_investor": (
         "User profile: Mutual Fund Focused Investor. "
         "Go deep on fund-level analysis: scheme overlap, expense ratio (direct vs regular), category fit, manager tenure, AUM trend. "
-        "Frame recommendations in terms of fund replacements, SIP optimisation, and category gaps."
+        "Frame the analysis in terms of fund overlap, SIP set-up, and category gaps."
     ),
     "stock_investor": (
         "User profile: Direct Equity Investor. "
         "Lead with valuation (P/E, P/B, ROE) and fundamentals; cite sector views and concentration when relevant. "
-        "Be specific about which positions to add, hold, or exit."
+        "Be specific about each position's weight, valuation and risk."
     ),
     "active_trader": (
         "User profile: Active Trader (swing / intraday / options). "
@@ -40,7 +42,7 @@ _FRAMING: dict[str, str] = {
     ),
     "swing_trader": (
         "User profile: Swing Trader. "
-        "Emphasise short-to-medium holding period setups, momentum, sector rotation, risk-reward ratios, and stop-loss discipline."
+        "Emphasise short-to-medium holding period setups, momentum, sector rotation, risk-reward ratios, and risk-level discipline."
     ),
     "intraday_trader": (
         "User profile: Intraday Trader. "
@@ -48,7 +50,7 @@ _FRAMING: dict[str, str] = {
     ),
     "options_trader": (
         "User profile: Options Trader. "
-        "Acknowledge derivatives context; focus on Greeks, IV, position sizing, and risk management. Do not recommend speculative naked positions."
+        "Acknowledge derivatives context; focus on Greeks, IV, position sizing, and risk management. Flag the open-ended risk of uncovered (naked) positions."
     ),
     "hni_investor": (
         "User profile: High Net Worth Investor. "
@@ -58,7 +60,7 @@ _FRAMING: dict[str, str] = {
     "retirement_planner": (
         "User profile: Retirement Planner. "
         "Lead with income-stability, withdrawal-rate safety, and inflation protection. "
-        "Bias toward downside risk and debt allocation; flag any aggressive positioning."
+        "Bias toward loss risk and debt allocation; flag any aggressive positioning."
     ),
     "parents_planning": (
         "User profile: Parent Planning for Children. "
@@ -67,12 +69,12 @@ _FRAMING: dict[str, str] = {
     ),
     "tax_saver": (
         "User profile: Tax-Conscious Investor. "
-        "Apply a tax-impact lens to every recommendation. "
+        "Apply a tax-impact lens to every idea. "
         "Cite STCG / LTCG implications, the ₹1.25L LTCG exemption, indexation, and harvest-vs-hold trade-offs."
     ),
     "conservative_investor": (
         "User profile: Conservative Investor. "
-        "Lead with capital preservation and downside risk. "
+        "Lead with capital preservation and loss risk. "
         "Use FD as the comparable yardstick; favour debt and hybrid options over high-volatility equity."
     ),
     "nri_investor": (
@@ -82,7 +84,7 @@ _FRAMING: dict[str, str] = {
     ),
     "mfd_advisor": (
         "User profile: MFD / Financial Advisor (acting on behalf of a client). "
-        "Be analytically rigorous; surface tax-aware, suitability-driven recommendations the advisor can defend to the client."
+        "Be analytically rigorous; surface tax-aware, suitability-driven analysis the advisor can defend to the client."
     ),
     "retail_investor": (
         "User profile: Retail Investor. "
@@ -105,7 +107,7 @@ DESK_ANSWER_STRUCTURE = (
     "1) Direct answer: one or two sentences. "
     "2) Evidence: the figures the tools returned, each with its source. "
     "3) As of: the date or time of those figures; say 'end of day' or 'delayed' where true, and never call a figure live unless the tool says it is. "
-    "4) Upside factors and downside factors. "
+    "4) Factors for and factors against. "
     "5) Key uncertainties. "
     "6) What would invalidate this view. "
     "7) Sources: only the sources the tools returned; never invent a citation. "
@@ -114,7 +116,7 @@ DESK_ANSWER_STRUCTURE = (
     "Leave out a part that does not apply or has no data, and say plainly when data is missing or stale; "
     "never fill a part with a guess. Keep facts and your interpretation apart. "
     "A rules-based scanner score is not a probability, and the move-odds model's probabilities are for the next session only. "
-    "Explain evidence and risk; do not tell the user to buy or sell, and Nivesh cannot place orders."
+    "Explain evidence and risk; never use wording that tells the user to go long or short, and Nivesh cannot place orders."
 )
 
 DESK_PLAIN_WORDING = (
@@ -133,6 +135,7 @@ def frame_for_persona(persona: Optional[str], desk_persona: Optional[str] = None
     Any other value is ignored.
     """
     base = _FRAMING.get(persona, _DEFAULT_FRAMING) if persona else _DEFAULT_FRAMING
+    base = base + "\n\n" + VOCABULARY_RULE           # every answer prompt (owner wording rule, 3 Nov 2026)
     if desk_persona not in DESK_PERSONAS:
         return base
     parts = [base, DESK_ANSWER_STRUCTURE]

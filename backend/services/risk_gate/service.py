@@ -107,7 +107,8 @@ RULE_CREDIT = "credit_vs_width"
 RULE_REWARD_RISK = "min_reward_risk"
 SNAPSHOT_VERSION = "risk-service-snapshot-v1"
 SOURCE = "risk_service"
-PATHS = ("desk_paper_trade", "desk_paper_roll", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm")
+PATHS = ("desk_paper_trade", "desk_paper_roll", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm",
+         "spt_entry")                           # spt_entry: Scanner-to-Paper Trading entries (services/spt/risk.py)
 ACTIONS = ("open", "add")
 INSTRUMENTS = ("cash", "structure")
 MAX_ENTRY_DISTANCE_PCT = 20.0
@@ -356,7 +357,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
         if req.notional_rs is not None and (_f(req.notional_rs) or 0) <= 0:
             run.reason("structure", "notional_invalid", "The capital planned must be positive.")
         if req.quantity is not None and (_f(req.entry_price) or 0) <= 0:
-            run.reason("structure", "entry_invalid", "The entry price must be positive.")
+            run.reason("structure", "entry_invalid", "The reference price must be positive.")
     elif req.instrument == "structure":
         clean, failures = gate.clean_legs(req.legs)
         for code, message in failures:
@@ -384,23 +385,23 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
     # levels
     if cash and not malformed:
         if stop is None or stop <= 0:
-            run.reason("levels", "stop_required", "Every entry needs a stop (stop price above 0).")
+            run.reason("levels", "stop_required", "Every position needs a risk level (a risk-level price above 0).")
         elif entry is not None and stop >= entry:
-            run.reason("levels", "stop_not_below_entry", "The stop must be below the entry for a long.", value=stop,
+            run.reason("levels", "stop_not_below_entry", "The risk level must be below the reference price for a long.", value=stop,
                        limit=entry)
         if req.action == "open":
             if target is None or target <= 0:
-                run.reason("levels", "target_required", "A target is needed to check reward against risk.")
+                run.reason("levels", "target_required", "A reward level is needed to check reward against risk.")
             elif entry is not None and target <= entry:
-                run.reason("levels", "target_not_above_entry", "The target must be above the entry.", value=target,
+                run.reason("levels", "target_not_above_entry", "The reward level must be above the reference price.", value=target,
                            limit=entry)
     has_future = any(leg.get("kind") == "future" for leg in legs)
     if not cash and not malformed and has_future:
         if req.stop_underlying is None:
-            run.reason("levels", "futures_stop_required", "A structure with a futures leg needs a stop on the "
+            run.reason("levels", "futures_stop_required", "A structure with a futures leg needs a risk level on the "
                                                           "underlying.")
         if req.target_underlying is None:
-            run.reason("levels", "target_required", "A structure with a futures leg needs a target on the underlying "
+            run.reason("levels", "target_required", "A structure with a futures leg needs a reward level on the underlying "
                                                     "to check reward against risk.")
     run.done("levels")
 
@@ -505,7 +506,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
                           add_cumulative_notional_rs=plan.get("cumulative_notional_rs"))
             if cum_risk is None:
                 run.reason("per_trade_risk", "add_risk_unknown", "The position's risk after this fill cannot be worked "
-                                                                 "out (no stop below the average price).")
+                                                                 "out (no risk level below the average price).")
             elif plan.get("reserved_risk_rs") is not None and cum_risk > float(plan["reserved_risk_rs"]) + 1e-6:
                 run.reason("per_trade_risk", "add_exceeds_original_budget",
                            "This fill takes the position's estimated risk above the budget reserved for the plan.",
@@ -636,7 +637,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
         run.done("governor", f"{verdict.action} {verdict.approved_qty} of {verdict.requested_qty} ({gov.LIMITS_VERSION}, "
                              f"daily loss judged by check daily_loss)")
     else:
-        run.skip("governor", "share entries only" if not cash else "not sized")
+        run.skip("governor", "share positions only" if not cash else "not sized")
 
     # portfolio budgets
     if sizable and book is not None and not malformed:
@@ -735,7 +736,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
                 budget[f"{key}_loss_pct"] = round(loss_pct, 4)
                 if loss_pct >= limits[pct_key] - 1e-9:
                     run.reason(check, f"{code}_halt", f"The {key}'s loss is {loss_pct:.2f}% of start-of-{key} equity; "
-                                                      f"new entries are halted at {limits[pct_key]:g}%.",
+                                                      f"new paper positions are halted at {limits[pct_key]:g}%.",
                                value=round(loss_pct, 4), limit=limits[pct_key])
             run.done(check)
         budget.update(drawdown_pct=dd, drawdown_pct_limit=limits["max_drawdown_pct"], peak_rs=book["peak"]["peak_rs"])
@@ -744,7 +745,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
                                                                                   or "equity unknown") + "), so the "
                                                        "drawdown halt cannot be checked.")
         elif dd >= limits["max_drawdown_pct"] - 1e-9:
-            run.reason("drawdown", "drawdown_halt", f"Drawdown is {dd:.2f}% from the equity peak; new entries are halted "
+            run.reason("drawdown", "drawdown_halt", f"Drawdown is {dd:.2f}% from the equity peak; new paper positions are halted "
                                                     f"at {limits['max_drawdown_pct']:g}%. Open positions are not closed.",
                        value=dd, limit=limits["max_drawdown_pct"])
         run.done("drawdown")
@@ -791,7 +792,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any], *, policy_version: str = POL
         run.done("fno_additional", f"{policy.POLICY_VERSION} caps and open-structure limit")
     else:
         run.skip("fno_additional", "the fno_risk_gate rollout flag is off for this user (core checks ran)"
-                 if not cash else "share entries")
+                 if not cash else "share positions")
 
     # outcome
     blocked = run.blocked()
@@ -919,7 +920,7 @@ async def _reserve(db, req: EntryRequest, out: Dict[str, Any], caps: Dict[str, A
                 "outcome": "block", "approved_qty": 0 if cash else None, "approved_lots": None if cash else 0,
                 "approved_notional_rs": None,
                 "reasons": out["reasons"] + [{"code": c, "check": "reservation", "severity": "block", "value": None,
-                                              "limit": None, "message": "Another entry took this budget between the "
+                                              "limit": None, "message": "Another paper position took this budget between the "
                                               "decision and the reservation; nothing was reserved."} for c in codes]}
         second = str(uuid.uuid4())
         at = desk.utcnow().astimezone(timezone.utc).isoformat()

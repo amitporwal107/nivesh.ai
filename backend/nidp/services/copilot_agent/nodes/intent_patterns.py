@@ -413,6 +413,7 @@ _STOCK_CUE = re.compile(
     r"circuit|face\s+value|lot\s+size|delivery\s*%|short\s+interest|"
     r"\bbeta\b|volatil|drawdown|\bcagr\b|\breturns?\b|performance|"
     r"\bvs\b|versus|compared\s+to|\btrend\b|bullish|bearish|"
+    r"\b(?:long|short)\s+(?:trade|plan)\b|"           # the trade card's "Plan a short trade … instead" (wording rule, 3 Nov)
     r"price\s+target|target\s+price|analyst|consensus|upgrade|downgrade|"
     r"business\s+model|competitors?|market\s+share|\bmoat\b|management|segments?|"
     r"\besg\b|governance|auditor|stock\s+split|bonus\s+issue|rights\s+issue|"

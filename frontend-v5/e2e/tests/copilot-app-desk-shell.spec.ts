@@ -30,13 +30,16 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
     // Watchlists and the Idea scorecard are Trade Desk's (owner, 27 Oct 19:40 IST): copilot-app-desk-market-desk.spec.ts
   ],
+  // The Scanner-to-Paper Trading views (Trading overview, Capital allocation, Portfolio risk) moved to Trade Desk › Paper Trading v2
+  // (owner, 5 Nov 2026; copilot-app-desk-paper-v2-a.spec.ts PV2-A-06 / A-07).
   risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" }],
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "trade/scanner": [["desk-panel-top10", "desk-top10"], ["desk-panel-scanner", null]],
   "trade/chart": [["desk-panel-chart", null]],
-  "trade/paper": [["desk-panel-trade-desk", "td-view-open"]],
+  // Paper Trading v2 (owner, 5 Nov 2026): the shell above its six views; 01 Overview by default (copilot-app-desk-paper-v2-a.spec.ts).
+  "trade/paper": [["desk-panel-trade-desk", "pv2-shell"]],
   "trade/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
   "market/smartmoney": [["desk-panel-smartmoney", null], ["desk-panel-fno", "desk-fno"]],
@@ -225,7 +228,8 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await expect(page.getByTestId("mo-kpi-risk-sub")).toHaveText("limit 3%");
     await expect(page.getByTestId("mo-paper-summary")).toContainText("2 open positions");
     await page.getByTestId("mo-paper-link").click();
-    await expectAt(page, "trade", "paper", { sub: "live" });
+    // Paper Trading v2 (owner, 5 Nov 2026): Trade Desk › Paper Trading opens 01 Overview (was the Live desk).
+    await expectAt(page, "trade", "paper", { sub: "overview" });
     await expect(page.getByTestId("desk-panel-trade-desk")).toBeVisible();
   });
 
@@ -329,10 +333,10 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
     await expect(page.getByTestId("desk-portfolio-record")).toHaveCount(0);
     await expect(page.getByTestId("desk-portfolio-paper")).toHaveCount(0);
     await expect(page.getByTestId("desk-paper-trades")).toHaveCount(0);
-    // They are on Trade Desk › Open & pending (step 3's tab).
+    // They are on Trade Desk › Paper Trading (v2 since 5 Nov: the shell over 01 Overview … 06 Strategy analytics).
     await page.getByTestId("desk-tab-trade").click();
     await page.getByTestId("desk-view-paper").click();
-    await expect(page.getByTestId("desk-panel-trade").getByTestId("td-view-open")).toBeVisible();
+    await expect(page.getByTestId("desk-panel-trade").getByTestId("pv2-shell")).toBeVisible();
   });
 
   test("SH-14 Trade Desk says the trades are paper and links the real portfolio", async ({ page }) => {
@@ -393,7 +397,7 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     await deskApi(page);
     await page.goto(APP);
     const rail = page.getByTestId("copilot-rail");
-    for (const name of ["Portfolio analysis", "Recommendations", "Risk", "Goals", "Tax", "Stock & fund research", "Screener", "Markets"]) {
+    for (const name of ["Portfolio analysis", "Portfolio ideas", "Risk", "Goals", "Tax", "Stock & fund research", "Screener", "Markets"]) {
       await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
     }
   });
