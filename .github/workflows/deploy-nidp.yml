@@ -12,6 +12,7 @@ name: Deploy → CloudPe prod VM [NIDP]
     branches: [main]
     paths:
       - 'backend/nidp/**'
+      - 'backend/config/market_data_source.json'   # the market-data switch, read by the NIDP jobs
       # The prod feed crontab is generated from the staging cron file.
       - 'deploy/cloudpe/nidp/nidp-staging.cron'
       - 'deploy/cloudpe-prod/nidp/**'
