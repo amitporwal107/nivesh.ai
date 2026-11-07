@@ -111,7 +111,7 @@ export function useBrokerAdapters() {
 // Every error is the app's standard envelope (backend/core/error_handlers.py):
 // { status, error, code, message, details: [{ broker, account_id }], … }.
 // A failed read is keyed on `code`: BROKER_SESSION_EXPIRED (409),
-// BROKER_READ_NOT_SUPPORTED (400), BROKER_READ_FAILED (502). A switched-off
+// BROKER_READ_NOT_SUPPORTED (400), BROKER_READ_FAILED (424). A switched-off
 // `broker_hub` flag is 403 with the message "feature_not_enabled". A bare
 // { detail } body (a proxy in front of the server) is read as well.
 
@@ -205,7 +205,11 @@ export function useBrokerSignIn() {
 // Reads the account's holdings from the broker and replaces the rows stored
 // for that account only. `count` is the number of holdings saved.
 
-const BrokerSyncRes = z.object({ count: z.number() });
+const BrokerSyncRes = z.object({ count: z.number(), partial: z.string().nullish() });
+
+/** `count` is what the account holds on file after the sync. `partial` is set when the broker's full list would not
+ *  answer: nothing was stored, `count` is what was already on file, and the text says what the broker returned instead. */
+export interface BrokerSyncResult { count: number; partial: string | null }
 
 function useAfterBrokerChange() {
   const qc = useQueryClient();
@@ -224,13 +228,15 @@ function useAfterBrokerChange() {
 
 export function useBrokerSync() {
   const refresh = useAfterBrokerChange();
-  return useMutation<BrokerOutcome<number>, never, string>({
+  return useMutation<BrokerOutcome<BrokerSyncResult>, never, string>({
     mutationFn: async (accountId) => {
       const call = await brokerCall(`/api/broker/accounts/${encodeURIComponent(accountId)}/sync`, { method: "POST" });
       if (!call.ok) return call;
       if (!call.res.ok) return failureOf(call.res);
       const body = BrokerSyncRes.safeParse(await call.res.json().catch(() => null));
-      return body.success ? { ok: true, value: body.data.count } : fail(call.res.status, null, "The response had no holdings count");
+      return body.success
+        ? { ok: true, value: { count: body.data.count, partial: body.data.partial?.trim() || null } }
+        : fail(call.res.status, null, "The response had no holdings count");
     },
     // A failed read also changes the account (status and last error), so refresh either way.
     onSettled: refresh,
