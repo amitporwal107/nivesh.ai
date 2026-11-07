@@ -764,3 +764,23 @@ def test_adp3_51_weekly_measure_and_a_new_week():
     assert m["weekly"]["loss_pct"] == "4.200" and m["weekly"]["breached"] and not m["daily"]["breached"]
     m2 = limits.measure_from(snaps, D("1000000"), date(2026, 11, 9), D("958000"), pol)       # next week: reference = last week's close
     assert not m2["weekly"]["breached"] and m2["drawdown"]["loss_pct"] == "4.200"
+
+
+def test_adp3_47_futures_settle_at_the_rows_settlement_price(pg_pool):
+    async def go():
+        from autodesk.market.session_bars import SessionBar
+        ke, kf, E = H.key_eq(), H.key_fut(), H.EXP
+        fut_e = SessionBar(day=E, open=D("1022"), high=D("1035"), low=D("1018"), close=D("1031"), settle=D("1030.40"),
+                           prev_close=D("1021"), traded_units=5_000_000, lot_size=500, traded=True, source="TEST DATA F&O row")
+        rows = {ke: {S1: H.bar(1000, 1005, 995, 1001, prev=1000, session=S1), E: H.bar(1021, 1033, 1017, 1030.4, session=E)},
+                kf: {S1: H.bar(1010, 1015, 1005, 1011, prev=1010, lot=500, units=5_000_000, session=S1), E: fut_e}}
+        t, sim, acc, plan, gw = await one_sim(pg_pool, lambda a: _fut_body(a, inv="900"), rows)
+        await sessions(gw, t, sim["simulation_id"], [S1])
+        await settle.run_close(gw, tenant_id=t, simulation_id=sim["simulation_id"], session=E, as_of=at(E, 15, 30))
+        f = await facts(pg_pool, plan["trade_id"])
+        rec = f["recs"][-1]
+        of = [x for x in f["fills"] if x["purpose"] == "OPEN"][0]
+        assert (rec["reason"], rec["how"], rec["legs"][0]["price"]) == ("expiry", "settlement", "1030.40")
+        assert rec["realized_gross_rs"] == D("1030.40") * 500 - of["value_rs"]
+        assert f["pos"]["lifecycle_state"] == "SETTLED" and f["v"].used_margin_rs == 0 and all_zero(f["checks"])[0]
+    run(go())
