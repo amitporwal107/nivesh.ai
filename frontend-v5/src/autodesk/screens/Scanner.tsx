@@ -20,8 +20,9 @@ import { Empty, ErrorBox, Loading, PhaseNote } from "../ui";
 import { activityQuery, workflowQuery, type WorkflowDetail } from "./agents/model";
 import { ageShort, countWord, px, shortId, whenIST } from "./scanner/fmt";
 import {
-  DIR_TONE, OPEN_WF, STATUS_TONE, confirmation, dims, outcomeOf, scoreColor, statusOf, storedFromRef, useAccountPlans,
-  useCycles, useDeskApprovals, usePolicyVersion, useRunCycle, useSessionSignals, versionLabel, type RowStatus,
+  DIR_TONE, OPEN_WF, STATUS_TONE, confirmation, dims, isBlockedEarly, outcomeOf, premarketView, scoreColor, statusOf,
+  storedFromRef, useAccountPlans, useCycles, useDeskApprovals, usePolicyVersion, useRunCycle, useSessionSignals,
+  versionLabel, type PremarketView, type RowStatus,
 } from "./scanner/model";
 
 // The design's columns, with three minimums trimmed (entry 150→130, confirmation 170→150, age 110→100) so the row fits
@@ -275,6 +276,38 @@ function cycleSummary(w: WorkflowRow): string {
   return parts.join(" · ");
 }
 
+/**
+ * Why a cycle could not take new risk: the pre-market checks that failed or ran degraded, with the detail Tech Support
+ * wrote. A BLOCKED cycle scanned nothing and made no plan, and can be run again; a DEGRADED one ran on what was allowed.
+ */
+function PremarketPanel({ cycle, view }: { cycle: WorkflowRow; view: PremarketView }) {
+  const blocked = cycle.state === "BLOCKED";
+  const tone = blocked ? "danger" : "amber";
+  return (
+    <div role="status" data-testid={blocked ? "premarket-blocked" : "premarket-degraded"}
+      style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 16px", borderRadius: 12, border: `1px solid var(--${tone}-line)`, background: `var(--${tone}-soft)`, fontSize: 13.5, lineHeight: 1.5, color: "var(--ink-2)" }}>
+      <span className="nv-eyebrow" style={{ color: `var(--${tone})` }}>
+        {blocked ? "Pre-market check blocked this session" : "Pre-market check ran degraded"} · {dateShort(cycle.session_date)}
+      </span>
+      <span data-testid="premarket-lead">
+        {blocked
+          ? "The desk did not scan or make a plan for this session, because the data it needs was not ready. Run session cycle again once it is."
+          : `The cycle ran on what the check allowed${view.allowed ? ` (new risk in ${view.allowed} only)` : ""}.`}
+      </span>
+      {view.issues.length > 0 && (
+        <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>
+          {view.issues.map((i) => (
+            <li key={i.name} data-testid="premarket-issue" data-check={i.name} data-status={i.status}>
+              <b style={{ fontWeight: 500, color: "var(--ink)" }}>{i.label}</b> {i.state}: {i.detail}
+            </li>
+          ))}
+        </ul>
+      )}
+      {view.reason && <span data-testid="premarket-reason">{view.reason}</span>}
+    </div>
+  );
+}
+
 // ── the screen ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export default function ScannerScreen() {
@@ -318,6 +351,7 @@ export default function ScannerScreen() {
   const out = outcomeOf(cycle);
   const scan = out.scan;
   const session = cycle?.session_date ?? null;
+  const premarket = cycle && !OPEN_WF.has(cycle.state) ? premarketView(out) : null;
 
   const signals = useSessionSignals(accountId, session);
   const plans = useAccountPlans(accountId);
@@ -333,6 +367,7 @@ export default function ScannerScreen() {
     run.mutate(accountId, {
       onSuccess: (wf) => {
         if (OPEN_WF.has(wf.state)) setWatchId(wf.workflow_id);
+        else if (isBlockedEarly(wf)) setWatchId(wf.workflow_id);     // blocked before any scan: say why, not "already ran"
         else setAlready(wf);
         qc.invalidateQueries({ queryKey: ["desk", "workflows", accountId, "SESSION_CYCLE"] });
       },
@@ -407,7 +442,14 @@ export default function ScannerScreen() {
     }
     if (signals.error) return <ErrorBox error={signals.error} what="the signals" onRetry={() => signals.refetch()} />;
     if (signals.isLoading) return <Loading label="Loading signals" />;
-    if (!sigs.length) return <Empty testId="scanner-no-signals">The cycle for {dateLong(session)} published no signal{cycle?.state && OPEN_WF.has(cycle.state) ? " yet: it is still running" : ""}.</Empty>;
+    if (!sigs.length) {
+      return (
+        <Empty testId="scanner-no-signals">
+          The cycle for {dateLong(session)} published no signal
+          {cycle?.state && OPEN_WF.has(cycle.state) ? " yet: it is still running" : isBlockedEarly(cycle) ? ": it was blocked before the scan" : ""}.
+        </Empty>
+      );
+    }
     if (!rows.length) return <Empty testId="scanner-no-match">No signal matches these filters.</Empty>;
     return mobile
       ? <SignalCards rows={rows} open={open} toggle={toggle} now={now} halted={halted} />
@@ -493,6 +535,8 @@ export default function ScannerScreen() {
           </span>
         </div>
       ) : null)}
+
+      {cycle && premarket && <PremarketPanel cycle={cycle} view={premarket} />}
 
       {halted && (
         <div data-testid="scanner-halted" style={{ padding: "10px 14px", borderRadius: 12, border: "1px solid var(--danger-line)", background: "var(--danger-soft)", fontSize: 13, color: "var(--ink-2)" }}>

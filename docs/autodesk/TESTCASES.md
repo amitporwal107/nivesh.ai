@@ -302,10 +302,10 @@ with no scan and no proposals opens `...:cycle:attempt-2`, then `:attempt-3`. Th
 
 | ID | Layer | Case | Expected |
 |---|---|---|---|
-| AD-FX-30 | E | Agent trace of a run; approvals of the run answer GET /approvals?simulation_id=SIM | each card whose proposal made a plan shows "Open full plan"; its href is /autodesk/approvals/{approval_id} of the NEWEST approval row of that trade; a NO_TRADE card has no link; one approvals request for the run, not one per card |
-| AD-FX-31 | E | Click the link | the URL becomes /autodesk/approvals/APR-..., the approval detail renders labelled as a simulation; the click does not change the selected card |
+| AD-FX-30 | E | Agent trace of a run; GET /approvals?simulation_id=SIM&trade_id=TRD answers per plan | each card whose proposal made a plan shows "Open full plan"; its href is /autodesk/approvals/{approval_id} of the NEWEST approval row of that trade; a NO_TRADE card, and a plan with no approval row, have no link; one small lookup per visible card that has a trade id (not one run-wide list: it is capped at 1000 rows, so a long run could silently miss a trade) |
+| AD-FX-31 | E | Click the link | the URL becomes /autodesk/approvals/APR-... and the desk's approval screen asks the API for that approval (the page renders simulation approvals, labelled as a simulation); the link sits beside the card, not inside it, so it cannot select the card |
 | AD-FX-32 | E | The selected chain's detail | the link is also in the chain's outcome box |
-| AD-FX-33 | E | Trading day feed rows of APPROVAL_* events (payload has approval_id) | "Open full plan" on the row, href as above; rows without an approval id have none |
+| AD-FX-33 | E | Trading day feed rows of APPROVAL_* events (payload has approval_id) | "Open full plan" on the row, href /autodesk/approvals/{that event's approval_id} (no lookup needed); clock, state, signal and folded rows have none |
 | AD-FX-34 | E | The approvals request fails (500) | cards and replay still work; a visible note names the failure; no link guessed |
 | AD-FX-35 | A | GET /approvals?simulation_id=&trade_id= for a simulated plan | the approval rows of that trade, newest first (the id the UI links to) |
 
