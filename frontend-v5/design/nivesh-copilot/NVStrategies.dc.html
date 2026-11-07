@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1120px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:18px;font-family:var(--sans);color:var(--ink)">
+  <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:7px;max-width:720px">
+      <span class="nv-eyebrow">Nivesh · strategy desk</span>
+      <h1 style="margin:0;font-family:var(--display);font-size:36px;line-height:1.08;font-weight:400;letter-spacing:-.02em">Find a strategy that fits <span style="color:var(--mint)">your risk.</span></h1>
+      <span style="font-size:14px;line-height:1.55;color:var(--ink-2)">A short list of strategies to review, compare, and backtest — based on your market view and holding period.</span>
+    </div>
+    <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+      <span class="nv-pill nv-pill-mint"><span class="nv-dot" style="background:var(--mint)"></span>Market data status · demo</span>
+      <span class="nv-pill">Illustrative data</span>
+    </div>
+  </header>
+
+  <section class="nv-card" style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">
+    <span class="nv-eyebrow">Refine recommendations</span>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink-3)">Market
+        <select value="{{ market }}" onChange="{{ setMarket }}" style="width:100%;padding:10px;border-radius:10px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line-2)"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>Equity</option><option>Futures</option></select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink-3)">Horizon
+        <select value="{{ horizon }}" onChange="{{ setHorizon }}" style="width:100%;padding:10px;border-radius:10px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line-2)"><option>Intraday</option><option>1 week</option><option>1 month</option><option>3 months</option></select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink-3)">Instrument
+        <select value="{{ instrument }}" onChange="{{ setInstrument }}" style="width:100%;padding:10px;border-radius:10px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line-2)"><option>Options</option><option>Equity</option><option>Futures</option><option>Equity + Futures</option><option>All</option></select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink-3)">Market view
+        <select value="{{ view }}" onChange="{{ setView }}" style="width:100%;padding:10px;border-radius:10px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line-2)"><option>Any</option><option>Bullish</option><option>Bearish</option><option>Range-bound</option><option>High volatility</option></select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink-3)">Risk profile
+        <select value="{{ risk }}" onChange="{{ setRisk }}" style="width:100%;padding:10px;border-radius:10px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line-2)"><option>Balanced</option><option>Conservative</option><option>Aggressive</option></select>
+      </label>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><span class="nv-eyebrow">Recommended for you · ranked shortlist</span><span style="font-size:12px;color:var(--ink-3)">Select a card to inspect the setup</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:10px">
+      <sc-for list="{{ strategies }}" as="st" hint-placeholder-count="4">
+        <button onClick="{{ st.pick }}" style="text-align:left;display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:14px;border:1px solid {{ st.line }};background:{{ st.bg }};color:var(--ink);cursor:pointer">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="nv-pill {{ st.pill }}">{{ st.kind }}</span><span class="nv-eyebrow">0{{ st.rank }}</span></div>
+          <span style="font-size:17px;font-weight:600;letter-spacing:-.02em">{{ st.name }}</span>
+          <span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ st.desc }}</span>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding-top:8px;border-top:1px solid var(--line)">
+            <span><span class="nv-eyebrow" style="display:block">Win rate</span><span class="nv-num" style="font-size:14px;color:var(--mint)">{{ st.win }}</span></span>
+            <span><span class="nv-eyebrow" style="display:block">Max DD</span><span class="nv-num" style="font-size:14px;color:var(--danger)">{{ st.dd }}</span></span>
+            <span><span class="nv-eyebrow" style="display:block">Sample</span><span class="nv-num" style="font-size:14px">{{ st.n }}</span></span>
+          </div>
+          <span style="color:var(--mint);font-size:12px">{{ st.selected }}Inspect strategy ›</span>
+        </button>
+      </sc-for>
+    </div>
+  </section>
+
+  <section class="nv-card" style="overflow:hidden">
+    <div style="padding:16px 18px;display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap;border-bottom:1px solid var(--line)">
+      <div style="display:flex;flex-direction:column;gap:6px"><span class="nv-eyebrow">Strategy details · {{ selected.kind }} · {{ market }}</span><h2 style="font-family:var(--display);font-size:28px;font-weight:400;margin:0">{{ selected.name }}</h2><span style="font-size:13px;color:var(--ink-2)">{{ selected.desc }}</span></div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap"><span class="nv-pill nv-pill-mint">{{ view === 'Any' ? 'Market-aware' : view }}</span><span class="nv-pill">{{ horizon }}</span><span class="nv-pill">{{ risk }} risk</span></div>
+    </div>
+    <div style="padding:16px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:18px">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Backtest win rate</span><div class="nv-metric" style="font-size:25px;color:var(--mint)">{{ selected.win }}</div></div>
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Max drawdown</span><div class="nv-metric" style="font-size:25px;color:var(--danger)">{{ selected.dd }}</div></div>
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Profit factor</span><div class="nv-metric" style="font-size:25px">{{ selected.pf }}</div></div>
+        </div>
+        <span class="nv-eyebrow">How it works</span><p style="font-size:13px;line-height:1.65;color:var(--ink-2);margin:0">{{ selected.explain }}</p>
+        <div style="display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:10px;background:var(--bg-2)">
+          <span class="nv-eyebrow">Entry and exit rules</span>
+          <sc-for list="{{ selected.rules }}" as="rule" hint-placeholder-count="3"><div style="display:flex;gap:9px;font-size:13px;line-height:1.5;color:var(--ink-2)"><span style="color:var(--mint)">›</span><span>{{ rule }}</span></div></sc-for>
+        </div>
+        <div style="padding:10px 12px;border:1px solid var(--amber-line);border-radius:10px;background:var(--amber-soft);font-size:12px;line-height:1.5;color:var(--amber)">Historical figures are illustrative until run against the selected point-in-time dataset, costs, and execution rules.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span class="nv-eyebrow">Payoff profile · schematic</span><div style="display:flex;gap:12px;font-family:var(--mono);font-size:10px"><span style="color:var(--mint)">— PROFIT</span><span style="color:var(--danger)">— LOSS</span></div></div>
+        <svg viewBox="0 0 520 180" style="width:100%;height:auto;border:1px solid var(--line);border-radius:10px;background:var(--bg-2)">
+          <line x1="12" y1="90" x2="508" y2="90" stroke="var(--line-3)"/>
+          <line x1="260" y1="12" x2="260" y2="168" stroke="var(--ink-4)" stroke-dasharray="4 4"/>
+          <polygon points="{{ selected.lossPoly }}" fill="var(--danger-soft)"/>
+          <polygon points="{{ selected.gainPoly }}" fill="var(--mint-soft)"/>
+          <polyline points="{{ selected.curve }}" fill="none" stroke="{{ selected.curveColor }}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <text x="12" y="16" fill="var(--ink-3)" font-size="10">LOSS</text><text x="12" y="174" fill="var(--ink-3)" font-size="10">UNDERLYING PRICE →</text>
+        </svg>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Max loss / trade</span><div class="nv-num" style="font-size:19px;color:var(--danger)">{{ selected.maxLoss }}</div></div>
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Reward : risk</span><div class="nv-num" style="font-size:19px">{{ selected.rr }}</div></div>
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Holding period</span><div style="font-size:14px">{{ horizon }}</div></div>
+          <div style="padding:12px;border:1px solid var(--line);border-radius:10px"><span class="nv-eyebrow">Expiry window</span><div style="font-size:14px">{{ selected.expiry }}</div></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="nv-btn nv-btn-primary" onClick="{{ backtest }}">Run backtest</button>
+          <button class="nv-btn" onClick="{{ askExplain }}">Ask Copilot to explain</button>
+        </div>
+      </div>
+    </div>
+  </section>
+  <span style="font-size:12px;color:var(--ink-3);line-height:1.5">Research workspace only. No order is placed from this screen. Signals and estimated returns are not guarantees; validate liquidity, costs, expiry, and risk before paper or live trading.</span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1120,&quot;height&quot;:1050},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { market: 'NIFTY', horizon: '1 week', instrument: 'Options', view: 'Any', risk: 'Balanced', si: 0 };
+  renderVals() {
+    const p=this.props,s=this.state;
+    const ask=(q,k)=>()=>p.onAsk&&p.onAsk(q,k);
+    const items=[
+      {kind:'Options · weekly',name:'Bull call spread',desc:'Defined-risk bullish structure; benefit from a measured rise.',win:'—',dd:'—',n:'—',pf:'—',maxLoss:'Set by debit',rr:'Modelled',expiry:'Nearest eligible weekly',explain:'Buy a call and sell a higher-strike call in the same expiry. The short leg helps reduce entry cost; upside is capped.',rules:['Underlying confirms bullish trend and breakout.','Select strikes and expiry from the current chain.','Size by max loss per spread; exit at target, invalidation or expiry.'],curveColor:'var(--mint)',curve:'12,148 110,128 210,100 260,90 340,66 420,40 508,22',gainPoly:'260,90 340,66 420,40 508,22 508,90',lossPoly:'12,148 110,128 210,100 260,90 260,90',pill:'nv-pill-mint'},
+      {kind:'Options · weekly',name:'Bull put spread',desc:'Credit structure for a bullish-to-neutral view with defined risk.',win:'—',dd:'—',n:'—',pf:'—',maxLoss:'Defined by strikes',rr:'Modelled',expiry:'Nearest eligible weekly',explain:'Sell a higher-strike put and buy a lower-strike put of the same expiry. Profit is limited to credit received and loss is defined by strike width less credit.',rules:['Bullish or stable price structure with support holding.','Use liquid strikes and cap loss by spread width.','Exit when target credit is captured or risk threshold is breached.'],curveColor:'var(--mint)',curve:'12,130 110,110 210,90 260,80 340,80 420,80 508,80',gainPoly:'12,130 110,110 210,90 260,80 340,80 420,80 508,80',lossPoly:'12,148 110,130 210,110 260,90 260,90',pill:'nv-pill-mint'},
+      {kind:'Options · weekly',name:'Iron condor',desc:'Range-bound strategy with defined risk using four legs.',win:'—',dd:'—',n:'—',pf:'—',maxLoss:'Defined by wings',rr:'Modelled',expiry:'Nearest eligible weekly',explain:'Sell an out-of-the-money call and put, protected by farther out-of-the-money long options. It benefits if the underlying stays within the short strikes, but gap and liquidity risks remain.',rules:['Use only when range conditions are supported by evidence.','Check IV, event calendar, margins and wing liquidity.','Exit by tested profit target, loss limit or time-based rule.'],curveColor:'var(--mint)',curve:'12,145 90,110 160,64 210,64 260,64 310,64 360,64 430,110 508,145',gainPoly:'90,110 160,64 360,64 430,110 430,90 90,90',lossPoly:'12,145 90,110 90,90 12,90',pill:'nv-pill-indigo'},
+      {kind:'Futures',name:'Trend-following futures',desc:'Directional futures setup with volatility-based risk controls.',win:'—',dd:'—',n:'—',pf:'—',maxLoss:'Stop-based, gap risk',rr:'Modelled',expiry:'Front month / configured',explain:'Follows a confirmed trend with a volatility-aware stop and time exit. Futures have leverage and losses can exceed planned stop risk during gaps or slippage.',rules:['Trend and relative-strength filters pass.','Size from stop distance and contract lot size.','Respect margin buffer, daily loss and expiry rollover rules.'],curveColor:'var(--indigo)',curve:'12,148 80,140 140,122 205,100 270,82 335,54 400,45 508,20',gainPoly:'12,148 80,140 140,122 205,100 270,82 335,54 400,45 508,20 508,90',lossPoly:'12,148 80,140 140,122 205,100 260,90',pill:'nv-pill-indigo'},
+      {kind:'Equity',name:'Breakout with volume',desc:'Cash equity entry after a confirmed range breakout.',win:'—',dd:'—',n:'—',pf:'—',maxLoss:'Stop-based',rr:'Modelled',expiry:'Cash market',explain:'Uses price breakout, relative volume, trend and liquidity checks. The setup is rejected if reward-to-risk or portfolio exposure fails the user risk profile.',rules:['Breakout closes above the reference level.','Relative volume and sector strength confirm.','Use stop-based quantity and skip illiquid or late entries.'],curveColor:'var(--mint)',curve:'12,148 80,138 140,130 205,100 270,88 335,58 400,43 508,20',gainPoly:'12,148 80,138 140,130 205,100 270,88 335,58 400,43 508,20 508,90',lossPoly:'12,148 80,138 140,130 205,100 260,90',pill:'nv-pill-mint'}
+    ];
+    const eligible=items.filter(x=> s.instrument==='All'||s.instrument==='Equity + Futures'||(s.instrument==='Options'?x.kind.startsWith('Options'):x.kind===s.instrument));
+    const strategies=(eligible.length?eligible:items).map((x,i)=>({...x,rank:i+1,selected:i===s.si?'Selected':'',bg:i===s.si?'var(--mint-soft)':'var(--bg-1)',line:i===s.si?'var(--mint-line)':'var(--line)',pick:()=>this.setState({si:i})}));
+    const sel=strategies[Math.min(s.si,strategies.length-1)]||strategies[0];
+    return { pad:p.mobile?'18px':'36px', market:s.market,horizon:s.horizon,instrument:s.instrument,view:s.view,risk:s.risk,
+      setMarket:e=>this.setState({market:e.target.value,si:0}),setHorizon:e=>this.setState({horizon:e.target.value}),setInstrument:e=>this.setState({instrument:e.target.value,si:0}),setView:e=>this.setState({view:e.target.value}),setRisk:e=>this.setState({risk:e.target.value}),strategies,selected:sel,
+      backtest:ask('Run a point-in-time backtest of '+sel.name+' for '+s.market+' with '+s.horizon+' horizon, '+s.instrument+', '+s.risk+' risk. Use real transaction costs and report sample size, net returns, drawdown and limitations.','backtest'),
+      askExplain:ask('Explain the setup, risk and failure conditions for '+sel.name+' on '+s.market+'. Current mode is research only.','strategy')
+    };
+  }
+}
+</script>
+</body>
+</html>
