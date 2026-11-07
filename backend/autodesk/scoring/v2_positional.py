@@ -313,8 +313,11 @@ def _comp(dim: str, points: float, detail: str, available: bool = True, weight: 
     return ScoreComponent(dimension=dim, weight=w, points=Decimal(str(round(points, 2))), available=available, detail=detail)
 
 
-def score_at(F: Features, t: int) -> ShadowScore:
-    base = dict(version=VERSION, horizon="POSITIONAL", status="SHADOW", bars_used=t + 1)
+def score_at(F: Features, t: int, *, version: str = VERSION, setup_a_context: bool = False,
+             bearish_penalty: int = BEARISH_PENALTY) -> ShadowScore:
+    """v2 by default. The keyword options exist for v2.1 (v21_positional.py): `setup_a_context` moves setup A from the entry
+    signals to the context signals; `bearish_penalty=0` lists bearish warnings without deducting points."""
+    base = dict(version=version, horizon="POSITIONAL", status="SHADOW", bars_used=t + 1)
     if t + 1 < MIN_BARS:
         return ShadowScore(**base, reasons=[f"{t + 1} sessions of history; v2 needs {MIN_BARS}"])
     a, c = F.arr, F.c
@@ -322,6 +325,9 @@ def score_at(F: Features, t: int) -> ShadowScore:
     if not _ok(tv) or tv < MIN_TRADED_RS:
         return ShadowScore(**base, reasons=["20-session average traded value below ₹5 crore" if _ok(tv) else "no traded-value history"])
     entries, ctx, warn, facts = detect(F, t)
+    if setup_a_context and "SETUP_A_ACCUMULATION" in entries:
+        entries = [e for e in entries if e != "SETUP_A_ACCUMULATION"]
+        ctx = ctx + ["SETUP_A_ACCUMULATION"]
     reasons: list[str] = []
     # signal quality
     if entries:
@@ -384,10 +390,10 @@ def score_at(F: Features, t: int) -> ShadowScore:
         sp += 2; sdt.append(f"context: {', '.join(x.replace('_', ' ').lower() for x in ctx)} (2)")
     comps.append(_comp("supporting_evidence", min(sp, 10), "; ".join(sdt)))
     total = float(sum(x.points for x in comps))
-    if warn:
-        comps.append(ScoreComponent(dimension="bearish_warning", weight=Decimal(BEARISH_PENALTY), points=Decimal(-BEARISH_PENALTY),
+    if warn and bearish_penalty:
+        comps.append(ScoreComponent(dimension="bearish_warning", weight=Decimal(bearish_penalty), points=Decimal(-bearish_penalty),
                                     available=True, detail="bearish warning present: " + ", ".join(w.replace("_", " ").lower() for w in warn)))
-        total -= BEARISH_PENALTY
+        total -= bearish_penalty
     total = max(0.0, min(100.0, total))
     return ShadowScore(**base, score=Decimal(str(round(total, 2))), band=band(total), tier=tier, primary_signal=primary,
                        signals=entries, context_signals=ctx, warnings=warn, components=comps, reasons=reasons)
