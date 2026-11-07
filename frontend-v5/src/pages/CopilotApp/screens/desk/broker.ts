@@ -227,6 +227,8 @@ const HoldingsAccountC = z.object({
   counts: z.object({ total: z.number().nullish() }),
   /** Each null when any row lacks what it needs, or the account was not read. */
   totals: TotalsC,
+  /** Set when the broker's full list would not answer and a narrower view was read: what that view leaves out. */
+  partial: optStr,
 });
 
 const HoldingsBookC = z.object({ as_of: optStr, accounts: z.array(HoldingsAccountC) });
@@ -272,6 +274,8 @@ export interface LiveHoldingsAccount {
   asOf: string | null;
   holdings: LiveHolding[];
   totals: LiveTotals;
+  /** Why these holdings are a narrower view than the broker's full list (and what they leave out); null for a full read. */
+  partial: string | null;
 }
 
 export interface LiveHoldingsBook {
@@ -295,6 +299,7 @@ export function readLiveHoldings(body: unknown): LiveHoldingsBook {
       errorCode: text(a.error?.code),
       errorMessage: text(a.error?.message),
       asOf: text(a.as_of),
+      partial: text(a.partial),
       holdings: a.holdings.map((h, i) => {
         const symbol = text(h.symbol) ?? text(h.name);
         if (!symbol) throw ApiError.contractDrift("broker.holdings: a row with no symbol or name");
@@ -747,7 +752,7 @@ export type ChartFailure =
   | "not_supported" // 400 BROKER_READ_NOT_SUPPORTED: this broker or kind of account has no contract chart
   | "not_enabled" // 403: reading from a broker is switched off for the user
   | "no_account" // 404: the account is not the caller's
-  | "broker_failed" // 502 BROKER_READ_FAILED: the broker did not answer the read
+  | "broker_failed" // 424 BROKER_READ_FAILED: the broker did not answer the read
   | "read_failed" // any other refusal
   | "unreachable" // no answer: offline, or the read took too long
   | "wrong_shape"; // a 200 that is not the documented body

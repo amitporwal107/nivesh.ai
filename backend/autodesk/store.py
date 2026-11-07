@@ -141,6 +141,12 @@ async def create_account(c: asyncpg.Connection, *, tenant_id: str, name: str, ki
                simulation_id=simulation_id,
                payload={"kind": kind.value, "operating_mode": operating_mode.value,
                         "starting_capital_rs": str(starting_capital_rs), "policy_id": policy_id})
+    await c.execute(   # the ledger's opening row: every balance is derived from the ledger (execution/capital.py)
+        """INSERT INTO autodesk.capital_ledger_entries (entry_id, tenant_id, account_id, simulation_id, entry_type,
+               cash_delta_rs, ref_type, ref_id, memo)
+           VALUES ($1,$2,$3,$4,$5,$6,'ACCOUNT',$3,'opening capital') ON CONFLICT (entry_id) DO NOTHING""",
+        f"CAP-open-{account_id}", tenant_id, account_id, simulation_id, C.LedgerEntry.CAPITAL_AVAILABLE.value,
+        starting_capital_rs)
     return await get_account(c, tenant_id, account_id)
 
 
@@ -479,7 +485,8 @@ async def revise_plan(c: asyncpg.Connection, *, tenant_id: str, trade_id: str, b
                             trade_id, tenant_id)
     if head is None:
         raise NotFound(trade_id)
-    if head["status"] in ("APPROVED", "REJECTED", "EXPIRED", "RESEARCH_ONLY"):
+    if head["status"] in ("APPROVED", "REJECTED", "EXPIRED", "RESEARCH_ONLY", "EXECUTING", "EXECUTED",
+                          "EXECUTION_REFUSED"):
         raise Conflict(f"plan {trade_id} is {head['status']}; a new version needs a new workflow")
     if body.account_id != head["account_id"]:
         raise Conflict("a revision cannot move a plan to another account")

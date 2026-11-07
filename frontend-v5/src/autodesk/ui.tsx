@@ -1,6 +1,6 @@
 /**
  * Small building blocks that copy the prototype's markup (docs/autodesk/design/prototype/TD*.dc.html): eyebrows,
- * pills, cards, metric tiles, section headers, and the states every screen needs (loading, error, empty, Phase 2).
+ * pills, cards, metric tiles, section headers, and the states every screen needs (loading, error, empty, not shown yet).
  * Styling is the design system's classes plus inline styles, as in the prototype.
  */
 import type { CSSProperties, ReactNode } from "react";
@@ -167,10 +167,10 @@ export function Empty({ children, testId }: { children: ReactNode; testId?: stri
 }
 
 /** Marks a block whose data arrives with a later phase. Says what it will show; never shows sample figures. */
-export function PhaseNote({ phase = 2, children, testId }: { phase?: number; children: ReactNode; testId?: string }) {
+export function PhaseNote({ phase = 2, label, children, testId }: { phase?: number; label?: string; children: ReactNode; testId?: string }) {
   return (
     <div data-testid={testId ?? "phase-note"} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "12px 14px", borderRadius: 10, border: "1px dashed var(--line-3)", fontSize: 13, lineHeight: 1.5, color: "var(--ink-3)" }}>
-      <span className="nv-pill nv-pill-indigo" style={{ padding: "2px 8px", fontSize: 9.5, flex: "none" }}>Phase {phase}</span>
+      <span className="nv-pill nv-pill-indigo" style={{ padding: "2px 8px", fontSize: 9.5, flex: "none" }}>{label ?? `Phase ${phase}`}</span>
       <span>{children}</span>
     </div>
   );

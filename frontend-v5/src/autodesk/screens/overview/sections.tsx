@@ -72,7 +72,7 @@ export function NeedsYou({ pending, mobile, now }: { pending: UseQueryResult<App
   );
 }
 
-// ── Net P&L card (Phase 2) ───────────────────────────────────────────────────────────────────────────────────────────
+// ── Net P&L card (the figure is not read yet) ───────────────────────────────────────────────────────────────────────────────────────────
 
 export function PnlCard() {
   const nav = useNavigate();
@@ -84,9 +84,9 @@ export function PnlCard() {
         <span className="nv-eyebrow">Net P&amp;L today · after est. charges</span>
         <span style={{ fontSize: 12.5, color: "var(--mint)" }}>Real-time P&amp;L ›</span>
       </div>
-      <PhaseNote testId="pnl-phase-note">
-        Net P&amp;L after estimated charges, its curve through the session and the split by account come with paper execution
-        (Phase 2). Nothing is executed in Phase 1, so there is no P&amp;L to show.
+      <PhaseNote label="Not shown yet" testId="pnl-phase-note">
+        The desk records paper P&amp;L after estimated charges for approved plans. This card does not read it yet, so the figure,
+        its curve through the session and the split by account are not shown here.
       </PhaseNote>
     </div>
   );
@@ -130,7 +130,7 @@ export function FeedsCard({ st, quotes, quotesError, now }: { st: DeskStatus | u
       : pm?.status
         ? { id: "premarket", n: "Pre-market check", s: `${pm.status}${pm.sessionDate ? ` · ${dateShort(pm.sessionDate).toUpperCase()}` : ""}`, c: PM_COLOR[pm.status] ?? "var(--ink-3)", note: pm.reason ?? undefined }
         : { id: "premarket", n: "Pre-market check", s: "NOT RUN YET", c: "var(--ink-3)" },
-    { id: "paper", n: "Paper engine", s: "PHASE 2", c: "var(--ink-3)" },
+    { id: "paper", n: "Paper engine", s: "PAPER ONLY · NO BROKER", c: "var(--ink-3)" },
   ];
   return (
     <div data-testid="feeds-card" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "18px 22px", borderRadius: 14, border: "1px solid var(--line)", background: "var(--bg-1)", boxShadow: "var(--shadow-card)", minWidth: 0 }}>

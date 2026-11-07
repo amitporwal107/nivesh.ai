@@ -25,7 +25,7 @@ ENGINE_VERSION = "autodesk-risk-v1"
 
 LEG_SEGMENT = {InstrumentKind.EQ: Segment.CASH, InstrumentKind.FUT: Segment.FUTURES,
                InstrumentKind.CE: Segment.OPTIONS, InstrumentKind.PE: Segment.OPTIONS}
-PHASE2_SKIP = "no positions until Phase 2 (no fills, so no realised or unrealised P&L yet)"
+LOSS_LIMITS_SKIP = "daily and weekly loss and drawdown limits act on P&L from Phase 3 (with the trade lifecycle)"
 
 
 def _pct(value: Decimal, equity: Decimal) -> Decimal:
@@ -217,7 +217,7 @@ def assess(*, trade_id: str, plan_version: int, plan: TradePlanBody, account: di
 
     checks += size_checks
     for name in ("daily_loss", "weekly_loss", "drawdown"):
-        checks.append(_chk(name, None, PHASE2_SKIP))
+        checks.append(_chk(name, None, LOSS_LIMITS_SKIP))
 
     hard_fail = [c.name for c in checks if c.hard and c.outcome == CheckOutcome.FAIL]
     size_only = bool(hard_fail) and set(hard_fail) <= set(sizing.SIZE_CHECKS)

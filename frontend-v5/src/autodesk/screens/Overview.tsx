@@ -3,9 +3,9 @@
  * ranked by ₹ at risk", metric tiles, the P&L card + "Broker & data feeds", "Agents · current task" and "Recent agent
  * activity" (table on desktop, cards on a phone).
  *
- * Phase 1 truth: agents scan, draft plans, assess risk and approvals happen; there are no orders, fills, positions or
- * P&L. Blocks that need those keep their place and say "Phase 2" — the prototype's sample figures are never shown, and
- * every sentence of the headline is computed from the API.
+ * Agents scan, draft plans, assess risk and approvals happen; the desk records paper orders, fills, positions and P&L,
+ * but this screen does not read them yet. Blocks that need those keep their place and say "Not shown here yet" — the
+ * prototype's sample figures are never shown, and every sentence of the headline is computed from the API.
  */
 import { useNavigate } from "react-router-dom";
 import { isUnauthorized } from "../api";
@@ -48,7 +48,7 @@ function approvalsClause(pending: ApprovalRow[] | undefined, failed: boolean, no
 }
 
 function subLine(st: DeskStatus): string {
-  const parts = ["There is no P&L yet: orders and fills come with paper execution (Phase 2)."];
+  const parts = ["The desk records paper orders, fills and P&L for approved plans; this screen does not read them yet."];
   const pm = premarketOf(st);
   if (pm?.status) {
     const segs = pm.allowed && pm.allowed.length ? `, with ${pm.allowed.join(", ").toLowerCase()} allowed` : pm.allowed ? ", with no segment allowed" : "";
@@ -115,7 +115,7 @@ export default function OverviewScreen() {
       v: known ? `${counts.healthy} · ${counts.degraded} · ${counts.offline}` : "—", s: "Healthy · degraded · offline",
       tone: !known ? "ink" : counts.offline ? "danger" : counts.degraded ? "amber" : "mint",
     },
-    { id: "trades", k: "Active trades", v: "—", s: "Phase 2 · needs paper execution", tone: "ink", to: "trades" },
+    { id: "trades", k: "Active trades", v: "—", s: "Not shown here yet", tone: "ink", to: "trades" },
     {
       id: "pending", k: "Pending approvals", to: "approvals",
       v: pending.data ? String(pending.data.length) : "—",
@@ -123,14 +123,14 @@ export default function OverviewScreen() {
         ? (first ? `First expires ${whenIST(first, now)} IST` : "No expiry set") : "Queue is clear",
       tone: pending.data?.length ? "amber" : pending.data ? "mint" : "ink",
     },
-    { id: "orders", k: "Open orders", v: "—", s: "Phase 2 · no orders in Phase 1", tone: "ink", to: "trades" },
+    { id: "orders", k: "Open orders", v: "—", s: "Not shown here yet", tone: "ink", to: "trades" },
     {
       id: "capital", k: "Capital deployed", v: "—", tone: "ink", to: "risk",
-      s: accounts.length ? `Phase 2 · starting capital ${rsShort(capital)}` : "Phase 2 · needs paper execution",
+      s: accounts.length ? `Not shown here yet · starting capital ${rsShort(capital)}` : "Not shown here yet",
     },
-    { id: "risk", k: "Open risk · margin", v: "—", s: "Phase 2 · needs positions", tone: "ink", to: "risk" },
-    { id: "pnl", k: "Realized · unrealized", v: "—", s: "Phase 2 · needs fills", tone: "ink", to: "pnl" },
-    { id: "exceptions", k: "Critical exceptions", v: "—", s: "Phase 2 · reconciliation needs fills", tone: "ink", to: "middle" },
+    { id: "risk", k: "Open risk · margin", v: "—", s: "Not shown here yet", tone: "ink", to: "risk" },
+    { id: "pnl", k: "Realized · unrealized", v: "—", s: "Not shown here yet", tone: "ink", to: "pnl" },
+    { id: "exceptions", k: "Critical exceptions", v: "—", s: "Not shown here yet", tone: "ink", to: "middle" },
     {
       id: "premarket", k: "Last pre-market check", to: "agents",
       v: pm?.status ? cap(pm.status) : "—",

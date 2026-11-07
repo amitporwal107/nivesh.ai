@@ -253,6 +253,16 @@ async def sync_account(db, doc: dict, *, trigger: str = "manual") -> dict:
         )
         raise
 
+    note = getattr(holdings, "note", None)
+    if note:
+        # A narrower view of the broker (its full list would not answer): nothing is stored, so the complete list already
+        # on file is not replaced by a smaller one. The caller shows the note and the live rows.
+        on_file = len(await db.holdings.find({"user_id": user_id, "broker_account_id": account_id}, {"_id": 0, "holding_id": 1}).to_list(None))
+        await db.broker_accounts.update_one(
+            {"account_id": account_id}, {"$set": {"last_error": None, "updated_at": _now_iso()}},
+        )
+        return {"count": on_file, "holdings": [], "duplicates": {}, "snapshot_id": None, "partial": note}
+
     rows, in_reply = await _persist_holdings(db, user_id, account_id, doc, holdings)
     replaced = await _apply_broker_wins(db, user_id, account_id, broker, rows)
     duplicates = {
@@ -606,7 +616,17 @@ async def read_account_holdings(db, doc: dict) -> list[dict]:
         )
         raise
     # The masterdata fill reads files on its first call: off the event loop.
-    return await to_thread(_live_rows, holdings)
+    rows = await to_thread(_live_rows, holdings)
+    note = getattr(holdings, "note", None)
+    return PartialRows(rows, note) if note else rows
+
+
+class PartialRows(list):
+    """Live holding rows read from a narrower view of the broker, with the note that says what that view leaves out."""
+
+    def __init__(self, rows, note: str) -> None:
+        super().__init__(rows)
+        self.note = note
 
 
 # ── Funds (read-only) ────────────────────────────────────────────────────

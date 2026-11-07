@@ -246,10 +246,13 @@ class PlanStatus(str, Enum):
     RISK_REVIEW = "RISK_REVIEW"
     NEEDS_REVISION = "NEEDS_REVISION"
     AWAITING_APPROVAL = "AWAITING_APPROVAL"
-    APPROVED = "APPROVED"            # Phase 1 ends here: no execution yet
+    APPROVED = "APPROVED"            # with no gateway wired the plan ends here (Phase 1 behaviour)
     REJECTED = "REJECTED"
     RESEARCH_ONLY = "RESEARCH_ONLY"  # RESEARCH mode: assessed, never approved
     EXPIRED = "EXPIRED"
+    EXECUTING = "EXECUTING"                  # reservation held, orders working
+    EXECUTED = "EXECUTED"                    # at least one fill; the position is open
+    EXECUTION_REFUSED = "EXECUTION_REFUSED"  # a control or the paper engine refused it
 
 
 class RiskVerdict(str, Enum):
@@ -317,13 +320,93 @@ class EventType(str, Enum):
     # emergency controls (PRD §10.4)
     DESK_CONTROL_ACTIVATED = "DESK_CONTROL_ACTIVATED"
     DESK_CONTROL_LIFTED = "DESK_CONTROL_LIFTED"
-    ENTRIES_STOPPED = "ENTRIES_STOPPED"   # a proposal / approval was held back by STOP_NEW_ENTRIES
+    ENTRIES_STOPPED = "ENTRIES_STOPPED"   # a proposal / approval / order was held back by STOP_NEW_ENTRIES
+    # capital and execution (Phase 2; every fill is simulated)
+    CAPITAL_RESERVED = "CAPITAL_RESERVED"
+    CAPITAL_RELEASED = "CAPITAL_RELEASED"
+    EXECUTION_INTENT_CREATED = "EXECUTION_INTENT_CREATED"
+    EXECUTION_INTENT_VALIDATED = "EXECUTION_INTENT_VALIDATED"
+    EXECUTION_INTENT_REFUSED = "EXECUTION_INTENT_REFUSED"
+    EXECUTION_INTENT_COMPLETED = "EXECUTION_INTENT_COMPLETED"
+    ORDER_STATE_CHANGED = "ORDER_STATE_CHANGED"
+    ORDER_FILLED = "ORDER_FILLED"
+    POSITION_OPENED = "POSITION_OPENED"
+    SESSION_EXECUTION_SUMMARY = "SESSION_EXECUTION_SUMMARY"
 
 
 class DeskControl(str, Enum):
     """Emergency controls (PRD §10.4). Phase 1 has the one that acts before any order exists. None of them cancels a
     protective exit. Applies to the desk's real-time accounts, not to simulations of past sessions."""
     STOP_NEW_ENTRIES = "STOP_NEW_ENTRIES"
+
+
+# ── Execution (PRD §11.3; ARCH §8.1, §9) ──────────────────────────────────────────────────────────────────────────────
+
+class OrderState(str, Enum):
+    CREATED = "CREATED"
+    VALIDATED = "VALIDATED"
+    SUBMITTED = "SUBMITTED"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    OPEN = "OPEN"
+    PARTIALLY_FILLED = "PARTIALLY_FILLED"
+    FILLED = "FILLED"
+    MODIFY_PENDING = "MODIFY_PENDING"
+    CANCEL_PENDING = "CANCEL_PENDING"
+    CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+    UNKNOWN = "UNKNOWN"     # RECONCILIATION_REQUIRED: never retried blindly
+
+
+ORDER_TERMINAL = {OrderState.FILLED, OrderState.CANCELLED, OrderState.REJECTED, OrderState.EXPIRED}
+ORDER_WORKING = {OrderState.OPEN, OrderState.PARTIALLY_FILLED}
+
+# Allowed order moves. Anything else is refused by execution/orders.py.
+ORDER_TRANSITIONS: dict[OrderState, set[OrderState]] = {
+    OrderState.CREATED: {OrderState.VALIDATED, OrderState.REJECTED},
+    OrderState.VALIDATED: {OrderState.SUBMITTED, OrderState.REJECTED, OrderState.CANCELLED, OrderState.EXPIRED},
+    OrderState.SUBMITTED: {OrderState.ACKNOWLEDGED, OrderState.REJECTED, OrderState.UNKNOWN},
+    OrderState.ACKNOWLEDGED: {OrderState.OPEN, OrderState.REJECTED, OrderState.EXPIRED},
+    OrderState.OPEN: {OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.REJECTED, OrderState.EXPIRED,
+                      OrderState.CANCEL_PENDING, OrderState.MODIFY_PENDING},
+    OrderState.PARTIALLY_FILLED: {OrderState.PARTIALLY_FILLED, OrderState.FILLED, OrderState.EXPIRED,
+                                  OrderState.CANCEL_PENDING},
+    OrderState.MODIFY_PENDING: {OrderState.OPEN, OrderState.PARTIALLY_FILLED, OrderState.REJECTED},
+    OrderState.CANCEL_PENDING: {OrderState.CANCELLED},
+    OrderState.UNKNOWN: {OrderState.EXPIRED},
+    OrderState.FILLED: set(),
+    OrderState.CANCELLED: set(),
+    OrderState.REJECTED: set(),
+    OrderState.EXPIRED: set(),
+}
+
+
+class IntentStatus(str, Enum):
+    CREATED = "CREATED"
+    VALIDATED = "VALIDATED"
+    REFUSED = "REFUSED"
+    SUBMITTED = "SUBMITTED"
+    COMPLETED = "COMPLETED"
+
+
+class ReservationStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    CONSUMED = "CONSUMED"    # a fill used it; any remainder was released when the order ended
+    RELEASED = "RELEASED"    # rejected or withdrawn, nothing used
+    EXPIRED = "EXPIRED"      # session close, nothing used
+
+
+class LedgerEntry(str, Enum):
+    CAPITAL_AVAILABLE = "CAPITAL_AVAILABLE"
+    CAPITAL_RESERVED = "CAPITAL_RESERVED"
+    CAPITAL_RESERVATION_CONSUMED = "CAPITAL_RESERVATION_CONSUMED"
+    CAPITAL_RESERVATION_RELEASED = "CAPITAL_RESERVATION_RELEASED"
+    POSITION_FUNDS = "POSITION_FUNDS"        # shares and premium paid or received
+    MARGIN_UTILIZED = "MARGIN_UTILIZED"
+    MARGIN_RELEASED = "MARGIN_RELEASED"      # Phase 3
+    REALIZED_PNL = "REALIZED_PNL"            # Phase 3
+    FEES_BOOKED = "FEES_BOOKED"
+    MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT"
 
 
 class EventEnvelope(_Model):
@@ -679,13 +762,13 @@ class SimulationConfig(_Model):
 
 
 class ClockPhase(str, Enum):
-    """Scheduled points in one simulated session (IST). Phase 1 does work at PREMARKET, SCAN and PROPOSALS."""
+    """Scheduled points in one simulated session (IST)."""
     PREMARKET = "PREMARKET"   # 08:30 Tech Support checks data for the session
     SCAN = "SCAN"             # 08:45 AI Trader scans on data published up to then
     PROPOSALS = "PROPOSALS"   # 09:00 Trading Assistant → Risk & Ops → Middle Office per signal
-    OPEN = "OPEN"             # 09:15 (Phase 2: entries)
-    CLOSE = "CLOSE"           # 15:30
-    EOD = "EOD"               # 18:00 expire signals, day summary (Phase 2: reconcile)
+    OPEN = "OPEN"             # 09:15 submission and fills at the open
+    CLOSE = "CLOSE"           # 15:30 resting orders, expiry of the rest, marks at the close
+    EOD = "EOD"               # 18:00 expire signals and unanswered approvals, day summary
 
 
 CLOCK_SCHEDULE_IST: list[tuple[ClockPhase, str]] = [

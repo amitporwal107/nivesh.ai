@@ -30,7 +30,9 @@ from ..market import indicators as ind
 from ..market.pit import INDEX_FUTURES
 from ..market.view import IST, Bar, BuildupRow, DataUnavailable, published_at
 from ..scoring import registry as scoring
+from ..scoring import v21_positional as v21
 from ..scoring import v2_positional as v2
+from ..contracts import ShadowScore
 from .base import Agent, AgentContext
 
 VERSION = "autodesk-ait-v1"
@@ -48,11 +50,16 @@ BUILDUP = {"long_buildup": (SignalCategory.LONG_BUILDUP, Direction.BULLISH),
            "long_unwinding": (SignalCategory.LONG_UNWINDING, Direction.BEARISH)}
 DESCRIPTOR = AgentDescriptor(
     agent_key=AgentKey.AI_TRADER, version=VERSION, kind="DETERMINISTIC", task_types=[TaskType.SCAN_MARKET],
-    tools=["market.daily_bars", "market.index_bars", "market.fno_universe", "market.fno_buildup", "market.vix",
+    tools=["market.daily_bars", "market.index_bars", "market.fno_universe", "market.index_members", "market.fno_buildup", "market.vix",
            "market.sector", "market.sessions_between"],
     prohibited=["size positions", "approve", "execute"])
 
 ZERO = Decimal("0")
+# Named scan universes besides FNO: desk universe name → index whose TODAY's members are scanned (membership has no history,
+# so replays carry a survivorship caveat). Members that are not F&O underlyings scan as cash only.
+INDEX_UNIVERSES = {"NIFTY500": "Nifty 500", "TOTAL_MARKET": "Nifty Total Market"}
+# shadow versions this agent can run: version → (score one prepared bar series, rules string). Registry status decides which run.
+SHADOW_SCORERS = {v2.VERSION: (v2.score_at, v2.RULES), v21.VERSION: (v21.score_at, v21.RULES)}
 
 
 def _c(dim: str, points, detail: str, available: bool = True) -> ScoreComponent:
@@ -72,9 +79,10 @@ class _Market:
         self.missing: list[str] = []
         # shadow scoring (scoring/registry.py): never used for selection
         self.shadow_on: bool = False
+        self.shadow_versions: list[str] = []
         self.bench_long: list[Bar] = []
-        self.shadow: dict[str, Any] = {}
-        self.shadow_errors: dict[str, str] = {}
+        self.shadow: dict[str, dict[str, ShadowScore]] = {}        # version → symbol → score
+        self.shadow_errors: dict[str, dict[str, str]] = {}         # version → symbol → error
         self.sector_bars: dict[str, Any] = {}
 
     def regime(self) -> dict[str, Any]:
@@ -174,7 +182,8 @@ class AITrader(Agent):
     async def _market(self, m) -> _Market:
         mk = _Market()
         mk.cash_day = m.latest_session("cash")
-        mk.shadow_on = v2.VERSION in scoring.shadow_versions()
+        mk.shadow_versions = [v for v in scoring.shadow_versions() if v in SHADOW_SCORERS]
+        mk.shadow_on = bool(mk.shadow_versions)
         try:
             if mk.shadow_on:
                 # one read serves both: v1 gets exactly the last BARS sessions it always had
@@ -201,6 +210,12 @@ class AITrader(Agent):
 
     async def _universe(self, m, mk: _Market, ctx: AgentContext) -> list[str]:
         symbols = ctx.inputs.get("symbols")
+        name = str(ctx.inputs.get("universe") or "FNO").upper()
+        if name != "FNO" and name not in INDEX_UNIVERSES and not symbols:
+            raise ValueError(f"unknown universe {name!r}: use FNO, {', '.join(INDEX_UNIVERSES)} or an explicit symbol list")
+        if name in INDEX_UNIVERSES and not symbols:
+            # DataUnavailable propagates: a scan that cannot read its universe fails visibly, it never falls back to F&O
+            return await m.index_members(INDEX_UNIVERSES[name])
         if mk.buildup:
             uni = sorted(mk.buildup)
         else:
@@ -313,13 +328,14 @@ class AITrader(Agent):
                                     data_as_of=asof, sector=sector, fno=fno))
         if mk.shadow_on:
             sh = await self._shadow(m, mk, sym, bars_long, sector)
-            if sh is not None:
+            if sh:
                 for s in out:
-                    s.shadow_scores = [sh]
+                    s.shadow_scores = list(sh)
         return out, skipped
 
-    async def _shadow(self, m, mk: _Market, sym: str, bars_long: list[Bar], sector: Optional[str]):
-        """v2-positional shadow score for one stock. Any failure is recorded in the scan report and never touches v1."""
+    async def _shadow(self, m, mk: _Market, sym: str, bars_long: list[Bar], sector: Optional[str]) -> list[ShadowScore]:
+        """Shadow scores of every running version for one stock (indicators are built once and shared). A failure is recorded
+        per version in the scan report and never touches v1 or the other version."""
         try:
             name = v2.SECTOR_INDEX.get(sector or "")
             sec = None
@@ -330,12 +346,18 @@ class AITrader(Agent):
                     except DataUnavailable:
                         mk.sector_bars[name] = None
                 sec = mk.sector_bars[name]
-            sh = await asyncio.to_thread(v2.score_last, bars_long, mk.bench_long, sec, name)
-            mk.shadow[sym] = sh
-            return sh
+            results = await asyncio.to_thread(_score_versions, mk.shadow_versions, bars_long, mk.bench_long, sec, name)
         except Exception as e:  # noqa: BLE001 — recorded (ScanReport.shadow.errors); shadow scoring must not stop the scan
-            mk.shadow_errors[sym] = f"{type(e).__name__}: {str(e)[:120]}"
-            return None
+            results = {v: e for v in mk.shadow_versions}
+        out = []
+        for v in mk.shadow_versions:
+            r = results[v]
+            if isinstance(r, Exception):
+                mk.shadow_errors.setdefault(v, {})[sym] = f"{type(r).__name__}: {str(r)[:120]}"
+            else:
+                mk.shadow.setdefault(v, {})[sym] = r
+                out.append(r)
+        return out
 
     async def _index(self, m, ctx, mk: _Market, sym: str) -> tuple[list[Signal], list[dict]]:
         name = INDEX_FUTURES.get(sym)
@@ -422,24 +444,50 @@ class AITrader(Agent):
                                    f"({len(suppressed)} suppressed or skipped)")
 
 
+def _score_versions(versions: list[str], bars: list[Bar], bench: list[Bar], sector, sector_name) -> dict[str, Any]:
+    """Runs in a worker thread: one feature build, then each version's scorer. Returns version → ShadowScore or the exception."""
+    if not bars:
+        return {v: ShadowScore(version=v, horizon="POSITIONAL", status="SHADOW", reasons=["no bars"]) for v in versions}
+    try:
+        F = v2.features(bars, bench, sector, sector_name)
+    except Exception as e:  # noqa: BLE001
+        return {v: e for v in versions}
+    out: dict[str, Any] = {}
+    for v in versions:
+        try:
+            out[v] = SHADOW_SCORERS[v][0](F, len(F) - 1)
+        except Exception as e:  # noqa: BLE001 — isolated per version
+            out[v] = e
+    return out
+
+
 def _shadow_summary(mk: _Market, top: int = 50) -> dict[str, Any]:
-    """v2 candidates for the scan report — recorded for comparison, never published as signals. Ties: relative-strength
-    points, then trend points (never the name)."""
+    """Shadow candidates for the scan report — recorded for comparison, never published as signals. The top level keeps
+    the first running version's block (the v2 shape older readers know); `versions` holds one block per running version."""
+    blocks = {v: _version_block(mk, v, top) for v in mk.shadow_versions}
+    first = mk.shadow_versions[0]
+    return {**blocks[first], "versions": blocks}
+
+
+def _version_block(mk: _Market, version: str, top: int) -> dict[str, Any]:
+    """Candidates for one version. Ties: relative-strength points, then trend points (never the name)."""
     def pts(sh, dim):
         return next((float(c.points) for c in sh.components if c.dimension == dim), 0.0)
-    scored = {s: sh for s, sh in mk.shadow.items() if sh.score is not None}
+    mine = mk.shadow.get(version, {})
+    errors = mk.shadow_errors.get(version, {})
+    scored = {s: sh for s, sh in mine.items() if sh.score is not None}
     cands = sorted(((s, sh) for s, sh in scored.items() if sh.signals),
                    key=lambda x: (-float(x[1].score), -pts(x[1], "relative_strength"), -pts(x[1], "trend_confirmation"), x[0]))
     not_scored: dict[str, int] = {}
-    for sh in mk.shadow.values():
+    for sh in mine.values():
         if sh.score is None:
             for r in sh.reasons or ["not scored"]:
                 not_scored[r] = not_scored.get(r, 0) + 1
-    return {"version": v2.VERSION, "rules": v2.RULES, "horizon": "POSITIONAL", "active_version": scoring.active_version(),
+    return {"version": version, "rules": SHADOW_SCORERS[version][1], "horizon": "POSITIONAL",
+            "active_version": scoring.active_version(),
             "scored": len(scored), "with_entry_signal": len(cands), "not_scored": not_scored,
-            "errors": dict(list(mk.shadow_errors.items())[:20]), "error_count": len(mk.shadow_errors),
+            "errors": dict(list(errors.items())[:20]), "error_count": len(errors),
             "bands": {b: sum(1 for _, sh in cands if sh.band == b) for b in ("Exceptional", "Strong", "Developing", "Weak", "Avoid")},
             "candidates": [{"instrument": s, "score": str(sh.score), "band": sh.band, "tier": sh.tier,
                             "primary_signal": sh.primary_signal, "signals": sh.signals, "context_signals": sh.context_signals,
                             "warnings": sh.warnings} for s, sh in cands[:top]]}
-

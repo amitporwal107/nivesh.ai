@@ -10,7 +10,7 @@ export interface ScreenDef {
   label: string;
   path: string;          // under the router basename /autodesk
   group: "Desk" | "Positions" | "Control";
-  /** 1 = served by today's API; 2 = needs paper execution (orders, fills, positions, P&L). */
+  /** 1 = the screen shows its data today; 2 = the desk records the data (paper orders, fills, positions, P&L) but the screen does not show it yet, or is not built. */
   phase: 1 | 2;
 }
 

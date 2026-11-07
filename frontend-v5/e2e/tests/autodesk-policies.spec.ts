@@ -142,6 +142,25 @@ test("AD-UI-74 edit limits: tighten one limit → contract body, new version act
   await expect(rows.nth(1)).toContainText("5 Nov, 10:50 – 5 Nov, 11:42");
 });
 
+test("AD-UI-74b edit limits: the refreshed list arrives before the save has finished; the dialog closes and stays closed", async ({ page }) => {
+  // The version-keyed policy query is empty for a moment once the list says v2. Holding /desk/status back keeps the save's
+  // refresh unfinished through that moment, which is the order that used to unmount the dialog and lose its close callback.
+  const desk = await setup(page);
+  await page.route("**/autodesk/api/v1/desk/status", async (route) => {
+    await new Promise((r) => setTimeout(r, 700));
+    await route.fallback();
+  });
+  await page.goto("/autodesk/policies");
+  await page.getByTestId("edit-limits").click();
+  await page.getByTestId("limit-input-per_trade_risk_pct").fill("0.4");
+  await page.getByTestId("limits-save").click();
+  await expect(page.getByTestId("policy-pill")).toHaveText(["Desk default · v2 active"]);
+  await expect(page.getByTestId("limits-dialog")).toHaveCount(0);
+  await page.waitForTimeout(1200);
+  await expect(page.getByTestId("limits-dialog")).toHaveCount(0);
+  expect(posts(desk, "/policies/")).toHaveLength(1);
+});
+
 test("AD-UI-75 loosening as a non-admin and an invalid value: the API's messages are shown, nothing changes", async ({ page }) => {
   const desk = await setup(page, {
     routes: {
@@ -196,7 +215,8 @@ test("AD-UI-77 matrix, approvers and roles from the policy, the Middle Office ru
   await expect(rows).toHaveCount(8);
   for (let i = 0; i < 8; i++) await expect(rows.nth(i)).toContainText(/LOCKED$/);
   await expect(rows.filter({ hasText: "Approve a plan whose risk check failed" })).toContainText("NEVERNEVERLOCKED");
-  await expect(page.getByTestId("matrix-phase-note")).toContainText("Phase 2");
+  await expect(page.getByTestId("matrix-phase-note")).toContainText("Opening a position is a paper order placed after approval");
+  await expect(page.getByTestId("matrix-phase-note")).toContainText("come with Phase 3");
   const who = page.getByTestId("who-approves");
   await expect(who).toContainText("Plan risk above 0.5% of equity");
   await expect(who).toContainText("Signal score below 70");

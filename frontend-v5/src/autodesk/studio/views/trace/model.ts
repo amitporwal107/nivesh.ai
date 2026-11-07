@@ -11,6 +11,7 @@
 import { DASH, dateShort, dateTimeIST, humanize, num, rs, timeIST } from "../../../format";
 import { actorName, type HandoffRow, type TaskFull, type WorkflowDetail } from "../../../screens/agents/model";
 import { secs, shortId } from "../../../screens/scanner/fmt";
+import { SHADOW_LABEL, chipText, shadowScoresOf } from "../../../screens/scanner/shadow";
 import type { SignalRow, TradePlanRow, WorkflowRow } from "../../../types";
 
 export type TraceTask = TaskFull & { sim_time?: string | null };
@@ -182,6 +183,7 @@ export function buildSteps(d: WorkflowDetail, signal: SignalRow | null | undefin
         ["signal_id", sig.signal_id], ["instrument", `${sig.instrument} · ${sig.exchange} ${sig.segment}`], ["direction", `${sig.direction} · ${sig.timeframe}`],
         ["category", sig.category], ["signal_score", s(sig.signal_score)], ["calibrated_probability", sig.calibrated_probability == null ? "not calibrated" : s(sig.calibrated_probability)],
         ["session_date", sig.session_date], ["data_as_of", dateTimeIST(sig.data_as_of)], ["rule_version", sig.rule_version],
+        ...shadowScoresOf(sig).map((sh): [string, string] => [`shadow ${sh.version} · ${SHADOW_LABEL}`, `${chipText(sh)}${sh.tier ? ` · ${sh.tier}` : ""}${sh.primary_signal ? ` · primary ${sh.primary_signal}` : ""}`]),
       ] : [["entity_id", s(h.entity_id) || DASH]],
       tools: [], moreTools: 0, toolsNote: "The scan's tool calls belong to the market-scan workflow of the session.",
       meta: [["Produced by", `${actorName(h.from_agent)} · market scan`], ["Handoff", `${actorName(h.to_agent)} · ${shortId(h.entity_id)}`]],
@@ -229,11 +231,11 @@ export const signalIdOf = (w: WorkflowRow): string | null => {
 /** The chain shown first: a revised plan (the longest hand-on), else one waiting on a person, else an approval, else the first. */
 export function defaultWorkflow(list: WorkflowRow[]): string | null {
   const by = (f: (w: WorkflowRow) => boolean) => list.find(f)?.workflow_id;
-  return by((w) => Number(outcome(w).plan_version ?? 1) > 1) ?? by((w) => w.state === "WAITING_HUMAN") ?? by((w) => outcome(w).result === "APPROVED_NO_EXECUTION") ?? list[0]?.workflow_id ?? null;
+  return by((w) => Number(outcome(w).plan_version ?? 1) > 1) ?? by((w) => w.state === "WAITING_HUMAN") ?? by((w) => outcome(w).result === "APPROVED_NO_EXECUTION" || outcome(w).result === "APPROVED") ?? list[0]?.workflow_id ?? null;
 }
 
 const RESULT_LABEL: Record<string, string> = {
-  APPROVED_NO_EXECUTION: "approved", WAITING_HUMAN: "waiting on a person", NO_TRADE: "no plan", RESEARCH_ONLY: "research only",
+  APPROVED_NO_EXECUTION: "approved", APPROVED: "approved", WAITING_HUMAN: "waiting on a person", NO_TRADE: "no plan", RESEARCH_ONLY: "research only",
   REJECTED: "rejected", REJECTED_BY_PERSON: "rejected by a person", NEEDS_REVISION: "revision asked", REVISION_REQUESTED: "revision asked",
   ENTRIES_STOPPED: "held back · stop control on", EXPIRED: "expired", SUSPENDED: "suspended", FAILED: "failed",
 };
@@ -268,5 +270,5 @@ export function outcomeText(w: WorkflowRow): { head: string; detail: string | nu
   const r = typeof o.result === "string" ? o.result : null;
   const reasons = arr(o.reasons).map(String).join("; ");
   const detail = s(o.note) || s(o.reason) || reasons || s(w.error) || null;
-  return { head: `Workflow ${w.state}${r ? ` · ${r.replace(/_/g, " ")}` : ""}`, detail, approvalPath: r === "APPROVED_NO_EXECUTION" || r === "WAITING_HUMAN" };
+  return { head: `Workflow ${w.state}${r ? ` · ${r.replace(/_/g, " ")}` : ""}`, detail, approvalPath: r === "APPROVED_NO_EXECUTION" || r === "APPROVED" || r === "WAITING_HUMAN" };
 }

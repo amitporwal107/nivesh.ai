@@ -2,12 +2,12 @@
  * Simulation studio · Trading day (docs/autodesk/design/prototype/studio/SimDay.dc.html), on the run in `?sim=` (else the
  * newest run).
  *
- * Phase 1 truth: a run replays past NSE sessions phase by phase — PREMARKET 08:30, SCAN 08:45, PROPOSALS 09:00, OPEN 09:15,
+ * Truth: a run replays past NSE sessions phase by phase — PREMARKET 08:30, SCAN 08:45, PROPOSALS 09:00, OPEN 09:15,
  * CLOSE 15:30, EOD 18:00 IST — with the desk's agents on end-of-day data. The clock moves by phase, not by minute. Every
  * figure comes from the simulation API: the row (status, clock, config, versions), /results (policy violation attempts)
- * and /timeline (clock rows + events, read incrementally). The design's blocks that need orders, fills, positions, P&L,
- * scenario injection, speed multipliers or checkpoints keep their place and say which phase brings them; they never show
- * sample figures. Play / Pause map to the real lifecycle actions (start, run, pause, resume).
+ * and /timeline (clock rows + events, read incrementally). The design's blocks for orders, fills, positions and P&L
+ * keep their place and say they are not shown yet (paper execution records them); those for scenario injection, speed
+ * multipliers or checkpoints say which phase brings them. They never show sample figures. Play / Pause map to the real lifecycle actions (start, run, pause, resume).
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -55,10 +55,10 @@ function headline(sim: SimulationRow, d: DayView): [string, string] {
     b = `${plural(t.SIGNAL_DETECTED ?? 0, "signal")} and ${plural(t.TRADE_PLAN_CREATED ?? 0, "plan")} so far; no order can leave the simulator.`;
   } else if (ph === "OPEN") {
     a = "The market is open on the replay clock.";
-    b = `${plural(t.APPROVAL_GRANTED ?? 0, "plan")} approved today, none sent: Phase 1 has no orders.`;
+    b = `${plural(t.APPROVAL_GRANTED ?? 0, "plan")} approved today; orders are simulated and none reaches a broker.`;
   } else if (ph === "CLOSE") {
     a = "The bell has rung.";
-    b = "Nothing was filled, so there is nothing to reconcile.";
+    b = "Orders still waiting are settled or expire, and open positions are marked at the close.";
   } else {
     a = "The bell has rung.";
     b = sim.status === "COMPLETED" ? "Every session of this run is replayed." : "The session is closed; the next one starts at its pre-market check.";
@@ -172,12 +172,12 @@ export default function StudioDay() {
   const T = day.types;
   const loaded = !!tl;
   const n = (v: number | undefined) => (loaded ? String(v ?? 0) : DASH);
-  const counters: { id: string; k: string; v: string; c: string; phase?: number }[] = [
+  const counters: { id: string; k: string; v: string; c: string; phase?: number; tag?: string }[] = [
     { id: "signals", k: "Signals", v: n(T.SIGNAL_DETECTED), c: "var(--ink)" },
     { id: "plans", k: "Plans", v: n(T.TRADE_PLAN_CREATED), c: "var(--ink)" },
     { id: "risk", k: "Risk checks", v: n(T.RISK_ASSESSMENT_COMPLETED), c: "var(--ink)" },
     { id: "approvals", k: "Approvals", v: n((T.APPROVAL_GRANTED ?? 0) + (T.APPROVAL_REJECTED ?? 0) + (T.APPROVAL_NEEDS_HUMAN ?? 0)), c: "var(--ink)" },
-    { id: "fills", k: "Fills", v: DASH, c: "var(--ink-3)", phase: 2 },
+    { id: "fills", k: "Fills", v: DASH, c: "var(--ink-3)", tag: "NOT SHOWN YET" },
     { id: "exits", k: "Exits", v: DASH, c: "var(--ink-3)", phase: 3 },
     { id: "shocks", k: "Shocks", v: DASH, c: "var(--ink-3)", phase: 3 },
     { id: "recovered", k: "Recovered", v: loaded ? String(day.recovered) : DASH, c: "var(--mint)" },
@@ -187,11 +187,11 @@ export default function StudioDay() {
   const lastDay = sIdx === sessions.length - 1;
   const eodSt = eodReached ? (status === "COMPLETED" && lastDay ? "RUN COMPLETE" : "SESSION CLOSED") : `AT ${PHASE_INFO.EOD.at}`;
   const pv = resQ.data?.policy_violation_attempts;
-  const eodRows: { id: string; k: string; v: string; c: string; phase?: number }[] = [
-    { id: "orders", k: "Orders · fills · breaks", v: DASH, c: "var(--ink-3)", phase: 2 },
-    { id: "gross", k: "Gross · charges", v: DASH, c: "var(--ink-3)", phase: 2 },
-    { id: "net", k: "Net P&L after costs", v: DASH, c: "var(--ink-3)", phase: 2 },
-    { id: "drawdown", k: "Max drawdown", v: DASH, c: "var(--ink-3)", phase: 2 },
+  const eodRows: { id: string; k: string; v: string; c: string; phase?: number; tag?: string }[] = [
+    { id: "orders", k: "Orders · fills · breaks", v: DASH, c: "var(--ink-3)", tag: "NOT SHOWN YET" },
+    { id: "gross", k: "Gross · charges", v: DASH, c: "var(--ink-3)", tag: "NOT SHOWN YET" },
+    { id: "net", k: "Net P&L after costs", v: DASH, c: "var(--ink-3)", tag: "NOT SHOWN YET" },
+    { id: "drawdown", k: "Max drawdown", v: DASH, c: "var(--ink-3)", tag: "NOT SHOWN YET" },
     { id: "assertions", k: "Assertions", v: DASH, c: "var(--ink-3)", phase: 3 },
     { id: "violations", k: sessions.length > 1 ? "Policy violations · whole run" : "Policy violations", v: eodReached && pv != null ? String(pv) : DASH, c: !eodReached || pv == null ? "var(--ink-3)" : pv ? "var(--danger)" : "var(--mint)" },
     { id: "signals-expired", k: "Signals expired at the close", v: eodReached && loaded ? String(day.eod?.SIGNAL_EXPIRED ?? 0) : DASH, c: "var(--ink)" },
@@ -282,10 +282,10 @@ export default function StudioDay() {
         </div>
         <div data-testid="day-counters" style={{ display: "grid", gridTemplateColumns: `repeat(${mobile ? 2 : 4},minmax(0,1fr))`, gap: 8, alignContent: "start" }}>
           {counters.map((c) => (
-            <div key={c.id} data-testid={`day-ctr-${c.id}`} title={c.phase ? `Phase ${c.phase}` : undefined} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "11px 12px", borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg-1)", minWidth: 0 }}>
+            <div key={c.id} data-testid={`day-ctr-${c.id}`} title={c.tag ?? (c.phase ? `Phase ${c.phase}` : undefined)} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "11px 12px", borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg-1)", minWidth: 0 }}>
               <span className="nv-eyebrow" style={{ fontSize: 8.5 }}>{c.k}</span>
               <span className="nv-num" style={{ fontFamily: "var(--display)", fontSize: 24, lineHeight: 1.05, color: c.c }}>{c.v}</span>
-              {c.phase && <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, letterSpacing: "0.06em", color: "var(--ink-4)" }}>PHASE {c.phase}</span>}
+              {(c.tag || c.phase) && <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, letterSpacing: "0.06em", color: "var(--ink-4)" }}>{c.tag ?? `PHASE ${c.phase}`}</span>}
             </div>
           ))}
         </div>
@@ -311,16 +311,17 @@ export default function StudioDay() {
         <section data-testid="day-pnl" style={{ ...box, gap: 10, padding: "18px 20px 14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
             <span style={h24}>Net P&amp;L, simulated</span>
-            <span className="nv-num" style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-3)" }}>NO FILLS IN PHASE 1</span>
+            <span className="nv-num" style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--ink-3)" }}>NOT SHOWN YET</span>
           </div>
-          <PhaseNote phase={2} testId="day-pnl-note">
-            The P&amp;L curve after simulated costs needs paper fills, which come in Phase 2. Plans approved in this run are not filled, so there is no P&amp;L to draw.
+          <PhaseNote label="Not shown yet" testId="day-pnl-note">
+            The P&amp;L curve after simulated costs is not drawn here yet. Plans approved in this run are filled in simulation; a finished run's trades,
+            net P&amp;L and max drawdown are in Run history.
           </PhaseNote>
         </section>
         <section data-testid="day-positions" style={box}>
           <span style={{ ...h24, paddingBottom: 8 }}>Positions</span>
-          <PhaseNote phase={2} testId="day-positions-note">
-            Positions begin with paper fills in Phase 2. This run approves plans but places no orders, so there is no position to list.
+          <PhaseNote label="Not shown yet" testId="day-positions-note">
+            Positions from this run's simulated fills are recorded but not listed here yet. They stay open until closing positions arrives with Phase 3.
           </PhaseNote>
         </section>
       </div>
@@ -385,7 +386,7 @@ export default function StudioDay() {
               <div key={r.id} data-testid={`day-eod-${r.id}`} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)", fontSize: 13 }}>
                 <span style={{ color: "var(--ink-2)" }}>{r.k}</span>
                 <span style={{ display: "flex", gap: 8, alignItems: "baseline", flex: "none" }}>
-                  {r.phase && <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, letterSpacing: "0.06em", color: "var(--ink-4)" }}>PHASE {r.phase}</span>}
+                  {(r.tag || r.phase) && <span style={{ fontFamily: "var(--mono)", fontSize: 8.5, letterSpacing: "0.06em", color: "var(--ink-4)" }}>{r.tag ?? `PHASE ${r.phase}`}</span>}
                   <span className="nv-num" style={{ fontFamily: "var(--mono)", fontSize: 12, color: r.c, textAlign: "right" }}>{r.v}</span>
                 </span>
               </div>

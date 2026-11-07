@@ -22,7 +22,7 @@ import pytest
 from services.brokers import icicidirect as icici
 from services.brokers import registry
 from services.brokers.base import (
-    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, Position,
+    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, PartialHoldings, Position,
 )
 
 # The reference's own example AppKey (public text, chosen for its special characters).
@@ -372,6 +372,46 @@ def test_holdings_keep_only_what_icici_returned(keys, monkeypatch):
 def test_no_holdings_is_an_empty_list(keys, monkeypatch):
     Wire(monkeypatch, {"dematholdings": ok(None), "portfolioholdings": ok(None)})
     assert run(icici.fetch_holdings(TOKEN)) == []
+
+
+# What ICICI answered on 31 Oct 2026 for /dematholdings while the same session read the portfolio view and positions fine:
+# HTTP 200 with API status 500 (the shape is real; the text of the error is CONSTRUCTED).
+DEMAT_DOWN = (200, {"Success": None, "Status": 500, "Error": "Internal error"})
+
+
+def test_a_failing_demat_list_falls_back_to_the_portfolio_view_and_says_what_is_missing(keys, monkeypatch):
+    option = DOCS_PORTFOLIO_OPTION_ROW                                                    # a derivative: not a holding
+    sold = dict(PORTFOLIO_EQUITY_ROW, stock_code="SOLD", quantity="0")
+    etf = dict(PORTFOLIO_EQUITY_ROW, stock_code="goldbees", quantity="12", average_price="60.5", current_market_price="62")
+    Wire(monkeypatch, {"dematholdings": DEMAT_DOWN, "portfolioholdings": ok([PORTFOLIO_EQUITY_ROW, etf, sold, option])})
+    holdings = run(icici.fetch_holdings(TOKEN))
+
+    assert isinstance(holdings, PartialHoldings)
+    assert [(h.symbol, h.isin, h.asset_type, h.quantity, h.avg_price, h.current_price, h.exchange, h.source_id) for h in holdings] == [
+        ("UNITEC", None, "equity", 1.0, 2.35, 2.9, "NSE", "icicidirect:UNITEC"),
+        ("GOLDBEES", None, "etf", 12.0, 60.5, 62.0, "NSE", "icicidirect:GOLDBEES"),
+    ]
+    assert "2 holdings" in holdings.note and "NSE equity portfolio view" in holdings.note
+    assert "ISINs are missing" in holdings.note and "bonds, funds" in holdings.note
+
+
+def test_when_the_portfolio_view_also_fails_the_demat_failure_is_raised(keys, monkeypatch):
+    Wire(monkeypatch, {"dematholdings": DEMAT_DOWN, "portfolioholdings": DEMAT_DOWN})
+    with pytest.raises(icici.IciciDirectError, match="demat holdings failed"):
+        run(icici.fetch_holdings(TOKEN))
+
+
+def test_when_the_portfolio_view_is_empty_the_demat_failure_is_raised(keys, monkeypatch):
+    Wire(monkeypatch, {"dematholdings": DEMAT_DOWN, "portfolioholdings": ok(None)})
+    with pytest.raises(icici.IciciDirectError, match="demat holdings failed"):
+        run(icici.fetch_holdings(TOKEN))
+
+
+def test_a_rejected_session_is_not_hidden_by_the_fallback(keys, monkeypatch):
+    Wire(monkeypatch, {"dematholdings": (401, {"Success": None, "Status": 401, "Error": "Session key is expired"}),
+                       "portfolioholdings": ok([PORTFOLIO_EQUITY_ROW])})
+    with pytest.raises(icici.IciciDirectSessionExpired):
+        run(icici.fetch_holdings(TOKEN))
 
 
 # ── Positions ────────────────────────────────────────────────────────────

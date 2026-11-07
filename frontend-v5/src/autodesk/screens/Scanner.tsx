@@ -6,7 +6,7 @@
  * Phase 1 truth: the AI Trader scans the latest published end-of-day data when a person starts a session cycle (there
  * is no scheduler), so the screen carries a "Run session cycle" control. Every figure comes from the desk API (see
  * ./scanner/model.ts); the score ranks evidence and is not a probability (calibrated_probability is empty in Phase 1).
- * Signal history needs recorded outcomes (Phase 2) and says so. Text the agents wrote is shown as written.
+ * Signal history needs closed paper trades (Phase 3) and says so. Text the agents wrote is shown as written.
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +19,7 @@ import type { Account, ApprovalRow, SignalRow, TradePlanRow, WorkflowRow } from 
 import { Empty, ErrorBox, Loading, PhaseNote } from "../ui";
 import { activityQuery, workflowQuery, type WorkflowDetail } from "./agents/model";
 import { ageShort, countWord, px, shortId, whenIST } from "./scanner/fmt";
+import { ShadowBreakdown, ShadowChips } from "./scanner/shadow";
 import {
   DIR_TONE, OPEN_WF, STATUS_TONE, confirmation, dims, isBlockedEarly, outcomeOf, premarketView, scoreColor, statusOf,
   storedFromRef, useAccountPlans, useCycles, useDeskApprovals, usePolicyVersion, useRunCycle, useSessionSignals,
@@ -133,7 +134,10 @@ function Expanded({ r, halted }: { r: Row; halted: boolean }) {
   const missing = b.missing_inputs ?? [];
   return (
     <div data-testid="row-expanded" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.1fr) minmax(0,1fr) minmax(0,0.9fr)", gap: 22, padding: "16px 18px 20px", background: "var(--bg-2)", borderTop: "1px solid var(--line)" }}>
-      <Breakdown sig={s} score={r.score} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+        <Breakdown sig={s} score={r.score} />
+        <ShadowBreakdown sig={s} />
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
         <span className="nv-eyebrow" style={{ fontSize: 9.5 }}>Evidence</span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -143,7 +147,7 @@ function Expanded({ r, halted }: { r: Row; halted: boolean }) {
           <span data-testid="row-close">Close <span className="nv-num" style={{ color: "var(--ink)" }}>{px(b.reference_price)}</span> · liquidity {liquidityDetail(s)}</span>
           {evidence.map((e) => <span key={e} data-testid="evidence-text" style={{ overflowWrap: "anywhere" }}>{e}</span>)}
           {missing.length > 0 && <span data-testid="missing-inputs" style={{ color: "var(--ink-3)" }}>Missing inputs (earn no points): {missing.join(", ")}</span>}
-          <span style={{ color: "var(--ink-3)" }}>Similar-setup history needs recorded outcomes, which start with paper execution (Phase 2).</span>
+          <span style={{ color: "var(--ink-3)" }}>Similar-setup history needs closed paper trades, which come with Phase 3.</span>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -191,9 +195,12 @@ function SignalTable({ rows, open, toggle, now, halted }: { rows: Row[]; open: s
                     <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.04em", color: "var(--ink-3)" }}>{s.segment} · {s.timeframe}</span>
                   </span>
                   <span><DirPill d={s.direction} /></span>
+                  <span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span className="nv-num" data-testid="row-score" style={{ fontFamily: "var(--display)", fontSize: 22, width: 28 }}>{px(r.score)}</span>
                     <span style={{ flex: 1, height: 4, borderRadius: 2, background: "var(--bg-3)", maxWidth: 60 }}><span style={{ display: "block", height: "100%", width: `${Math.max(0, Math.min(100, r.score))}%`, borderRadius: 2, background: scoreColor(r.score) }} /></span>
+                  </span>
+                  <ShadowChips sig={s} />
                   </span>
                   <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                     <span className="nv-num" data-testid="row-prob" style={{ color: prob == null ? "var(--ink-3)" : "var(--ink)" }}>{prob == null ? DASH : prob.toFixed(2)}</span>
@@ -239,6 +246,7 @@ function SignalCards({ rows, open, toggle, now, halted }: { rows: Row[]; open: s
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                 <span className="nv-num" data-testid="row-score" style={{ fontFamily: "var(--display)", fontSize: 26, lineHeight: 1 }}>{px(r.score)}</span>
                 <DirPill d={s.direction} small />
+                <ShadowChips sig={s} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8, fontSize: 12 }}>
@@ -251,7 +259,8 @@ function SignalCards({ rows, open, toggle, now, halted }: { rows: Row[]; open: s
             {isOpen && (
               <div data-testid="row-expanded" style={{ display: "flex", flexDirection: "column", gap: 7, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
                 <Breakdown sig={s} score={r.score} compact />
-                <span style={{ fontSize: 12, color: "var(--ink-3)", overflowWrap: "anywhere" }}>{confirmation(s)} · similar-setup history needs recorded outcomes (Phase 2)</span>
+                <ShadowBreakdown sig={s} compact />
+                <span style={{ fontSize: 12, color: "var(--ink-3)", overflowWrap: "anywhere" }}>{confirmation(s)} · similar-setup history needs closed paper trades (Phase 3)</span>
                 <ActionButton st={r.status} halted={halted} big />
               </div>
             )}
@@ -552,9 +561,9 @@ export default function ScannerScreen() {
 
       <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <span className="nv-eyebrow">Signal history · last 30 sessions · after costs, point-in-time</span>
-        <PhaseNote testId="history-phase-note">
-          Hit rates and average R after costs per setup need recorded outcomes of signals and plans. Phase 1 ends at
-          approval with no fills, so there is no history to score yet; it starts with paper execution.
+        <PhaseNote phase={3} testId="history-phase-note">
+          Hit rates and average R after costs per setup need closed paper trades. The desk records paper fills now, but
+          positions stay open until Phase 3, so there is no history to score yet.
         </PhaseNote>
       </section>
     </div>

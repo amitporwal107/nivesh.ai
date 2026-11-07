@@ -99,7 +99,7 @@ test("AD-UI-151 step through the revised chain: messages, structured output, too
   await expect(page.getByTestId("trace-detail-step")).toHaveText("Step 1 · SIGNAL");
 });
 
-test("AD-UI-152 the last step shows the workflow's outcome and the Phase 2 note; Restart", async ({ page }) => {
+test("AD-UI-152 the last step shows the workflow's outcome and the note on what follows the decision; Restart", async ({ page }) => {
   await open(page, traceRoutes());
   for (let i = 0; i < 5; i++) await page.getByTestId("trace-next").click();
   await expect(stepN(page)).toHaveText("STEP 6 OF 6");
@@ -113,7 +113,8 @@ test("AD-UI-152 the last step shows the workflow's outcome and the Phase 2 note;
   await expect(page.getByTestId("trace-tools")).toContainText("No tool calls; deterministic decision on its inputs.");
   await expect(page.getByTestId("trace-waiting")).toHaveCount(0);
   await expect(page.getByTestId("trace-outcome")).toContainText("Workflow WAITING_HUMAN · WAITING HUMAN");
-  await expect(page.getByTestId("trace-phase2")).toContainText("Phase 2");
+  await expect(page.getByTestId("trace-phase2")).toHaveText("Not shown yetCapital reservation, orders and fills after the decision are recorded for this run; this view ends at the decision for now.");
+  await expect(page.getByTestId("trace-phase2")).not.toContainText(/arrive with Phase 2|Phase 1 chain/);
   await expect(page.getByTestId("trace-progress")).toHaveAttribute("style", /width: 100%/);
   await expect(page.getByTestId("trace-play")).toHaveText("Replay");
   await page.getByTestId("trace-restart").click();

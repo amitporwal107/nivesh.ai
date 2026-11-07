@@ -70,7 +70,9 @@ export function useNewPolicyVersion() {
     mutationFn: (v: { policyId: string; changes: Record<string, unknown>; reason: string }) =>
       deskPost<{ policy_id: string; version: number; body: Record<string, unknown> }>(
         `/policies/${encodeURIComponent(v.policyId)}/versions`, { changes: v.changes, reason: v.reason }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["desk"] }),
+    // Not awaited: the save is finished once the API accepts it. Waiting for the refresh let the new version empty the
+    // version-keyed policy query first, which unmounted the dialog and dropped its close callback (AD-UI-74b).
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["desk"] }); },
   });
 }
 

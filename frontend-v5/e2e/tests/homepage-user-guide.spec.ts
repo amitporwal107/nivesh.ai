@@ -5,7 +5,7 @@
  * Public, frontend-only. The videos, captions and poster live on the staging host's /downloads (not served by the local
  * preview), so they are routed here: every mp4 request gets the repo's own 90-second WebM demo (Playwright's Chromium
  * has no H.264), which lets the seek and language-switch tests read a real currentTime. The written guide JSON is the
- * real file from public/user-guide. Filename matches the `unauthenticated` project's /homepage/ filter.
+ * real file from public/guide-text. Filename matches the `unauthenticated` project's /homepage/ filter.
  * Test-case IDs match test_reports/user_guide_page_TESTCASES.md.
  */
 import { test, expect, type Page } from "@playwright/test";
@@ -209,7 +209,7 @@ test.describe("User guide page", () => {
   });
 
   test("TC-13 when the written guide fails to load, the video and languages still work", async ({ page }) => {
-    await page.route("**/user-guide/*.json", (route) => route.abort());
+    await page.route("**/guide-text/*.json", (route) => route.abort());
     await openGuide(page);
     await expect(page.getByTestId("ug-guide-error")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("ug-lang-ta").click();
@@ -227,6 +227,13 @@ test.describe("User guide page", () => {
     expect(guide).toContain("For education and research only");
     expect(guide).not.toMatch(/\b(buy|sell|stop[- ]?loss|targets?|recommend\w*|picks?)\b/i);
   });
+});
+
+test("TC-19 no public folder shadows the /user-guide route (nginx try_files $uri/ would 301 then 403 a direct link)", () => {
+  // The v5 nginx serves `try_files $uri $uri/ /v5/index.html`: a public/user-guide/ folder turned every direct, shared or
+  // refreshed /v5/user-guide link into a 403 on staging (5 Nov 2026), while in-app navigation and vite preview still worked.
+  expect(fs.existsSync(path.join(process.cwd(), "public", "user-guide"))).toBe(false);
+  expect(fs.existsSync(path.join(process.cwd(), "public", "guide-text", "en.json"))).toBe(true);
 });
 
 test.describe("Phone width", () => {

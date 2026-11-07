@@ -5,6 +5,7 @@ AUTODESK_AUTO_MIGRATE   "1" (default) applies autodesk/db/migrations on start.
 AUTODESK_TASK_DEADLINE  default per-task deadline in seconds (30).
 AUTODESK_SCAN_DEADLINE  deadline of the market scan task in seconds (600): a full F&O universe is ~450 data reads.
 AUTODESK_LLM_ENABLED    "0" (default): agents run their deterministic paths only; no LLM call is made.
+AUTODESK_LIVE_LOOP      "1" (default): the live paper-execution tick runs in the desk process; "0" turns it off.
 AUTODESK_SCHEDULER      "0" (default): no real-time session cycle is started by the service itself.
 """
 from __future__ import annotations
@@ -25,6 +26,7 @@ class Settings:
     llm_enabled: bool
     scheduler_enabled: bool
     scan_deadline_s: float = 600.0
+    live_loop: bool = True
 
 
 def load() -> Settings:
@@ -36,4 +38,5 @@ def load() -> Settings:
         llm_enabled=_flag("AUTODESK_LLM_ENABLED", "0"),
         scheduler_enabled=_flag("AUTODESK_SCHEDULER", "0"),
         scan_deadline_s=float(os.environ.get("AUTODESK_SCAN_DEADLINE", "600")),
+        live_loop=_flag("AUTODESK_LIVE_LOOP", "1"),
     )

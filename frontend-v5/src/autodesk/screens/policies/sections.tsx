@@ -161,8 +161,8 @@ export function AgentsMatrix({ body, loading }: { body: PolicyBodyJson | undefin
         </div>
       ))}
       <div style={{ paddingTop: 10 }}>
-        <PhaseNote testId="matrix-phase-note">
-          Position actions (opening, trailing, closing, rolling or resizing a position) come with paper execution (Phase 2).
+        <PhaseNote phase={3} testId="matrix-phase-note">
+          Opening a position is a paper order placed after approval. Trailing and closing a position come with Phase 3; rolling and resizing are not built yet.
           Auto live is locked: live trading awaits the owner's decision.
         </PhaseNote>
       </div>
@@ -249,11 +249,11 @@ export const LIFT_REASON = "Lifted from Policies & permissions";
 
 const UNAVAILABLE: [string, string, string][] = [
   ["gen", "Suspend strategy generation", "Not a separate control in Phase 1; Stop new entries already holds back new plans."],
-  ["mods", "Suspend automated modifications", "Acts on resting orders; comes with paper execution (Phase 2)."],
-  ["cancel", "Cancel eligible pending entries", "Acts on unfilled orders; comes with paper execution (Phase 2)."],
+  ["mods", "Suspend automated modifications", "Acts on resting orders; amending an order comes with Phase 3."],
+  ["cancel", "Cancel eligible pending entries", "Acts on unfilled orders; cancelling them in bulk comes with Phase 3."],
   ["strat", "Suspend a strategy", "Not a control in Phase 1; the strategies the desk may use are part of the policy."],
   ["acct", "Suspend an account", "Not available in Phase 1: the API has no call to suspend an account yet."],
-  ["exits", "Controlled risk-reducing exits", "Acts on positions; comes with paper execution (Phase 2)."],
+  ["exits", "Controlled risk-reducing exits", "Acts on positions; closing positions comes with Phase 3."],
   ["broker", "Disable a broker adapter", "There is no broker adapter: brokers are read-only and live trading awaits the owner's decision."],
 ];
 
@@ -272,7 +272,7 @@ export function Emergency({ st, statusError, mobile }: { st: DeskStatus | undefi
     <section data-testid="emergency" style={{ display: "flex", flexDirection: "column", gap: 12, padding: mobile ? "18px 16px" : "20px 22px", borderRadius: 16, border: "1px solid var(--danger-line)", background: "var(--bg-1)", boxShadow: "var(--shadow-card)" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline" }}>
         <span style={{ fontFamily: "var(--display)", fontSize: 26, flex: 1 }}>Emergency controls</span>
-        <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>Phase 1 has one working control. There are no orders or positions yet, so nothing is cancelled.</span>
+        <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>One control works today. Paper orders that are waiting are not cancelled by it; they do not fill while it is on.</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,300px),1fr))", gap: 10 }}>
         <div data-testid="control-entries" style={{ display: "flex", flexDirection: "column", gap: 8, padding: "13px 15px", borderRadius: 12, border: `1px solid ${on ? "var(--danger-line)" : "var(--line)"}`, background: on ? "var(--danger-soft)" : "var(--bg-1)" }}>

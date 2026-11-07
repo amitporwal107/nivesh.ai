@@ -84,8 +84,8 @@ const READS: ReadRow[] = [
   { what: "CAS emails in Gmail", why: "To find and download your latest statement", access: "Read-only", tone: "mint" },
   { what: "Holdings in a connected broker account", why: "Read when you connect and each time you press Sync now", access: "Read", tone: "mint" },
   { what: "Holdings in a broker file you upload", why: "For a broker you would rather not connect, or that can’t be connected", access: "Read", tone: "mint" },
-  // The server can read these from a connected account; no screen in this app displays them yet.
-  { what: "Open positions in a connected broker account", why: "Not shown anywhere in this app yet", access: "Not shown", tone: "ink" },
+  // Read live and never stored: one line on each connected account's card, and in full on the Open positions screen.
+  { what: "Open positions in a connected broker account", why: "Read live when you open this page or the Open positions screen; not stored", access: "Read", tone: "mint" },
   { what: "Place, change or cancel orders", why: "Nivesh has no feature that does this, with any source", access: "Never", tone: "danger" },
 ];
 

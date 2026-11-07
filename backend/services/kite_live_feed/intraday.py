@@ -96,8 +96,13 @@ def merge_live(bars: List[list], ltp: Optional[float], now: datetime, minutes: i
 class IntradayService:
     def __init__(self, *, token_getter: Callable[[], str] = cfg.get_token, key_getter: Callable[[], str] = cfg.get_api_key,
                  kite_factory=gw.default_kite_factory, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-                 sleep=asyncio.sleep):
+                 sleep=asyncio.sleep, source: str = SOURCE, provider: str = PROVIDER, adjusted: bool = False,
+                 note: str = "Kite candles, raw prices (not split/bonus adjusted)."):
         self.token_getter, self.key_getter, self.kite_factory, self.clock, self.sleep = token_getter, key_getter, kite_factory, clock, sleep
+        # Kite by default. With TrueData serving (routes/research_chart_intraday.get_service) the same reads go to TrueData's
+        # REST bars through services/truedata_live/gateway.TrueDataAsKite, labelled as TrueData's and ADJUSTED (TrueData's
+        # history is adjusted for corporate actions; Kite's candles are raw).
+        self.source, self.provider, self.adjusted, self.note = source, provider, adjusted, note
         self._gate = asyncio.Lock()
         self._last_call = 0.0
         self._inst: Tuple[Optional[date], Dict[str, int]] = (None, {})
@@ -108,8 +113,8 @@ class IntradayService:
         self._cache: Dict[Tuple[str, str, int], Tuple[float, dict]] = {}
 
     def _empty(self, symbol: str, interval: str, reason: str, now: datetime) -> Dict[str, Any]:
-        return {"symbol": symbol, "interval": interval, "source": SOURCE, "provider": PROVIDER, "as_of": now.isoformat(), "availability": reason,
-                "bars": [], "count": 0, "live_merged": False, "in_progress_bar": None, "session_dates": [], "adjusted": False}
+        return {"symbol": symbol, "interval": interval, "source": self.source, "provider": self.provider, "as_of": now.isoformat(), "availability": reason,
+                "bars": [], "count": 0, "live_merged": False, "in_progress_bar": None, "session_dates": [], "adjusted": self.adjusted}
 
     async def _paced(self, fn, *args):
         """Run one Kite call off the loop, never faster than 3 per second across the process."""
@@ -173,15 +178,15 @@ class IntradayService:
             bars.sort(key=lambda b: b[0])
             keep = sorted({b[0][:10] for b in bars})[-sessions:]
             bars = [b for b in bars if b[0][:10] in keep]
-            out = {"symbol": sym, "interval": interval, "source": SOURCE, "provider": PROVIDER, "as_of": now.isoformat(),
+            out = {"symbol": sym, "interval": interval, "source": self.source, "provider": self.provider, "as_of": now.isoformat(),
                    "availability": "ok" if bars else "no_bars", "bars": bars, "count": len(bars), "live_merged": False,
-                   "in_progress_bar": None, "session_dates": keep, "adjusted": False}
+                   "in_progress_bar": None, "session_dates": keep, "adjusted": self.adjusted}
             self._cache[ck] = (time.monotonic(), {**out, "bars": [list(b) for b in bars]})
         if session_open and out["bars"]:
             merged = merge_live(out["bars"], live_ltp, now.astimezone(cfg.IST), minutes)
             out["live_merged"] = merged
             out["in_progress_bar"] = out["bars"][-1][0] if merged else None
-        out["note"] = "Kite candles, raw prices (not split/bonus adjusted). The live price is merged only into a candle still in progress."
+        out["note"] = f"{self.note} The live price is merged only into a candle still in progress."
         return out
 
     async def _futures_for(self, kite, symbol: str, now: datetime) -> List[Dict[str, Any]]:
@@ -241,8 +246,8 @@ class IntradayService:
             raise ValueError("unsupported interval")
         kname, _minutes, max_days = INTERVALS[interval]
         sessions = max(1, min(MAX_SESSIONS, int(sessions)))
-        base = {"symbol": sym, "interval": interval, "source": "Kite intraday, futures with open interest", "provider": PROVIDER,
-                "as_of": now.isoformat(), "contracts": [], "adjusted": False}
+        base = {"symbol": sym, "interval": interval, "source": f"{self.source}, futures with open interest", "provider": self.provider,
+                "as_of": now.isoformat(), "contracts": [], "adjusted": self.adjusted}
         token, key = self.token_getter(), self.key_getter()
         if not token or not key:
             return {**base, "availability": "token_missing"}
@@ -289,6 +294,13 @@ class IntradayService:
 
     async def options_intraday(self, symbol: str, interval: str, sessions: int = 2, strikes: int = 5, *,
                                session_open: bool = False, ref_getter=None) -> Dict[str, Any]:
+        out = await self._options_intraday(symbol, interval, sessions, strikes, session_open=session_open, ref_getter=ref_getter)
+        if self.source != SOURCE:                     # services/fno_options_intraday labels its answers as Kite's
+            out = {**out, "source": f"{self.source} (historical, oi)", "provider": self.provider, "adjusted": self.adjusted}
+        return out
+
+    async def _options_intraday(self, symbol: str, interval: str, sessions: int = 2, strikes: int = 5, *,
+                                session_open: bool = False, ref_getter=None) -> Dict[str, Any]:
         """The options pane's answer (services/fno_options_intraday.py has the shape): the nearest expiry's CE and PE at the
         ATM strike ± `strikes` listed strikes, Kite candles with OI. `ref_getter` is an async (cash symbol) -> {price, source,
         at} | None giving today's Kite quote; without one, the cash symbol's last Kite candle is the reference. Never raises

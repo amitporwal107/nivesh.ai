@@ -74,9 +74,9 @@ export const RISK_P = {
       chk("open_risk", "PASS", "open risk incl. 1 approved plans 84670.29 (0.847%) vs 3%", "84670.29", "300000.00"),
       chk("sector", "WARN", "sector Oil Gas & Consumable Fuels: capital incl. approved plans 48260.00 vs 25% of equity", "48260.00", "2500000.00"),
       chk("margin_utilization", "PASS", "F&O capital incl. approved plans 84398.00 (0.844%) vs 60% (estimate, not SPAN)", "84398.00", "6000000.00"),
-      chk("daily_loss", "SKIPPED", "no positions until Phase 2 (no fills, so no realised or unrealised P&L yet)"),
-      chk("weekly_loss", "SKIPPED", "no positions until Phase 2 (no fills, so no realised or unrealised P&L yet)"),
-      chk("drawdown", "SKIPPED", "no positions until Phase 2 (no fills, so no realised or unrealised P&L yet)"),
+      chk("daily_loss", "SKIPPED", "daily and weekly loss and drawdown limits act on P&L from Phase 3 (with the trade lifecycle)"),
+      chk("weekly_loss", "SKIPPED", "daily and weekly loss and drawdown limits act on P&L from Phase 3 (with the trade lifecycle)"),
+      chk("drawdown", "SKIPPED", "daily and weekly loss and drawdown limits act on P&L from Phase 3 (with the trade lifecycle)"),
     ],
     sizing: { proposed_size: 4, allowed_size: 4, unit: "lots per leg", budget_rs: "50000.00", loss_rs: "48425.90", capital_rs: "48260.00", capital_method: "premium paid", method: "fixed risk per trade (policy per_trade_risk_pct of equity)" },
     violations: [], warnings: [],
@@ -200,7 +200,7 @@ export function approvalsRoutes(w: ApprovalsWorld, over: Record<string, RouteVal
     "GET /risk/portfolio/:id": ((r: Req) => ({
       account: r.params.id === ACCOUNT_B.account_id ? ACCOUNT_B : ACCOUNT_A,
       book: { account_id: r.params.id, equity_rs: "10000000.00", starting_capital_rs: "10000000.00", pending: [{ trade_id: "TRD-7c1b5e09fa2d3c4b5a6e", plan_version: 1, instrument: "ADANIPORTS", sector: "Services", strategy_type: "BULL_CALL_SPREAD", max_loss_rs: "36244.39", capital_rs: "36138.00", fno: true }], basis: "Phase 1: equity = starting capital; commitments = approved, unexpired plans (no fills yet)" },
-      note: "Phase 1: commitments are approved, unexpired plans; there are no fills or positions yet",
+      note: "commitments are approved plans without an intent, active reservations and open positions (paper only)",
     })) as Handler,
     "GET /signals/:id": ((r: Req) => w.signals[r.params.id] ?? nf(r.params.id)) as Handler,
     "POST /approvals/:id/decision": ((r: Req) => {

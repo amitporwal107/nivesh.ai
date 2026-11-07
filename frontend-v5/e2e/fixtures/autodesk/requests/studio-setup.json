@@ -14,6 +14,16 @@
     "body": { "name": "Studio replay", "mode": "HISTORICAL_REPLAY", "start_date": "{start_date}", "end_date": "{end_date}", "starting_capital_rs": 10000000, "operating_mode": "AUTONOMOUS_PAPER", "max_proposals_per_session": 5, "seed": 42, "speed": "STEP" },
     "expect": [201]
   },
+  "create_nifty500": {
+    "method": "POST", "path": "/simulations",
+    "body": { "name": "Studio nifty500", "mode": "HISTORICAL_REPLAY", "start_date": "{start_date}", "end_date": "{end_date}", "starting_capital_rs": 10000000, "operating_mode": "AUTONOMOUS_PAPER", "policy_id": "{policy_id}", "max_proposals_per_session": 5, "universe": "NIFTY500", "seed": 42, "speed": "STEP" },
+    "expect": [201]
+  },
+  "create_total_market": {
+    "method": "POST", "path": "/simulations",
+    "body": { "name": "Studio total market", "mode": "HISTORICAL_REPLAY", "start_date": "{start_date}", "end_date": "{end_date}", "starting_capital_rs": 10000000, "operating_mode": "AUTONOMOUS_PAPER", "policy_id": "{policy_id}", "max_proposals_per_session": 5, "universe": "TOTAL_MARKET", "seed": 42, "speed": "STEP" },
+    "expect": [201]
+  },
   "start": { "method": "POST", "path": "/simulations/{simulation_id}/start", "body": null, "expect": [200] },
   "run": { "method": "POST", "path": "/simulations/{simulation_id}/run", "body": null, "expect": [202] }
 }

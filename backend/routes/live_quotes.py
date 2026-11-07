@@ -178,7 +178,7 @@ async def status(request: Request) -> Dict[str, Any]:
             "instrument_count": out.get("instrument_count", 0), "unresolved_count": out.get("unresolved_count", 0),
             "session": out.get("session"), "reason": out.get("reason"), "message": out.get("message", ""),
             "cadence_seconds": out.get("cadence_seconds", cfg.cadence_seconds()), "universe": out.get("universe", {}),
-            "holiday_checked": out.get("holiday_checked"), "read_only": True,
+            "holiday_checked": out.get("holiday_checked"), "provider": out.get("provider") or "kite", "read_only": True,
             "token_alert": out.get("token_alert") or {"state": None},
             "alert_state": (out.get("token_alert") or {}).get("state"),
             "platform_token": token,

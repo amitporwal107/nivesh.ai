@@ -25,8 +25,8 @@ export const PHASE_INFO: Record<Phase, { at: string; n: string; chip: string; d:
   PREMARKET: { at: "08:30", n: "Pre-market check", chip: "Pre-market", d: "Tech Support checks that the session's end-of-day data is published, and the session cycle opens." },
   SCAN: { at: "08:45", n: "Scan", chip: "Scan", d: "The AI Trader scans the universe on data published up to 08:45 and records signals." },
   PROPOSALS: { at: "09:00", n: "Proposals", chip: "Proposals", d: "For each chosen signal the Trading Assistant drafts a plan, Risk & Operations checks it and Middle Office decides." },
-  OPEN: { at: "09:15", n: "Market open", chip: "Open", d: "The session opens on the replay clock. Phase 1 sends no orders, so nothing is filled at the open." },
-  CLOSE: { at: "15:30", n: "Market close", chip: "Close", d: "The session closes. With no positions in Phase 1, there is nothing to square off or carry." },
+  OPEN: { at: "09:15", n: "Market open", chip: "Open", d: "The session opens on the replay clock. A run with paper execution fills its approved plans here, in simulation, from the session's own row." },
+  CLOSE: { at: "15:30", n: "Market close", chip: "Close", d: "The session closes. Orders still waiting are settled or expire, and open positions are marked at the close. Positions are not closed until Phase 3." },
   EOD: { at: "18:00", n: "End of day", chip: "End of day", d: "Unused signals and unanswered approvals of the session expire, and the day is summarised." },
 };
 
@@ -69,7 +69,7 @@ export const stepKey = (date: string, phase: Phase): string => `${date}|${PHASE_
 
 export type LaneId = "trader" | "strat" | "risk" | "mo" | "ops" | "tlm" | "exec" | "orch" | "scn";
 
-/** The design's nine lanes, in its order. Lanes whose work Phase 1 does not do carry the phase that brings it. */
+/** The design's nine lanes, in its order. Lanes whose work the screen does not draw carry why. */
 export const LANES: { id: LaneId; n: string; phase?: number; note?: string }[] = [
   { id: "trader", n: "AI Trader" },
   { id: "strat", n: "Trading Assistant" },
@@ -77,7 +77,7 @@ export const LANES: { id: LaneId; n: string; phase?: number; note?: string }[] =
   { id: "mo", n: "Middle Office" },
   { id: "ops", n: "Tech Support" },
   { id: "tlm", n: "Lifecycle manager", phase: 3, note: "PHASE 3 · NO POSITIONS TO MANAGE" },
-  { id: "exec", n: "Sim exchange", phase: 2, note: "PHASE 2 · NO ORDERS IN PHASE 1" },
+  { id: "exec", n: "Sim exchange", phase: 2, note: "NOT SHOWN YET · FILLS ARE RECORDED" },
   { id: "orch", n: "Orchestrator" },
   { id: "scn", n: "Scenarios", phase: 3, note: "PHASE 3 · NO SCENARIO INJECTION" },
 ];
