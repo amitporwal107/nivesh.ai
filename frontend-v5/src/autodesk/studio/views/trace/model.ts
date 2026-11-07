@@ -11,6 +11,7 @@
 import { DASH, dateShort, dateTimeIST, humanize, num, rs, timeIST } from "../../../format";
 import { actorName, type HandoffRow, type TaskFull, type WorkflowDetail } from "../../../screens/agents/model";
 import { secs, shortId } from "../../../screens/scanner/fmt";
+import { SHADOW_LABEL, chipText, shadowScoresOf } from "../../../screens/scanner/shadow";
 import type { SignalRow, TradePlanRow, WorkflowRow } from "../../../types";
 
 export type TraceTask = TaskFull & { sim_time?: string | null };
@@ -182,6 +183,7 @@ export function buildSteps(d: WorkflowDetail, signal: SignalRow | null | undefin
         ["signal_id", sig.signal_id], ["instrument", `${sig.instrument} · ${sig.exchange} ${sig.segment}`], ["direction", `${sig.direction} · ${sig.timeframe}`],
         ["category", sig.category], ["signal_score", s(sig.signal_score)], ["calibrated_probability", sig.calibrated_probability == null ? "not calibrated" : s(sig.calibrated_probability)],
         ["session_date", sig.session_date], ["data_as_of", dateTimeIST(sig.data_as_of)], ["rule_version", sig.rule_version],
+        ...shadowScoresOf(sig).map((sh): [string, string] => [`shadow ${sh.version} · ${SHADOW_LABEL}`, `${chipText(sh)}${sh.tier ? ` · ${sh.tier}` : ""}${sh.primary_signal ? ` · primary ${sh.primary_signal}` : ""}`]),
       ] : [["entity_id", s(h.entity_id) || DASH]],
       tools: [], moreTools: 0, toolsNote: "The scan's tool calls belong to the market-scan workflow of the session.",
       meta: [["Produced by", `${actorName(h.from_agent)} · market scan`], ["Handoff", `${actorName(h.to_agent)} · ${shortId(h.entity_id)}`]],
