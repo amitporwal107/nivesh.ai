@@ -15,7 +15,7 @@ from typing import Optional, Sequence
 from ..contracts import ShadowScore
 from ..market.view import Bar
 from . import v2_positional as _v2
-from .v2_positional import Features
+from .v2_positional import Features, features
 
 VERSION = "v21-positional"
 RULES = "v21-positional-2026-11-07"
