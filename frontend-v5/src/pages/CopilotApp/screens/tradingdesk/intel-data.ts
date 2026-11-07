@@ -63,9 +63,9 @@ const noRetry4xx = (count: number, e: unknown) =>
 
 /** The classifier's window is 30 days; a trading desk reads the last week. */
 export const FEED_DAYS = 7;
-/** Rows per request: one category on its own, or each category of a group. */
-const LIMIT_SINGLE = 40;
-const LIMIT_GROUPED = 20;
+/** Rows per request: one category on its own, or each category of a group (the Market Update band counts "+" past it). */
+export const LIMIT_SINGLE = 40;
+export const LIMIT_GROUPED = 20;
 /** What "All" takes from the sources that are not filings. */
 export const ALL_TAKE = 5;
 /** A sector index move this large (either way, percent, last session) is listed under Sector. */
@@ -770,8 +770,11 @@ async function fetchFeed(params: DeskFeedParams, signal?: AbortSignal): Promise<
   return { rows: parsed.data.rows, total: parsed.data.total ?? parsed.data.rows.length, provenanceError: str(prov.error), family: params.family ?? null };
 }
 
-/** Every event behind one chip, merged newest first. */
-export function useIntelEvents(chip: IntelChip): EventFeed {
+/**
+ * Every event behind one chip, merged newest first. `refetchMs` re-reads the chip's filings on that interval while the
+ * caller is mounted (the Market Update band); the list itself passes none.
+ */
+export function useIntelEvents(chip: IntelChip, opts: { refetchMs?: number } = {}): EventFeed {
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
   const asks: DeskFeedParams[] = [];
   const limit = def.categories.length + def.families.length > 1 ? LIMIT_GROUPED : LIMIT_SINGLE;
@@ -784,6 +787,7 @@ export function useIntelEvents(chip: IntelChip): EventFeed {
       queryKey: ["copilot", "desk", "filings", params],
       queryFn: ({ signal }: { signal?: AbortSignal }) => fetchFeed(params, signal),
       staleTime: 60_000,
+      refetchInterval: opts.refetchMs ?? false,
       retry: noRetry4xx,
     })),
   });

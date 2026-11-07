@@ -357,6 +357,8 @@ const BoardEventC = z.object({
   period_label: z.string().nullable().optional(),
   audit_status: z.string().nullable().optional(),
   compared_with: z.string().nullable().optional(),
+  /** Whether the company is in the Nifty 50 / F&O lists (null when the route could not tell). */
+  universe: z.object({ n50: z.boolean().nullable().optional(), fno: z.boolean().nullable().optional() }).nullable().optional(),
   metrics: z.array(MetricC).default([]),
   gaps: z.array(z.string()).default([]),
 });
@@ -376,6 +378,8 @@ export interface BoardEvent {
   id: string; symbol: string; name: string; sector: string | null; eventDate: string;
   status: "upcoming" | "declared"; filedState: "figures" | "pending" | null; filing: Expectation["filing"];
   periodLabel: string | null; auditStatus: string | null; comparedWith: string | null; metrics: ExpMetric[]; gaps: string[];
+  /** The route's own list membership; null when it did not say (then no list filter can include it). */
+  inN50: boolean | null; inFno: boolean | null;
 }
 export interface Board {
   from: string; to: string; label: string | null; events: BoardEvent[];
@@ -397,6 +401,7 @@ export async function fetchBoard(from: string, to: string, universe: Universe, s
       status: e.status === "declared" ? "declared" : "upcoming", filedState: asFiledState(e.filed_state), filing: mapFiling(e.filing),
       periodLabel: e.period_label ?? null, auditStatus: e.audit_status ?? null, comparedWith: e.compared_with ?? null,
       metrics: e.metrics.map(mapMetric), gaps: e.gaps,
+      inN50: e.universe?.n50 ?? null, inFno: e.universe?.fno ?? null,
     })),
     counts: { figures: d.counts?.declared_figures ?? 0, pending: d.counts?.declared_pending ?? 0, upcoming: d.counts?.upcoming ?? 0 },
     byMetric, gaps: d.gaps,
