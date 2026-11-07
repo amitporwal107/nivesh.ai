@@ -257,7 +257,7 @@ export function mergeEvents(prev: TimelineState, events: EventRow[]): TimelineSt
   return st;
 }
 
-// ── dependency graph (13 nodes of the design; Phase 1 serves the first five) ────────────────────────────────────────
+// ── dependency graph (13 nodes of the design; the first five are drawn, the rest are recorded but not drawn yet) ────────────────────────────────────────
 
 export const GRAPH_NODES = ["Signal", "Proposal", "Risk report", "Revision", "Authorization", "Reservation", "Execution intent", "Orders and fills", "Active position", "Risk events", "Position action", "Reconciliation", "Journal"];
 
@@ -280,7 +280,7 @@ export function graphNodes(d: WorkflowDetail | undefined): GraphNode[] {
   const out = (wf?.outcome ?? {}) as Record<string, unknown>;
   const result = s(out.result);
   const auth: { st: string; tone: Tone } = wf?.state === "WAITING_HUMAN" ? { st: "WAITING ON A PERSON", tone: "amber" }
-    : result === "APPROVED_NO_EXECUTION" ? { st: "APPROVED", tone: "mint" }
+    : result === "APPROVED_NO_EXECUTION" || result === "APPROVED" ? { st: "APPROVED", tone: "mint" }
     : result && ["REJECTED", "NEEDS_REVISION", "SUSPENDED", "REJECTED_BY_PERSON", "REVISION_REQUESTED", "EXPIRED", "ENTRIES_STOPPED", "FAILED"].includes(result) ? { st: result.replace(/_/g, " "), tone: result === "NEEDS_REVISION" || result === "REVISION_REQUESTED" ? "amber" : "danger" }
     : taskNode(tasks, "approval", wfDone);
   const sig = (wf?.input as Record<string, unknown> | undefined)?.signal_id;
@@ -296,7 +296,7 @@ export function graphNodes(d: WorkflowDetail | undefined): GraphNode[] {
   return GRAPH_NODES.map((t, i) => ({
     n: String(i + 1).padStart(2, "0"),
     t,
-    st: i < 5 ? first[i].st : "PHASE 2",
+    st: i < 5 ? first[i].st : "NOT SHOWN YET",
     tone: i < 5 ? first[i].tone : "phase2",
   }));
 }

@@ -1,12 +1,13 @@
-"""Trading Desk Simulator, Phase 1 (PRD §28, simulator S1; DESIGN §6.4).
+"""Trading Desk Simulator (PRD §28; DESIGN §6.4, PHASE2_DESIGN §5–§6).
 
 A simulation owns one SIMULATION account (isolated by simulation_id) and a clock that walks each session's schedule:
 
     PREMARKET 08:30 → SCAN 08:45 → PROPOSALS 09:00 → OPEN 09:15 → CLOSE 15:30 → EOD 18:00   (IST)
 
 At each step the orchestrator runs the workflows due, with a market view bound to the step's sim time, so agents see
-only data published by then. OPEN and CLOSE do nothing yet (no execution in Phase 1). EOD expires the session's unused
-signals and unanswered approvals.
+only data published by then. With an execution gateway, OPEN submits what was approved and fills it from the session's
+row, CLOSE settles resting orders, expires the rest and marks positions; with none they do nothing (Phase 1 behaviour).
+EOD expires the session's unused signals and unanswered approvals.
 
 One step runs at a time per simulation (advisory lock). `step_seq` is the cursor into the schedule, so a step is never
 run twice and a stopped simulation never moves again.
@@ -29,11 +30,28 @@ log = logging.getLogger(__name__)
 SessionsProvider = Callable[[date, date], Awaitable[list[date]]]
 MAX_SESSIONS = 30          # Phase 1 bound per simulation (each session runs up to ~N agent tasks per signal)
 
+PHASE2_LIMITATIONS = [
+    "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay "
+    "(stored intraday history is about ten days and has no cash stocks).",
+    "Every fill is simulated from the session's daily row (open, high, low, close, traded quantity): no order book, no "
+    "queue position, spreads are proxies. A resting limit fills only if price traded through it, at the limit.",
+    "The fill engine knows the session's traded quantity at 09:15, as a capacity assumption only (agents never see it). "
+    "The moment a resting fill happened within the session is not known.",
+    "Several-leg plans fill all-or-none at the open. Closing positions (stops, levels, trailing) and settlement at a "
+    "contract's expiry are Phase 3: positions stay open and are marked at each session's close, so P&L is unrealized only "
+    "and no closing costs are counted. A leg that did not trade keeps its last mark, flagged stale.",
+    "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected. Price bands, ticks and spreads "
+    "are proxies (no band file, one 0.05 tick).",
+    "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN. Costs are desk-cost-v2.",
+    "Daily-loss, weekly-loss and drawdown limits are not enforced: they act on P&L from Phase 3, with the trade lifecycle.",
+    "Sector is the latest index-constituent industry, not point-in-time.",
+]
+
 LIMITATIONS = [
     "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay "
     "(stored intraday history is about ten days and has no cash stocks).",
-    "Phase 1 has no execution: approved plans are not filled, so there is no P&L, no capital reservation and the "
-    "daily-loss / weekly-loss / drawdown checks are skipped.",
+    "This run has no paper execution (no execution gateway was wired): approved plans are not filled, so there is no P&L, "
+    "no capital reservation and the daily-loss / weekly-loss / drawdown checks are skipped.",
     "Option premiums are the previous session's bhavcopy closes of contracts that traded; untraded strikes are skipped.",
     "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN.",
     "Sector is the latest index-constituent industry, not point-in-time.",
@@ -47,9 +65,10 @@ def phase_time(day: date, hhmm: str) -> datetime:
 
 class SimulationManager:
     def __init__(self, pool, orchestrator, sessions_provider: SessionsProvider,
-                 versions: Optional[Callable[[], dict]] = None):
+                 versions: Optional[Callable[[], dict]] = None, execution: Any = None):
         self.pool = pool
         self.orch = orchestrator
+        self.execution = execution      # execution.gateway.ExecutionGateway; None = Phase 1 behaviour (OPEN and CLOSE do nothing)
         self.sessions_provider = sessions_provider
         self._versions = versions or (lambda: {})
 
@@ -175,6 +194,12 @@ class SimulationManager:
                 detail = await fn(tenant_id=tenant_id, cycle_id=cycle_id, as_of=t)
                 if phase == C.ClockPhase.PROPOSALS:
                     wf_ids += [r["workflow_id"] for r in detail.get("results", [])]
+            elif phase == C.ClockPhase.OPEN and self.execution is not None:
+                from ..execution import settle
+                detail = await settle.run_open(self.execution, tenant_id=tenant_id, simulation_id=sid, session=day, as_of=t)
+            elif phase == C.ClockPhase.CLOSE and self.execution is not None:
+                from ..execution import settle
+                detail = await settle.run_close(self.execution, tenant_id=tenant_id, simulation_id=sid, session=day, as_of=t)
             elif phase == C.ClockPhase.EOD:
                 detail = await self.orch.close_session(tenant_id=tenant_id, account_id=acc, session_date=day,
                                                        simulation_id=sid, as_of=t)
@@ -268,10 +293,10 @@ class SimulationManager:
             lat = a.pop("latency_ms")
             a["avg_latency_ms"] = round(sum(lat) / len(lat)) if lat else None
         pm_status = Counter(((r["outcome"] or {}).get("premarket") or {}).get("status", "UNKNOWN") for r in pm)
-        lim = list(LIMITATIONS)
+        lim = list(LIMITATIONS if self.execution is None else PHASE2_LIMITATIONS)
         if sim["config"].get("universe", "FNO") != "FNO" and not sim["config"].get("symbols"):
             lim.append("Index universes use today's index members (membership has no history): survivorship bias.")
-        return {
+        out = {
             "simulation_id": sid, "status": sim["status"], "mode": sim["mode"],
             "sessions_total": len(sim["config"].get("sessions", [])), "phases_run": clock,
             "premarket": dict(pm_status),
@@ -290,6 +315,12 @@ class SimulationManager:
             "limitations": lim,
             "execution": "none in Phase 1 (no orders, fills or P&L)",
         }
+        if self.execution is not None:
+            from ..execution import reports
+            async with self.pool.acquire() as c:
+                out["execution_summary"] = await reports.execution_summary(c, tenant_id, sid, self.execution.params)
+            out["execution"] = "paper execution: simulated fills, see execution_summary"
+        return out
 
 
 def _plain(v: Any) -> Any:

@@ -5,7 +5,7 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 import { NOW, collectConsoleErrors, mockDesk, reply, type RouteValue } from "./autodesk-mock";
-import { A, B, C, D, RUN_A, RUN_B, RUN_C, RUN_D, plans, runsRoutes, signals, workflows } from "./autodesk-fixtures-studio-runs";
+import { A, B, C, D, RESULTS, RUN_A, RUN_B, RUN_C, RUN_D, plans, runsRoutes, signals, workflows } from "./autodesk-fixtures-studio-runs";
 
 const short = (id: string) => `${id.slice(0, 12)}…`;
 
@@ -43,8 +43,11 @@ test("AD-UI-140 runs table newest first, real columns, Phase notes, default A/B 
   await expect(rows.nth(2)).toContainText("SEED 7 · ACCELERATED");
   await expect(rows.nth(2)).toContainText("4 Nov 18:10");
   for (let i = 0; i < 3; i++) await expect(rows.nth(i).locator('span.nv-num:text-is("—")')).toHaveCount(4);
-  await expect(page.getByTestId("runs-table-note")).toContainText("Phase 2");
-  await expect(page.getByTestId("runs-table-note")).toContainText("assertions come with scenarios (Phase 3)");
+  const note = page.getByTestId("runs-table-note");
+  await expect(note).toContainText("Trades, net P&L and max drawdown come from the run's simulated fills");
+  await expect(note).toContainText("Runs made before paper execution show a dash");
+  await expect(note).toContainText("Assertions come with scenarios (Phase 3)");
+  await expect(note).not.toContainText(/Phase 2|need simulated fills/);
   await expect(page.getByTestId(`runs-b-${B}`)).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId(`runs-a-${A}`)).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId(`runs-a-${B}`)).toHaveAttribute("aria-pressed", "false");
@@ -53,7 +56,7 @@ test("AD-UI-140 runs table newest first, real columns, Phase notes, default A/B 
   expect(errors).toEqual([]);
 });
 
-test("AD-UI-141 comparison of the like-for-like pair: measures from /results, Phase 2/3 rows, chart note", async ({ page }) => {
+test("AD-UI-141 comparison of the like-for-like pair: measures from /results, rows not shown yet, chart note", async ({ page }) => {
   await open(page, runsRoutes());
   await expect(page.getByTestId("runs-cmp-title")).toHaveText(`${short(A)} (Desk default v1) against ${short(B)} (Desk default v2)`);
   await expect(page.getByTestId("runs-fair")).toHaveText("SAME SESSIONS · SAME SEED");
@@ -63,11 +66,11 @@ test("AD-UI-141 comparison of the like-for-like pair: measures from /results, Ph
     ["Human approvals", "0", "1", "+1"], ["Agent task failures", "0", "0", "0"], ["Policy violations", "0", "0", "0"],
   ];
   for (const [k, a, b, d] of real) await expect(measure(page, k).locator("span")).toHaveText([k, a, b, d]);
-  for (const k of ["Trades", "Net P&L after costs", "Max drawdown", "Win rate", "Slippage paid"]) await expect(measure(page, k).locator("span")).toHaveText([k, "—", "—", "Phase 2"]);
+  for (const k of ["Trades", "Net P&L after costs", "Max drawdown", "Slippage paid"]) await expect(measure(page, k).locator("span")).toHaveText([k, "—", "—", "Not shown yet"]);
+  await expect(measure(page, "Win rate").locator("span")).toHaveText(["Win rate", "—", "—", "Phase 3"]);
   await expect(measure(page, "Assertions").locator("span")).toHaveText(["Assertions", "—", "—", "Phase 3"]);
   await expect(page.getByTestId("runs-measure")).toHaveCount(13);
-  await expect(page.getByTestId("runs-chart-note")).toContainText("Phase 2");
-  await expect(page.getByTestId("runs-chart-note")).toContainText("Net P&L through the session needs simulated fills");
+  await expect(page.getByTestId("runs-chart-note")).toHaveText("Not shown yetNet P&L through the session is not drawn here yet.");
   await expect(page.getByTestId("runs-compare")).not.toContainText("₹");
 });
 
@@ -171,5 +174,37 @@ test("AD-UI-148 phone 390×844: no page overflow, comparison single column, no s
   expect(m && d && d.y > m.y).toBeTruthy();
   const text = await page.getByTestId("studio-runs").innerText();
   for (const sample of ["SIM-0416", "SIM-0417", "SIM-0418", "P-PAPER", "SCN-0", "₹"]) expect(text).not.toContain(sample);
+  expect(errors).toEqual([]);
+});
+
+// AD-P2-121: Trades, Net P&L and Max DD come from results.execution_summary of the run row (GET /simulations returns `results`).
+// MOCK — not real data. The summary has the shape of backend/autodesk/execution/reports.py execution_summary (money as strings;
+// max drawdown arrives as a negative amount).
+test("AD-P2-121 Trades, Net P&L and Max DD come from results.execution_summary; a run without one shows the dash", async ({ page }) => {
+  const errors = collectConsoleErrors(page);
+  const withFills = (run: typeof RUN_B, id: string, summary: Record<string, unknown>) => ({ ...run, results: { ...(RESULTS[id] as object), execution_summary: summary } });
+  const rowB = withFills(RUN_B, B, { trades: 3, net_pnl_rs: "-1470.00", max_drawdown_rs: "-2210.00", max_drawdown_pct: "-0.0221", seed: 42 });
+  const rowA = withFills(RUN_A, A, { trades: 12, net_pnl_rs: "9888.40", max_drawdown_rs: "0", max_drawdown_pct: "0", seed: 42 });
+  const rowC = { ...RUN_C, results: RESULTS[C] };                          // finished, results stored, made before paper execution: no summary
+  const rowE = { ...RUN_A, simulation_id: "SIM-7a7a7a7a7a7a7a7a7a7a", results: { execution_summary: { trades: 2 } } };   // incomplete summary
+  const desk = await open(page, runsRoutes([rowB, rowA, rowC, RUN_D, rowE]));
+  const rows = page.getByTestId("runs-row");
+  await expect(rows).toHaveCount(5);
+  const cells = (sim: string) => { const r = page.locator(`[data-testid="runs-row"][data-sim="${sim}"]`); return { trades: r.getByTestId("runs-trades"), net: r.getByTestId("runs-net"), dd: r.getByTestId("runs-dd") }; };
+  await expect(cells(B).trades).toHaveText("3");
+  await expect(cells(B).net).toHaveText("−₹1,470");
+  await expect(cells(B).dd).toHaveText("−₹2,210");
+  await expect(cells(A).trades).toHaveText("12");
+  await expect(cells(A).net).toHaveText("+₹9,888");
+  await expect(cells(A).dd).toHaveText("₹0");
+  // no summary (made before paper execution, still running, or incomplete): the dash, with the reason as its tooltip
+  for (const sim of [C, D, rowE.simulation_id]) for (const c of Object.values(cells(sim))) {
+    await expect(c).toHaveText("—");
+    await expect(c).toHaveAttribute("title", /made before paper execution/);
+  }
+  // the Assertions cell is untouched: always the dash for Phase 3
+  for (let i = 0; i < 5; i++) await expect(rows.nth(i).locator("span.nv-num").last()).toHaveText("—");
+  expect(desk.posts).toEqual([]);
+  expect(desk.unmatched).toEqual([]);
   expect(errors).toEqual([]);
 });

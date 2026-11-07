@@ -142,7 +142,7 @@ def test_ad51_loss_limits_skipped_in_phase1():
     a = assess(bull_call())
     for name in ("daily_loss", "weekly_loss", "drawdown"):
         c = check(a, name)
-        assert c.outcome == C.CheckOutcome.SKIPPED and "Phase 2" in c.detail
+        assert c.outcome == C.CheckOutcome.SKIPPED and "Phase 3" in c.detail
 
 
 def test_engine_uses_its_own_loss():

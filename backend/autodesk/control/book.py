@@ -1,8 +1,7 @@
 """The account book the risk engine checks a new plan against.
 
-Phase 1 has no fills, so there are no positions and equity is the starting capital. What a new plan competes with is
-the account's COMMITMENTS: plans already APPROVED whose approval has not expired (they would be entered in Phase 2).
-Read-only: this module never writes.
+Equity is read from the capital ledger (execution/capital.py). What a new plan competes with is the account's
+COMMITMENTS: approved plans not yet handed to execution, active reservations and open positions. Read-only.
 """
 from __future__ import annotations
 
@@ -32,7 +31,7 @@ class Book:
     equity_rs: Decimal
     starting_capital_rs: Decimal
     pending: list[Commitment] = field(default_factory=list)
-    basis: str = "Phase 1: equity = starting capital; commitments = approved, unexpired plans (no fills yet)"
+    basis: str = "equity from the capital ledger; commitments = approved plans, reservations, open positions"
 
     @property
     def pending_risk_rs(self) -> Decimal:
@@ -65,7 +64,12 @@ class Book:
 
 
 async def load_book(conn, tenant_id: str, account_id: str, as_of: datetime) -> Book:
+    """Equity comes from the capital ledger and the position marks. What a new plan competes with is the account's
+    commitments: approved plans that have no execution intent yet, plus the remaining risk and capital of every active
+    reservation and open position (so a filled plan stays counted after its plan row expires)."""
+    from ..execution import capital
     acc = await store.get_account(conn, tenant_id, account_id)
+    view = await capital.balances(conn, tenant_id, account_id)
     rows = await conn.fetch(
         """SELECT p.trade_id, p.current_version, p.instrument, p.strategy_type, v.body
            FROM autodesk.trade_plans p
@@ -73,7 +77,9 @@ async def load_book(conn, tenant_id: str, account_id: str, as_of: datetime) -> B
            WHERE p.tenant_id=$1 AND p.account_id=$2 AND p.status='APPROVED'
              AND EXISTS (SELECT 1 FROM autodesk.approvals a WHERE a.trade_id=p.trade_id
                          AND a.plan_version=p.current_version AND a.status='APPROVED'
-                         AND (a.expires_at IS NULL OR a.expires_at > $3))""",
+                         AND (a.expires_at IS NULL OR a.expires_at > $3))
+             AND NOT EXISTS (SELECT 1 FROM autodesk.execution_intents i WHERE i.trade_id=p.trade_id
+                             AND i.plan_version=p.current_version AND i.status<>'REFUSED')""",
         tenant_id, account_id, as_of)
     pending = []
     for r in rows:
@@ -85,5 +91,23 @@ async def load_book(conn, tenant_id: str, account_id: str, as_of: datetime) -> B
             max_loss_rs=Decimal(str(b["max_loss_rs"])),
             capital_rs=Decimal(str(margin.get("amount_rs") or b["capital_required_rs"])),
             fno=bool(margin.get("fno", b.get("segment") != "CASH"))))
-    cap = Decimal(str(acc["starting_capital_rs"]))
-    return Book(account_id=account_id, equity_rs=cap, starting_capital_rs=cap, pending=pending)
+    for r in await conn.fetch(
+            """SELECT r.trade_id, r.plan_version, r.instrument, r.sector, r.fno, r.risk_rs - r.risk_moved_rs AS risk_left,
+                      r.capital_rs * (1 - r.risk_moved_rs / NULLIF(r.risk_rs, 0)) AS capital_left, p.strategy_type
+               FROM autodesk.capital_reservations r JOIN autodesk.trade_plans p USING (trade_id)
+               WHERE r.tenant_id=$1 AND r.account_id=$2 AND r.status='ACTIVE' AND r.risk_rs > r.risk_moved_rs""",
+            tenant_id, account_id):
+        pending.append(Commitment(trade_id=r["trade_id"], plan_version=r["plan_version"], instrument=r["instrument"],
+                                  sector=r["sector"], strategy_type=r["strategy_type"], max_loss_rs=r["risk_left"],
+                                  capital_rs=r["capital_left"] or Decimal("0"), fno=r["fno"]))
+    for r in await conn.fetch(
+            """SELECT trade_id, plan_version, instrument, sector, fno, strategy_type, open_risk_rs, capital_rs
+               FROM autodesk.trade_positions WHERE tenant_id=$1 AND account_id=$2 AND status='OPEN'""",
+            tenant_id, account_id):
+        pending.append(Commitment(trade_id=r["trade_id"], plan_version=r["plan_version"], instrument=r["instrument"],
+                                  sector=r["sector"], strategy_type=r["strategy_type"], max_loss_rs=r["open_risk_rs"],
+                                  capital_rs=r["capital_rs"], fno=r["fno"]))
+    return Book(account_id=account_id, equity_rs=view.equity_rs,
+                starting_capital_rs=Decimal(str(acc["starting_capital_rs"])), pending=pending,
+                basis="equity from the capital ledger and position marks; commitments = approved plans without an intent, "
+                      "remaining risk of active reservations, open positions")

@@ -180,7 +180,7 @@ speed, restart-from-checkpoint, compare, SSE stream.
 
 | Phase | Adds | Reuses | Exit |
 |---|---|---|---|
-| 2 Risk-to-paper | capital ledger + atomic reservation (row lock), execution intents, gateway (`submit/amend/withdraw`), paper adapter (bid/ask from close ± spread proxy on daily data, partial fills by volume share, latency, rejections, desk-cost-v2 charges), order/fill ledger, journal | `spt/paper/execution` model, `desk_cost_card` | an approved plan fills in an isolated simulation with correct reservation and audit |
+| 2 Risk-to-paper (`PHASE2_DESIGN.md`) | capital ledger + atomic reservation (row lock), execution intents, gateway (`submit/amend/withdraw`), paper adapter (bid/ask from close ± spread proxy on daily data, partial fills by volume share, latency, rejections, desk-cost-v2 charges), order/fill ledger, journal | `spt/paper/execution` model, `desk_cost_card` | an approved plan fills in an isolated simulation with correct reservation and audit |
 | 3 Lifecycle + full day | TLM (activate on fills only; stop/target/trailing; partial exits; multi-leg legs), daily P&L, daily/weekly loss + drawdown checks live, scenarios (gap, vol spike, partial fill, leg rejected, stale data, agent timeout), checkpoints, run comparison | `exit_rules`, `trade_lifecycle` ideas, `option_pricing` | five agents through simulated days with injected failures, reconciled closure |
 | 4 Live shadow | live view from the Kite feed (`kite_live_feed`), hypothetical book, outcome comparison | `routes/live_quotes`, `day_quote` | shadow runs with no order capability |
 | UI | the owner's screens in `frontend-autodesk/` | — | per the designs |

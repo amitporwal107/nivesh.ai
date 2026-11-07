@@ -1,0 +1,975 @@
+{
+ "started": "2026-11-07 08:23:20.252336+00:00",
+ "calendar": {
+  "2025": "the NSE holiday list (segment CM) has no rows for 2025",
+  "2026": "ok",
+  "2027": "the NSE holiday list (segment CM) has no rows for 2027"
+ },
+ "migrations": [
+  "001_autodesk_core.sql",
+  "002_desk_controls.sql",
+  "003_paper_execution.sql"
+ ],
+ "sessions": [
+  "2026-11-03",
+  "2026-11-04",
+  "2026-11-05"
+ ],
+ "detail_run_a": {
+  "orders": [
+   {
+    "session_date": "2026-11-03",
+    "underlying": "BANKBARODA",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L1",
+    "kind": "CE",
+    "strike": "245.0000",
+    "side": "BUY",
+    "quantity": 8775,
+    "lot_size": 2925,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "6.3800",
+    "state": "FILLED",
+    "filled_qty": 8775,
+    "avg_fill_price": "6.600000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "BANKBARODA",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L2",
+    "kind": "CE",
+    "strike": "262.5000",
+    "side": "SELL",
+    "quantity": 8775,
+    "lot_size": 2925,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "0.9700",
+    "state": "FILLED",
+    "filled_qty": 8775,
+    "avg_fill_price": "0.850000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "DIVISLAB",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L1",
+    "kind": "CE",
+    "strike": "9900.0000",
+    "side": "BUY",
+    "quantity": 100,
+    "lot_size": 100,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "384.8000",
+    "state": "FILLED",
+    "filled_qty": 100,
+    "avg_fill_price": "414.100000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "DIVISLAB",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L2",
+    "kind": "CE",
+    "strike": "10700.0000",
+    "side": "SELL",
+    "quantity": 100,
+    "lot_size": 100,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "116.9500",
+    "state": "FILLED",
+    "filled_qty": 100,
+    "avg_fill_price": "123.150000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "PETRONET",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L1",
+    "kind": "CE",
+    "strike": "300.0000",
+    "side": "BUY",
+    "quantity": 5700,
+    "lot_size": 1900,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "9.3500",
+    "state": "FILLED",
+    "filled_qty": 5700,
+    "avg_fill_price": "9.450000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "PETRONET",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L2",
+    "kind": "CE",
+    "strike": "325.0000",
+    "side": "SELL",
+    "quantity": 5700,
+    "lot_size": 1900,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "1.9000",
+    "state": "FILLED",
+    "filled_qty": 5700,
+    "avg_fill_price": "1.000000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "POLICYBZR",
+    "strategy_type": "BEAR_PUT_SPREAD",
+    "leg_id": "L1",
+    "kind": "PE",
+    "strike": "940.0000",
+    "side": "BUY",
+    "quantity": 1050,
+    "lot_size": 350,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "42.0500",
+    "state": "FILLED",
+    "filled_qty": 1050,
+    "avg_fill_price": "40.350000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "POLICYBZR",
+    "strategy_type": "BEAR_PUT_SPREAD",
+    "leg_id": "L2",
+    "kind": "PE",
+    "strike": "760.0000",
+    "side": "SELL",
+    "quantity": 1050,
+    "lot_size": 350,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "5.7000",
+    "state": "FILLED",
+    "filled_qty": 1050,
+    "avg_fill_price": "4.150000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "RELIANCE",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L1",
+    "kind": "CE",
+    "strike": "1300.0000",
+    "side": "BUY",
+    "quantity": 2500,
+    "lot_size": 500,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "19.4000",
+    "state": "REJECTED",
+    "filled_qty": 0,
+    "avg_fill_price": null,
+    "reject_code": "BASKET_NET_LIMIT",
+    "reject_reason": "BASKET_NET_LIMIT: net value 54000.00 is past the net limit 48731.25; the legs of a several-leg plan fill together or not at all in Phase 2"
+   },
+   {
+    "session_date": "2026-11-03",
+    "underlying": "RELIANCE",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L2",
+    "kind": "CE",
+    "strike": "1400.0000",
+    "side": "SELL",
+    "quantity": 2500,
+    "lot_size": 500,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "2.4500",
+    "state": "REJECTED",
+    "filled_qty": 0,
+    "avg_fill_price": null,
+    "reject_code": "BASKET_NET_LIMIT",
+    "reject_reason": "BASKET_NET_LIMIT: net value 54000.00 is past the net limit 48731.25; the legs of a several-leg plan fill together or not at all in Phase 2"
+   },
+   {
+    "session_date": "2026-11-04",
+    "underlying": "BHARTIARTL",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L1",
+    "kind": "CE",
+    "strike": "2060.0000",
+    "side": "BUY",
+    "quantity": 1425,
+    "lot_size": 475,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "37.5000",
+    "state": "FILLED",
+    "filled_qty": 1425,
+    "avg_fill_price": "37.750000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-04",
+    "underlying": "BHARTIARTL",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L2",
+    "kind": "CE",
+    "strike": "2200.0000",
+    "side": "SELL",
+    "quantity": 1425,
+    "lot_size": 475,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "5.7000",
+    "state": "FILLED",
+    "filled_qty": 1425,
+    "avg_fill_price": "5.750000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-04",
+    "underlying": "MCX",
+    "strategy_type": "LONG_EQUITY",
+    "leg_id": "L1",
+    "kind": "EQ",
+    "strike": null,
+    "side": "BUY",
+    "quantity": 226,
+    "lot_size": 1,
+    "order_type": "LIMIT",
+    "limit_price": "3519.5000",
+    "ref_price": "3490.1000",
+    "state": "FILLED",
+    "filled_qty": 226,
+    "avg_fill_price": "3402.500000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-04",
+    "underlying": "RELIANCE",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L1",
+    "kind": "CE",
+    "strike": "1310.0000",
+    "side": "BUY",
+    "quantity": 2000,
+    "lot_size": 500,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "24.1000",
+    "state": "FILLED",
+    "filled_qty": 2000,
+    "avg_fill_price": "21.450000",
+    "reject_code": null,
+    "reject_reason": null
+   },
+   {
+    "session_date": "2026-11-04",
+    "underlying": "RELIANCE",
+    "strategy_type": "BULL_CALL_SPREAD",
+    "leg_id": "L2",
+    "kind": "CE",
+    "strike": "1410.0000",
+    "side": "SELL",
+    "quantity": 2000,
+    "lot_size": 500,
+    "order_type": "BASKET_LEG",
+    "limit_price": null,
+    "ref_price": "2.9500",
+    "state": "FILLED",
+    "filled_qty": 2000,
+    "avg_fill_price": "2.400000",
+    "reject_code": null,
+    "reject_reason": null
+   }
+  ],
+  "reservations": [
+   {
+    "status": "CONSUMED",
+    "n": 7,
+    "amount": "1075804.10",
+    "consumed": "1019825.03",
+    "released": "55979.07"
+   },
+   {
+    "status": "RELEASED",
+    "n": 1,
+    "amount": "48817.11",
+    "consumed": "0.00",
+    "released": "48817.11"
+   }
+  ],
+  "ledger": [
+   {
+    "entry_type": "CAPITAL_AVAILABLE",
+    "n": 1,
+    "cash": "10000000.00",
+    "reserved": "0.00",
+    "margin": "0.00",
+    "fees": "0.00"
+   },
+   {
+    "entry_type": "CAPITAL_RESERVATION_CONSUMED",
+    "n": 19,
+    "cash": "0.00",
+    "reserved": "-1019825.03",
+    "margin": "0.00",
+    "fees": "0.00"
+   },
+   {
+    "entry_type": "CAPITAL_RESERVATION_RELEASED",
+    "n": 8,
+    "cash": "0.00",
+    "reserved": "-104796.18",
+    "margin": "0.00",
+    "fees": "0.00"
+   },
+   {
+    "entry_type": "CAPITAL_RESERVED",
+    "n": 8,
+    "cash": "0.00",
+    "reserved": "1124621.21",
+    "margin": "0.00",
+    "fees": "0.00"
+   },
+   {
+    "entry_type": "FEES_BOOKED",
+    "n": 13,
+    "cash": "-1433.78",
+    "reserved": "0.00",
+    "margin": "0.00",
+    "fees": "1433.78"
+   },
+   {
+    "entry_type": "POSITION_FUNDS",
+    "n": 13,
+    "cash": "-1018391.25",
+    "reserved": "0.00",
+    "margin": "0.00",
+    "fees": "0.00"
+   }
+  ],
+  "order_history": [
+   {
+    "to_state": "ACKNOWLEDGED",
+    "n": 15
+   },
+   {
+    "to_state": "CREATED",
+    "n": 15
+   },
+   {
+    "to_state": "FILLED",
+    "n": 13
+   },
+   {
+    "to_state": "OPEN",
+    "n": 15
+   },
+   {
+    "to_state": "REJECTED",
+    "n": 2
+   },
+   {
+    "to_state": "SUBMITTED",
+    "n": 15
+   },
+   {
+    "to_state": "VALIDATED",
+    "n": 15
+   }
+  ],
+  "journal_kinds": [
+   {
+    "kind": "APPROVAL",
+    "n": 8
+   },
+   {
+    "kind": "EXECUTION_INTENT",
+    "n": 16
+   },
+   {
+    "kind": "FILL",
+    "n": 13
+   },
+   {
+    "kind": "MARK",
+    "n": 18
+   },
+   {
+    "kind": "ORDER",
+    "n": 17
+   },
+   {
+    "kind": "PLAN_VERSION",
+    "n": 8
+   },
+   {
+    "kind": "POSITION",
+    "n": 7
+   },
+   {
+    "kind": "RESERVATION",
+    "n": 8
+   },
+   {
+    "kind": "RISK_ASSESSMENT",
+    "n": 8
+   },
+   {
+    "kind": "SIGNAL",
+    "n": 8
+   }
+  ],
+  "journal_chain_of_first_trade": [
+   {
+    "kind": "SIGNAL",
+    "summary": "DIVISLAB: LONG_BUILDUP signal scored 83.00 for the 2026-11-03 session"
+   },
+   {
+    "kind": "PLAN_VERSION",
+    "summary": "plan version 1: BULL_CALL_SPREAD on DIVISLAB, maximum loss 26944.28, capital 26785.00"
+   },
+   {
+    "kind": "RISK_ASSESSMENT",
+    "summary": "risk PASS on version 1 (autodesk-risk-v1)"
+   },
+   {
+    "kind": "APPROVAL",
+    "summary": "APPROVED on version 1 by MIDDLE_OFFICE@autodesk-mo-v1"
+   },
+   {
+    "kind": "EXECUTION_INTENT",
+    "summary": "intent for version 1 passed 19 controls on the PAPER_SIM adapter"
+   },
+   {
+    "kind": "RESERVATION",
+    "summary": "30895.70 set aside for 2 order(s), maximum loss 26944.28"
+   },
+   {
+    "kind": "ORDER",
+    "summary": "long order for 100 DIVISLAB CE (basket leg) validated"
+   },
+   {
+    "kind": "ORDER",
+    "summary": "short order for 100 DIVISLAB CE (basket leg) validated"
+   },
+   {
+    "kind": "FILL",
+    "summary": "long leg: 100 DIVISLAB CE at 414.10 (simulated), charges 42.25"
+   },
+   {
+    "kind": "POSITION",
+    "summary": "position opened on DIVISLAB (BULL_CALL_SPREAD)"
+   },
+   {
+    "kind": "FILL",
+    "summary": "short leg: 100 DIVISLAB CE at 123.15 (simulated), charges 47.25"
+   },
+   {
+    "kind": "EXECUTION_INTENT",
+    "summary": "intent ended FILLED: the open"
+   },
+   {
+    "kind": "MARK",
+    "summary": "DIVISLAB marked at the 2026-11-03 close: unrealized 285.00"
+   },
+   {
+    "kind": "MARK",
+    "summary": "DIVISLAB marked at the 2026-11-04 close: unrealized 625.00"
+   },
+   {
+    "kind": "MARK",
+    "summary": "DIVISLAB marked at the 2026-11-05 close: unrealized 2720.00"
+   }
+  ],
+  "proposal_results": [
+   {
+    "session_date": "2026-11-03",
+    "result": "APPROVED",
+    "n": 5
+   },
+   {
+    "session_date": "2026-11-04",
+    "result": "APPROVED",
+    "n": 3
+   },
+   {
+    "session_date": "2026-11-04",
+    "result": "NO_TRADE",
+    "n": 2
+   },
+   {
+    "session_date": "2026-11-05",
+    "result": "NO_TRADE",
+    "n": 5
+   }
+  ],
+  "no_trade_reasons": [
+   {
+    "session_date": "2026-11-04",
+    "reasons": [
+     "every alternative was tried or cannot be built",
+     "BULL_PUT_SPREAD: net credit after costs 5384.77 is below width 51000.0 \u00d7 0.3333",
+     "LONG_FUTURES: reward to loss 1.26 is below 1.5",
+     "LONG_EQUITY: reward to loss 1.45 is below 1.5"
+    ]
+   },
+   {
+    "session_date": "2026-11-04",
+    "reasons": [
+     "every alternative was tried or cannot be built",
+     "LONG_EQUITY: reward to loss 1.49 is below 1.5",
+     "BULL_PUT_SPREAD: net credit after costs 15316.33 is below width 60000.0 \u00d7 0.3333",
+     "LONG_FUTURES: reward to loss 1.48 is below 1.5"
+    ]
+   },
+   {
+    "session_date": "2026-11-05",
+    "reasons": [
+     "every alternative was tried or cannot be built",
+     "LONG_EQUITY: reward to loss 1.42 is below 1.5",
+     "BULL_PUT_SPREAD: net credit after costs 8324.99 is below width 57000.0 \u00d7 0.3333",
+     "LONG_FUTURES: reward to loss 1.42 is below 1.5"
+    ]
+   },
+   {
+    "session_date": "2026-11-05",
+    "reasons": [
+     "every alternative was tried or cannot be built",
+     "LONG_EQUITY: reward to loss 1.34 is below 1.5",
+     "BULL_PUT_SPREAD: net credit after costs 8572.12 is below width 50000.0 \u00d7 0.3333",
+     "LONG_FUTURES: reward to loss 1.21 is below 1.5"
+    ]
+   },
+   {
+    "session_date": "2026-11-05",
+    "reasons": [
+     "risk checks still failing after revisions: open_risk"
+    ]
+   },
+   {
+    "session_date": "2026-11-05",
+    "reasons": [
+     "every alternative was tried or cannot be built",
+     "BULL_PUT_SPREAD: net credit after costs 10983.31 is below width 55000.0 \u00d7 0.3333",
+     "LONG_FUTURES: reward to loss 1.33 is below 1.5",
+     "LONG_EQUITY: reward to loss 1.40 is below 1.5"
+    ]
+   },
+   {
+    "session_date": "2026-11-05",
+    "reasons": [
+     "every alternative was tried or cannot be built",
+     "LONG_EQUITY: reward to loss 1.41 is below 1.5",
+     "BULL_PUT_SPREAD: net credit after costs 18061.63 is below width 62500.0 \u00d7 0.3333",
+     "LONG_FUTURES: one lot loses 59859.44, above the per-trade budget 50000.00"
+    ]
+   }
+  ]
+ },
+ "runs": [
+  {
+   "label": "a",
+   "seed": 42,
+   "seconds": 76.8,
+   "status": "COMPLETED",
+   "signals": 566,
+   "plans": {
+    "EXECUTED": 7,
+    "REJECTED": 7,
+    "EXECUTION_REFUSED": 1
+   },
+   "execution_summary": {
+    "trades": 7,
+    "net_pnl_rs": "33266.47",
+    "max_drawdown_rs": "15874.53",
+    "max_drawdown_pct": "0.16",
+    "seed": 42,
+    "intents": 8,
+    "intents_refused": 0,
+    "orders": 15,
+    "orders_by_state": {
+     "REJECTED": 2,
+     "FILLED": 13
+    },
+    "reject_codes": {
+     "BASKET_NET_LIMIT": 2
+    },
+    "fills": 13,
+    "reservations": 8,
+    "fill_ratio": "0.8667",
+    "rejection_rate": "0.1333",
+    "reconciliation": {
+     "equity_from_pnl_rs": "10033266.47",
+     "equity_from_positions_rs": "10033266.47",
+     "difference_rs": "0.00"
+    },
+    "fingerprint": "6d64d0ff953e4f82903799a26c8272084a897a0a47c72cc66de43ead0ad0d16c",
+    "cost_model": "desk-cost-v2 (slippage in the fill price)"
+   },
+   "capital": {
+    "equity_rs": "10033266.47",
+    "cash_balance_rs": "8980174.97",
+    "used_margin_rs": "0.00",
+    "available_cash_rs": "8980174.97",
+    "reserved_capital_rs": "0.00",
+    "available_buying_power_rs": "8980174.97",
+    "deployed_notional_rs": "1104041.25",
+    "open_risk_rs": "293336.79",
+    "pending_risk_rs": "0.00",
+    "pending_order_commitment_rs": "0.00",
+    "realized_gross_rs": "0.00",
+    "fees_rs": "1433.78",
+    "net_realized_rs": "-1433.78",
+    "unrealized_gross_rs": "34700.25",
+    "net_pnl_rs": "33266.47"
+   },
+   "pnl_daily": [
+    {
+     "session_date": "2026-11-03",
+     "equity_rs": "9985033.30",
+     "day_pnl_rs": "-14966.70",
+     "cumulative_pnl_rs": "-14966.70"
+    },
+    {
+     "session_date": "2026-11-04",
+     "equity_rs": "9984125.47",
+     "day_pnl_rs": "-907.83",
+     "cumulative_pnl_rs": "-15874.53"
+    },
+    {
+     "session_date": "2026-11-05",
+     "equity_rs": "10033266.47",
+     "day_pnl_rs": "49141.00",
+     "cumulative_pnl_rs": "33266.47"
+    }
+   ],
+   "pnl_by_strategy": {
+    "BEAR_PUT_SPREAD": "-19762.15",
+    "BULL_CALL_SPREAD": "62214.30",
+    "LONG_EQUITY": "-9185.68"
+   },
+   "charges_by_component": {
+    "gst": "72.70",
+    "stt": "833.21",
+    "sebi": "1.09",
+    "stamp": "124.11",
+    "exchange": "142.67",
+    "slippage": "0.00",
+    "brokerage": "260.00"
+   },
+   "spread_rs": "3013.30",
+   "slippage_rs": "1753.95",
+   "verify": {
+    "fills_checked": 13,
+    "fill_mismatches": [],
+    "mismatch_count": 0,
+    "legs_checked": 13,
+    "marks_equal_last_close": 13,
+    "marks_flagged_stale": 0,
+    "mark_mismatches": [],
+    "cash_from_fills": {
+     "expected_rs": "8980174.97",
+     "ledger_rs": "8980174.97",
+     "difference_rs": "0.00"
+    },
+    "charges_from_fills": {
+     "fills_rs": "1433.78",
+     "ledger_rs": "1433.78"
+    },
+    "notional_from_fills": {
+     "fills_rs": "1104041.25",
+     "ledger_rs": "1104041.25"
+    }
+   },
+   "no_look_ahead": {
+    "fill_engine_reads": 49,
+    "reads_outside_the_clock_session": 0,
+    "agent_tool_calls_checked": 1646,
+    "calendar_only_calls": 3,
+    "agent_look_ahead_violations": [],
+    "violation_count": 0
+   }
+  },
+  {
+   "label": "b",
+   "seed": 42,
+   "seconds": 79.1,
+   "status": "COMPLETED",
+   "signals": 566,
+   "plans": {
+    "REJECTED": 7,
+    "EXECUTED": 7,
+    "EXECUTION_REFUSED": 1
+   },
+   "execution_summary": {
+    "trades": 7,
+    "net_pnl_rs": "33266.47",
+    "max_drawdown_rs": "15874.53",
+    "max_drawdown_pct": "0.16",
+    "seed": 42,
+    "intents": 8,
+    "intents_refused": 0,
+    "orders": 15,
+    "orders_by_state": {
+     "REJECTED": 2,
+     "FILLED": 13
+    },
+    "reject_codes": {
+     "BASKET_NET_LIMIT": 2
+    },
+    "fills": 13,
+    "reservations": 8,
+    "fill_ratio": "0.8667",
+    "rejection_rate": "0.1333",
+    "reconciliation": {
+     "equity_from_pnl_rs": "10033266.47",
+     "equity_from_positions_rs": "10033266.47",
+     "difference_rs": "0.00"
+    },
+    "fingerprint": "6d64d0ff953e4f82903799a26c8272084a897a0a47c72cc66de43ead0ad0d16c",
+    "cost_model": "desk-cost-v2 (slippage in the fill price)"
+   },
+   "capital": {
+    "equity_rs": "10033266.47",
+    "cash_balance_rs": "8980174.97",
+    "used_margin_rs": "0.00",
+    "available_cash_rs": "8980174.97",
+    "reserved_capital_rs": "0.00",
+    "available_buying_power_rs": "8980174.97",
+    "deployed_notional_rs": "1104041.25",
+    "open_risk_rs": "293336.79",
+    "pending_risk_rs": "0.00",
+    "pending_order_commitment_rs": "0.00",
+    "realized_gross_rs": "0.00",
+    "fees_rs": "1433.78",
+    "net_realized_rs": "-1433.78",
+    "unrealized_gross_rs": "34700.25",
+    "net_pnl_rs": "33266.47"
+   },
+   "pnl_daily": [
+    {
+     "session_date": "2026-11-03",
+     "equity_rs": "9985033.30",
+     "day_pnl_rs": "-14966.70",
+     "cumulative_pnl_rs": "-14966.70"
+    },
+    {
+     "session_date": "2026-11-04",
+     "equity_rs": "9984125.47",
+     "day_pnl_rs": "-907.83",
+     "cumulative_pnl_rs": "-15874.53"
+    },
+    {
+     "session_date": "2026-11-05",
+     "equity_rs": "10033266.47",
+     "day_pnl_rs": "49141.00",
+     "cumulative_pnl_rs": "33266.47"
+    }
+   ],
+   "pnl_by_strategy": {
+    "BEAR_PUT_SPREAD": "-19762.15",
+    "BULL_CALL_SPREAD": "62214.30",
+    "LONG_EQUITY": "-9185.68"
+   },
+   "charges_by_component": {
+    "gst": "72.70",
+    "stt": "833.21",
+    "sebi": "1.09",
+    "stamp": "124.11",
+    "exchange": "142.67",
+    "slippage": "0.00",
+    "brokerage": "260.00"
+   },
+   "spread_rs": "3013.30",
+   "slippage_rs": "1753.95",
+   "verify": {
+    "fills_checked": 13,
+    "fill_mismatches": [],
+    "mismatch_count": 0,
+    "legs_checked": 13,
+    "marks_equal_last_close": 13,
+    "marks_flagged_stale": 0,
+    "mark_mismatches": [],
+    "cash_from_fills": {
+     "expected_rs": "8980174.97",
+     "ledger_rs": "8980174.97",
+     "difference_rs": "0.00"
+    },
+    "charges_from_fills": {
+     "fills_rs": "1433.78",
+     "ledger_rs": "1433.78"
+    },
+    "notional_from_fills": {
+     "fills_rs": "1104041.25",
+     "ledger_rs": "1104041.25"
+    }
+   },
+   "no_look_ahead": {
+    "fill_engine_reads": 49,
+    "reads_outside_the_clock_session": 0,
+    "agent_tool_calls_checked": 1647,
+    "calendar_only_calls": 3,
+    "agent_look_ahead_violations": [],
+    "violation_count": 0
+   }
+  },
+  {
+   "label": "other-seed",
+   "seed": 43,
+   "seconds": 81.2,
+   "status": "COMPLETED",
+   "signals": 566,
+   "plans": {
+    "EXECUTED": 7,
+    "EXECUTION_REFUSED": 1,
+    "REJECTED": 7
+   },
+   "execution_summary": {
+    "trades": 7,
+    "net_pnl_rs": "33159.73",
+    "max_drawdown_rs": "15981.27",
+    "max_drawdown_pct": "0.16",
+    "seed": 43,
+    "intents": 8,
+    "intents_refused": 0,
+    "orders": 15,
+    "orders_by_state": {
+     "REJECTED": 2,
+     "FILLED": 13
+    },
+    "reject_codes": {
+     "BASKET_NET_LIMIT": 2
+    },
+    "fills": 13,
+    "reservations": 8,
+    "fill_ratio": "0.8667",
+    "rejection_rate": "0.1333",
+    "reconciliation": {
+     "equity_from_pnl_rs": "10033159.73",
+     "equity_from_positions_rs": "10033159.73",
+     "difference_rs": "0.00"
+    },
+    "fingerprint": "6ccbae204d61eeac715ce48042462385e033f0565629e162a265181f87774abb",
+    "cost_model": "desk-cost-v2 (slippage in the fill price)"
+   },
+   "capital": {
+    "equity_rs": "10033159.73",
+    "cash_balance_rs": "8980068.23",
+    "used_margin_rs": "0.00",
+    "available_cash_rs": "8980068.23",
+    "reserved_capital_rs": "0.00",
+    "available_buying_power_rs": "8980068.23",
+    "deployed_notional_rs": "1104117.90",
+    "open_risk_rs": "293336.79",
+    "pending_risk_rs": "0.00",
+    "pending_order_commitment_rs": "0.00",
+    "realized_gross_rs": "0.00",
+    "fees_rs": "1433.87",
+    "net_realized_rs": "-1433.87",
+    "unrealized_gross_rs": "34593.60",
+    "net_pnl_rs": "33159.73"
+   },
+   "pnl_daily": [
+    {
+     "session_date": "2026-11-03",
+     "equity_rs": "9985088.36",
+     "day_pnl_rs": "-14911.64",
+     "cumulative_pnl_rs": "-14911.64"
+    },
+    {
+     "session_date": "2026-11-04",
+     "equity_rs": "9984018.73",
+     "day_pnl_rs": "-1069.63",
+     "cumulative_pnl_rs": "-15981.27"
+    },
+    {
+     "session_date": "2026-11-05",
+     "equity_rs": "10033159.73",
+     "day_pnl_rs": "49141.00",
+     "cumulative_pnl_rs": "33159.73"
+    }
+   ],
+   "pnl_by_strategy": {
+    "BEAR_PUT_SPREAD": "-19762.15",
+    "BULL_CALL_SPREAD": "62198.07",
+    "LONG_EQUITY": "-9276.19"
+   },
+   "charges_by_component": {
+    "gst": "72.69",
+    "stt": "833.28",
+    "sebi": "1.09",
+    "stamp": "124.14",
+    "exchange": "142.67",
+    "slippage": "0.00",
+    "brokerage": "260.00"
+   },
+   "spread_rs": "3013.30",
+   "slippage_rs": "1860.60",
+   "verify": {
+    "fills_checked": 13,
+    "fill_mismatches": [],
+    "mismatch_count": 0,
+    "legs_checked": 13,
+    "marks_equal_last_close": 13,
+    "marks_flagged_stale": 0,
+    "mark_mismatches": [],
+    "cash_from_fills": {
+     "expected_rs": "8980068.23",
+     "ledger_rs": "8980068.23",
+     "difference_rs": "0.00"
+    },
+    "charges_from_fills": {
+     "fills_rs": "1433.87",
+     "ledger_rs": "1433.87"
+    },
+    "notional_from_fills": {
+     "fills_rs": "1104117.90",
+     "ledger_rs": "1104117.90"
+    }
+   },
+   "no_look_ahead": {
+    "fill_engine_reads": 49,
+    "reads_outside_the_clock_session": 0,
+    "agent_tool_calls_checked": 1647,
+    "calendar_only_calls": 3,
+    "agent_look_ahead_violations": [],
+    "violation_count": 0
+   }
+  }
+ ],
+ "AD-P2-96_same_seed": {
+  "a": "6d64d0ff953e4f82903799a26c8272084a897a0a47c72cc66de43ead0ad0d16c",
+  "b": "6d64d0ff953e4f82903799a26c8272084a897a0a47c72cc66de43ead0ad0d16c",
+  "equal": true,
+  "net_pnl_equal": true
+ },
+ "other_seed": {
+  "seed": 43,
+  "fingerprint": "6ccbae204d61eeac715ce48042462385e033f0565629e162a265181f87774abb",
+  "differs": true,
+  "net_pnl_rs": "33159.73"
+ },
+ "finished": "2026-11-07 08:27:21.718002+00:00"
+}

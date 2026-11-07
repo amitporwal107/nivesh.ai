@@ -6,7 +6,7 @@
  * Every message is a real record of the run's TRADE_PROPOSAL workflow (GET /desk/workflows/{id}): the AI Trader's handoff
  * of the signal, then each agent task (Trading Assistant → Risk & Operations → … → Middle Office) with its input refs,
  * structured output, summary or error as written, tool calls, validation, state, retries, latency and handoff. Hidden
- * model reasoning is not stored, so it is not shown. Reservation, orders and fills after the decision are Phase 2.
+ * model reasoning is not stored, so it is not shown. Reservation, orders and fills after the decision are recorded for the run but not shown here yet.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -237,7 +237,7 @@ export default function StudioTrace() {
                       <span style={{ ...mono, fontSize: 10.5, letterSpacing: "0.05em", color: "var(--ink-2)" }}>{o.head}</span>
                       {o.detail && <span style={{ lineHeight: 1.5 }}>{o.detail}</span>}
                       {selLink && <span><Link to={selLink} data-testid="trace-outcome-plan" className="ad-link" style={{ textDecoration: "none" }}>Open full plan ›</Link></span>}
-                      {o.approvalPath && <PhaseNote phase={2} testId="trace-phase2">Capital reservation, orders and fills after the decision arrive with Phase 2; a Phase 1 chain ends here.</PhaseNote>}
+                      {o.approvalPath && <PhaseNote label="Not shown yet" testId="trace-phase2">Capital reservation, orders and fills after the decision are recorded for this run; this view ends at the decision for now.</PhaseNote>}
                     </div>
                   );
                 })()}

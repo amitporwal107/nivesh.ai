@@ -47,7 +47,7 @@ test("AD-UI-120 layout, sections in the design's order, defaults from /desk/stat
   await expect(page.getByTestId("setup-name")).toHaveValue("Historical replay · 3 Nov – 4 Nov 2026");
   const expected: [string, string][] = [
     ["Sessions", "3 Nov – 4 Nov 2026"], ["Universe", "F&O underlyings of each session"], ["Capital", "₹1.00 Cr"], ["Account mode", "Auto paper"],
-    ["Policy", "Desk default · v3"], ["Agents", "5 current versions"], ["Plans per session", "5"], ["Execution", "None in Phase 1"],
+    ["Policy", "Desk default · v3"], ["Agents", "5 current versions"], ["Plans per session", "5"], ["Execution", "Simulated fills · no broker"],
     ["Injections", "None · Phase 3"], ["Seed", "42"], ["Playback", "Stepped phase by phase"],
   ];
   await expect(page.getByTestId("setup-summary-row")).toHaveCount(expected.length);
@@ -79,8 +79,15 @@ test("AD-UI-121 blocks Phase 1 cannot serve keep their place and say so", async 
   await dis.nth(0).click({ force: true });                           // disabled: a click changes nothing
   await expect(page.getByTestId("setup-uni-FNO")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("setup-agents-note")).toContainText("choosing another version is not available");
-  await expect(page.getByTestId("setup-execution-note")).toContainText("Phase 2");
-  await expect(page.getByTestId("setup-execution-note")).toContainText("Fill model, slippage per leg, latency, partial fills and reject rate");
+  const exec = page.getByTestId("setup-execution-note");
+  await expect(exec).toContainText("Fixed for now");
+  await expect(exec).toContainText("cannot be changed per run yet");
+  // the real defaults of FillParams (backend/autodesk/execution/fill_model.py)
+  await expect(exec).toContainText("Half spread: 0.05% on shares, 0.02% on futures, 0.50% on options (at least one tick)");
+  await expect(exec).toContainText("Slippage: 3, 2 and 20 basis points on shares, futures and options, scaled by a seeded factor between 0.5 and 1.5");
+  await expect(exec).toContainText("At most 10% of the session's traded quantity fills");
+  await expect(exec).toContainText("Latency: 50 to 400 ms");
+  await expect(exec).not.toContainText(/arrive with Phase 2|Phase 1 run|no orders, fills or P&L/);
   await expect(page.getByTestId("setup-speed-note")).toContainText("Not in Phase 1");
   await expect(page.getByTestId("setup-speed-note")).toContainText("Speed multipliers (1×–600×) and checkpoints are not available");
   await expect(page.getByTestId("setup-scenarios-note")).toContainText("Phase 3");

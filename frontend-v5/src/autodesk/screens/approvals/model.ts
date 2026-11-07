@@ -24,7 +24,7 @@ export interface PlanVersionRow {
   created_at: string;
 }
 
-/** GET /risk/portfolio/{account_id} → {account, book, note}. Phase 1 book = approved, unexpired plans. */
+/** GET /risk/portfolio/{account_id} → {account, book, note}. The book = approved plans without an intent, active reservations and open positions (paper only). */
 export interface PortfolioResponse {
   account: Account;
   book: {

@@ -5,7 +5,7 @@
  * and the decisions recorded earlier (GET /approvals?limit=100). Right: one request opened (screens/approvals/Detail).
  * Routes /approvals and /approvals/:approvalId (deep link). On a phone the list and the detail are two steps.
  *
- * Phase 1: a decision ends the plan at APPROVED / REJECTED / NEEDS_REVISION; nothing is executed. While
+ * A decision sets the plan to APPROVED / REJECTED / NEEDS_REVISION; an approved plan goes on to paper execution, never to a broker. While
  * STOP_NEW_ENTRIES is active the API refuses APPROVE (409) and the screen says so; REJECT still works.
  */
 import { useMemo, type CSSProperties } from "react";

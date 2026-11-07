@@ -25,11 +25,15 @@ export const VERSIONS = {
   policy: { policy_id: "POL-1b7e93c4d05a4e2f9c61", version: 1, sha256: "e3a1f09c7b5d2e4f6a8c0b1d3e5f7a9c2b4d6e8f0a1c3e5f7b9d1f3a5c7e9b0d" },
 };
 
+// What a run made WITH paper execution stores (backend/autodesk/simulator/manager.py PHASE2_LIMITATIONS, copied word for word).
 export const LIMITATIONS = [
   "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay (stored intraday history is about ten days and has no cash stocks).",
-  "Phase 1 has no execution: approved plans are not filled, so there is no P&L, no capital reservation and the daily-loss / weekly-loss / drawdown checks are skipped.",
-  "Option premiums are the previous session's bhavcopy closes of contracts that traded; untraded strikes are skipped.",
-  "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN.",
+  "Every fill is simulated from the session's daily row (open, high, low, close, traded quantity): no order book, no queue position, spreads are proxies. A resting limit fills only if price traded through it, at the limit.",
+  "The fill engine knows the session's traded quantity at 09:15, as a capacity assumption only (agents never see it). The moment a resting fill happened within the session is not known.",
+  "Several-leg plans fill all-or-none at the open. Closing positions (stops, levels, trailing) and settlement at a contract's expiry are Phase 3: positions stay open and are marked at each session's close, so P&L is unrealized only and no closing costs are counted. A leg that did not trade keeps its last mark, flagged stale.",
+  "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected. Price bands, ticks and spreads are proxies (no band file, one 0.05 tick).",
+  "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN. Costs are desk-cost-v2.",
+  "Daily-loss, weekly-loss and drawdown limits are not enforced: they act on P&L from Phase 3, with the trade lifecycle.",
   "Sector is the latest index-constituent industry, not point-in-time.",
 ];
 
@@ -52,7 +56,8 @@ export const RESULTS = {
   },
   handoffs: 18, policy_violation_attempts: 0, versions: VERSIONS,
   data: { first_session: "2026-11-02", last_session: "2026-11-03", universe: "FNO", symbols: null },
-  limitations: LIMITATIONS, execution: "none in Phase 1 (no orders, fills or P&L)",
+  limitations: LIMITATIONS, execution: "paper execution: simulated fills, see execution_summary",
+  execution_summary: { trades: 3, net_pnl_rs: "-1470.00", max_drawdown_rs: "-2210.00", max_drawdown_pct: "-0.0221", seed: 42 },
 };
 
 export const SIM_DONE = {

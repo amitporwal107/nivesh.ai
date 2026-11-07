@@ -4,7 +4,7 @@
  * and the workflows in flight against the 13-step proposal workflow.
  *
  * Every value comes from the desk API (see ./agents/model.ts). What Phase 1 does not have is shown as such: queue depth
- * and scaling need a worker pool (Phase 3); steps 6–13 of a proposal need paper execution (Phase 2). Text the agents
+ * and scaling need a worker pool (Phase 3); steps 6–13 of a proposal are recorded by paper execution but not drawn yet. Text the agents
  * wrote (result_summary, errors) is shown as written. Read-only: this screen sends no request body.
  */
 import { useMemo, useState, type CSSProperties } from "react";
@@ -273,7 +273,7 @@ function WorkflowsInFlight({ mobile }: { mobile: boolean }) {
             {STEPS.map((t, k) => {
               const done = k < f.done;
               const cur = f.cur === k;
-              const title = k >= PHASE1_STEPS ? `${t} · Phase 2` : k === 3 && !f.revised && (done || cur) ? `${t} · not needed` : t;
+              const title = k >= PHASE1_STEPS ? `${t} · not shown yet` : k === 3 && !f.revised && (done || cur) ? `${t} · not needed` : t;
               return <span key={t} data-step={k + 1} data-fill={cur ? "current" : done ? "done" : "none"} title={title} style={{ height: 8, borderRadius: 2, background: cur ? f.color : done ? "var(--mint-line)" : "var(--bg-3)" }} />;
             })}
           </div>
@@ -287,9 +287,10 @@ function WorkflowsInFlight({ mobile }: { mobile: boolean }) {
     <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <span className="nv-eyebrow">Workflows in flight · 13-step trade proposal workflow</span>
       <div data-testid="workflows-in-flight" style={{ border: "1px solid var(--line)", borderRadius: 14, background: "var(--bg-1)", overflow: "hidden" }}>{body}</div>
-      <PhaseNote testId="flows-phase-note">
-        Phase 1 ends at step 5, authorization. Steps 6–13 (capital reservation, execution intent, orders and fills, the
-        active position, risk events, position actions, reconciliation, journal) need paper execution.
+      <PhaseNote label="Not shown yet" testId="flows-phase-note">
+        Steps 6–13 (capital reservation, execution intent, orders and fills, the active position, risk events, position actions,
+        reconciliation, journal) are not drawn here yet. For an approved plan the desk now records the reservation, the intent, paper
+        orders and fills, the position and the journal. Risk events, closing actions and reconciling orders of unknown state come with Phase 3.
       </PhaseNote>
     </section>
   );
@@ -337,8 +338,8 @@ export default function AgentsScreen() {
           {registry.data ? <Headline agents={allCurrent} /> : def.label}
         </h1>
         <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, color: "var(--ink-3)", maxWidth: 700 }}>
-          Agents discover, plan and explain. Deterministic services validate and control; there is no execution in
-          Phase 1. Every handoff is a structured record with a correlation ID; free-form text is never authoritative.
+          Agents discover, plan and explain. Deterministic services validate and control; execution is paper only, so
+          no order reaches a broker. Every handoff is a structured record with a correlation ID; free-form text is never authoritative.
         </p>
       </section>
 

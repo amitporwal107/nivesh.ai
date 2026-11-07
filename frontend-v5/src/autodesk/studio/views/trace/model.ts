@@ -231,11 +231,11 @@ export const signalIdOf = (w: WorkflowRow): string | null => {
 /** The chain shown first: a revised plan (the longest hand-on), else one waiting on a person, else an approval, else the first. */
 export function defaultWorkflow(list: WorkflowRow[]): string | null {
   const by = (f: (w: WorkflowRow) => boolean) => list.find(f)?.workflow_id;
-  return by((w) => Number(outcome(w).plan_version ?? 1) > 1) ?? by((w) => w.state === "WAITING_HUMAN") ?? by((w) => outcome(w).result === "APPROVED_NO_EXECUTION") ?? list[0]?.workflow_id ?? null;
+  return by((w) => Number(outcome(w).plan_version ?? 1) > 1) ?? by((w) => w.state === "WAITING_HUMAN") ?? by((w) => outcome(w).result === "APPROVED_NO_EXECUTION" || outcome(w).result === "APPROVED") ?? list[0]?.workflow_id ?? null;
 }
 
 const RESULT_LABEL: Record<string, string> = {
-  APPROVED_NO_EXECUTION: "approved", WAITING_HUMAN: "waiting on a person", NO_TRADE: "no plan", RESEARCH_ONLY: "research only",
+  APPROVED_NO_EXECUTION: "approved", APPROVED: "approved", WAITING_HUMAN: "waiting on a person", NO_TRADE: "no plan", RESEARCH_ONLY: "research only",
   REJECTED: "rejected", REJECTED_BY_PERSON: "rejected by a person", NEEDS_REVISION: "revision asked", REVISION_REQUESTED: "revision asked",
   ENTRIES_STOPPED: "held back · stop control on", EXPIRED: "expired", SUSPENDED: "suspended", FAILED: "failed",
 };
@@ -270,5 +270,5 @@ export function outcomeText(w: WorkflowRow): { head: string; detail: string | nu
   const r = typeof o.result === "string" ? o.result : null;
   const reasons = arr(o.reasons).map(String).join("; ");
   const detail = s(o.note) || s(o.reason) || reasons || s(w.error) || null;
-  return { head: `Workflow ${w.state}${r ? ` · ${r.replace(/_/g, " ")}` : ""}`, detail, approvalPath: r === "APPROVED_NO_EXECUTION" || r === "WAITING_HUMAN" };
+  return { head: `Workflow ${w.state}${r ? ` · ${r.replace(/_/g, " ")}` : ""}`, detail, approvalPath: r === "APPROVED_NO_EXECUTION" || r === "APPROVED" || r === "WAITING_HUMAN" };
 }

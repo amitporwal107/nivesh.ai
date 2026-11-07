@@ -167,14 +167,16 @@ test("AD-UI-11 nav badges: pending approvals (desk only) and SIM", async ({ page
 });
 
 for (const id of ["workbench", "trades", "pnl", "risk", "middle", "fleet"]) {
-  test(`AD-UI-12 ${id} is a labelled Phase 2 screen with no sample figures`, async ({ page }) => {
+  test(`AD-UI-12 ${id} is a labelled placeholder screen with no sample figures and no claim that nothing is executed`, async ({ page }) => {
     await mockDesk(page);
     await page.goto("/autodesk/");
     await page.getByTestId(`nav-${id}`).click();
     const s = page.getByTestId(`screen-${id}`);
     await expect(s).toBeVisible();
-    await expect(s.getByTestId("phase2-note")).toContainText("Phase 2");
+    await expect(s.getByTestId("phase2-note")).toContainText(/Not (shown|built) yet/);
+    await expect(s.getByTestId("phase2-note")).not.toContainText("comes in Phase 2");
     await expect(s).not.toContainText(/₹\s?\d/);
+    await expect(s).not.toContainText(/Phase 1 has no|Nothing is executed|no orders, fills or positions/);
   });
 }
 

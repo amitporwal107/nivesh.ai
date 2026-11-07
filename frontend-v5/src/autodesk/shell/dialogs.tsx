@@ -45,7 +45,7 @@ export function StopEntriesDialog({ halted, onClose }: { halted: boolean; onClos
       <span style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink-2)" }}>
         {halted
           ? "Agents may propose new trade plans again, and approvals become possible on the desk's accounts."
-          : "No new trade plans are proposed and nothing is approved on the desk's accounts until you resume. Signals are still scanned, and simulations of past sessions are not affected. There are no orders in this phase, so nothing is cancelled."}
+          : "No new trade plans are proposed and nothing is approved on the desk's accounts until you resume. Signals are still scanned, and simulations of past sessions are not affected. Paper orders that are still waiting do not fill while this is on, and they are not cancelled."}
       </span>
       <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span className="nv-eyebrow">Reason (kept in the audit log)</span>

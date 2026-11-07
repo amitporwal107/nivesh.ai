@@ -215,7 +215,8 @@ test("AD-UI-77 matrix, approvers and roles from the policy, the Middle Office ru
   await expect(rows).toHaveCount(8);
   for (let i = 0; i < 8; i++) await expect(rows.nth(i)).toContainText(/LOCKED$/);
   await expect(rows.filter({ hasText: "Approve a plan whose risk check failed" })).toContainText("NEVERNEVERLOCKED");
-  await expect(page.getByTestId("matrix-phase-note")).toContainText("Phase 2");
+  await expect(page.getByTestId("matrix-phase-note")).toContainText("Opening a position is a paper order placed after approval");
+  await expect(page.getByTestId("matrix-phase-note")).toContainText("come with Phase 3");
   const who = page.getByTestId("who-approves");
   await expect(who).toContainText("Plan risk above 0.5% of equity");
   await expect(who).toContainText("Signal score below 70");

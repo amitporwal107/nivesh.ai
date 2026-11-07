@@ -35,15 +35,15 @@ test("AD-UI-110 completed 2-session replay: header, headline, clock card and the
   await expect(ctr(page, "risk")).toContainText("3");
   await expect(ctr(page, "approvals")).toContainText("3");
   await expect(ctr(page, "recovered")).toContainText("1");
-  for (const [id, ph] of [["fills", "2"], ["exits", "3"], ["shocks", "3"]]) {
+  for (const [id, tag] of [["fills", "NOT SHOWN YET"], ["exits", "PHASE 3"], ["shocks", "PHASE 3"]]) {
     await expect(ctr(page, id)).toContainText("—");
-    await expect(ctr(page, id)).toContainText(`PHASE ${ph}`);
+    await expect(ctr(page, id)).toContainText(tag);
   }
   expect(desk.unmatched).toEqual([]);
   expect(errors).toEqual([]);
 });
 
-test("AD-UI-111 agent lanes: bands, nine lanes, dots where agents acted, Phase 2/3 lanes, session switch", async ({ page }) => {
+test("AD-UI-111 agent lanes: bands, nine lanes, dots where agents acted, lanes not drawn yet, session switch", async ({ page }) => {
   await openDay(page, doneRoutes());
   await expect(page.getByTestId("day-lanes")).toContainText("08:00 → 18:30 · click the track to jump");
   const bands = page.getByTestId("day-band");
@@ -54,7 +54,7 @@ test("AD-UI-111 agent lanes: bands, nine lanes, dots where agents acted, Phase 2
   const names = ["AI Trader", "Trading Assistant", "Risk & Operations", "Middle Office", "Tech Support", "Lifecycle manager", "Sim exchange", "Orchestrator", "Scenarios"];
   for (let i = 0; i < 9; i++) await expect(lanes.nth(i)).toContainText(names[i]);
   await expect(page.locator('[data-testid="day-lane"][data-lane="tlm"]')).toContainText("PHASE 3");
-  await expect(page.locator('[data-testid="day-lane"][data-lane="exec"]')).toContainText("PHASE 2");
+  await expect(page.locator('[data-testid="day-lane"][data-lane="exec"]')).toContainText("NOT SHOWN YET");
   await expect(page.locator('[data-testid="day-lane"][data-lane="scn"]')).toContainText("PHASE 3");
   for (const l of ["tlm", "exec", "scn"]) await expect(page.locator(`[data-testid="day-dot"][data-lane="${l}"]`)).toHaveCount(0);
 
@@ -132,20 +132,22 @@ test("AD-UI-112 event feed newest first; Jump to and the track filter it by phas
   await expect(rows.nth(0)).toContainText("Step 10 · 3 Nov · OPEN");
 });
 
-test("AD-UI-113 Phase 2 blocks, End of day from the run's events, Compare and Trace links", async ({ page }) => {
+test("AD-UI-113 blocks not shown yet, End of day from the run's events, Compare and Trace links", async ({ page }) => {
   await openDay(page, doneRoutes());
   await expect(page.getByTestId("day-pnl")).toContainText("Net P&L, simulated");
-  await expect(page.getByTestId("day-pnl")).toContainText("NO FILLS IN PHASE 1");
-  await expect(page.getByTestId("day-pnl-note")).toContainText("Phase 2");
-  await expect(page.getByTestId("day-positions-note")).toContainText("Phase 2");
+  await expect(page.getByTestId("day-pnl")).toContainText("NOT SHOWN YET");
+  await expect(page.getByTestId("day-pnl-note")).toContainText("is not drawn here yet");
+  await expect(page.getByTestId("day-pnl-note")).not.toContainText("are not filled");
+  await expect(page.getByTestId("day-positions-note")).toContainText("recorded but not listed here yet");
+  await expect(page.getByTestId("day-positions-note")).not.toContainText("places no orders");
   await expect(page.getByTestId("day-pnl")).not.toContainText("₹");
   await expect(page.getByTestId("day-positions")).not.toContainText("₹");
   await expect(page.locator('[data-testid="day-pnl"] svg')).toHaveCount(0);
 
   await expect(page.getByTestId("day-eod-status")).toHaveText("RUN COMPLETE");
-  for (const [id, ph] of [["orders", 2], ["gross", 2], ["net", 2], ["drawdown", 2], ["assertions", 3]] as const) {
+  for (const [id, tag] of [["orders", "NOT SHOWN YET"], ["gross", "NOT SHOWN YET"], ["net", "NOT SHOWN YET"], ["drawdown", "NOT SHOWN YET"], ["assertions", "PHASE 3"]] as const) {
     await expect(page.getByTestId(`day-eod-${id}`)).toContainText("—");
-    await expect(page.getByTestId(`day-eod-${id}`)).toContainText(`PHASE ${ph}`);
+    await expect(page.getByTestId(`day-eod-${id}`)).toContainText(tag);
   }
   await expect(page.getByTestId("day-eod-violations")).toHaveText("Policy violations · whole run0");
   await expect(page.getByTestId("day-eod-signals-expired")).toHaveText("Signals expired at the close2");

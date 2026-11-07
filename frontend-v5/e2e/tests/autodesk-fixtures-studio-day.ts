@@ -49,8 +49,8 @@ export const resultsOf = (sid: string, status: string, violations = 0) => ({
   approvals: { by_status: { APPROVED: 4, NEEDS_HUMAN_APPROVAL: 1, REJECTED: 1 }, by_decider: { MIDDLE_OFFICE: 5, SYSTEM: 1 } },
   agents: {}, handoffs: 15, policy_violation_attempts: violations, versions: VERSIONS,
   data: { first_session: "2026-11-02", last_session: "2026-11-03", universe: "FNO", symbols: null },
-  limitations: ["Phase 1 has no execution: approved plans are not filled, so there is no P&L, no capital reservation and the daily-loss / weekly-loss / drawdown checks are skipped."],
-  execution: "none in Phase 1 (no orders, fills or P&L)",
+  limitations: ["Daily-loss, weekly-loss and drawdown limits are not enforced: they act on P&L from Phase 3, with the trade lifecycle."],
+  execution: "paper execution: simulated fills, see execution_summary",
 });
 
 // ── the event stream of a 2-session run ──────────────────────────────────────────────────────────────────────────────
