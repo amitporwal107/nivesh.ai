@@ -475,6 +475,9 @@ def why_not_started(env: Optional[Dict[str, str]] = None) -> Optional[str]:
         return "TRUEDATA_SHADOW_ENABLED=0"
     if not mds.truedata_is_on():
         return mds.truedata_off_message()
+    if mds.resolve().effective == "truedata":
+        return ("TrueData serves the live feed: its checks run on that connection (one login allows one connection), "
+                "services/truedata_live/serve.py")
     if ws_credentials(env) is None:
         return "no TrueData WebSocket login (TRUEDATA_WS_USERNAME / TRUEDATA_WS_PASSWORD)"
     return None
