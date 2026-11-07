@@ -167,7 +167,8 @@ async def _context(c, gw: ExecutionGateway, intent: dict):
     return plan, body, account, pol, res
 
 
-async def _apply_priced(c, gw, intent: dict, priced, *, plan, body, policy, res, at: datetime, sim_time) -> None:
+async def _apply_priced(c, gw, intent: dict, priced, *, plan, body, policy, res, at: datetime, sim_time,
+                        quotes: Optional[dict] = None) -> None:
     """Fills, rests and a rejection from one pricing pass over an intent's orders."""
     spec = intent["order_spec"]
     all_orders = await orders.of_intent(c, intent["intent_id"])
@@ -182,7 +183,8 @@ async def _apply_priced(c, gw, intent: dict, priced, *, plan, body, policy, res,
         fresh = await orders.get_order(c, o["tenant_id"], o["order_id"], for_update=True)
         res = await capital.get_reservation(c, o["tenant_id"], res["reservation_id"], for_update=True)
         await apply_fill(c, intent=intent, order=fresh, d=d, plan=plan, body=body, res=res, siblings=all_orders,
-                         policy=policy, at=at, sim_time=sim_time, quote_ref=d.source if "live quote" in d.source else None)
+                         policy=policy, at=at, sim_time=sim_time,
+                         quote_ref=quotes[orders.leg_ref(fresh).key].ref if quotes else None)
         filled_any = True
     if filled_any and spec.get("basket") and len(priced.fills) == len(all_orders):
         await _basket_margin(c, intent, spec, intent["trade_id"], at, sim_time)
@@ -303,7 +305,7 @@ async def snapshot(c, *, tenant_id: str, account_id: str, session: date, as_of: 
 
 # ── live desk ─────────────────────────────────────────────────────────────────
 
-async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None) -> dict:
+async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, tenant_id: Optional[str] = None) -> dict:
     """One pass of the live desk: submit validated intents, price working orders from FRESH quotes only, expire at the
     session close, mark open positions. No fresh quote means no fill: the order waits and tries again."""
     now = now or datetime.now(timezone.utc)
@@ -314,7 +316,8 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None) -> 
     async with gw.pool.acquire() as c:
         rows = [dict(r) for r in await c.fetch(
             """SELECT intent_id, tenant_id, session_date FROM autodesk.execution_intents WHERE simulation_id IS NULL
-               AND status IN ('VALIDATED','SUBMITTED') ORDER BY created_at""")]
+               AND status IN ('VALIDATED','SUBMITTED') AND ($1::text IS NULL OR tenant_id=$1) ORDER BY created_at""",
+            tenant_id)]
     for r in rows:
         out["intents"] += 1
         iid, tenant_id, session = r["intent_id"], r["tenant_id"], r["session_date"]
@@ -351,21 +354,22 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None) -> 
                 net = Decimal(spec["net_limit_rs"]) if spec.get("net_limit_rs") else None
                 inval = orders.invalidation_of(plan["body"], len(body.legs))
                 priced = gw.live.price(working, answer, now=now, net_limit=net, invalidation=inval)
-                await _apply_priced(c, gw, intent, priced, plan=plan, body=body, policy=pol, res=res, at=now, sim_time=None)
+                await _apply_priced(c, gw, intent, priced, plan=plan, body=body, policy=pol, res=res, at=now, sim_time=None,
+                                    quotes=answer.quotes)
                 out["fills"] += len(priced.fills)
                 out["waiting"] += len(priced.rests)
                 await finish_intent(c, intent, as_of=now, sim_time=None, why="filled or rejected")
-    out["marked"] = await mark_live(gw, now=now)
+    out["marked"] = await mark_live(gw, now=now, tenant_id=tenant_id)
     return out
 
 
-async def mark_live(gw: ExecutionGateway, *, now: datetime) -> int:
+async def mark_live(gw: ExecutionGateway, *, now: datetime, tenant_id: Optional[str] = None) -> int:
     """Mark open desk positions from fresh quotes. A leg with no fresh quote keeps its last mark, which is then shown as
     stale on read (reports.mark_age)."""
     if gw.live is None:
         return 0
     async with gw.pool.acquire() as c:
-        legs = await positions.open_legs(c, desk_only=True)
+        legs = await positions.open_legs(c, tenant_id=tenant_id, desk_only=True)
     if not legs:
         return 0
     refs = [orders.leg_ref({"kind": lg["kind"], "underlying": lg["underlying"], "expiry": lg["expiry"], "strike": lg["strike"]})
