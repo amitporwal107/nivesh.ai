@@ -29,6 +29,67 @@ DESCRIPTOR = AgentDescriptor(
     prohibited=["create trading signals", "approve", "execute"])
 
 
+async def data_checks(m, sd: date) -> tuple[list[HealthCheck], dict[str, str | None], bool, bool]:
+    """The market-data part of the pre-market check, for the session `sd` being prepared: cash_eod, fno_eod and vix.
+    Returns (checks, data_as_of, cash_ok, fno_ok). `TechSupport.run` and GET /api/v1/health/status both call this, so the
+    two can never apply different rules to the data."""
+    checks: list[HealthCheck] = []
+    data_as_of: dict[str, str | None] = {"cash_eod": None, "fno_eod": None}
+    prev: date | None = None
+    prev_err = ""
+    try:
+        prev = await m.previous_session(sd)
+    except DataUnavailable as e:
+        prev_err = str(e)
+    unknown = f"cannot tell which session precedes {sd}: {prev_err}"
+    cash_ok = False
+    try:
+        d = m.latest_session("cash")
+        data_as_of["cash_eod"] = d.isoformat()
+        if prev is None:
+            checks.append(HealthCheck(name="cash_eod", status=HealthStatus.BLOCKED, detail=unknown,
+                                      as_of=d.isoformat()))
+        elif d < prev:
+            checks.append(HealthCheck(name="cash_eod", status=HealthStatus.BLOCKED, as_of=d.isoformat(),
+                                      detail=f"Cash data is for {d}; the {sd} session needs {prev}"))
+        else:
+            snap = await m.day_snapshot(d)
+            cash_ok = len(snap) >= MIN_CASH_ROWS
+            checks.append(HealthCheck(name="cash_eod",
+                                      status=HealthStatus.READY if cash_ok else HealthStatus.BLOCKED,
+                                      detail=f"{len(snap)} cash rows for {d} (need {MIN_CASH_ROWS})",
+                                      as_of=d.isoformat()))
+    except DataUnavailable as e:
+        checks.append(HealthCheck(name="cash_eod", status=HealthStatus.BLOCKED, detail=f"not readable: {e}"))
+    fno_ok = False
+    try:
+        d = m.latest_session("fno")
+        data_as_of["fno_eod"] = d.isoformat()
+        if prev is None:
+            checks.append(HealthCheck(name="fno_eod", status=HealthStatus.DEGRADED, detail=unknown,
+                                      as_of=d.isoformat()))
+        elif d != prev:
+            checks.append(HealthCheck(name="fno_eod", status=HealthStatus.DEGRADED, as_of=d.isoformat(),
+                                      detail=f"F&O data is for {d}; the {sd} session needs {prev}"))
+        else:
+            uni = await m.fno_universe(d)
+            fno_ok = len(uni) >= MIN_FNO_UNDERLYINGS
+            checks.append(HealthCheck(name="fno_eod",
+                                      status=HealthStatus.READY if fno_ok else HealthStatus.DEGRADED,
+                                      detail=f"{len(uni)} F&O underlyings for {d} (need {MIN_FNO_UNDERLYINGS})",
+                                      as_of=d.isoformat()))
+    except DataUnavailable as e:
+        checks.append(HealthCheck(name="fno_eod", status=HealthStatus.DEGRADED, detail=f"not readable: {e}"))
+    try:
+        v = await m.vix()
+        checks.append(HealthCheck(name="vix", status=HealthStatus.READY if v is not None else HealthStatus.DEGRADED,
+                                  detail=f"India VIX {v}" if v is not None else "no India VIX for the session "
+                                  "(regime inputs will be listed as missing)"))
+    except DataUnavailable as e:
+        checks.append(HealthCheck(name="vix", status=HealthStatus.DEGRADED, detail=f"not readable: {e}"))
+    return checks, data_as_of, cash_ok, fno_ok
+
+
 class TechSupport(Agent):
     descriptor = DESCRIPTOR
 
@@ -36,63 +97,12 @@ class TechSupport(Agent):
         m = ctx.market
         sd = date.fromisoformat(ctx.inputs["session_date"])
         checks: list[HealthCheck] = []
-        data_as_of: dict[str, str | None] = {"cash_eod": None, "fno_eod": None}
 
         db_ok = bool(ctx.inputs.get("db_ok"))
         checks.append(HealthCheck(name="desk_db", status=HealthStatus.READY if db_ok else HealthStatus.BLOCKED,
                                   detail="answers" if db_ok else "the desk database did not answer"))
-        prev: date | None = None
-        prev_err = ""
-        try:
-            prev = await m.previous_session(sd)
-        except DataUnavailable as e:
-            prev_err = str(e)
-        unknown = f"cannot tell which session precedes {sd}: {prev_err}"
-        cash_ok = False
-        try:
-            d = m.latest_session("cash")
-            data_as_of["cash_eod"] = d.isoformat()
-            if prev is None:
-                checks.append(HealthCheck(name="cash_eod", status=HealthStatus.BLOCKED, detail=unknown,
-                                          as_of=d.isoformat()))
-            elif d < prev:
-                checks.append(HealthCheck(name="cash_eod", status=HealthStatus.BLOCKED, as_of=d.isoformat(),
-                                          detail=f"Cash data is for {d}; the {sd} session needs {prev}"))
-            else:
-                snap = await m.day_snapshot(d)
-                cash_ok = len(snap) >= MIN_CASH_ROWS
-                checks.append(HealthCheck(name="cash_eod",
-                                          status=HealthStatus.READY if cash_ok else HealthStatus.BLOCKED,
-                                          detail=f"{len(snap)} cash rows for {d} (need {MIN_CASH_ROWS})",
-                                          as_of=d.isoformat()))
-        except DataUnavailable as e:
-            checks.append(HealthCheck(name="cash_eod", status=HealthStatus.BLOCKED, detail=f"not readable: {e}"))
-        fno_ok = False
-        try:
-            d = m.latest_session("fno")
-            data_as_of["fno_eod"] = d.isoformat()
-            if prev is None:
-                checks.append(HealthCheck(name="fno_eod", status=HealthStatus.DEGRADED, detail=unknown,
-                                          as_of=d.isoformat()))
-            elif d != prev:
-                checks.append(HealthCheck(name="fno_eod", status=HealthStatus.DEGRADED, as_of=d.isoformat(),
-                                          detail=f"F&O data is for {d}; the {sd} session needs {prev}"))
-            else:
-                uni = await m.fno_universe(d)
-                fno_ok = len(uni) >= MIN_FNO_UNDERLYINGS
-                checks.append(HealthCheck(name="fno_eod",
-                                          status=HealthStatus.READY if fno_ok else HealthStatus.DEGRADED,
-                                          detail=f"{len(uni)} F&O underlyings for {d} (need {MIN_FNO_UNDERLYINGS})",
-                                          as_of=d.isoformat()))
-        except DataUnavailable as e:
-            checks.append(HealthCheck(name="fno_eod", status=HealthStatus.DEGRADED, detail=f"not readable: {e}"))
-        try:
-            v = await m.vix()
-            checks.append(HealthCheck(name="vix", status=HealthStatus.READY if v is not None else HealthStatus.DEGRADED,
-                                      detail=f"India VIX {v}" if v is not None else "no India VIX for the session "
-                                      "(regime inputs will be listed as missing)"))
-        except DataUnavailable as e:
-            checks.append(HealthCheck(name="vix", status=HealthStatus.DEGRADED, detail=f"not readable: {e}"))
+        more, data_as_of, cash_ok, fno_ok = await data_checks(m, sd)    # cash_eod, fno_eod, vix: shared with the status route
+        checks += more
 
         if not (db_ok and cash_ok):
             status, allowed = HealthStatus.BLOCKED, []

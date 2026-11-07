@@ -1,0 +1,806 @@
+{
+ "calendar_unknown": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "cannot tell which session precedes 2026-11-06: the NSE holiday list for 2026 is not loaded",
+      "name": "cash_eod",
+      "status": "BLOCKED"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "cannot tell which session precedes 2026-11-06: the NSE holiday list for 2026 is not loaded",
+      "name": "fno_eod",
+      "status": "DEGRADED"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "BLOCKED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market BLOCKED: new risk allowed in nothing"
+  }
+ },
+ "cash_file_missing": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 0,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "0 cash rows for 2026-11-05 (need 2)",
+      "name": "cash_eod",
+      "status": "BLOCKED"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 F&O underlyings for 2026-11-05 (need 2)",
+      "name": "fno_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "BLOCKED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market BLOCKED: new risk allowed in nothing"
+  }
+ },
+ "cash_old_before_cutoff": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-04"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 0,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-04",
+      "detail": "Cash data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05",
+      "name": "cash_eod",
+      "status": "BLOCKED"
+     },
+     {
+      "as_of": "2026-11-04",
+      "detail": "F&O data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05",
+      "name": "fno_eod",
+      "status": "DEGRADED"
+     },
+     {
+      "as_of": null,
+      "detail": "no India VIX for the session (regime inputs will be listed as missing)",
+      "name": "vix",
+      "status": "DEGRADED"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-04",
+     "fno_eod": "2026-11-04"
+    },
+    "session_date": "2026-11-06",
+    "status": "BLOCKED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market BLOCKED: new risk allowed in nothing"
+  }
+ },
+ "data_unreadable": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": null,
+      "detail": "not readable: data API: GET https://daas.example-internal.test:8443/prices/eod refused",
+      "name": "cash_eod",
+      "status": "BLOCKED"
+     },
+     {
+      "as_of": null,
+      "detail": "not readable: data API: GET https://daas.example-internal.test:8443/prices/eod refused",
+      "name": "fno_eod",
+      "status": "DEGRADED"
+     },
+     {
+      "as_of": null,
+      "detail": "not readable: data API: GET https://daas.example-internal.test:8443/prices/eod refused",
+      "name": "vix",
+      "status": "DEGRADED"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "BLOCKED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market BLOCKED: new risk allowed in nothing"
+  }
+ },
+ "database_down": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "the desk database did not answer",
+      "name": "desk_db",
+      "status": "BLOCKED"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 cash rows for 2026-11-05 (need 2)",
+      "name": "cash_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 F&O underlyings for 2026-11-05 (need 2)",
+      "name": "fno_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "BLOCKED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market BLOCKED: new risk allowed in nothing"
+  }
+ },
+ "few_rows_default_thresholds": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 cash rows for 2026-11-05 (need 500)",
+      "name": "cash_eod",
+      "status": "BLOCKED"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 F&O underlyings for 2026-11-05 (need 50)",
+      "name": "fno_eod",
+      "status": "DEGRADED"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "BLOCKED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market BLOCKED: new risk allowed in nothing"
+  }
+ },
+ "fno_missing": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 0,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [
+     "CASH"
+    ],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 cash rows for 2026-11-05 (need 2)",
+      "name": "cash_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "0 F&O underlyings for 2026-11-05 (need 2)",
+      "name": "fno_eod",
+      "status": "DEGRADED"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "DEGRADED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market DEGRADED: new risk allowed in CASH"
+  }
+ },
+ "fno_two_sessions_old": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [
+     "CASH"
+    ],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 cash rows for 2026-11-05 (need 2)",
+      "name": "cash_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-04",
+      "detail": "F&O data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05",
+      "name": "fno_eod",
+      "status": "DEGRADED"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-04"
+    },
+    "session_date": "2026-11-06",
+    "status": "DEGRADED"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market DEGRADED: new risk allowed in CASH"
+  }
+ },
+ "ready": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [
+     "CASH",
+     "FUTURES",
+     "OPTIONS"
+    ],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 cash rows for 2026-11-05 (need 2)",
+      "name": "cash_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 F&O underlyings for 2026-11-05 (need 2)",
+      "name": "fno_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13.5",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "READY"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market READY: new risk allowed in CASH, FUTURES, OPTIONS"
+  }
+ },
+ "vix_missing": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 6,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-05"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 0,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [
+     "CASH",
+     "FUTURES",
+     "OPTIONS"
+    ],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 cash rows for 2026-11-05 (need 2)",
+      "name": "cash_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-05",
+      "detail": "6 F&O underlyings for 2026-11-05 (need 2)",
+      "name": "fno_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": null,
+      "detail": "no India VIX for the session (regime inputs will be listed as missing)",
+      "name": "vix",
+      "status": "DEGRADED"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-05",
+     "fno_eod": "2026-11-05"
+    },
+    "session_date": "2026-11-06",
+    "status": "READY"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market READY: new risk allowed in CASH, FUTURES, OPTIONS"
+  }
+ },
+ "weekend_monday_needs_friday": {
+  "calls": [
+   {
+    "args": {
+     "day": "2026-11-09"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "previous_session"
+   },
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 3,
+    "tool": "day_snapshot"
+   },
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 3,
+    "tool": "fno_universe"
+   },
+   {
+    "args": {
+     "day": "2026-11-06"
+    },
+    "error": null,
+    "ok": true,
+    "rows": 1,
+    "tool": "vix"
+   }
+  ],
+  "result": {
+   "output": {
+    "allowed_segments": [
+     "CASH",
+     "FUTURES",
+     "OPTIONS"
+    ],
+    "checks": [
+     {
+      "as_of": null,
+      "detail": "answers",
+      "name": "desk_db",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-06",
+      "detail": "3 cash rows for 2026-11-06 (need 2)",
+      "name": "cash_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": "2026-11-06",
+      "detail": "3 F&O underlyings for 2026-11-06 (need 2)",
+      "name": "fno_eod",
+      "status": "READY"
+     },
+     {
+      "as_of": null,
+      "detail": "India VIX 13",
+      "name": "vix",
+      "status": "READY"
+     }
+    ],
+    "data_as_of": {
+     "cash_eod": "2026-11-06",
+     "fno_eod": "2026-11-06"
+    },
+    "session_date": "2026-11-09",
+    "status": "READY"
+   },
+   "output_schema": "premarket-report-v1",
+   "summary": "pre-market READY: new risk allowed in CASH, FUTURES, OPTIONS"
+  }
+ }
+}

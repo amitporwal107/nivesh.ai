@@ -30,7 +30,7 @@ The overall `status` is the worst part. HTTP is always 200.
 | AD-HS-01 | A | Call with no cookie, no header | 200; body has `status`, `as_of` and `parts` with exactly database, data_api, redis, quote_feed, scheduler, last_cycle; each part has status in OK/DEGRADED/BLOCKED, a non-empty one-sentence `detail`, and `as_of` an ISO time or null |
 | AD-HS-02 | A | Sign-in is faked to fail (the other routes answer 401 in the same app) | this route still answers 200: it does not depend on `current_user` |
 | AD-HS-80 | U | Parts all OK; one DEGRADED; DEGRADED and BLOCKED together | overall OK; DEGRADED; BLOCKED; always HTTP 200 |
-| AD-HS-81 | A | The desk database is closed | 200 within the timeout; database BLOCKED; the other parts still reported |
+| AD-HS-81 | A | The desk database is closed; separately, the desk state is missing altogether | 200 within the timeout; database BLOCKED; the other parts still reported; with no desk state every part reports its failure by exception type |
 
 ## Parts
 
@@ -44,10 +44,11 @@ The overall `status` is the worst part. HTTP is always 200.
 | AD-HS-22 | U | India VIX missing, cash and F&O fine | data_api OK and the detail says there is no India VIX (Tech Support calls it "noted, not blocking") |
 | AD-HS-23 | U | Cash older than the previous session; cash with too few rows | data_api BLOCKED |
 | AD-HS-24 | U | The data API read fails with a message holding a fake hostname and port | data_api BLOCKED; the detail says the data could not be read and holds neither the hostname nor the port |
-| AD-HS-25 | U | Same market inputs through `TechSupport.run` (db_ok True) and through the route, six scenarios (READY, VIX missing, F&O stale, F&O too few, cash stale, data unreadable, calendar unknown) | route data_api status equals the agent's report status (READY=OK) in each |
+| AD-HS-25 | U | Same market inputs through `TechSupport.run` (db_ok True) and through the route, every database-up scenario in `ts_scenarios.py` (READY, VIX missing, F&O missing, F&O two sessions old, cash old, cash file missing, too few rows, Monday after a weekend, data unreadable, calendar unknown) | route data_api status equals the agent's report status (READY=OK) in each |
 | AD-HS-26 | U | The data check takes longer than the wait (3 s) | the request answers within the timeout; first ever call says the first data check is still running (DEGRADED); once the background run finishes, the next uncached call reports the real result with its `as_of` |
 | AD-HS-27 | U | The last finished data check is more than 5 minutes old and the new run hangs | DEGRADED saying how old the last check is, never the old OK |
 | AD-HS-28 | U | The data check never finishes (deadline shortened in the test) | the stored result becomes BLOCKED, "did not finish" |
+| AD-HS-29 | U | Friday 16:00 IST, the session being prepared is Monday, whose input (Friday's file) is published at 19:30 IST | route data_api BLOCKED with the same cash sentence the pre-market check gives. A recorded consequence of using its rules unchanged, not a rule of the route |
 | AD-HS-40 | U | Redis client pings | redis OK |
 | AD-HS-41 | U | Redis client is None (not configured) | redis DEGRADED |
 | AD-HS-42 | U | Ping raises | redis DEGRADED, exception type only |
@@ -103,7 +104,7 @@ The overall `status` is the worst part. HTTP is always 200.
 
 | ID | Layer | Case | Expected |
 |---|---|---|---|
-| AD-HS-130 | I | Row counts of every autodesk table, and `n_tup_ins/upd/del`, before and after several uncached calls on a database holding workflows | identical |
+| AD-HS-130 | I | Row counts of every autodesk table, and an md5 of the workflows, accounts, events and simulations rows, before and after several uncached calls on a database holding workflows; and a write attempted on the last-cycle connection's read-only transaction | identical; Postgres refuses the write |
 | AD-HS-131 | U | A recording pool | every statement the route sends starts with SELECT and runs in a read-only transaction or a plain read |
 | AD-HS-132 | U | The route's source and a run with the market open | no import of a broker, `ReadOnlyKite` or order module; no broker order data read |
 
