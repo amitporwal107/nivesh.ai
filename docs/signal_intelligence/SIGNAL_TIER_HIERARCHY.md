@@ -223,3 +223,33 @@ v2 ranks candidates in the test period and not in the fit period; the tier choic
 breakout is the most consistent signal; setup A and the bearish-warning penalty add nothing (candidates for v2.1). Judge bands
 against the universe baseline (which beats the Nifty in the test period: equal weighting, survivorship). **v2 stays in shadow
 until live shadow scores confirm it.**
+
+## 13. Intraday signals — study results (5 Nov 2026; v3-intraday stays DISABLED)
+
+Data: Kite minute candles, 1 Apr – 5 Nov 2026, 743 stocks of the Nifty Total Market, 110,414 stock-days (149 sessions); split
+Apr–Jul / Aug–Nov. Entry at the signal's own time (first-5-minute signals at the 09:20 price; opening-range breakout and VWAP
+reclaim at their minute). Returns against the same day's average stock (market control); costs 0.06 % intraday, 0.25 % multi-day.
+"10×" = first-5-minute volume against the stock's own first-5-minute volume over the previous 20 sessions.
+
+| Signal (from its entry time) | Same day, Apr–Jul / Aug–Nov | Next day | 5 sessions |
+|---|---|---|---|
+| ≥ 10× first-5-minute volume, first 5 minutes up | −0.17 / −0.53 (t −2.8) | −0.01 / −0.36 | −1.13 / −0.13 |
+| ≥ 10×, first 5 minutes down | −0.22 / −0.22 | −0.76 (t −2.3) / −0.44 | −0.92 / −0.82 |
+| 5–10×, first 5 minutes down | −0.25 / −0.07 | −0.79 (t −3.0) / −0.46 (t −2.4) | −0.91 / −1.30 (t −2.6) |
+| < 2×, first 5 minutes up (quiet open, rising) | −0.02 / +0.00 | +0.09 / +0.08 | +0.12 / +0.11 |
+| Opening-range breakout up (15-min range) | about −0.05 to −0.10 in every band | | |
+| VWAP reclaim after ≥ 30 min below (after 10:00) | about −0.05 to +0.05 | | |
+| ≥ 10× and up, when the previous day's v2 band was Strong | −0.22 / — | −0.45 / — | −3.39 (t −4.7, n 52) / — |
+
+- **No intraday entry signal tested beats the average stock after costs in either period.** By the time a 10× opening shows,
+  the move is in the price; entering at 09:20 lagged the average stock.
+- **10× opening volume with a falling first 5 minutes is a useful warning** (next day −0.4 to −0.8, 5 sessions −0.8 to −1.3): it
+  belongs with the bearish warnings (risk / exits), not with entries.
+- Short horizons revert: stocks the positional v2 rates Strong / Exceptional lag the next day (−0.3) — the positional and
+  intraday problems are different, as the owner's plan said.
+- The Scan dashboard's live "early movers" rule (≥ 5× usual-by-now and ≥ 2 % over the open, 3 Nov study) measured the rise *from
+  the open*, which includes the move before the signal; it was not re-tested here from its detection time — next study.
+- Caveats: 7 months; one entry time per signal; shares only (no option leverage); today's index members.
+
+**Decision recorded:** v3-intraday stays DISABLED. Next: re-test the early-movers rule from its detection time (needs 15-minute
+volume and price paths), and add "≥ 5× opening volume with a falling first 5 minutes" as a v2 risk warning in v2.1.
