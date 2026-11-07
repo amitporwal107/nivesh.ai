@@ -103,6 +103,7 @@ class MarketView(Protocol):
     async def day_snapshot(self, day: date) -> dict[str, Bar]: ...
     async def index_bars(self, name: str, *, sessions: int) -> list[Bar]: ...
     async def fno_universe(self, day: Optional[date] = None) -> list[str]: ...
+    async def index_members(self, name: str) -> list[str]: ...
     async def fno_buildup(self, day: Optional[date] = None) -> list[BuildupRow]: ...
     async def futures(self, underlying: str, day: Optional[date] = None) -> list[FnoContract]: ...
     async def options(self, underlying: str, expiry: date, day: Optional[date] = None) -> list[FnoContract]: ...
@@ -237,6 +238,15 @@ class FrozenMarketView(RecordingMixin):
         out = sorted({r.underlying for rows in self._d.get("fno", {}).values() for r in rows
                       if r.day == day and r.kind == "FUT"})
         self._record("fno_universe", {"day": day}, t0=t0, rows=len(out))
+        return out
+
+    async def index_members(self, name: str) -> list[str]:
+        """Today's members of an index (data key "members": {index name: [symbols]}); membership has no history."""
+        t0 = time.monotonic()
+        out = sorted(self._d.get("members", {}).get(name) or [])
+        if not out:
+            raise DataUnavailable(f"no constituents for {name}")
+        self._record("index_members", {"name": name}, t0=t0, rows=len(out))
         return out
 
     async def fno_buildup(self, day: Optional[date] = None) -> list[BuildupRow]:
