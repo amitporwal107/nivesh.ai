@@ -29,6 +29,18 @@ log = logging.getLogger(__name__)
 SessionsProvider = Callable[[date, date], Awaitable[list[date]]]
 MAX_SESSIONS = 30          # Phase 1 bound per simulation (each session runs up to ~N agent tasks per signal)
 
+PHASE2_LIMITATIONS = [
+    "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay "
+    "(stored intraday history is about ten days and has no cash stocks).",
+    "Every fill is simulated from the session's daily row (open, high, low, close, traded quantity): no order book, no "
+    "queue position, spreads are proxies. A resting limit fills only if price traded through it, at the limit.",
+    "Several-leg plans fill all-or-none. Exits, stops, targets and trailing are Phase 3: positions stay open and are "
+    "marked at each session's close, so P&L is unrealized only.",
+    "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected.",
+    "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN. Costs are desk-cost-v2.",
+    "Sector is the latest index-constituent industry, not point-in-time.",
+]
+
 LIMITATIONS = [
     "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay "
     "(stored intraday history is about ten days and has no cash stocks).",
@@ -47,9 +59,10 @@ def phase_time(day: date, hhmm: str) -> datetime:
 
 class SimulationManager:
     def __init__(self, pool, orchestrator, sessions_provider: SessionsProvider,
-                 versions: Optional[Callable[[], dict]] = None):
+                 versions: Optional[Callable[[], dict]] = None, execution: Any = None):
         self.pool = pool
         self.orch = orchestrator
+        self.execution = execution      # execution.gateway.ExecutionGateway; None = Phase 1 behaviour (OPEN and CLOSE do nothing)
         self.sessions_provider = sessions_provider
         self._versions = versions or (lambda: {})
 
@@ -175,6 +188,12 @@ class SimulationManager:
                 detail = await fn(tenant_id=tenant_id, cycle_id=cycle_id, as_of=t)
                 if phase == C.ClockPhase.PROPOSALS:
                     wf_ids += [r["workflow_id"] for r in detail.get("results", [])]
+            elif phase == C.ClockPhase.OPEN and self.execution is not None:
+                from ..execution import settle
+                detail = await settle.run_open(self.execution, tenant_id=tenant_id, simulation_id=sid, session=day, as_of=t)
+            elif phase == C.ClockPhase.CLOSE and self.execution is not None:
+                from ..execution import settle
+                detail = await settle.run_close(self.execution, tenant_id=tenant_id, simulation_id=sid, session=day, as_of=t)
             elif phase == C.ClockPhase.EOD:
                 detail = await self.orch.close_session(tenant_id=tenant_id, account_id=acc, session_date=day,
                                                        simulation_id=sid, as_of=t)
@@ -268,10 +287,10 @@ class SimulationManager:
             lat = a.pop("latency_ms")
             a["avg_latency_ms"] = round(sum(lat) / len(lat)) if lat else None
         pm_status = Counter(((r["outcome"] or {}).get("premarket") or {}).get("status", "UNKNOWN") for r in pm)
-        lim = list(LIMITATIONS)
+        lim = list(LIMITATIONS if self.execution is None else PHASE2_LIMITATIONS)
         if sim["config"].get("universe", "FNO") != "FNO" and not sim["config"].get("symbols"):
             lim.append("Index universes use today's index members (membership has no history): survivorship bias.")
-        return {
+        out = {
             "simulation_id": sid, "status": sim["status"], "mode": sim["mode"],
             "sessions_total": len(sim["config"].get("sessions", [])), "phases_run": clock,
             "premarket": dict(pm_status),
@@ -290,6 +309,12 @@ class SimulationManager:
             "limitations": lim,
             "execution": "none in Phase 1 (no orders, fills or P&L)",
         }
+        if self.execution is not None:
+            from ..execution import reports
+            async with self.pool.acquire() as c:
+                out["execution_summary"] = await reports.execution_summary(c, tenant_id, sid, self.execution.params)
+            out["execution"] = "paper execution: simulated fills, see execution_summary"
+        return out
 
 
 def _plain(v: Any) -> Any:

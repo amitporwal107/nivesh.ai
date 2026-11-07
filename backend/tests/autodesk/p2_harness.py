@@ -47,6 +47,8 @@ class FrozenSessionBars(SessionBarSource):
         self.rows = rows
 
     async def _read(self, leg: LegRef, session: date) -> Optional[SessionBar]:
+        if callable(self.rows):
+            return self.rows(leg, session)
         r = self.rows.get(leg.key)
         return r.get(session) if isinstance(r, dict) else r
 

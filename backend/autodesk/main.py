@@ -8,6 +8,7 @@ Single instance in Phase 1 (recovery assumes no other live instance).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ class DeskState:
     market_factory: Callable[[datetime], Any]
     next_session: Callable[[datetime], Awaitable[date]]
     background: dict = field(default_factory=dict)
+    execution: Any = None
 
 
 def production_agents() -> dict:
@@ -39,13 +41,14 @@ def production_agents() -> dict:
 
 
 def build_state(pool, *, agents: dict, market_factory, sessions_provider, next_session, settings=None,
-                load_book=None, scope_builder=None) -> DeskState:
+                load_book=None, scope_builder=None, execution=None) -> DeskState:
     from .orchestrator.engine import Orchestrator
     from .simulator.manager import SimulationManager
 
     orch = Orchestrator(pool, agents, market_factory, settings=settings, load_book=load_book,
                         scope_builder=scope_builder,
-                        task_deadline_s=getattr(settings, "task_deadline_s", 30.0) if settings else 30.0)
+                        task_deadline_s=getattr(settings, "task_deadline_s", 30.0) if settings else 30.0,
+                        execution=execution)
 
     def versions() -> dict:
         v: dict[str, Any] = {"app": APP_VERSION,
@@ -63,9 +66,21 @@ def build_state(pool, *, agents: dict, market_factory, sessions_provider, next_s
             pass
         return v
 
-    sim = SimulationManager(pool, orch, sessions_provider, versions=versions)
+    sim = SimulationManager(pool, orch, sessions_provider, versions=versions, execution=execution)
     return DeskState(pool=pool, orchestrator=orch, simulator=sim, market_factory=market_factory,
-                     next_session=next_session)
+                     next_session=next_session, execution=execution)
+
+
+def production_execution(pool):
+    """Paper execution: simulations priced from the session's daily row, the live desk from live Zerodha quotes (read only).
+    LIVE_EXECUTION_AVAILABLE stays False: nothing here can place an order."""
+    from .execution.adapters import LivePaperAdapter, SimulationPaperAdapter
+    from .execution.fill_model import DEFAULT_PARAMS
+    from .execution.gateway import ExecutionGateway
+    from .market.live_quotes import KiteQuoteSource
+    from .market.session_bars import PitSessionBars
+    return ExecutionGateway(pool, sim=SimulationPaperAdapter(PitSessionBars(), DEFAULT_PARAMS),
+                            live=LivePaperAdapter(KiteQuoteSource(), DEFAULT_PARAMS), params=DEFAULT_PARAMS)
 
 
 def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = None) -> FastAPI:
@@ -102,8 +117,13 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
             applied = await apply_pending(pool)
             log.info("autodesk migrations applied: %s", applied or "none")
         st = build_state(pool, agents=production_agents(), market_factory=lambda as_of: PitMarketView(as_of),
-                         sessions_provider=sessions_between, next_session=next_session_for, settings=settings)
+                         sessions_provider=sessions_between, next_session=next_session_for, settings=settings,
+                         execution=production_execution(pool))
         await st.orchestrator.register_agents()
+        stop_live = asyncio.Event()
+        if getattr(settings, "live_loop", True):
+            from .execution import live_loop
+            st.background["live_execution"] = asyncio.create_task(live_loop.run(st.execution, stop=stop_live))
         touched = await st.orchestrator.recover()
         if touched:
             log.warning("recovery failed closed %d interrupted tasks", len(touched))
@@ -111,6 +131,7 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
         try:
             yield
         finally:
+            stop_live.set()
             for t in st.background.values():
                 t.cancel()
             await close_pool()

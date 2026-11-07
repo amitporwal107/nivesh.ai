@@ -56,7 +56,7 @@ def _j(v: Any) -> Any:
 class Orchestrator:
     def __init__(self, pool, agents: dict, market_factory: MarketFactory, *, settings=None,
                  load_book: Optional[BookLoader] = None, scope_builder: Optional[Callable[..., C.ApprovalScope]] = None,
-                 task_deadline_s: float = 30.0):
+                 task_deadline_s: float = 30.0, execution: Any = None):
         self.pool = pool
         self.agents = agents
         self.market_factory = market_factory
@@ -64,8 +64,22 @@ class Orchestrator:
         self.runner = TaskRunner(pool, agents)
         self._load_book = load_book
         self._scope_builder = scope_builder
+        self.execution = execution          # execution.gateway.ExecutionGateway, or None: Phase 1 behaviour (plans stop at APPROVED)
         self.task_deadline_s = task_deadline_s
         self.scan_deadline_s = max(task_deadline_s, float(getattr(settings, "scan_deadline_s", 600.0) or 600.0))
+
+    async def _execute(self, *, tenant_id: str, trade_id: str, plan_version: int, approval_id: str, as_of: datetime,
+                       simulation_id: Optional[str]) -> Optional[dict]:
+        """Hand an approved plan to the execution gateway: intent, controls, reservation, orders. On the live desk the
+        orders are also submitted now; in a simulation they are submitted at the OPEN phase. None without a gateway."""
+        if self.execution is None:
+            return None
+        intent = await self.execution.create_intent(tenant_id=tenant_id, trade_id=trade_id, plan_version=plan_version,
+                                                    approval_id=approval_id, as_of=as_of)
+        if intent["status"] == "VALIDATED" and simulation_id is None:
+            intent = await self.execution.submit(tenant_id=tenant_id, intent_id=intent["intent_id"], as_of=as_of)
+        return {"intent_id": intent["intent_id"], "status": intent["status"], "refusal_codes": intent["refusal_codes"],
+                "reservation_id": intent["reservation_id"]}
 
     # ── wiring helpers ──────────────────────────────────────────────────────────────────────────────────────────
 
@@ -595,10 +609,16 @@ class Orchestrator:
         if d.status == C.ApprovalStatus.APPROVED:
             async with self.pool.acquire() as c:
                 await store.set_plan_status(c, tenant_id=tenant_id, trade_id=trade_id, status=C.PlanStatus.APPROVED)
+            execution = await self._execute(tenant_id=tenant_id, trade_id=trade_id, plan_version=version,
+                                            approval_id=d.approval_id, as_of=as_of, simulation_id=wf["simulation_id"])
+            if execution is None:
+                return await self._set_wf(tenant_id, wf["workflow_id"], C.WorkflowState.COMPLETED, outcome={
+                    "result": "APPROVED_NO_EXECUTION", "trade_id": trade_id, "plan_version": version,
+                    "approval_id": d.approval_id, "note": "no execution gateway is wired; the plan stops at APPROVED"},
+                    producer=C.AgentKey.MIDDLE_OFFICE.value)
             return await self._set_wf(tenant_id, wf["workflow_id"], C.WorkflowState.COMPLETED, outcome={
-                "result": "APPROVED_NO_EXECUTION", "trade_id": trade_id, "plan_version": version,
-                "approval_id": d.approval_id, "note": "Phase 1 has no execution; Phase 2 adds paper orders"},
-                producer=C.AgentKey.MIDDLE_OFFICE.value)
+                "result": "APPROVED", "trade_id": trade_id, "plan_version": version, "approval_id": d.approval_id,
+                "execution": execution}, producer=C.AgentKey.MIDDLE_OFFICE.value)
         if d.status == C.ApprovalStatus.NEEDS_HUMAN_APPROVAL:
             return await self._set_wf(tenant_id, wf["workflow_id"], C.WorkflowState.WAITING_HUMAN, outcome={
                 "result": "WAITING_HUMAN", "trade_id": trade_id, "plan_version": version,
@@ -659,7 +679,8 @@ class Orchestrator:
                                            reasons=[reason or "approved by a person"], scope=scope,
                                            risk_assessment_id=assessment["assessment_id"],
                                            expires_at=req["expires_at"] or body.plan_expires_at)
-                    plan_status, result = C.PlanStatus.APPROVED, "APPROVED_NO_EXECUTION"
+                    plan_status = C.PlanStatus.APPROVED
+                    result = "APPROVED" if self.execution is not None else "APPROVED_NO_EXECUTION"
                 elif decision == "REJECT":
                     d = C.ApprovalDecision(trade_id=req["trade_id"], plan_version=req["plan_version"],
                                            account_id=req["account_id"], simulation_id=req["simulation_id"],
@@ -679,6 +700,13 @@ class Orchestrator:
                                                state=C.WorkflowState.COMPLETED, producer=f"user:{user_id}",
                                                outcome={**(wf["outcome"] or {}), "result": result,
                                                         "approval_id": d.approval_id})
+        if decision == "APPROVE" and self.execution is not None:
+            execution = await self._execute(tenant_id=tenant_id, trade_id=req["trade_id"], plan_version=req["plan_version"],
+                                            approval_id=d.approval_id, as_of=now, simulation_id=req["simulation_id"])
+            async with self.pool.acquire() as c:
+                await c.execute("UPDATE autodesk.workflows SET outcome = COALESCE(outcome,'{}'::jsonb) || $3::jsonb, "
+                                "updated_at=now() WHERE workflow_id=$1 AND tenant_id=$2", wf["workflow_id"], tenant_id,
+                                __import__("json").dumps({"execution": execution}))
         return row
 
     # ── end of session (Phase 1: expire; Phase 2 adds reconciliation) ───────────────────────────────────────────
