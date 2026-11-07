@@ -11,6 +11,7 @@ carries an old close: `traded` is False and it can never price a fill.
 """
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -57,7 +58,7 @@ class SessionBarSource:
     """Guard and read log. Subclasses implement `_read`."""
 
     def __init__(self) -> None:
-        self.reads: list[tuple[str, date, date]] = []    # (instrument key, session read, session of the clock)
+        self.reads: deque[tuple[str, date, date]] = deque(maxlen=20000)   # (instrument key, session read, session of the clock)
 
     async def bar(self, leg: LegRef, session: date, *, clock_session: date) -> Optional[SessionBar]:
         """The row of `leg` for `session`, or None if the exchange has none. Only the clock's session can be read."""
@@ -92,9 +93,12 @@ class PitSessionBars(SessionBarSource):
 
     async def _cached(self, key: tuple, path: str, params: dict) -> list[dict]:
         if key not in self._rows:
+            rows = await self._pages(path, params)
+            if not rows:                   # not cached: the session's file may not have landed yet
+                return rows
             if len(self._rows) > 256:      # one simulation walks forward: older sessions are never read again
                 self._rows.clear()
-            self._rows[key] = await self._pages(path, params)
+            self._rows[key] = rows
         return self._rows[key]
 
     async def _read(self, leg: LegRef, session: date) -> Optional[SessionBar]:

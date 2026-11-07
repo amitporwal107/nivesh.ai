@@ -74,10 +74,14 @@ class Orchestrator:
         orders are also submitted now; in a simulation they are submitted at the OPEN phase. None without a gateway."""
         if self.execution is None:
             return None
-        intent = await self.execution.create_intent(tenant_id=tenant_id, trade_id=trade_id, plan_version=plan_version,
-                                                    approval_id=approval_id, as_of=as_of)
-        if intent["status"] == "VALIDATED" and simulation_id is None:
-            intent = await self.execution.submit(tenant_id=tenant_id, intent_id=intent["intent_id"], as_of=as_of)
+        try:
+            intent = await self.execution.create_intent(tenant_id=tenant_id, trade_id=trade_id, plan_version=plan_version,
+                                                        approval_id=approval_id, as_of=as_of)
+            if intent["status"] == "VALIDATED" and simulation_id is None:
+                intent = await self.execution.submit(tenant_id=tenant_id, intent_id=intent["intent_id"], as_of=as_of)
+        except Exception as e:  # noqa: BLE001 — the workflow must still end; its outcome says execution did not start
+            log.exception("execution did not start for %s", trade_id)
+            return {"status": "ERROR", "error": f"{type(e).__name__}: {e}"}
         return {"intent_id": intent["intent_id"], "status": intent["status"], "refusal_codes": intent["refusal_codes"],
                 "reservation_id": intent["reservation_id"]}
 
@@ -706,7 +710,7 @@ class Orchestrator:
             async with self.pool.acquire() as c:
                 await c.execute("UPDATE autodesk.workflows SET outcome = COALESCE(outcome,'{}'::jsonb) || $3::jsonb, "
                                 "updated_at=now() WHERE workflow_id=$1 AND tenant_id=$2", wf["workflow_id"], tenant_id,
-                                __import__("json").dumps({"execution": execution}))
+                                {"execution": execution})
         return row
 
     # ── end of session (Phase 1: expire; Phase 2 adds reconciliation) ───────────────────────────────────────────

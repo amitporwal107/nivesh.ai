@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
 from .. import store
+from ..market.view import IST
 from . import costs
 from . import fill_model as fm
 from .capital import CapitalView, balances, rs
@@ -38,8 +39,26 @@ def view_json(v: CapitalView) -> dict:
     return _s(d)
 
 
-async def capital_view(c, tenant_id: str, account_id: str) -> dict:
-    return view_json(await balances(c, tenant_id, account_id))
+def in_market_hours(now: datetime) -> bool:
+    t = now.astimezone(IST)
+    return t.weekday() < 5 and dtime(9, 15) <= t.time() <= dtime(15, 30)
+
+
+async def capital_view(c, tenant_id: str, account_id: str, now: Optional[datetime] = None) -> dict:
+    """The §9.2 measures. On the live desk, while the market is open, a mark older than MARK_MAX_AGE_S is listed as stale."""
+    now = now or datetime.now(timezone.utc)
+    v = await balances(c, tenant_id, account_id)
+    acc = await store.get_account(c, tenant_id, account_id)
+    if acc["simulation_id"] is None and in_market_hours(now):
+        listed = {(x["trade_id"], x["leg_id"]) for x in v.stale_legs}
+        for lg in await c.fetch(
+                """SELECT p.trade_id, l.leg_id, l.underlying, l.marked_at FROM autodesk.trade_position_legs l
+                   JOIN autodesk.trade_positions p USING (position_id)
+                   WHERE p.account_id=$1 AND p.tenant_id=$2 AND p.status='OPEN' AND l.marked_at < $3""",
+                account_id, tenant_id, now - timedelta(seconds=MARK_MAX_AGE_S)):
+            if (lg["trade_id"], lg["leg_id"]) not in listed:
+                v.stale_legs.append(dict(lg))
+    return view_json(v)
 
 
 async def charges_by_component(c, tenant_id: str, account_id: str) -> dict[str, Decimal]:
@@ -89,16 +108,27 @@ async def pnl(c, tenant_id: str, account_id: str) -> dict:
 
 
 async def fingerprint(c, simulation_id: str) -> str:
-    """sha256 of the id-free canonical rows of every order and fill: the same seed gives the same value."""
+    """sha256 of the id-free canonical rows of every order, fill, position leg and session snapshot: the same seed gives the
+    same value, so equal fingerprints mean equal prices, quantities, costs, marks and P&L."""
     orders = await c.fetch("SELECT session_date, kind, underlying, expiry, strike, side, leg_id, quantity, order_type, limit_price, "
                            "state, filled_qty, avg_fill_price, reject_code FROM autodesk.trade_orders WHERE simulation_id=$1", simulation_id)
     fills = await c.fetch(
         """SELECT f.session_date, o.kind, o.underlying, o.expiry, o.strike, f.side, f.leg_id, f.quantity, f.price,
                   f.arrival_price, f.charges_rs, f.spread_rs, f.slippage_rs, f.latency_ms, f.fill_time
            FROM autodesk.trade_fills f JOIN autodesk.trade_orders o USING (order_id) WHERE f.simulation_id=$1""", simulation_id)
+    legs = await c.fetch(
+        """SELECT p.instrument, p.strategy_type, p.open_risk_rs, p.capital_rs, p.margin_rs, l.leg_id, l.kind, l.side, l.quantity,
+                  l.avg_price, l.cost_value_rs, l.charges_rs, l.mark_price, l.mark_stale, l.unrealized_rs
+           FROM autodesk.trade_position_legs l JOIN autodesk.trade_positions p USING (position_id)
+           WHERE p.simulation_id=$1""", simulation_id)
+    snaps = await c.fetch("""SELECT session_date, equity_rs, cash_balance_rs, used_margin_rs, reserved_rs, notional_rs, open_risk_rs,
+                                    fees_rs, unrealized_gross_rs, net_pnl_rs, stale_legs
+                             FROM autodesk.equity_snapshots WHERE simulation_id=$1""", simulation_id)
+
     def canon(rows):
         return sorted(json.dumps([_s(x) for x in r.values()], sort_keys=True) for r in rows)
-    return hashlib.sha256(json.dumps({"orders": canon(orders), "fills": canon(fills)}).encode()).hexdigest()
+    return hashlib.sha256(json.dumps({"orders": canon(orders), "fills": canon(fills), "legs": canon(legs),
+                                      "snapshots": canon(snaps)}).encode()).hexdigest()
 
 
 async def execution_summary(c, tenant_id: str, simulation_id: str, params: Optional[fm.FillParams] = None) -> dict:
@@ -117,6 +147,10 @@ async def execution_summary(c, tenant_id: str, simulation_id: str, params: Optio
     trades = await n("SELECT count(*) FROM autodesk.trade_positions WHERE simulation_id=$1")
     return _s({
         "trades": trades, "net_pnl_rs": v.net_pnl_rs, "max_drawdown_rs": p["max_drawdown_rs"], "max_drawdown_pct": p["max_drawdown_pct"],
+        "seed": await c.fetchval("SELECT (config->>'seed')::int FROM autodesk.simulations WHERE simulation_id=$1", simulation_id),
+        "reject_codes": {r["reject_code"]: r["n"] for r in await c.fetch(
+            "SELECT reject_code, count(*) AS n FROM autodesk.trade_orders WHERE simulation_id=$1 AND reject_code IS NOT NULL "
+            "GROUP BY reject_code", simulation_id)},
         "intents": await n("SELECT count(*) FROM autodesk.execution_intents WHERE simulation_id=$1"),
         "intents_refused": await n("SELECT count(*) FROM autodesk.execution_intents WHERE simulation_id=$1 AND status='REFUSED'"),
         "orders": orders_total, "orders_by_state": by_state,
@@ -132,8 +166,9 @@ async def execution_summary(c, tenant_id: str, simulation_id: str, params: Optio
 
 
 def mark_age(leg: dict, now: Optional[datetime] = None, *, live: bool = False) -> dict:
-    """Age of a mark; during a live session an old one is flagged, not presented as current."""
+    """Age of a mark. While the market is open an old mark on the live desk is flagged, not presented as current."""
     now = now or datetime.now(timezone.utc)
     at = leg.get("marked_at")
     age = (now - at).total_seconds() if at else None
-    return {"mark_age_s": age, "mark_stale": bool(leg.get("mark_stale")) or (live and age is not None and age > MARK_MAX_AGE_S)}
+    old = live and in_market_hours(now) and age is not None and age > MARK_MAX_AGE_S
+    return {"mark_age_s": age, "mark_stale": bool(leg.get("mark_stale")) or old}

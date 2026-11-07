@@ -1,12 +1,13 @@
-"""Trading Desk Simulator, Phase 1 (PRD §28, simulator S1; DESIGN §6.4).
+"""Trading Desk Simulator (PRD §28; DESIGN §6.4, PHASE2_DESIGN §5–§6).
 
 A simulation owns one SIMULATION account (isolated by simulation_id) and a clock that walks each session's schedule:
 
     PREMARKET 08:30 → SCAN 08:45 → PROPOSALS 09:00 → OPEN 09:15 → CLOSE 15:30 → EOD 18:00   (IST)
 
 At each step the orchestrator runs the workflows due, with a market view bound to the step's sim time, so agents see
-only data published by then. OPEN and CLOSE do nothing yet (no execution in Phase 1). EOD expires the session's unused
-signals and unanswered approvals.
+only data published by then. With an execution gateway, OPEN submits what was approved and fills it from the session's
+row, CLOSE settles resting orders, expires the rest and marks positions; with none they do nothing (Phase 1 behaviour).
+EOD expires the session's unused signals and unanswered approvals.
 
 One step runs at a time per simulation (advisory lock). `step_seq` is the cursor into the schedule, so a step is never
 run twice and a stopped simulation never moves again.
@@ -34,9 +35,13 @@ PHASE2_LIMITATIONS = [
     "(stored intraday history is about ten days and has no cash stocks).",
     "Every fill is simulated from the session's daily row (open, high, low, close, traded quantity): no order book, no "
     "queue position, spreads are proxies. A resting limit fills only if price traded through it, at the limit.",
-    "Several-leg plans fill all-or-none. Closing positions (stops, goals, trailing) is Phase 3: positions stay open and "
-    "are marked at each session's close, so P&L is unrealized only.",
-    "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected.",
+    "The fill engine knows the session's traded quantity at 09:15, as a capacity assumption only (agents never see it). "
+    "The moment a resting fill happened within the session is not known.",
+    "Several-leg plans fill all-or-none at the open. Closing positions (stops, levels, trailing) and settlement at a "
+    "contract's expiry are Phase 3: positions stay open and are marked at each session's close, so P&L is unrealized only "
+    "and no closing costs are counted. A leg that did not trade keeps its last mark, flagged stale.",
+    "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected. Price bands, ticks and spreads "
+    "are proxies (no band file, one 0.05 tick).",
     "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN. Costs are desk-cost-v2.",
     "Sector is the latest index-constituent industry, not point-in-time.",
 ]

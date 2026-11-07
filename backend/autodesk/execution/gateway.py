@@ -28,14 +28,6 @@ SESSION_OPEN_IST = (9, 15)
 WORKING = ("VALIDATED", "SUBMITTED", "ACKNOWLEDGED", "OPEN", "PARTIALLY_FILLED", "CANCEL_PENDING")
 
 
-class ExecutionRefused(Exception):
-    """The intent was refused; the row stays with its codes. Raised only where a caller needs the reason."""
-
-    def __init__(self, codes: list[str], detail: str):
-        super().__init__(f"{', '.join(codes)}: {detail}")
-        self.codes, self.detail = codes, detail
-
-
 @dataclass
 class Control:
     name: str
@@ -79,10 +71,11 @@ class ExecutionGateway:
 
     async def create_intent(self, *, tenant_id: str, trade_id: str, plan_version: int, as_of: datetime,
                             approval_id: Optional[str] = None, caller_plan_hash: Optional[str] = None,
-                            action: str = "ENTER") -> dict:
+                            action: str = "ENTER", idempotency_key: Optional[str] = None) -> dict:
         """Persist the intent (CREATED), then run the controls, reserve and write the orders in one transaction. Returns
-        the intent row: VALIDATED, or REFUSED with its codes. The same key returns the same intent."""
-        key = f"{trade_id}:v{plan_version}:{action}"
+        the intent row: VALIDATED, or REFUSED with its codes. The same key returns the same intent; a row a stopped process
+        left as CREATED goes on from where it stopped."""
+        key = idempotency_key or f"{trade_id}:v{plan_version}:{action}"
         async with self.pool.acquire() as c:
             async with c.transaction():
                 plan = await store.get_plan(c, tenant_id, trade_id)
@@ -107,9 +100,23 @@ class ExecutionGateway:
                                               "plan_version": plan_version, "adapter": adapter_name, "action": action})
         if intent is None:                       # same key: the same intent, nothing new
             async with self.pool.acquire() as c:
-                return dict(await c.fetchrow("SELECT * FROM autodesk.execution_intents WHERE tenant_id=$1 AND "
-                                             "idempotency_key=$2", tenant_id, key))
+                intent = await c.fetchrow("SELECT * FROM autodesk.execution_intents WHERE tenant_id=$1 AND "
+                                          "idempotency_key=$2", tenant_id, key)
+            if intent["status"] != "CREATED":
+                return dict(intent)
         return await self._validate(dict(intent), as_of=as_of, approval_id=approval_id, caller_plan_hash=caller_plan_hash)
+
+    async def recover(self) -> int:
+        """At start-up: an intent a stopped process left as CREATED has no orders and no reservation. It is refused with a
+        reason, so its plan does not stay counted as a commitment. Single instance (as for the task recovery)."""
+        async with self.pool.acquire() as c:
+            async with c.transaction():
+                rows = await c.fetch("SELECT * FROM autodesk.execution_intents WHERE status='CREATED' ORDER BY created_at FOR UPDATE")
+                for r in rows:
+                    await self._refuse(c, dict(r), [Control("interrupted", False, "INTERRUPTED",
+                                                            "the process stopped before the controls ran")],
+                                       None, r["sim_time"])
+        return len(rows)
 
     async def _validate(self, intent: dict, *, as_of: datetime, approval_id: Optional[str],
                         caller_plan_hash: Optional[str]) -> dict:
@@ -122,6 +129,7 @@ class ExecutionGateway:
                                        intent["intent_id"])
                 if row["status"] != "CREATED":
                     return dict(row)
+                await capital.lock_account(c, tenant_id, intent["account_id"])
                 plan = await store.get_plan(c, tenant_id, trade_id, intent["plan_version"])
                 head = await store.get_plan(c, tenant_id, trade_id)
                 account = await store.get_account(c, tenant_id, plan["account_id"])
@@ -147,7 +155,7 @@ class ExecutionGateway:
                         controls.append(Control("funds_and_limits", False, e.code, e.detail))
                         refusal = [controls[-1]]
                 if refusal:
-                    return await self._refuse(c, intent, plan, controls, spec, sim_time, as_of)
+                    return await self._refuse(c, intent, controls, spec, sim_time)
                 await c.execute("UPDATE autodesk.execution_intents SET status='VALIDATED', plan_hash=$2, approval_id=$3, "
                                 "reservation_id=$4, controls=$5, order_spec=$6, updated_at=now() WHERE intent_id=$1",
                                 intent["intent_id"], C.plan_hash(body), approval["approval_id"],
@@ -194,15 +202,18 @@ class ExecutionGateway:
                                                                                       session_close_utc(intent["session_date"])),
             as_of=as_of, policy=policy)
 
-    async def _refuse(self, c, intent: dict, plan: dict, controls: list[Control], spec: Optional[dict],
-                      sim_time: Optional[datetime], as_of: datetime) -> dict:
+    async def _refuse(self, c, intent: dict, controls: list[Control], spec: Optional[dict],
+                      sim_time: Optional[datetime]) -> dict:
         codes = [k.code for k in controls if not k.ok and k.code]
         row = await c.fetchrow(
             """UPDATE autodesk.execution_intents SET status='REFUSED', refusal_codes=$2, controls=$3, order_spec=$4,
                    updated_at=now() WHERE intent_id=$1 RETURNING *""",
             intent["intent_id"], codes, [k.to_json() for k in controls], spec)
-        await store.set_plan_status(c, tenant_id=intent["tenant_id"], trade_id=intent["trade_id"],
-                                    status=C.PlanStatus.EXECUTION_REFUSED)
+        # A duplicate must not end the plan another intent is working on, and a refused old version must not overwrite the
+        # current version's status.
+        await c.execute("UPDATE autodesk.trade_plans SET status=$3, updated_at=now() WHERE trade_id=$1 AND tenant_id=$2 "
+                        "AND status NOT IN ('EXECUTING','EXECUTED') AND current_version=$4", intent["trade_id"],
+                        intent["tenant_id"], C.PlanStatus.EXECUTION_REFUSED.value, intent["plan_version"])
         if "ENTRIES_STOPPED" in codes:
             await store.emit(c, C.EventType.ENTRIES_STOPPED, tenant_id=intent["tenant_id"], producer=PRODUCER,
                              account_id=intent["account_id"], simulation_id=intent["simulation_id"],
@@ -220,6 +231,20 @@ class ExecutionGateway:
         return dict(row)
 
     # ── controls (PRD §11.4 adapted to paper; PHASE2_DESIGN §5.2) ─────────────────────────────────
+
+    async def recheck(self, c, intent: dict, as_of: datetime) -> list[Control]:
+        """The binding, stop and account controls again, for an order already working on the live desk: what fails holds
+        the fill back (PRD §10.3: a changed plan, account mode or policy, or an expired approval, needs revalidation)."""
+        tenant_id = intent["tenant_id"]
+        plan = await store.get_plan(c, tenant_id, intent["trade_id"], intent["plan_version"])
+        head = await store.get_plan(c, tenant_id, intent["trade_id"])
+        account = await store.get_account(c, tenant_id, intent["account_id"])
+        pol_row = await store.get_policy(c, tenant_id, account["policy_id"])
+        controls, _a, _r = await self._controls(
+            c, intent=intent, plan=plan, head=head, account=account, body=C.TradePlanBody.model_validate(plan["body"]),
+            policy=C.PolicyBody.model_validate(pol_row["body"]), policy_version=int(pol_row["version"]),
+            approval_id=intent["approval_id"], caller_plan_hash=intent["plan_hash"], as_of=as_of, at_submission=True)
+        return [k for k in controls if not k.ok and k.name != "not_duplicate"]
 
     async def _controls(self, c, *, intent: dict, plan: dict, head: dict, account: dict, body: C.TradePlanBody,
                         policy: C.PolicyBody, policy_version: int, approval_id: Optional[str],
@@ -308,7 +333,7 @@ class ExecutionGateway:
         chk("contracts_live", not expired, "CONTRACT_EXPIRED", f"legs {expired} expired before the session")
         if intent["simulation_id"] and not at_submission:
             chk("session_phase", as_of < session_open_utc(intent["session_date"]), "SESSION_PHASE_PASSED",
-                "the simulated session's open has passed; entries are placed before the open")
+                "the simulated session's open has passed; a daily row cannot price a later moment")
         dup = await c.fetchval(
             """SELECT intent_id FROM autodesk.execution_intents WHERE tenant_id=$1 AND trade_id=$2 AND plan_version=$3
                AND action=$4 AND intent_id<>$5 AND status<>'REFUSED' LIMIT 1""",
@@ -389,12 +414,13 @@ class ExecutionGateway:
         as_of = as_of or datetime.now(timezone.utc)
         async with self.pool.acquire() as c:
             async with c.transaction():
-                o = await orders.get_order(c, tenant_id, order_id, for_update=True)
-                if C.OrderState(o["state"]) in C.ORDER_TERMINAL or o["state"] == "CANCEL_PENDING":
-                    raise store.Conflict(f"order {order_id} is {o['state']}")
-                sim_time = as_of if o["simulation_id"] else None
+                o = await orders.get_order(c, tenant_id, order_id)      # intent first: the same lock order as a fill
                 intent = dict(await c.fetchrow("SELECT * FROM autodesk.execution_intents WHERE intent_id=$1 FOR UPDATE",
                                                o["intent_id"]))
+                o = await orders.get_order(c, tenant_id, order_id, for_update=True)
+                if C.OrderState(o["state"]) in C.ORDER_TERMINAL or o["state"] in ("CANCEL_PENDING", "UNKNOWN"):
+                    raise store.Conflict(f"order {order_id} is {o['state']}")
+                sim_time = as_of if o["simulation_id"] else None
                 account = await store.get_account(c, tenant_id, o["account_id"])
                 adapter = self.adapter_for(account)
                 for x in await orders.of_intent(c, o["intent_id"]):

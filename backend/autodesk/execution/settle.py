@@ -16,7 +16,8 @@ from typing import Any, Optional
 from .. import contracts as C
 from .. import store
 from ..market.live_quotes import check_quote, in_fill_window
-from ..market.view import IST
+from ..market import calendar
+from ..market.view import IST, DataUnavailable
 from . import capital, costs, journal, orders, positions
 from . import fill_model as fm
 from .capital import rs
@@ -31,8 +32,9 @@ TERMINAL = {s.value for s in C.ORDER_TERMINAL}
 
 async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict, body: C.TradePlanBody, res: dict,
                      siblings: list[dict], policy: C.PolicyBody, at: datetime, sim_time: Optional[datetime],
-                     quote_ref: Optional[str] = None) -> dict:
-    """Book one fill: fill row, order move, ledger rows, reservation conversion, position leg, journal. Returns the order."""
+                     quote_ref: Optional[str] = None, in_basket: bool = False) -> dict:
+    """Book one fill: fill row, order move, ledger rows, reservation conversion, position leg, journal. Returns the order.
+    A basket converts its reservation once, on the net of all legs (_settle_basket), so its legs use no funds of their own."""
     tenant_id = order["tenant_id"]
     qty, price = d.qty, d.price
     value = rs(price * qty)
@@ -65,7 +67,7 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
     base = dict(tenant_id=tenant_id, account_id=order["account_id"], simulation_id=order["simulation_id"],
                 trade_id=order["trade_id"], ref_type="FILL", ref_id=fill_id, sim_time=sim_time)
     await capital.post(c, **base, entry_type=C.LedgerEntry.POSITION_FUNDS, cash=cash, notional=value,
-                       memo=f"{'bought' if side == 'BUY' else 'sold'} {qty} {order['underlying']} {kind} at {price}")
+                       memo=f"{'long' if side == 'BUY' else 'short'} leg: {qty} {order['underlying']} {kind} at {price}")
     if margin:
         await capital.post(c, **base, entry_type=C.LedgerEntry.MARGIN_UTILIZED, margin=margin,
                            memo=f"futures margin estimate {policy.futures_margin_pct}% of {value}")
@@ -75,7 +77,7 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
     # shares of several legs are rounded to the paisa each; never move more than what the reservation still holds
     risk_moved = min(rs(res["risk_rs"] * share), res["risk_rs"] - res["risk_moved_rs"])
     commit_done = min(rs(res["commitment_rs"] * share), res["commitment_rs"] - res["commitment_done_rs"])
-    used = max(ZERO, -cash) + margin + fees
+    used = ZERO if in_basket else max(ZERO, -cash) + margin + fees
     await capital.consume(c, res, used_rs=used, risk_moved_rs=risk_moved, commitment_done_rs=commit_done, ref_id=fill_id,
                           sim_time=sim_time)
 
@@ -94,24 +96,42 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
     jb = dict(tenant_id=tenant_id, account_id=order["account_id"], simulation_id=order["simulation_id"],
               trade_id=order["trade_id"], sim_time=sim_time)
     await journal.record(c, **jb, kind="FILL", ref_id=fill_id,
-                         summary=f"{qty} {order['underlying']} {kind} {'bought' if side == 'BUY' else 'sold'} at {price} (simulated), "
-                                 f"charges {fees}", data={"price": str(price), "quantity": qty, "source": d.source})
+                         summary=f"{'long' if side == 'BUY' else 'short'} leg: {qty} {order['underlying']} {kind} at {price} "
+                                 f"(simulated), charges {fees}", data={"price": str(price), "quantity": qty, "source": d.source})
     if created:
         await journal.record(c, **jb, kind="POSITION", ref_id=pos_row["position_id"],
                              summary=f"position opened on {plan['instrument']} ({plan['strategy_type']})")
     return order_after
 
 
-async def _basket_margin(c, intent: dict, spec: dict, pos_trade_id: str, at: datetime, sim_time: Optional[datetime]) -> None:
-    """A credit structure ties up its width once all legs have filled (PHASE2_DESIGN §3.1)."""
-    if not spec.get("credit_width_rs"):
-        return
-    width = Decimal(spec["credit_width_rs"])
-    await capital.post(c, tenant_id=intent["tenant_id"], account_id=intent["account_id"], simulation_id=intent["simulation_id"],
-                       entry_type=C.LedgerEntry.MARGIN_UTILIZED, ref_type="INTENT", ref_id=intent["intent_id"],
-                       trade_id=pos_trade_id, memo="width of the credit structure", sim_time=sim_time, margin=width)
-    await c.execute("UPDATE autodesk.trade_positions SET margin_rs=margin_rs+$2, updated_at=now() WHERE trade_id=$1",
-                    pos_trade_id, width)
+def _funds_of(priced_fills: list[tuple[dict, fm.Decision]], policy: C.PolicyBody, width: Optional[Decimal]) -> Decimal:
+    """What these fills take from buying power: cash out (or in), margin, charges."""
+    total = width or ZERO
+    for o, d in priced_fills:
+        value = rs(d.price * d.qty)
+        if o["kind"] == "FUT":
+            total += rs(value * policy.futures_margin_pct / 100)
+        else:
+            total += value if o["side"] == "BUY" else -value
+        total += costs.charges(o["kind"], o["side"], value, first_fill=o["filled_qty"] == 0)["total"]
+    return total
+
+
+async def _settle_basket(c, intent: dict, width: Optional[Decimal], used: Decimal, sim_time: Optional[datetime]) -> None:
+    """All legs filled. A credit structure ties up its width (PHASE2_DESIGN §3.1). The reservation converts once, on the net
+    of the legs; rounding left over from the per-leg shares moves too, so the position's risk is exactly the plan's."""
+    tid = intent["trade_id"]
+    if width:
+        await capital.post(c, tenant_id=intent["tenant_id"], account_id=intent["account_id"],
+                           simulation_id=intent["simulation_id"], entry_type=C.LedgerEntry.MARGIN_UTILIZED, ref_type="INTENT",
+                           ref_id=intent["intent_id"], trade_id=tid, memo="width of the credit structure", sim_time=sim_time,
+                           margin=width)
+    res = await capital.get_reservation(c, intent["tenant_id"], intent["reservation_id"], for_update=True)
+    await capital.consume(c, res, used_rs=used, risk_moved_rs=res["risk_rs"] - res["risk_moved_rs"],
+                          commitment_done_rs=res["commitment_rs"] - res["commitment_done_rs"], ref_type="INTENT",
+                          ref_id=intent["intent_id"], sim_time=sim_time)
+    await c.execute("""UPDATE autodesk.trade_positions SET margin_rs=margin_rs+$2, open_risk_rs=$3, capital_rs=$4, updated_at=now()
+                       WHERE trade_id=$1""", tid, width or ZERO, res["risk_rs"], res["capital_rs"])
 
 
 # ── ending an intent ──────────────────────────────────────────────────────────
@@ -153,15 +173,17 @@ async def _end_orders(c, os_: list[dict], to: C.OrderState, *, reason: str, sim_
     for o in os_:
         if o["state"] in TERMINAL:
             continue
-        cols = {"reject_code": code, "reject_reason": reason} if to == C.OrderState.REJECTED else {}
-        await orders.move(c, o, to, reason=reason, sim_time=sim_time, **cols)
+        cols = {"reject_code": code, "reject_reason": reason} if code else {}
+        # what already filled stands: an order with fills cannot become REJECTED, the rest of it ends here
+        target = C.OrderState.EXPIRED if to == C.OrderState.REJECTED and o["filled_qty"] > 0 else to
+        await orders.move(c, o, target, reason=reason, sim_time=sim_time, **cols)
 
 
 async def _context(c, gw: ExecutionGateway, intent: dict):
     tenant_id = intent["tenant_id"]
     plan = await store.get_plan(c, tenant_id, intent["trade_id"], intent["plan_version"])
     body = C.TradePlanBody.model_validate(plan["body"])
-    account = await store.get_account(c, tenant_id, intent["account_id"])
+    account = await capital.lock_account(c, tenant_id, intent["account_id"])   # fills and reservations take turns
     pol = C.PolicyBody.model_validate((await store.get_policy(c, tenant_id, account["policy_id"]))["body"])
     res = await capital.get_reservation(c, tenant_id, intent["reservation_id"], for_update=True)
     return plan, body, account, pol, res
@@ -178,16 +200,26 @@ async def _apply_priced(c, gw, intent: dict, priced, *, plan, body, policy, res,
         return
     for o, d in priced.rests:
         await orders.note_no_fill(c, o, d.code or "NO_FILL", d.reason, sim_time)
-    filled_any = False
+    if not priced.fills:
+        return
+    basket = bool(spec.get("basket"))
+    width = Decimal(spec["credit_width_rs"]) if basket and spec.get("credit_width_rs") else None
+    need = _funds_of(priced.fills, policy, width)
+    v = await capital.balances(c, intent["tenant_id"], intent["account_id"])
+    left = res["amount_rs"] - res["consumed_rs"] - res["released_rs"]
+    if need > v.available_buying_power_rs + left:
+        why = f"these fills need {rs(need)}; buying power with this order's reservation is {v.available_buying_power_rs + left}"
+        await _end_orders(c, all_orders, C.OrderState.REJECTED, reason=f"INSUFFICIENT_FUNDS: {why}", sim_time=sim_time,
+                          code="INSUFFICIENT_FUNDS")
+        return
     for o, d in priced.fills:
         fresh = await orders.get_order(c, o["tenant_id"], o["order_id"], for_update=True)
         res = await capital.get_reservation(c, o["tenant_id"], res["reservation_id"], for_update=True)
         await apply_fill(c, intent=intent, order=fresh, d=d, plan=plan, body=body, res=res, siblings=all_orders,
-                         policy=policy, at=at, sim_time=sim_time,
+                         policy=policy, at=at, sim_time=sim_time, in_basket=basket,
                          quote_ref=quotes[orders.leg_ref(fresh).key].ref if quotes else None)
-        filled_any = True
-    if filled_any and spec.get("basket") and len(priced.fills) == len(all_orders):
-        await _basket_margin(c, intent, spec, intent["trade_id"], at, sim_time)
+    if basket:
+        await _settle_basket(c, intent, width, need, sim_time)
 
 
 # ── simulation: OPEN ──────────────────────────────────────────────────────────
@@ -262,6 +294,9 @@ async def run_close(gw: ExecutionGateway, *, tenant_id: str, simulation_id: str,
                 out.update(marked_legs=m[0], stale_legs=m[1])
                 await snapshot(c, tenant_id=tenant_id, account_id=acct["account_id"], session=session, as_of=as_of,
                                simulation_id=simulation_id)
+                await store.emit(c, C.EventType.SESSION_EXECUTION_SUMMARY, tenant_id=tenant_id, producer=PRODUCER,
+                                 account_id=acct["account_id"], simulation_id=simulation_id, sim_time=as_of,
+                                 payload={"session_date": session.isoformat(), **out})
     return out
 
 
@@ -272,7 +307,13 @@ async def mark_to_close(c, gw: ExecutionGateway, *, tenant_id: str, account_id: 
     for leg in await positions.open_legs(c, tenant_id=tenant_id, account_id=account_id):
         ref = orders.leg_ref({"kind": leg["kind"], "underlying": leg["underlying"], "expiry": leg["expiry"],
                               "strike": leg["strike"]})
-        bar = await gw.sim.bars.bar(ref, session, clock_session=session)
+        try:
+            bar = await gw.sim.bars.bar(ref, session, clock_session=session)
+        except DataUnavailable as e:
+            await positions.mark_leg(c, position_id=leg["position_id"], leg=leg, mark=None, at=as_of, stale=True,
+                                     source=f"the data platform did not answer ({e}); last mark kept")
+            stale += 1
+            continue
         if bar is None or not bar.traded or bar.close is None:
             await positions.mark_leg(c, position_id=leg["position_id"], leg=leg, mark=None,
                                      source=f"no trade in the {session} session; last mark kept", at=as_of, stale=True)
@@ -305,9 +346,20 @@ async def snapshot(c, *, tenant_id: str, account_id: str, session: date, as_of: 
 
 # ── live desk ─────────────────────────────────────────────────────────────────
 
+def _market_open(now: datetime) -> bool:
+    """A session day, 09:15-15:30 IST. With no holiday list loaded the day is not known, so nothing is read."""
+    t = now.astimezone(IST)
+    try:
+        return calendar.is_session(t.date()) and in_fill_window("FUT", now)
+    except calendar.CalendarUnavailable:
+        return False
+
+
 async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, tenant_id: Optional[str] = None) -> dict:
-    """One pass of the live desk: submit validated intents, price working orders from FRESH quotes only, expire at the
-    session close, mark open positions. No fresh quote means no fill: the order waits and tries again."""
+    """One pass of the live desk: submit validated intents, expire at the session close, then ONE quote read for everything
+    that can be priced or marked now, before any row is locked, then each intent in its own transaction. Outside market hours
+    nothing is read. No fresh quote means no fill: the order waits and tries again. A working order whose binding no longer
+    holds (stop control, account, policy, approval) is held back with the reason."""
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(IST).date()
     out = {"intents": 0, "fills": 0, "waiting": 0, "expired": 0, "marked": 0}
@@ -318,9 +370,10 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, ten
             """SELECT intent_id, tenant_id, session_date FROM autodesk.execution_intents WHERE simulation_id IS NULL
                AND status IN ('VALIDATED','SUBMITTED') AND ($1::text IS NULL OR tenant_id=$1) ORDER BY created_at""",
             tenant_id)]
+    due: list[dict] = []
     for r in rows:
         out["intents"] += 1
-        iid, tenant_id, session = r["intent_id"], r["tenant_id"], r["session_date"]
+        iid, tid, session = r["intent_id"], r["tenant_id"], r["session_date"]
         if now >= session_close_utc(session):
             async with gw.pool.acquire() as c:
                 async with c.transaction():
@@ -330,26 +383,42 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, ten
                     out["expired"] += len(left)
                     await finish_intent(c, intent, as_of=now, sim_time=None, why="the close")
             continue
-        intent = await gw.submit(tenant_id=tenant_id, intent_id=iid, as_of=now)
-        if intent["status"] != "SUBMITTED":
-            continue
+        intent = await gw.submit(tenant_id=tid, intent_id=iid, as_of=now)
+        if intent["status"] == "SUBMITTED":
+            due.append(r)
+
+    # what can be priced now: the session is today and every leg is inside its fill window
+    priceable: list[tuple[dict, list[dict]]] = []
+    async with gw.pool.acquire() as c:
+        for r in due:
+            working = [o for o in await orders.of_intent(c, r["intent_id"]) if o["state"] in ("OPEN", "PARTIALLY_FILLED")]
+            if not working:
+                continue
+            if r["session_date"] == today and all(in_fill_window(o["kind"], now) for o in working):
+                priceable.append((r, working))
+            else:
+                out["waiting"] += len(working)           # outside the fill window: no quote is read
+        legs = await positions.open_legs(c, tenant_id=tenant_id, desk_only=True) if _market_open(now) else []
+    refs = [orders.leg_ref(o) for _r, w in priceable for o in w] + [_leg_ref(lg) for lg in legs]
+    if not refs:
+        return out
+    answer = await gw.live.quotes.quotes(refs, now)
+
+    for r, _w in priceable:
+        iid, tid = r["intent_id"], r["tenant_id"]
         async with gw.pool.acquire() as c:
             async with c.transaction():
                 intent = dict(await c.fetchrow("SELECT * FROM autodesk.execution_intents WHERE intent_id=$1 FOR UPDATE", iid))
                 working = [o for o in await orders.of_intent(c, iid) if o["state"] in ("OPEN", "PARTIALLY_FILLED")]
                 if not working:
                     continue
-                plan, body, _acc, pol, res = await _context(c, gw, intent)
-                stop = await store.entries_stopped(c, tenant_id, None)
-                if stop:
+                held = await gw.recheck(c, intent, now)
+                if held:
                     for o in working:
-                        await orders.note_no_fill(c, o, "ENTRIES_STOPPED", f"STOP_NEW_ENTRIES is active ({stop['reason']})")
+                        await orders.note_no_fill(c, o, held[0].code or "HELD", held[0].detail)
                     out["waiting"] += len(working)
                     continue
-                if session != today or not all(in_fill_window(o["kind"], now) for o in working):
-                    out["waiting"] += len(working)               # outside the fill window: no quote is read
-                    continue
-                answer = await gw.live.quotes.quotes([orders.leg_ref(o) for o in working], now)
+                plan, body, _acc, pol, res = await _context(c, gw, intent)
                 spec = intent["order_spec"]
                 net = Decimal(spec["net_limit_rs"]) if spec.get("net_limit_rs") else None
                 inval = orders.invalidation_of(plan["body"], len(body.legs))
@@ -359,37 +428,30 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, ten
                 out["fills"] += len(priced.fills)
                 out["waiting"] += len(priced.rests)
                 await finish_intent(c, intent, as_of=now, sim_time=None, why="filled or rejected")
-    out["marked"] = await mark_live(gw, now=now, tenant_id=tenant_id)
+    if legs:
+        async with gw.pool.acquire() as c:   # positions opened above are marked by their fill price until the next tick
+            async with c.transaction():
+                for lg in legs:
+                    q = answer.quotes.get(_leg_ref(lg).key)
+                    if check_quote(q, now) is None:
+                        await positions.mark_leg(c, position_id=lg["position_id"], leg=lg, mark=q.ltp, source=q.ref, at=now)
+                        out["marked"] += 1
     return out
 
 
-async def mark_live(gw: ExecutionGateway, *, now: datetime, tenant_id: Optional[str] = None) -> int:
-    """Mark open desk positions from fresh quotes. A leg with no fresh quote keeps its last mark, which is then shown as
-    stale on read (reports.mark_age)."""
-    if gw.live is None:
-        return 0
-    async with gw.pool.acquire() as c:
-        legs = await positions.open_legs(c, tenant_id=tenant_id, desk_only=True)
-    if not legs:
-        return 0
-    refs = [orders.leg_ref({"kind": lg["kind"], "underlying": lg["underlying"], "expiry": lg["expiry"], "strike": lg["strike"]})
-            for lg in legs]
-    answer = await gw.live.quotes.quotes(refs, now)
-    n = 0
-    async with gw.pool.acquire() as c:
-        async with c.transaction():
-            for lg, ref in zip(legs, refs):
-                q = answer.quotes.get(ref.key)
-                if check_quote(q, now) is None:
-                    await positions.mark_leg(c, position_id=lg["position_id"], leg=lg, mark=q.ltp, source=q.ref, at=now)
-                    n += 1
-    return n
+def _leg_ref(lg: dict):
+    return orders.leg_ref({"kind": lg["kind"], "underlying": lg["underlying"], "expiry": lg["expiry"], "strike": lg["strike"]})
 
 
 async def live_close(gw: ExecutionGateway, *, now: Optional[datetime] = None) -> int:
-    """After the close: one snapshot per desk account that holds a position."""
+    """After a session's close: one snapshot per desk account that holds a position. Not on a day without a session."""
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(IST).date()
+    try:
+        if not calendar.is_session(today):
+            return 0
+    except calendar.CalendarUnavailable:
+        return 0
     n = 0
     async with gw.pool.acquire() as c:
         accts = [dict(r) for r in await c.fetch("SELECT DISTINCT tenant_id, account_id FROM autodesk.trade_positions "

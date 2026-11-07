@@ -265,13 +265,13 @@ async def reserve(c, req: ReserveRequest) -> dict:
 
 
 async def consume(c, res: dict, *, used_rs: Decimal, risk_moved_rs: Decimal, commitment_done_rs: Decimal,
-                  ref_id: str, sim_time: Optional[datetime]) -> dict:
+                  ref_id: str, sim_time: Optional[datetime], ref_type: str = "FILL") -> dict:
     """Fills convert the reservation (ARCH §8.2 step 7): reserved falls by what was used, pending risk becomes open
     risk. `used_rs` above what is left (a fill may cost more than estimated) takes only what is left."""
     left = res["amount_rs"] - res["consumed_rs"] - res["released_rs"]
     take = max(ZERO, min(rs(used_rs), left))
     await post(c, tenant_id=res["tenant_id"], account_id=res["account_id"], simulation_id=res["simulation_id"],
-               entry_type=C.LedgerEntry.CAPITAL_RESERVATION_CONSUMED, ref_type="FILL", ref_id=ref_id,
+               entry_type=C.LedgerEntry.CAPITAL_RESERVATION_CONSUMED, ref_type=ref_type, ref_id=ref_id,
                trade_id=res["trade_id"], memo="reservation converted by a fill", sim_time=sim_time, reserved=-take,
                pending_risk=-risk_moved_rs, open_risk=risk_moved_rs, pending_commitment=-commitment_done_rs)
     row = await c.fetchrow(

@@ -113,7 +113,11 @@ async def health(request: Request):
         return JSONResponse({"status": "degraded", "db": False, "error": type(e).__name__}, status_code=503)
     return {"status": "ok", "app": APP_NAME, "version": APP_VERSION, "db": db, "migrations": migs,
             "agents": {k.value: a.descriptor.version for k, a in st.orchestrator.agents.items()},
-            "calendar_years": _calendar_years(), "execution": "none (Phase 1: no orders)"}
+            "calendar_years": _calendar_years(), "execution": _execution_text(st)}
+
+
+def _execution_text(st) -> str:
+    return "paper only: simulated fills, no broker orders" if st.execution is not None else "none (Phase 1: no orders, fills or positions)"
 
 
 def _calendar_years() -> list[int]:
@@ -149,7 +153,7 @@ async def desk_status(request: Request, user: dict = Depends(current_user)):
                            for a in agents],
                 "pending_approvals": pending, "open_workflows": open_wf, "controls": controls,
                 "last_premarket": dict(pm) if pm else None, "market_data": data,
-                "execution": "none (Phase 1: no orders, fills or positions)"})
+                "execution": _execution_text(st)})
 
 
 class ControlIn(BaseModel):
@@ -167,7 +171,7 @@ async def list_controls(request: Request, user: dict = Depends(current_user)):
 @router.post("/desk/controls/{control}")
 async def set_control(control: C.DeskControl, body: ControlIn, request: Request, user: dict = Depends(current_user)):
     """Emergency control (PRD §10.4). STOP_NEW_ENTRIES: no new proposal starts and nothing is approved on the desk's
-    real-time accounts until it is lifted. It never cancels a protective exit (there are no orders in Phase 1)."""
+    real-time accounts until it is lifted; working paper orders do not fill while it is active. It never closes a position."""
     t = tenant_of(user)
     async with _state(request).pool.acquire() as c:
         return out(await store.set_desk_control(c, tenant_id=t, control=control, active=body.active,
@@ -456,7 +460,7 @@ async def portfolio_risk(account_id: str, request: Request, user: dict = Depends
         acc = await store.get_account(c, t, account_id)
         book = await st.orchestrator.load_book(c, t, account_id, now)
     return out({"account": acc, "book": book.to_json() if hasattr(book, "to_json") else book,
-                "note": "Phase 1: commitments are approved, unexpired plans; there are no fills or positions yet"})
+                "note": "commitments are approved plans without an intent, active reservations and open positions (paper only)"})
 
 
 class DecisionIn(BaseModel):

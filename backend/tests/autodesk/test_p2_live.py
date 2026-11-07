@@ -173,7 +173,10 @@ def test_adp2_77_stop_new_entries_after_submission_blocks_the_fill(pg_pool):
     run(go())
 
 
-def test_adp2_79_marks_from_fresh_quotes_and_stale_flag(pg_pool):
+def test_adp2_79_marks_from_fresh_quotes_and_stale_flag(pg_pool, monkeypatch):
+    from autodesk.market import calendar
+    monkeypatch.setitem(calendar._HOLIDAYS, 2026, {})                             # TEST DATA: the session list as loaded at start-up
+
     async def go():
         t, acc, plan, fq, gw, it = await desk_setup(pg_pool)
         fq.answer = QuoteAnswer(quotes={KEY: fresh(T1030)})

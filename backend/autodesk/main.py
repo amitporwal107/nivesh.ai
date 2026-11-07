@@ -4,7 +4,7 @@
 
 Start-up: hydrate admin-managed secrets (the data-API credentials live there), open the autodesk Postgres pool, apply
 the autodesk migrations, register the five agents, and fail closed any task a previous process left unfinished.
-Single instance in Phase 1 (recovery assumes no other live instance).
+Single instance (recovery assumes no other live instance).
 """
 from __future__ import annotations
 
@@ -120,13 +120,16 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
                          sessions_provider=sessions_between, next_session=next_session_for, settings=settings,
                          execution=production_execution(pool))
         await st.orchestrator.register_agents()
+        touched = await st.orchestrator.recover()
+        if touched:
+            log.warning("recovery failed closed %d interrupted tasks", len(touched))
+        refused = await st.execution.recover()
+        if refused:
+            log.warning("recovery refused %d execution intents left before their controls ran", refused)
         stop_live = asyncio.Event()
         if getattr(settings, "live_loop", True):
             from .execution import live_loop
             st.background["live_execution"] = asyncio.create_task(live_loop.run(st.execution, stop=stop_live))
-        touched = await st.orchestrator.recover()
-        if touched:
-            log.warning("recovery failed closed %d interrupted tasks", len(touched))
         app.state.desk = st
         try:
             yield
@@ -137,8 +140,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
             await close_pool()
 
     app = FastAPI(title="Nivesh Autonomous Trading Desk API", version=APP_VERSION, lifespan=lifespan,
-                  description="Separate application. Phase 1: agents, orchestrator, risk, approvals, simulator. "
-                              "No orders are placed anywhere.")
+                  description="Separate application: agents, orchestrator, risk, approvals, simulator, paper execution "
+                              "(simulated fills). No order reaches a broker.")
     # CSRF, body-size and security headers are required: an app without them must not start (fail closed).
     from middleware import BodySizeLimitMiddleware, CsrfProtectMiddleware, SecurityHeadersMiddleware
     app.add_middleware(CsrfProtectMiddleware)
