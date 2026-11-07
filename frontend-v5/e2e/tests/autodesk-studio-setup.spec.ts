@@ -70,9 +70,9 @@ test("AD-UI-121 blocks Phase 1 cannot serve keep their place and say so", async 
     await expect(page.getByTestId(id)).toContainText("Not in Phase 1");
   }
   const dis = page.getByTestId("setup-uni-disabled");
-  await expect(dis).toHaveCount(4);
-  await expect(dis).toHaveText([/Nifty 50/, /Nifty 200/, /Nifty 500/, /Index options/]);
-  for (let i = 0; i < 4; i++) {
+  await expect(dis).toHaveCount(3);
+  await expect(dis).toHaveText([/Nifty 50/, /Nifty 200/, /Index options/]);
+  for (let i = 0; i < 3; i++) {
     await expect(dis.nth(i)).toHaveAttribute("aria-disabled", "true");
     await expect(dis.nth(i)).toContainText("Not a separate universe in Phase 1");
   }

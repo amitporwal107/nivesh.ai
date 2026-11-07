@@ -20,12 +20,12 @@ import { usePolicies, type PolicyRow } from "../../screens/policies/data";
 import type { SimulationRow } from "../../types";
 import { ErrorBox, Loading, PhaseNote } from "../../ui";
 import {
-  CAPITALS, MODES, OP_MODES, PLANS_PER_SESSION, REPLAY_MODES, capitalLabel, createBody, dayChip, defaultSessions, initialForm, modeLabel,
-  opModeLabel, problemsOf, rangeLabel, recentWeekdays, resolve, type SetupForm,
+  CAPITALS, INDEX_UNIVERSES, MODES, OP_MODES, PLANS_PER_SESSION, REPLAY_MODES, SURVIVORSHIP_NOTE, capitalLabel, createBody, dayChip, defaultSessions,
+  initialForm, modeLabel, opModeLabel, problemsOf, rangeLabel, recentWeekdays, resolve, universeLabel, type SetupForm,
 } from "./setup/model";
 import { NotInPhase1, Opt, SetupRow, SetupSection, field } from "./setup/parts";
 
-const DISABLED_UNIVERSES = ["Nifty 50", "Nifty 200", "Nifty 500", "Index options"];
+const DISABLED_UNIVERSES = ["Nifty 50", "Nifty 200", "Index options"];
 
 function defaultPolicy(rows: PolicyRow[] | undefined): PolicyRow | null {
   if (!rows?.length) return null;
@@ -85,7 +85,7 @@ export default function StudioSetup() {
 
   const summary: [string, string, string?][] = [
     ["Sessions", rangeLabel(r.start, r.end)],
-    ["Universe", f.universe === "FNO" ? "F&O underlyings of each session" : `${r.symbols.length} symbol${r.symbols.length === 1 ? "" : "s"}`],
+    ["Universe", universeLabel(f.universe, r.symbols.length)],
     ["Capital", capitalLabel(f.capital)],
     ["Account mode", opModeLabel(f.opMode)],
     ["Policy", policyRow ? `${policyRow.name} · v${policyRow.current_version}` : "Account default"],
@@ -150,13 +150,18 @@ export default function StudioSetup() {
           </SetupSection>
 
           {/* 03 Universe */}
-          <SetupSection n="03" t="Universe" s={f.universe === "FNO" ? "F&O underlyings of each session" : `${r.symbols.length} symbol${r.symbols.length === 1 ? "" : "s"}`} testId="setup-universe">
+          <SetupSection n="03" t="Universe" s={universeLabel(f.universe, r.symbols.length)} testId="setup-universe">
             <SetupRow k="Scan">
-              {DISABLED_UNIVERSES.slice(0, 3).map((u) => <Opt key={u} on={false} disabled t={u} sub="Not a separate universe in Phase 1" testId="setup-uni-disabled" />)}
+              {DISABLED_UNIVERSES.slice(0, 2).map((u) => <Opt key={u} on={false} disabled t={u} sub="Not a separate universe in Phase 1" testId="setup-uni-disabled" />)}
               <Opt on={f.universe === "FNO"} t="F&O stocks" sub="Underlyings with futures that session" onPick={() => set("universe", "FNO")} testId="setup-uni-FNO" />
-              <Opt on={false} disabled t={DISABLED_UNIVERSES[3]} sub="Not a separate universe in Phase 1" testId="setup-uni-disabled" />
+              <Opt on={f.universe === "NIFTY500"} t="Nifty 500" sub="Today's members; stocks without futures scan as cash" onPick={() => set("universe", "NIFTY500")} testId="setup-uni-NIFTY500" />
+              <Opt on={f.universe === "TOTAL_MARKET"} t="Nifty Total Market" sub="Today's members; the widest scan (several times the F&O scan time)" onPick={() => set("universe", "TOTAL_MARKET")} testId="setup-uni-TOTAL_MARKET" />
+              <Opt on={false} disabled t={DISABLED_UNIVERSES[2]} sub="Not a separate universe in Phase 1" testId="setup-uni-disabled" />
               <Opt on={f.universe === "SYMBOLS"} t="Your symbols" sub="Up to 50; overrides the F&O list" onPick={() => set("universe", "SYMBOLS")} testId="setup-uni-SYMBOLS" />
             </SetupRow>
+            {INDEX_UNIVERSES[f.universe] && (
+              <span data-testid="setup-uni-caveat" style={{ fontSize: 12, color: "var(--ink-3)" }}>{SURVIVORSHIP_NOTE}</span>
+            )}
             {f.universe === "SYMBOLS" && (
               <SetupRow k="Symbols">
                 <input data-testid="setup-symbols" aria-label="Symbols" value={f.symbolsText} placeholder="e.g. RELIANCE, INFY" onChange={(e) => set("symbolsText", e.target.value)} style={{ ...field, flex: 1, minWidth: 180 }} />
