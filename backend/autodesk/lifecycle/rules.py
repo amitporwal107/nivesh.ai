@@ -68,17 +68,18 @@ def _dec(v: Any) -> Optional[Decimal]:
     return d if d > 0 else None
 
 
-def setup(body: dict, legs: list[dict], *, fut_prev_close: Optional[Decimal] = None,
+def setup(body: Any, legs: list[dict], *, fut_prev_close: Optional[Decimal] = None,
           und_prev_close: Optional[Decimal] = None, und_open: Optional[Decimal] = None) -> Setup:
     """`legs`: position legs {kind, underlying, side LONG/SHORT, avg_price, expiry}. Prices are the entry session's (known at
     its open): the future's and the underlying's previous closes (for the futures ratio) and the underlying's open."""
     notes: list[str] = []
+    pb = body if isinstance(body, C.TradePlanBody) else C.TradePlanBody.model_validate(body)
     kinds = {lg["kind"] for lg in legs}
     und = legs[0]["underlying"]
-    inval = _dec((body.get("invalidation") or {}).get("underlying_level"))
-    direction = str((body.get("market_context") or {}).get("direction") or "BULLISH").upper()
-    holding = body.get("holding") or {}
-    rules_text = body.get("exit_rules") or {}
+    inval = _dec((pb.invalidation or {}).get("underlying_level"))
+    direction = str((pb.market_context or {}).get("direction") or "BULLISH").upper()
+    holding = pb.holding or {}
+    rules_text = pb.exit_rules or {}
     trail = parse_trail(rules_text.get("trailing"))
     trend = parse_trend(rules_text.get("trend"))
     if rules_text.get("trailing") and trail is None:
@@ -99,8 +100,8 @@ def setup(body: dict, legs: list[dict], *, fut_prev_close: Optional[Decimal] = N
             ratio = (fut_prev_close / und_prev_close).quantize(Decimal("0.00000001"))
         else:
             basis = "FUTURE_ROW"
-            notes.append("the entry session's previous closes of the future and the share were not both known: the plan's "
-                         "levels are used on the future's row as given (no basis translation)")
+            notes.append("the opening session's previous closes of the future and the share were not both known: the "
+                         "plan's levels are used on the future's row as given (no basis translation)")
     else:
         structure = True
         if direction == "NEUTRAL":
@@ -109,21 +110,21 @@ def setup(body: dict, legs: list[dict], *, fut_prev_close: Optional[Decimal] = N
                          "and settlement apply")
         else:
             key, basis, side = f"EQ:{und}", "UNDERLYING_ROW", ("short" if direction == "BEARISH" else "long")
-        ref = _dec((body.get("entry") or {}).get("reference_price"))
+        ref = _dec((pb.entry or {}).get("reference_price"))
         entry = und_open or ref or inval or Decimal("1")
         if und_open is None:
-            notes.append("the underlying's open of the entry session was not read: the plan's reference price stands in as "
-                          "the trail's starting mark")
+            notes.append("the underlying's open of the opening session was not read: the plan's reference price stands in "
+                         "as the trail's starting mark")
     level = (inval * ratio).quantize(Decimal("0.01")) if inval is not None and key else None
     objectives = []
-    for t in body.get("targets") or []:
-        lvl = _dec(t.get("level"))
+    for t in pb.targets:
+        lvl = _dec(t.level)
         if lvl is None or not key:
             continue
-        if (t.get("basis") or "UNDERLYING") != "UNDERLYING":
-            notes.append(f"an objective on basis {t.get('basis')} is not judged in 3A (only underlying levels)")
+        if t.basis != "UNDERLYING":
+            notes.append(f"an objective on basis {t.basis} is not judged in 3A (only underlying levels)")
             continue
-        frac = Decimal(str(t.get("exit_fraction") or "1"))
+        frac = Decimal(str(t.exit_fraction))
         objectives.append({"level": str((lvl * ratio).quantize(Decimal("0.01"))), "fraction": str(min(max(frac, Decimal("0")), Decimal("1")))})
     return Setup(trigger_key=key, trigger_basis=basis, side=side, ratio=ratio, level=level, objectives=objectives,
                  max_hold=max_hold, trail=trail, trend=trend, pre_expiry_sessions=pre, entry_trigger_price=entry,

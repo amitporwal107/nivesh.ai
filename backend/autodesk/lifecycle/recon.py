@@ -65,9 +65,9 @@ async def account_checks(c, tenant_id: str, account_id: str) -> list[dict]:
                     f"ledger {v.fees_rs}, fills {fees['fills']}, settlements {fees['settle']}"))
     acc = await store.get_account(c, tenant_id, account_id)
     flows = await c.fetchrow(
-        """SELECT COALESCE(sum(CASE WHEN o.kind='FUT' THEN 0 WHEN f.side='BUY' THEN -f.value_rs ELSE f.value_rs END - f.charges_rs),0) AS opening
+        """SELECT COALESCE(sum(CASE WHEN o.kind='FUT' THEN 0 WHEN f.side=$2 THEN -f.value_rs ELSE f.value_rs END - f.charges_rs),0) AS opening
            FROM autodesk.trade_fills f JOIN autodesk.trade_orders o USING (order_id) WHERE f.account_id=$1 AND o.purpose='OPEN'""",
-        account_id)
+        account_id, "BUY")
     closing = await c.fetchval("SELECT COALESCE(sum(cash_rs),0) FROM autodesk.trade_exit_records WHERE account_id=$1", account_id)
     expected = Decimal(str(acc["starting_capital_rs"])) + v.adjustments_rs + flows["opening"] + closing
     out.append(_chk("cash", v.cash_balance_rs - expected, f"ledger {v.cash_balance_rs}, from opening capital, fills and "
