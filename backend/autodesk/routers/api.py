@@ -348,9 +348,10 @@ async def start_workflow(body: WorkflowIn, request: Request, user: dict = Depend
 async def list_workflows(request: Request, account_id: Optional[str] = None, simulation_id: Optional[str] = None,
                          kind: Optional[str] = None, limit: int = Query(100, ge=1, le=500),
                          user: dict = Depends(current_user)):
+    """The newest `limit` workflows, newest first."""
     async with _state(request).pool.acquire() as c:
         return out(await store.list_workflows(c, tenant_of(user), account_id=account_id, simulation_id=simulation_id,
-                                              kind=kind, limit=limit))
+                                              kind=kind, limit=limit, newest_first=True))
 
 
 @router.get("/desk/workflows/{workflow_id}")
@@ -368,8 +369,10 @@ async def get_workflow(workflow_id: str, request: Request, user: dict = Depends(
 
 @router.get("/events")
 async def events(request: Request, simulation_id: Optional[str] = None, workflow_id: Optional[str] = None,
-                 after_seq: int = Query(0, ge=0), limit: int = Query(500, ge=1, le=5000),
+                 after_seq: Optional[int] = Query(None, ge=0), limit: int = Query(500, ge=1, le=5000),
                  user: dict = Depends(current_user)):
+    """Events in ascending seq. `after_seq` (0 included) is a cursor: the next `limit` events after it. Without it, the
+    newest `limit` events."""
     async with _state(request).pool.acquire() as c:
         return out(await store.list_events(c, tenant_of(user), simulation_id=simulation_id, workflow_id=workflow_id,
                                            after_seq=after_seq, limit=limit))
@@ -560,8 +563,10 @@ async def stop_simulation(sid: str, request: Request, user: dict = Depends(curre
 
 
 @router.get("/simulations/{sid}/timeline")
-async def simulation_timeline(sid: str, request: Request, after_seq: int = Query(0, ge=0),
+async def simulation_timeline(sid: str, request: Request, after_seq: Optional[int] = Query(None, ge=0),
                               limit: int = Query(1000, ge=1, le=5000), user: dict = Depends(current_user)):
+    """The run's clock rows (all) and its events: with `after_seq` (0 included) the next `limit` after that cursor, else
+    the newest `limit`, always ascending."""
     t = tenant_of(user)
     async with _state(request).pool.acquire() as c:
         await store.get_simulation(c, t, sid)

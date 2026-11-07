@@ -140,6 +140,9 @@ payoff maximum loss plus costs. Margin for futures is an **estimate** (policy `f
 - **SESSION_CYCLE** (per account per session): PREMARKET_CHECK → if BLOCKED stop (no new risk) → MARKET_SCAN → for the
   top N signals (policy `max_proposals_per_session`, score ≥ `min_signal_score`, one per instrument) a child
   TRADE_PROPOSAL.
+  A desk cycle that ended BLOCKED before any scan produced nothing, so it does not use up the session: a new request
+  opens `…:cycle:attempt-2`, `:attempt-3`, … and the earlier workflows stay for the audit. COMPLETED, RUNNING and
+  FAILED cycles, and every simulation cycle, stay idempotent.
 - **TRADE_PROPOSAL**: GENERATE_STRATEGY → ASSESS_RISK → (FAIL/REDUCE: REVISE_STRATEGY → ASSESS_RISK, at most 2
   revisions) → RESEARCH mode: plan RESEARCH_ONLY, end · otherwise REVIEW_FOR_APPROVAL → APPROVED (Phase 1 outcome
   `APPROVED_NO_EXECUTION`) / NEEDS_HUMAN_APPROVAL (workflow WAITING_HUMAN until `POST /approvals/{id}/decision`) /
@@ -163,10 +166,10 @@ SCENARIO is Phase 3; LIVE_SHADOW is Phase 4.
 `GET desk/status` · `POST|GET accounts`, `GET accounts/{id}`, `POST accounts/{id}/mode` · `GET policies`,
 `GET policies/{id}`, `POST policies/{id}/versions` (a user may tighten; loosening past the defaults needs an admin) ·
 `GET agents`, `GET agents/{key}/activity` · `POST desk/workflows` (SESSION_CYCLE | TRADE_PROPOSAL), `GET desk/workflows`,
-`GET desk/workflows/{id}` (tasks + handoffs) · `GET signals`, `GET signals/{id}` · `GET trade-plans`,
+`GET desk/workflows/{id}` (tasks + handoffs; the list returns the newest first) · `GET signals`, `GET signals/{id}` · `GET trade-plans`,
 `GET trade-plans/{id}` (`?version=`), `GET trade-plans/{id}/versions`, `POST trade-plans/{id}/validate` ·
 `POST risk/assessments`, `GET risk/assessments/{id}`, `GET risk/portfolio/{account_id}` · `GET approvals` (`?pending=1`),
-`GET approvals/{id}`, `POST approvals/{id}/decision` · `GET events` (timeline) · `POST|GET simulations`,
+`GET approvals/{id}`, `POST approvals/{id}/decision` · `GET events` (timeline; `after_seq` is a cursor read oldest-first from it, without it the newest rows) · `POST|GET simulations`,
 `GET simulations/{id}`, `POST simulations/{id}/{start|step|run|pause|resume|stop}`,
 `GET simulations/{id}/{timeline|workflows|agents|results}`.
 

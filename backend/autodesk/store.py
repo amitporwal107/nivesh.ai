@@ -63,15 +63,20 @@ async def emit(c: asyncpg.Connection, event_type: C.EventType, *, tenant_id: str
 
 
 async def list_events(c: asyncpg.Connection, tenant_id: str, *, simulation_id: Optional[str] = None,
-                      workflow_id: Optional[str] = None, after_seq: int = 0, limit: int = 500) -> list[dict]:
+                      workflow_id: Optional[str] = None, after_seq: Optional[int] = None, limit: int = 500) -> list[dict]:
+    """Events in ascending seq. With a cursor (`after_seq`, 0 included) the next `limit` events after it, so a reader
+    can walk from the first event. Without one, the NEWEST `limit` events (still returned ascending): a bounded read
+    must not drop the latest rows as the table grows."""
     q = ["SELECT * FROM autodesk.events WHERE tenant_id=$1 AND seq>$2"]
-    args: list[Any] = [tenant_id, after_seq]
+    args: list[Any] = [tenant_id, after_seq or 0]
     if simulation_id is not None:
         args.append(simulation_id); q.append(f"AND simulation_id=${len(args)}")
     if workflow_id is not None:
         args.append(workflow_id); q.append(f"AND workflow_id=${len(args)}")
-    args.append(min(max(limit, 1), 5000)); q.append(f"ORDER BY seq LIMIT ${len(args)}")
-    return [dict(r) for r in await c.fetch(" ".join(q), *args)]
+    args.append(min(max(limit, 1), 5000))
+    q.append(f"ORDER BY seq {'' if after_seq is not None else 'DESC '}LIMIT ${len(args)}")
+    rows = [dict(r) for r in await c.fetch(" ".join(q), *args)]
+    return rows if after_seq is not None else rows[::-1]
 
 
 # ── policies ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -211,6 +216,12 @@ async def create_workflow(c: asyncpg.Connection, *, tenant_id: str, account_id: 
     return await get_workflow(c, tenant_id, wid), True
 
 
+async def get_workflow_by_key(c: asyncpg.Connection, tenant_id: str, idempotency_key: str) -> Optional[dict]:
+    r = await c.fetchrow("SELECT * FROM autodesk.workflows WHERE idempotency_key=$1 AND tenant_id=$2",
+                         idempotency_key, tenant_id)
+    return dict(r) if r is not None else None
+
+
 async def get_workflow(c: asyncpg.Connection, tenant_id: str, workflow_id: str) -> dict:
     r = await c.fetchrow("SELECT * FROM autodesk.workflows WHERE workflow_id=$1 AND tenant_id=$2", workflow_id, tenant_id)
     if r is None:
@@ -240,13 +251,14 @@ async def set_workflow_state(c: asyncpg.Connection, *, tenant_id: str, workflow_
 
 async def list_workflows(c: asyncpg.Connection, tenant_id: str, *, account_id: Optional[str] = None,
                          simulation_id: Optional[str] = None, parent_workflow_id: Optional[str] = None,
-                         kind: Optional[str] = None, limit: int = 200) -> list[dict]:
+                         kind: Optional[str] = None, limit: int = 200, newest_first: bool = False) -> list[dict]:
+    """Workflows oldest first (creation order), or with `newest_first` the newest `limit` of them, newest first."""
     q, args = ["SELECT * FROM autodesk.workflows WHERE tenant_id=$1"], [tenant_id]
     for col, val in (("account_id", account_id), ("simulation_id", simulation_id),
                      ("parent_workflow_id", parent_workflow_id), ("kind", kind)):
         if val is not None:
             args.append(val); q.append(f"AND {col}=${len(args)}")
-    args.append(min(max(limit, 1), 1000)); q.append(f"ORDER BY created_at LIMIT ${len(args)}")
+    args.append(min(max(limit, 1), 1000)); q.append(f"ORDER BY created_at{' DESC' if newest_first else ''} LIMIT ${len(args)}")
     return [dict(r) for r in await c.fetch(" ".join(q), *args)]
 
 
