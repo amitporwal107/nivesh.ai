@@ -97,6 +97,10 @@ def test_adfx14_blocked_cycle_then_again_over_the_api(client):
     wfs = client.get(f"/api/v1/desk/workflows?account_id={acc['account_id']}&kind=SESSION_CYCLE", headers=A).json()
     assert [w["workflow_id"] for w in wfs] == [r3.json()["workflow_id"], r2.json()["workflow_id"],
                                                r1.json()["workflow_id"]]          # newest first (AD-FX-43)
+    two = client.get(f"/api/v1/desk/workflows?account_id={acc['account_id']}&kind=SESSION_CYCLE&limit=2", headers=A).json()
+    assert [w["workflow_id"] for w in two] == [r3.json()["workflow_id"], r2.json()["workflow_id"]]   # the newest two
+    kids = client.get(f"/api/v1/desk/workflows/{r3.json()['workflow_id']}", headers=A).json()["children"]
+    assert [k["kind"] for k in kids] == ["PREMARKET_CHECK", "MARKET_SCAN", "TRADE_PROPOSAL"]         # children: creation order
 
 
 def test_ad81_ad82_accounts_isolation_and_mode(client):
