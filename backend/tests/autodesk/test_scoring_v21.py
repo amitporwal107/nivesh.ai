@@ -164,3 +164,17 @@ def test_adsc25_features_built_once_per_stock(monkeypatch):
     rep = T.scan(T.data())
     scored = rep.shadow["versions"]["v2-positional"]["scored"] + sum(rep.shadow["versions"]["v2-positional"]["not_scored"].values())
     assert scored > 0 and len(calls) == scored
+
+
+def test_adsc36b_score_last_runs():
+    """Coordinator's review: score_last called an unimported name (NameError); the live scan does not use it, so no test saw it."""
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from autodesk.market.view import Bar
+    from autodesk.scoring import v21_positional as v21
+    days = [date(2026, 1, 1) + timedelta(days=i) for i in range(70)]
+    bars = [Bar(day=d, open=Decimal(100), high=Decimal(101), low=Decimal(99), close=Decimal(100), volume=1_000_000) for d in days]
+    sh = v21.score_last(bars, bars)
+    assert sh.version == "v21-positional" and sh.score is not None
+    assert v21.score_last([], bars).reasons == ["no bars"]
