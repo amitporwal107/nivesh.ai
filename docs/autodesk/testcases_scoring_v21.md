@@ -28,3 +28,18 @@ Types: U unit · I integration (stub market data, TEST DATA — not real market 
 | AD-SC-34 | E | Request contract | the posted simulation body for each universe matches frontend-v5/e2e/fixtures/autodesk/requests/*.json and backend `test_ui_request_contracts.py` accepts it |
 | AD-SC-35 | S | TOTAL_MARKET real-data replay (1–2 sessions, throwaway DB) | signal counts, both shadow versions recorded, error_count, scan seconds vs the F&O scan (expect ≈ 3×); NOT deployed |
 | AD-SC-36 | S | Narrative vocabulary | no new agent-written text contains buy, sell, stop loss, SL, target, entry, exit, accumulate, book profit, upside, price target, recommend, pick (AD-92) |
+
+## Part B — shadow scores in the desk web app (written before the code, 7 Nov 2026)
+Shadow scores live in the stored signal body (`body.shadow_scores`, a list of ShadowScore: version, score, band, tier, primary_signal,
+signals, context_signals, warnings, components, reasons). Every shadow label reads "shadow — not used for selection". Fixtures are
+`// MOCK — not real data`; no sample scores are drawn when a signal has none.
+
+| ID | T | Case | Expected |
+|---|---|---|---|
+| AD-SC-37 | E | Scanner row chip | each signal row whose body has `shadow_scores` shows one chip per version in version order, text `v2 77.5 · Strong` / `v2.1 77.5 · Strong`, next to the v1 score; the v1 score, rank and order are unchanged; a signal with no shadow_scores (index signal, older row) shows no chip |
+| AD-SC-38 | E | Scanner expanded row | opening a row shows a "Shadow scoring — not used for selection" section: per version the score, band, tier, primary signal, entry/context signals, warnings, and the component list (dimension, points of weight, reason); v2.1 shows no bearish_warning component; a version with `score: null` shows its `reasons` ("not scored") |
+| AD-SC-39 | E | Scanner without shadow data | rows from before package 5 (no `shadow_scores`) open as today: no shadow section content except one line "No shadow score stored with this signal."; no console errors |
+| AD-SC-40 | E | Phone cards | at 390×844 the chip and the section render in the card, no horizontal overflow |
+| AD-SC-41 | E | Studio Agent trace | the AI Trader signal step's payload gains one row per shadow version (`shadow v2-positional · not used for selection`, value `77.5 · Strong · TIER_1 · primary RS_BREAKOUT`); steps for signals without shadow scores are unchanged |
+| AD-SC-42 | E | Studio Trading day | Day shows no per-signal score today, so nothing is added there (recorded, not skipped) |
+| AD-SC-43 | E | Existing specs | all existing scanner / trace / day specs still pass unchanged (v1 is untouched) |
