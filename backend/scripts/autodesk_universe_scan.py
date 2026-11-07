@@ -30,7 +30,7 @@ async def scan(universe: str) -> dict:
     now = datetime.now(timezone.utc)
     view = PitMarketView(now)
     agent = AITrader()
-    sd = next_session_for(now)
+    sd = await next_session_for(now)
     ctx = AgentContext(tenant_id="t-scan", account={"account_id": "ACC-SCAN"}, policy={}, market=agent.restrict(view), as_of=now,
                        workflow_id="WF-SCAN", inputs={"session_date": sd.isoformat(), "universe": universe, "symbols": None,
                                                       "min_score": "50"})
