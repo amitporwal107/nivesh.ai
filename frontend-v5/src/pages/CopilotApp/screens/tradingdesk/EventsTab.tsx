@@ -17,7 +17,8 @@
  * filings that bear on the quarter, each linked to its source. It never calls a result a beat or a miss.
  * History is what happened before, not a forecast; the panel says so. Nothing is invented: a missing figure is "—".
  */
-import { Suspense, lazy, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useCopilotShell } from "../../lib/shell-context";
 import { LoadingBlock } from "../../components/ui";
 import { ApiError } from "@/services/api/errors";
@@ -963,6 +964,32 @@ function Timeline({ month, today, cal, by, expanded, toggle }: { month: string; 
   );
 }
 
+const UNIVERSE_NAME: Record<Universe, string> = { fno: "F&O", n50: "Nifty 50", all: "all NSE" };
+const asUniverse = (v: string | null): Universe => (v === "n50" || v === "all" ? v : "fno");
+
+/**
+ * Market Intelligence's news ticker opens one company's results here with ?ev_open=<event id>&ev_uni=fno|n50|all (the id
+ * starts with the meeting's date). The link is acted on once and then removed from the URL.
+ */
+function useResultsLink(open: (id: string, date: string, universe: Universe) => void) {
+  const [params, setParams] = useSearchParams();
+  const id = params.get("ev_open");
+  const uni = params.get("ev_uni");
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    if (!id) return;
+    const date = id.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) openRef.current(id, date, asUniverse(uni));
+    setParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.delete("ev_open");
+      p.delete("ev_uni");
+      return p;
+    }, { replace: true });
+  }, [id, uni, setParams]);
+}
+
 function DesktopEvents() {
   const { openTab } = useDesk();
   const now = useNow(60_000);
@@ -973,6 +1000,13 @@ function DesktopEvents() {
   const [f, setF] = useState<Filters>({ universe: "fno", secs: [], types: ALL_TYPES, q: "" });
   const [mf, setMf] = useState<MacroFilters>({ countries: ALL_COUNTRIES, impacts: ALL_IMPACTS, q: "" });
   const [panel, setPanel] = useState<Panel>(null);
+  useResultsLink((id, date, universe) => {
+    setMacro(false);
+    setView("cal");
+    setMonth(monthOf(date));
+    setF((x) => ({ ...x, universe, secs: [], q: "", types: x.types.includes("RESULTS") ? x.types : [...x.types, "RESULTS"] }));
+    setPanel({ kind: "ev", id, from: null });
+  });
   const [secOpen, setSecOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>([]);
   const sq = useEventsCalendar(month, f.universe);
@@ -1125,15 +1159,26 @@ function MobileEvents() {
   const [impacts, setImpacts] = useState<Impact[]>(ALL_IMPACTS);
   const [sheet, setSheet] = useState<string | null>(null);
   const [mview, setMview] = useState<"cal" | "rw">("cal");
+  // F&O, unless the news ticker opened a company from another list (a note then offers the way back)
+  const [uni, setUni] = useState<Universe>("fno");
+  useResultsLink((id, date, universe) => {
+    setMacro(false);
+    setMview("cal");
+    setUni(universe);
+    setWk(mondayOf(date));
+    setDay(date);
+    setTypes((x) => (x.includes("RESULTS") ? x : [...x, "RESULTS"]));
+    setSheet(id);
+  });
   const m1 = monthOf(wk), m2 = monthOf(addDays(wk, 6));
-  const q1 = useEventsCalendar(m1, "fno");
-  const q2 = useEventsCalendar(m2, "fno");
+  const q1 = useEventsCalendar(m1, uni);
+  const q2 = useEventsCalendar(m2, uni);
   const mq1 = useMacroCalendar(m1);
   const mq2 = useMacroCalendar(m2);
   const evsAll = useMemo(() => [...(q1.data?.events ?? []), ...(m2 !== m1 ? q2.data?.events ?? [] : [])], [q1.data, q2.data, m1, m2]);
   const mAll = useMemo(() => [...(mq1.data?.events ?? []), ...(m2 !== m1 ? mq2.data?.events ?? [] : [])], [mq1.data, mq2.data, m1, m2]);
   const calFor = (d: string): AnyCal | undefined => (macro ? (monthOf(d) === m1 ? mq1.data : mq2.data) : monthOf(d) === m1 ? q1.data : q2.data);
-  const f: Filters = { universe: "fno", secs: [], types, q: "" };
+  const f: Filters = { universe: uni, secs: [], types, q: "" };
   const { evs: sevs, by: sby } = useFiltered({ month: m1, asOf: null, events: evsAll, holidays: new Map(), closes: new Map(), gaps: [] }, f);
   const mf: MacroFilters = { countries, impacts, q: "" };
   const { evs: mevs, by: mby } = useMacroFiltered({ month: m1, asOf: null, events: mAll, holidays: new Map(), closes: new Map(), gaps: [] }, mf);
@@ -1157,6 +1202,12 @@ function MobileEvents() {
         <div style={{ marginLeft: "auto" }}><Seg id="tab" label="Calendar type" value={macro ? "macro" : "stock"} onPick={(v) => { setMacro(v === "macro"); setSheet(null); }} items={[["STOCK", "stock"], ["MACRO", "macro", mq1.isSuccess ? String(mevs.length) : mq1.isError ? "!" : "…"]]} /></div>
       </div>
       <div className="flex">{viewSeg}</div>
+      {uni !== "fno" && (
+        <p data-testid="events-m-uni" className="m-0" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+          Showing {UNIVERSE_NAME[uni]} companies, as opened from the news ticker.{" "}
+          <button type="button" data-testid="events-m-uni-back" onClick={() => { setUni("fno"); setSheet(null); }} style={{ padding: 0, border: 0, background: "none", font: "inherit", color: "var(--mint)", cursor: "pointer" }}>Back to F&amp;O</button>
+        </p>
+      )}
       <div className="cp-card flex flex-col" style={{ padding: "6px 8px 8px", gap: 6, borderRadius: 18 }}>
         <div className="flex items-center">
           <button type="button" aria-label="Previous week" data-testid="events-m-prev" onClick={() => move(-1)} style={{ width: 44, height: 38, border: 0, background: "transparent", color: "var(--cp-ink-2)", fontSize: 20, cursor: "pointer" }}>‹</button>
@@ -1188,7 +1239,7 @@ function MobileEvents() {
         ) : ALL_TYPES.map((tp) => <TypeChip key={tp} t={tp} on={types.includes(tp)} onClick={() => setTypes(tog(types, tp))} />)}
       </div>
       {macro && <CountryGap cal={mq1.data} countries={countries} />}
-      {!macro && <ResultsBoard today={today} universe="fno" secs={[]} q="" onPick={(e) => { setWk(mondayOf(e.eventDate)); setDay(e.eventDate); setTypes((x) => (x.includes("RESULTS") ? x : [...x, "RESULTS"])); setSheet(e.id); }} />}
+      {!macro && <ResultsBoard today={today} universe={uni} secs={[]} q="" onPick={(e) => { setWk(mondayOf(e.eventDate)); setDay(e.eventDate); setTypes((x) => (x.includes("RESULTS") ? x : [...x, "RESULTS"])); setSheet(e.id); }} />}
       {err ? <ErrorState text={macro ? "The macro calendar could not be loaded. Nothing is shown rather than an older list." : "The events calendar could not be loaded. Nothing is shown rather than an older list."} onRetry={() => { a1.refetch(); a2.refetch(); }} /> : (a1.isLoading ? <LoadingBlock label={macro ? "Loading macro releases" : "Loading events"} rows={3} /> : (
         <Widget
           id={`events.day.phone.${day}`}

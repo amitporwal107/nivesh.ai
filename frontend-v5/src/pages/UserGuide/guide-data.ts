@@ -3,7 +3,10 @@
  *
  *   videos + captions + poster   /downloads/promo/nivesh-copilot-da8691abbb/   (published on the staging host's
  *                                 /downloads; too large for git, built by the promo pipeline of 4–5 Nov 2026)
- *   written guide, per language  <BASE_URL>user-guide/<lang>.json              (frontend-v5/public/user-guide)
+ *   written guide, per language  <BASE_URL>guide-text/<lang>.json              (frontend-v5/public/guide-text)
+ *
+ * The text folder must NOT be named like the page's route: the v5 nginx serves `try_files $uri $uri/ /v5/index.html`, so a
+ * public/user-guide/ folder turned /v5/user-guide into a 301 to the folder and a 403 for every direct or shared link.
  *
  * Every language shares one picture and one timeline, so a section's time is the same in all five videos and the
  * playback position can carry over a language switch. Used by the /user-guide page and the homepage section.
@@ -95,7 +98,7 @@ export function useGuideText(code: GuideLangCode) {
   return useQuery({
     queryKey: ["user-guide", code],
     queryFn: async (): Promise<GuideText> => {
-      const r = await fetch(`${import.meta.env.BASE_URL}user-guide/${code}.json`);
+      const r = await fetch(`${import.meta.env.BASE_URL}guide-text/${code}.json`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return (await r.json()) as GuideText;
     },

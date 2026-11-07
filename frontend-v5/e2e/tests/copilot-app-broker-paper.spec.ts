@@ -386,6 +386,23 @@ test.describe("My portfolio — broker block", () => {
     await expect.poll(() => sent).toEqual(["Show the FIXALPHA chart with support and resistance. My broker account holds 10 at an average of ₹100.00."]);
   });
 
+  test("a broker whose full list would not answer: its narrower live view is shown with what it leaves out, not an error", async ({ page }) => {
+    // MOCK — not real data: the shape of GET /api/broker/holdings when ICICI's /dematholdings fails and its portfolio view answers.
+    const note = "ICICI Direct's demat holdings list is not answering, so these 2 holdings are from its NSE equity portfolio view. Holdings outside NSE equity (other exchanges, bonds, funds) and ISINs are missing.";
+    const live = { ...TWO_LIVE, accounts: TWO_LIVE.accounts.map((a) => (a.account_id === ICICI.account_id ? { ...a, partial: note } : a)) };
+    await mockAsk(page);
+    await brokerData(page, { accounts: TWO_ACCOUNTS, live, positions: { as_of: AS_OF, kind: "net", segment: "all", accounts: [] } });
+    await page.goto(PORTFOLIO);
+    const icici = card(page, ICICI);
+    await expect(icici.getByTestId("broker-live-partial")).toHaveText(note);
+    await expect(icici.getByTestId("broker-live-status")).toHaveText(/^Live · partial · read /i);
+    await expect(icici.getByTestId("broker-live-row")).toHaveCount(2);              // the rows are shown
+    await expect(icici.getByTestId("broker-live-holdings-error")).toHaveCount(0);   // and it is not reported as a failed read
+    // The other account had a full read: no note, no "partial".
+    await expect(card(page, ZERODHA).getByTestId("broker-live-partial")).toHaveCount(0);
+    await expect(card(page, ZERODHA).getByTestId("broker-live-status")).not.toContainText("partial");
+  });
+
   test("open positions are read live per account, with an All / F&O switch; F&O rows keep their contract", async ({ page }) => {
     await brokerData(page, { accounts: ZU_ACCOUNTS, live: ZU_LIVE, positions: POSITIONS, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
     await page.goto(PORTFOLIO);

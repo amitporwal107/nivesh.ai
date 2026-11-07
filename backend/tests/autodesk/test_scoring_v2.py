@@ -49,8 +49,8 @@ def flat_bench(days, level=20000.0):
 def test_adsc01_registry(monkeypatch):
     monkeypatch.delenv("AUTODESK_SCORING_SHADOW", raising=False)
     st = {v["version"]: v["status"] for v in registry.describe()}
-    assert st == {"v1": "ACTIVE", "v2-positional": "SHADOW", "v3-intraday": "DISABLED"}
-    assert registry.active_version() == "v1" and registry.shadow_versions() == ["v2-positional"]
+    assert st == {"v1": "ACTIVE", "v2-positional": "SHADOW", "v21-positional": "SHADOW", "v3-intraday": "DISABLED"}
+    assert registry.active_version() == "v1" and registry.shadow_versions() == ["v2-positional", "v21-positional"]
     assert sum(registry.V2_WEIGHTS.values()) == 100
     assert {k: int(w) for k, w in registry.V2_WEIGHTS.items()} == {"signal_quality": 45, "trend_confirmation": 30,
                                                                    "relative_strength": 15, "supporting_evidence": 10}
@@ -281,7 +281,7 @@ def test_adsc12b_shadow_failure_never_breaks_v1(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("shadow scorer failed")
     monkeypatch.setenv("AUTODESK_SCORING_SHADOW", "v2-positional")
-    monkeypatch.setattr(v2, "score_last", boom)
+    monkeypatch.setattr(v2, "features", boom)
     on = T.scan(T.data())
     assert [(_key(s), s.signal_score) for s in on.signals] == [(_key(s), s.signal_score) for s in off.signals]
     assert on.shadow["error_count"] > 0 and "RuntimeError" in next(iter(on.shadow["errors"].values()))

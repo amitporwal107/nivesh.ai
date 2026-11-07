@@ -178,6 +178,8 @@ export const VIEW_PARAMS = [
   "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry",
   // the F&O lab (FnoTab.tsx) and Market Intelligence (IntelTab.tsx)
   "lab", "lab_sym", "lab_focus", "in_chip", "in_ev",
+  // the Events calendar's one-shot link to a company's results panel (Market Intelligence's news ticker)
+  "ev_open", "ev_uni",
   // Trade Desk: the sub-view, the chart's plan (?tp=) and the journal's trade (Paper Trading)
   "sub", "tp", "trade",
   // Market Desk › Screener › Scan builder: the open saved scan; › Scan dashboard: the open dashboard tab (absent = Atlas fresh)

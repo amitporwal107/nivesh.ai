@@ -46,7 +46,12 @@ the desk design only has the "Copilot docked right" chip.
   is saved, and the mock answered an empty thread; it now keeps what was asked and answered, as copilot-app-desk.spec.ts
   does.
 
+## Staging after the merge (real output, 2026-10-29)
+- **Merge and deploy:** #405 went in with #408 (`dev` be0ba7de); the frontend deploy succeeded.
+- **Bundle:** the served bundle has "Copilot floating" (`grep -rlF` → 2 files).
+- **Still open (FW-10):** the manual Float / drag / resize / Lock pass with a signed-in session.
+
 ## Inputs required from user
-- Merge #404 first (this branch carries its commit), then this PR.
+- A signed-in look at the desk at 1440 px or wider for FW-10.
 
 ## Verdict: BLOCKED

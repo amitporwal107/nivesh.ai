@@ -83,11 +83,13 @@ test.describe("Desk — Results today & tomorrow (desktop)", () => {
     await page.goto(`${DESK}?tab=events`);
     const board = page.getByTestId("events-board");
     await expect(board).toBeVisible(SLOW);
-    // TC-24: one request, today to tomorrow, universe follows the filter
-    expect(urls).toHaveLength(1);
-    expect(urls[0]).toContain("from=2026-10-21");
-    expect(urls[0]).toContain("to=2026-10-22");
-    expect(urls[0]).toContain("universe=fno");
+    // TC-24: one request, today to tomorrow, universe follows the filter. Market Intelligence's news ticker on the same
+    // view makes its own two reads, always universe=all (today–tomorrow and the previous weekday); they are not the board's.
+    const own = urls.filter((u) => !u.includes("universe=all"));
+    expect(own).toHaveLength(1);
+    expect(own[0]).toContain("from=2026-10-21");
+    expect(own[0]).toContain("to=2026-10-22");
+    expect(own[0]).toContain("universe=fno");
     await expect(page.getByTestId("events-board-label")).toContainText("NOT A CONSENSUS · NOT A FORECAST");
     await expect(page.getByTestId("events-board-counts")).toContainText("1 DECLARED · 1 FILED, FIGURES PENDING · 2 AWAITED");
     // declared row: expected range and the filed value, with the position worked out from the payload
@@ -143,8 +145,9 @@ test.describe("Desk — Results today & tomorrow (desktop)", () => {
     await setup(page, { urls });
     await page.goto(`${DESK}?tab=events`);
     await expect(page.getByTestId("events-board")).toBeVisible(SLOW);
-    await page.getByRole("button", { name: "ALL NSE" }).click();
-    await expect.poll(() => urls.some((u) => u.includes("universe=all"))).toBe(true);
+    // Nifty 50: the news ticker on the same view already reads universe=all (a shared cache entry), and never reads n50
+    await page.getByTestId("events-universe-n50").click();
+    await expect.poll(() => urls.some((u) => u.includes("universe=n50"))).toBe(true);
   });
 
   test("TC-21 a row opens the event panel; a pending result says figures are not loaded", async ({ page }) => {

@@ -260,11 +260,11 @@ def test_one_accounts_holdings_with_a_rejected_token_are_409_and_end_the_session
     _no_secret(res.text)
 
 
-def test_one_accounts_holdings_broker_failure_is_502_with_no_secret(h, sib, caplog):
+def test_one_accounts_holdings_broker_failure_is_424_with_no_secret(h, sib, caplog):
     sib.holdings["ba_i"] = RuntimeError(f'upstream 500 {{"token":"{SECRET}","client":"{CLIENT_ID}"}}')
     with caplog.at_level("DEBUG"):
         res = h.get("/api/broker/accounts/ba_i/holdings")
-    _error(res, 502, "BROKER_READ_FAILED", "Could not read holdings from ICICI Direct. Please try again.",
+    _error(res, 424, "BROKER_READ_FAILED", "Could not read holdings from ICICI Direct. Please try again.",
            [{"broker": "icicidirect", "account_id": "ba_i"}])
     assert sib.ended == [] and h.db.broker_accounts.one(account_id="ba_i")["last_error"] is None
     _no_secret(res.text, caplog.text)
@@ -431,3 +431,44 @@ def test_all_accounts_positions_are_read_a_few_at_a_time(h, sib):
 def test_the_route_module_names_the_new_routes():
     paths = {(sorted(r.methods)[0], r.path) for r in bc.router.routes}
     assert ("GET", "/api/broker/holdings") in paths and ("GET", "/api/broker/accounts/{account_id}/holdings") in paths
+
+
+# ── A broker whose full list would not answer (ICICI's /dematholdings, 31 Oct 2026) ──
+PARTIAL_NOTE = ("ICICI Direct's demat holdings list is not answering, so these 1 holdings are from its NSE equity portfolio view. "
+                "Holdings outside NSE equity (other exchanges, bonds, funds) and ISINs are missing.")
+
+
+def _partial_view():
+    from services.brokers.base import PartialHoldings
+    return PartialHoldings([dataclasses.replace(INFY, isin=None)], PARTIAL_NOTE)
+
+
+def test_a_partial_read_is_shown_live_with_its_note_on_both_live_routes(h, sib):
+    sib.holdings["ba_z"] = _partial_view()
+    one = h.get("/api/broker/accounts/ba_z/holdings")
+    assert one.status_code == 200 and one.json()["partial"] == PARTIAL_NOTE and one.json()["counts"] == {"total": 1}
+    assert [r["symbol"] for r in one.json()["holdings"]] == ["INFY"]
+    every = h.get("/api/broker/holdings").json()["accounts"]
+    mine = next(a for a in every if a["account_id"] == "ba_z")
+    assert mine["ok"] is True and mine["partial"] == PARTIAL_NOTE
+    # A complete read says nothing about being partial.
+    sib.holdings["ba_z"] = [INFY]
+    assert "partial" not in h.get("/api/broker/accounts/ba_z/holdings").json()
+
+
+def test_a_partial_read_never_replaces_the_holdings_on_file(h, sib):
+    sib.holdings["ba_z"] = [INFY, GOLDBEES]
+    assert h.post("/api/broker/accounts/ba_z/sync").json()["count"] == 2
+    on_file = sorted(r["holding_id"] for r in h.db.holdings.docs if r.get("broker_account_id") == "ba_z")
+    snapshots = len(h.db.broker_sync_snapshots.docs)
+
+    sib.holdings["ba_z"] = _partial_view()
+    res = h.post("/api/broker/accounts/ba_z/sync")
+    body = res.json()
+    assert res.status_code == 200 and body["partial"] == PARTIAL_NOTE
+    assert body["count"] == 2 and body["holdings"] == []                  # what is still on file, nothing new
+    assert sorted(r["holding_id"] for r in h.db.holdings.docs if r.get("broker_account_id") == "ba_z") == on_file
+    assert len(h.db.broker_sync_snapshots.docs) == snapshots              # a partial read is not a sync snapshot
+    acct = h.db.broker_accounts.one(account_id="ba_z")
+    assert (acct["last_sync_count"], acct["last_error"]) == (2, None)
+    assert h.audits[-1]["outcome"] == "success" and h.audits[-1]["details"]["partial"] is True

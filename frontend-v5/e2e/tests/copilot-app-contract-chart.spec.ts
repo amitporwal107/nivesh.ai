@@ -407,7 +407,7 @@ test.describe("Contract chart card", () => {
 
     // A view that cannot be read at all still leaves the position's own figures on the card.
     await page.unroute(CHART_ROUTE);
-    await mockChart(page, () => ({ status: 502, body: envelope(502, "BROKER_READ_FAILED", "fixture: the broker did not answer") }));
+    await mockChart(page, () => ({ status: 424, body: envelope(424, "BROKER_READ_FAILED", "fixture: the broker did not answer") }));
     await page.getByTestId("contract-chart-refresh").click();
     await expect(page.getByTestId("contract-chart-failed")).toBeVisible();
     await expect(page.getByTestId("contract-chart-average")).toHaveText("₹35.80");
@@ -508,7 +508,7 @@ test.describe("Contract chart card", () => {
 
   test("a failed read reports it once; Try again reads once more and draws the chart", async ({ page }) => {
     const chart = await mockChart(page, (url, n) => (n === 1
-      ? { status: 502, body: envelope(502, "BROKER_READ_FAILED", "fixture: the broker did not answer") }
+      ? { status: 424, body: envelope(424, "BROKER_READ_FAILED", "fixture: the broker did not answer") }
       : { body: chartBody(OPTION, url.searchParams.get("interval") ?? "") }));
     await openSaved(page, OPTION, OPTION_TITLE);
 

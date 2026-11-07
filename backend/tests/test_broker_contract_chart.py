@@ -289,7 +289,7 @@ def test_read_failures_carry_the_hubs_stable_codes(h, sib):
     h.db.broker_accounts.one(account_id="ba_i")["status"] = "active"
     chart_reader(sib, RuntimeError(f"boom {SECRET}"))
     res = h.get(f"/api/broker/accounts/ba_i/contract-chart?{PUT_QUERY}")
-    _error(res, 502, "BROKER_READ_FAILED")
+    _error(res, 424, "BROKER_READ_FAILED")
     _no_secret(res.text)
 
 
