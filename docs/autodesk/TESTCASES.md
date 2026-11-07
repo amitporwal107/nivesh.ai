@@ -475,3 +475,5 @@ Design: `PHASE2_DESIGN.md`. Layers as above: U unit, I integration on a throwawa
 | AD-P2-115 | I | Capital read with an old mark on the desk | listed stale while the market is open; not when it is shut |
 | AD-P2-116 | U | Every string literal in the execution code | none of the AD-92 words (BUY/SELL field values and Kite's depth field names apart) |
 | AD-P2-117 | U | `/health` and `/desk/status` `execution` text | "paper only" with a gateway; the Phase 1 text without one |
+| AD-P2-118 | E | Result APPROVED on the desk's screens | reads as approved everywhere APPROVED_NO_EXECUTION did (the screens' pure label functions) |
+| AD-P2-119 | I | Journal of a filled and of an expired plan | MARK per session; each order's end with its reason; the intent's result |

@@ -155,6 +155,16 @@ async def finish_intent(c, intent: dict, *, as_of: datetime, sim_time: Optional[
     result = "FILLED" if full else ("PARTIALLY_FILLED" if filled else "NOT_FILLED")
     row = await c.fetchrow("UPDATE autodesk.execution_intents SET status='COMPLETED', result=$2, updated_at=now() "
                            "WHERE intent_id=$1 RETURNING *", intent["intent_id"], result)
+    jb = dict(tenant_id=tenant_id, account_id=intent["account_id"], simulation_id=intent["simulation_id"],
+              trade_id=intent["trade_id"], sim_time=sim_time)
+    for o in os_:
+        if o["state"] != "FILLED":
+            await journal.record(c, **jb, kind="ORDER", ref_id=f"{o['order_id']}:{o['state']}",
+                                 summary=f"leg {o['leg_id']} ended {o['state']} with {o['filled_qty']} of {o['quantity']} filled"
+                                         + (f": {o['reject_reason']}" if o.get("reject_reason") else ""),
+                                 data={"state": o["state"], "reject_code": o.get("reject_code")})
+    await journal.record(c, **jb, kind="EXECUTION_INTENT", ref_id=f"{intent['intent_id']}:{result}",
+                         summary=f"intent ended {result}: {why}", data={"result": result})
     if filled:
         plan_status = C.PlanStatus.EXECUTED
     elif any(o["state"] == "REJECTED" for o in os_):
@@ -322,6 +332,17 @@ async def mark_to_close(c, gw: ExecutionGateway, *, tenant_id: str, account_id: 
             await positions.mark_leg(c, position_id=leg["position_id"], leg=leg, mark=bar.close,
                                      source=f"{bar.source} close", at=as_of)
             marked += 1
+    for p in await c.fetch(
+            """SELECT p.position_id, p.trade_id, p.instrument, p.simulation_id, sum(l.unrealized_rs) AS unrealized,
+                      bool_or(l.mark_stale) AS stale
+               FROM autodesk.trade_positions p JOIN autodesk.trade_position_legs l USING (position_id)
+               WHERE p.tenant_id=$1 AND p.account_id=$2 AND p.status='OPEN'
+               GROUP BY p.position_id, p.trade_id, p.instrument, p.simulation_id""", tenant_id, account_id):
+        await journal.record(c, tenant_id=tenant_id, account_id=account_id, simulation_id=p["simulation_id"], trade_id=p["trade_id"],
+                             kind="MARK", ref_id=f"{p['position_id']}:{session.isoformat()}", sim_time=as_of,
+                             summary=f"{p['instrument']} marked at the {session} close: unrealized {p['unrealized']}"
+                                     + (" (a leg keeps an old mark, flagged stale)" if p["stale"] else ""),
+                             data={"unrealized_rs": str(p["unrealized"]), "stale": p["stale"]})
     return marked, stale
 
 

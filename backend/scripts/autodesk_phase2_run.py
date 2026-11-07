@@ -136,10 +136,11 @@ async def verify_fills(pool, sid: str) -> dict:
 
 async def no_look_ahead(pool, tenant: str, sid: str, bars) -> dict:
     """AD-P2-64 and AD-72 on real data: the fill engine read only the clock's session, and no agent read reached data published
-    after its task's simulated time."""
+    after its task's simulated time. `previous_session` is left out of the published-data rule: it reads the holiday calendar
+    only, for the session being prepared (market/pit.py), so its `day` is not market data. It is counted separately."""
     from autodesk.market.view import published_at
     wrong = [r for r in bars.reads if r[1] != r[2]]
-    bad, n = [], 0
+    bad, n, calendar_only = [], 0, 0
     async with pool.acquire() as c:
         rows = await c.fetch("SELECT task_id, task_type, sim_time, tool_calls FROM autodesk.agent_tasks WHERE tenant_id=$1 AND simulation_id=$2",
                              tenant, sid)
@@ -148,16 +149,19 @@ async def no_look_ahead(pool, tenant: str, sid: str, bars) -> dict:
             n += 1
             asof = datetime.fromisoformat(str(tc.get("as_of")).replace("Z", "+00:00")) if tc.get("as_of") else None
             if row["sim_time"] and asof and asof != row["sim_time"]:
-                bad.append(row["task_id"])
+                bad.append({"tool": tc["tool"], "why": "as_of differs from the task's sim_time"})
             day = (tc.get("args") or {}).get("day")
-            if day and asof:
+            if tc["tool"] == "previous_session":
+                calendar_only += 1
+            elif day and asof:
                 kind = "fno" if tc["tool"] in ("fno_universe", "fno_buildup", "futures", "options", "expiries", "lot_size") else "cash"
                 if published_at(date.fromisoformat(day), kind) > asof:
-                    bad.append(row["task_id"])
+                    bad.append({"tool": tc["tool"], "day": day, "as_of": str(asof)})
             if not tc.get("ok", True) and "LookAhead" in str(tc.get("error")):
-                bad.append(row["task_id"])
+                bad.append({"tool": tc["tool"], "why": tc.get("error")})
     return {"fill_engine_reads": len(bars.reads), "reads_outside_the_clock_session": len(wrong),
-            "agent_tool_calls_checked": n, "agent_look_ahead_violations": len(bad)}
+            "agent_tool_calls_checked": n, "calendar_only_calls": calendar_only, "agent_look_ahead_violations": bad[:10],
+            "violation_count": len(bad)}
 
 
 async def detail(pool, sid: str) -> dict:
@@ -179,9 +183,12 @@ async def detail(pool, sid: str) -> dict:
         chain = await c.fetch("SELECT kind, summary FROM autodesk.trade_journal_entries WHERE trade_id=$1 ORDER BY seq", one) if one else []
         wf = await c.fetch("SELECT session_date, outcome->>'result' AS result, count(*) AS n FROM autodesk.workflows WHERE simulation_id=$1 "
                            "AND kind='TRADE_PROPOSAL' GROUP BY 1,2 ORDER BY 1,2", sid)
+        no_trade = await c.fetch("SELECT session_date, outcome->'reasons' AS reasons FROM autodesk.workflows WHERE simulation_id=$1 "
+                                 "AND kind='TRADE_PROPOSAL' AND outcome->>'result'='NO_TRADE' ORDER BY session_date LIMIT 8", sid)
     return _j({"orders": [dict(r) for r in orders_], "reservations": [dict(r) for r in res], "ledger": [dict(r) for r in led],
                "order_history": [dict(r) for r in hist], "journal_kinds": [dict(r) for r in jour],
-               "journal_chain_of_first_trade": [dict(r) for r in chain], "proposal_results": [dict(r) for r in wf]})
+               "journal_chain_of_first_trade": [dict(r) for r in chain], "proposal_results": [dict(r) for r in wf],
+               "no_trade_reasons": [dict(r) for r in no_trade]})
 
 
 async def main() -> None:

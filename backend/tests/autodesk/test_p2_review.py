@@ -362,6 +362,25 @@ def test_adp2_116_no_literal_in_the_execution_code_uses_an_advice_word():
     assert hits == [], hits
 
 
+def test_adp2_119_the_journal_holds_marks_and_how_orders_ended(pg_pool):
+    async def go():
+        t, sim, acc, plan, gw, it = await one_plan(pg_pool, rows={H.key_eq(): H.bar("1000", close="1010")})
+        sid = sim["simulation_id"]
+        await settle.run_open(gw, tenant_id=t, simulation_id=sid, session=H.SD, as_of=H.AT_0915)
+        await settle.run_close(gw, tenant_id=t, simulation_id=sid, session=H.SD, as_of=H.AT_1530)
+        t2, sim2, acc2, plan2, gw2, it2 = await one_plan(pg_pool, rows={H.key_eq(): H.bar("1006", high="1020", low="1006", close="1010")})
+        await settle.run_open(gw2, tenant_id=t2, simulation_id=sim2["simulation_id"], session=H.SD, as_of=H.AT_0915)
+        await settle.run_close(gw2, tenant_id=t2, simulation_id=sim2["simulation_id"], session=H.SD, as_of=H.AT_1530)
+        async with pg_pool.acquire() as c:
+            one = [(r["kind"], r["summary"]) for r in await c.fetch("SELECT kind, summary FROM autodesk.trade_journal_entries WHERE trade_id=$1 ORDER BY seq", plan["trade_id"])]
+            two = [(r["kind"], r["summary"]) for r in await c.fetch("SELECT kind, summary FROM autodesk.trade_journal_entries WHERE trade_id=$1 ORDER BY seq", plan2["trade_id"])]
+        assert [k for k, _ in one] == ["PLAN_VERSION", "RISK_ASSESSMENT", "APPROVAL", "EXECUTION_INTENT", "RESERVATION", "ORDER", "FILL",
+                                       "POSITION", "EXECUTION_INTENT", "MARK"], one
+        assert "unrealized" in one[-1][1] and "ended FILLED" in one[-2][1]
+        assert any(k == "ORDER" and "ended EXPIRED with 0 of 100 filled" in x for k, x in two) and any("ended NOT_FILLED" in x for _, x in two)
+    run(go())
+
+
 def test_adp2_117_routes_say_paper_only_when_execution_is_wired(pg_pool):
     from types import SimpleNamespace
     from autodesk.routers.api import _execution_text
