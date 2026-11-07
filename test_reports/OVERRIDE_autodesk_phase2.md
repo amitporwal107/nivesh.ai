@@ -1,3 +1,0 @@
-# OVERRIDE — Phase 2 paper execution (autodesk_phase2_20261107.md)
-
-REASON: the real-data replay and the real Kite quote (AD-P2-95..98) could not be run in this session — the auto-mode safety check refused the throwaway container that needs the staging DaaS credentials, and the owner has not yet given an explicit go-ahead for it. All 255 backend tests pass on a throwaway Postgres with test doubles and 159 of 160 desk specs pass (AD-UI-74 is flaky). The report is deliberately NOT marked PASS; this override only lets the work be committed and handed over. Do not read it as verified on real data.
