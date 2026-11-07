@@ -51,7 +51,8 @@ class _PaperBase:
     name = "PAPER"
 
     async def amend(self, order: dict, changes: dict, idempotency_key: str) -> dict:
-        raise AdapterRefused("changing a working paper order is not available in Phase 2; withdraw it instead")
+        """The paper venue accepts a change the gateway has already limited to less risk (PHASE3_DESIGN §7.1)."""
+        return {"accepted": True, "adapter": self.name, "order_id": order["order_id"], "simulated": True, "changes": changes}
 
     async def withdraw(self, order: dict, idempotency_key: str) -> dict:
         return {"accepted": True, "adapter": self.name, "order_id": order["order_id"], "simulated": True}

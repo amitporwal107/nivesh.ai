@@ -79,8 +79,12 @@ def production_execution(pool):
     from .execution.gateway import ExecutionGateway
     from .market.live_quotes import KiteQuoteSource
     from .market.session_bars import PitSessionBars
+    from .lifecycle.manager import LifecycleManager, pit_history
+    from .market.pit import PitMarketView
+    lifecycle = LifecycleManager(pool, params=DEFAULT_PARAMS, history=pit_history(lambda as_of: PitMarketView(as_of)),
+                                 eod_bars=PitSessionBars())
     return ExecutionGateway(pool, sim=SimulationPaperAdapter(PitSessionBars(), DEFAULT_PARAMS),
-                            live=LivePaperAdapter(KiteQuoteSource(), DEFAULT_PARAMS), params=DEFAULT_PARAMS)
+                            live=LivePaperAdapter(KiteQuoteSource(), DEFAULT_PARAMS), params=DEFAULT_PARAMS, lifecycle=lifecycle)
 
 
 def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = None) -> FastAPI:
@@ -156,6 +160,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
     app.include_router(router)
     from .routers.execution import router as execution_router
     app.include_router(execution_router)
+    from .routers.lifecycle import router as lifecycle_router
+    app.include_router(lifecycle_router)
     return app
 
 

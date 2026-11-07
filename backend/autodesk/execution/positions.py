@@ -1,5 +1,5 @@
 """Fills → positions (one per trade, one leg row per plan leg) and marks. A position exists only after a fill: an
-acknowledgement never opens one (ARCH §17.2). Phase 2 positions stay OPEN; exits are Phase 3."""
+acknowledgement never opens one (ARCH §17.2). Closing fills are booked by autodesk/lifecycle/closure.py (Phase 3)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -51,8 +51,8 @@ async def open_or_add(c, *, plan: dict, order: dict, qty: int, price: Decimal, v
         await c.execute(
             """INSERT INTO autodesk.trade_position_legs (position_id, leg_id, kind, underlying, expiry, strike, side,
                    lot_size, quantity, avg_price, cost_value_rs, charges_rs, mark_price, mark_source, marked_at,
-                   unrealized_rs)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'the fill price',$14,0)""",
+                   unrealized_rs, opened_qty)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'the fill price',$14,0,$9)""",
             pos["position_id"], order["leg_id"], order["kind"], order["underlying"], order["expiry"], order["strike"],
             side, order["lot_size"], qty, price, rs(value_rs), rs(charges_rs), price, at)
     else:
@@ -60,9 +60,9 @@ async def open_or_add(c, *, plan: dict, order: dict, qty: int, price: Decimal, v
         cost = leg["cost_value_rs"] + rs(value_rs)
         await c.execute(
             """UPDATE autodesk.trade_position_legs SET quantity=$3, avg_price=$4, cost_value_rs=$5,
-                   charges_rs=charges_rs+$6, unrealized_rs=$7 WHERE position_id=$1 AND leg_id=$2""",
+                   charges_rs=charges_rs+$6, unrealized_rs=$7, opened_qty=opened_qty+$8 WHERE position_id=$1 AND leg_id=$2""",
             pos["position_id"], order["leg_id"], q, cost / q, cost, rs(charges_rs),
-            unrealized(side, q, cost, leg["mark_price"]))
+            unrealized(side, q, cost, leg["mark_price"]), qty)
     return dict(pos), created
 
 

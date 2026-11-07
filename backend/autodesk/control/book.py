@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from .. import store
 
@@ -32,6 +32,7 @@ class Book:
     starting_capital_rs: Decimal
     pending: list[Commitment] = field(default_factory=list)
     basis: str = "equity from the capital ledger; commitments = approved plans, reservations, open positions"
+    loss_limits: Optional[dict] = None    # Phase 3: {"daily_loss"|"weekly_loss"|"drawdown": detail when breached, else None}
 
     @property
     def pending_risk_rs(self) -> Decimal:
@@ -56,6 +57,7 @@ class Book:
     def from_json(cls, d: dict[str, Any]) -> "Book":
         return cls(account_id=d["account_id"], equity_rs=Decimal(str(d["equity_rs"])),
                    starting_capital_rs=Decimal(str(d["starting_capital_rs"])), basis=d.get("basis", ""),
+                   loss_limits=d.get("loss_limits"),
                    pending=[Commitment(trade_id=c["trade_id"], plan_version=int(c["plan_version"]),
                                        instrument=c["instrument"], sector=c["sector"],
                                        strategy_type=c["strategy_type"], max_loss_rs=Decimal(str(c["max_loss_rs"])),
@@ -107,7 +109,14 @@ async def load_book(conn, tenant_id: str, account_id: str, as_of: datetime) -> B
         pending.append(Commitment(trade_id=r["trade_id"], plan_version=r["plan_version"], instrument=r["instrument"],
                                   sector=r["sector"], strategy_type=r["strategy_type"], max_loss_rs=r["open_risk_rs"],
                                   capital_rs=r["capital_rs"], fno=r["fno"]))
-    return Book(account_id=account_id, equity_rs=view.equity_rs,
+    from ..lifecycle import limits as loss
+    from ..market.view import IST
+    cur = await loss.current(conn, tenant_id=tenant_id, account_id=account_id, session=as_of.astimezone(IST).date())
+    codes = {b["code"]: b["detail"] for b in cur["blocks"]}
+    dd = cur["measures"]["drawdown"]
+    loss_limits = {"daily_loss": codes.get("DAILY_LOSS_LIMIT"), "weekly_loss": codes.get("WEEKLY_LOSS_LIMIT"),
+                   "drawdown": (f"drawdown {dd['loss_pct']}% reached the {dd['limit_pct']}% limit" if dd["breached"] else None)}
+    return Book(account_id=account_id, equity_rs=view.equity_rs, loss_limits=loss_limits,
                 starting_capital_rs=Decimal(str(acc["starting_capital_rs"])), pending=pending,
                 basis="equity from the capital ledger and position marks; commitments = approved plans without an intent, "
                       "remaining risk of active reservations, open positions")

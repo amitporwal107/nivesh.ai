@@ -242,6 +242,11 @@ async def run_open(gw: ExecutionGateway, *, tenant_id: str, simulation_id: str, 
             """SELECT intent_id FROM autodesk.execution_intents WHERE tenant_id=$1 AND simulation_id=$2 AND session_date=$3
                AND status IN ('VALIDATED','SUBMITTED') ORDER BY created_at, intent_id""", tenant_id, simulation_id, session)]
         seed = int((await store.get_simulation(c, tenant_id, simulation_id))["config"].get("seed", 42))
+        acct = await c.fetchval("SELECT account_id FROM autodesk.accounts WHERE tenant_id=$1 AND simulation_id=$2", tenant_id,
+                                simulation_id)
+    if gw.lifecycle is not None and acct is not None:    # Phase 3: open positions first (risk reduces before it is added)
+        out["lifecycle_open"] = await gw.lifecycle.sim_open(gw, tenant_id=tenant_id, simulation_id=simulation_id, account_id=acct,
+                                                            session=session, as_of=as_of, seed=seed)
     for iid in ids:
         intent = await gw.submit(tenant_id=tenant_id, intent_id=iid, as_of=as_of)
         if intent["status"] != "SUBMITTED":
@@ -264,6 +269,9 @@ async def run_open(gw: ExecutionGateway, *, tenant_id: str, simulation_id: str, 
                 out["resting"] += len(priced.rests) if priced.reject is None else 0
                 out["rejected"] += 1 if priced.reject is not None else 0
                 await finish_intent(c, intent, as_of=as_of, sim_time=as_of, why="the open")
+    if gw.lifecycle is not None and acct is not None:
+        out["activated"] = await gw.lifecycle.sim_activate(gw, tenant_id=tenant_id, account_id=acct, session=session, as_of=as_of,
+                                                           filled_at_open=True)
     return out
 
 
@@ -296,9 +304,17 @@ async def run_close(gw: ExecutionGateway, *, tenant_id: str, simulation_id: str,
                 out["expired_orders"] += len(left)
                 await finish_intent(c, intent, as_of=as_of, sim_time=as_of, why="the close")
     async with gw.pool.acquire() as c:
+        acct = await c.fetchrow("SELECT account_id FROM autodesk.accounts WHERE tenant_id=$1 AND simulation_id=$2",
+                                tenant_id, simulation_id)
+        seed = int((await store.get_simulation(c, tenant_id, simulation_id))["config"].get("seed", 42))
+    if gw.lifecycle is not None and acct is not None:   # Phase 3: the whole row is known; closings before the marks
+        out["activated"] = await gw.lifecycle.sim_activate(gw, tenant_id=tenant_id, account_id=acct["account_id"], session=session,
+                                                           as_of=as_of, filled_at_open=False)
+        out["lifecycle_close"] = await gw.lifecycle.sim_close(gw, tenant_id=tenant_id, simulation_id=simulation_id,
+                                                              account_id=acct["account_id"], session=session, as_of=as_of,
+                                                              seed=seed)
+    async with gw.pool.acquire() as c:
         async with c.transaction():
-            acct = await c.fetchrow("SELECT account_id FROM autodesk.accounts WHERE tenant_id=$1 AND simulation_id=$2",
-                                    tenant_id, simulation_id)
             if acct is not None:
                 m = await mark_to_close(c, gw, tenant_id=tenant_id, account_id=acct["account_id"], session=session, as_of=as_of)
                 out.update(marked_legs=m[0], stale_legs=m[1])
@@ -306,7 +322,11 @@ async def run_close(gw: ExecutionGateway, *, tenant_id: str, simulation_id: str,
                                simulation_id=simulation_id)
                 await store.emit(c, C.EventType.SESSION_EXECUTION_SUMMARY, tenant_id=tenant_id, producer=PRODUCER,
                                  account_id=acct["account_id"], simulation_id=simulation_id, sim_time=as_of,
-                                 payload={"session_date": session.isoformat(), **out})
+                                 payload={"session_date": session.isoformat(), **{k: v for k, v in out.items()
+                                                                                 if not isinstance(v, dict)}})
+    if gw.lifecycle is not None and acct is not None:
+        out["after_close"] = await gw.lifecycle.sim_after_close(gw, tenant_id=tenant_id, simulation_id=simulation_id,
+                                                                account_id=acct["account_id"], session=session, as_of=as_of)
     return out
 
 
@@ -420,7 +440,8 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, ten
             else:
                 out["waiting"] += len(working)           # outside the fill window: no quote is read
         legs = await positions.open_legs(c, tenant_id=tenant_id, desk_only=True) if _market_open(now) else []
-    refs = [orders.leg_ref(o) for _r, w in priceable for o in w] + [_leg_ref(lg) for lg in legs]
+        lc_refs = await gw.lifecycle.live_refs(c, tenant_id=tenant_id) if gw.lifecycle is not None and legs else []
+    refs = [orders.leg_ref(o) for _r, w in priceable for o in w] + [_leg_ref(lg) for lg in legs] + lc_refs
     if not refs:
         return out
     answer = await gw.live.quotes.quotes(refs, now)
@@ -457,6 +478,8 @@ async def live_tick(gw: ExecutionGateway, *, now: Optional[datetime] = None, ten
                     if check_quote(q, now) is None:
                         await positions.mark_leg(c, position_id=lg["position_id"], leg=lg, mark=q.ltp, source=q.ref, at=now)
                         out["marked"] += 1
+    if gw.lifecycle is not None and legs:      # Phase 3: closings from the same fresh quotes (none from an old one)
+        out["lifecycle"] = await gw.lifecycle.live_pass(gw, quotes=answer.quotes, now=now, tenant_id=tenant_id)
     return out
 
 

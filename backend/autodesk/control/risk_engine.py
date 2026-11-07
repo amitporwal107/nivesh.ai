@@ -217,7 +217,12 @@ def assess(*, trade_id: str, plan_version: int, plan: TradePlanBody, account: di
 
     checks += size_checks
     for name in ("daily_loss", "weekly_loss", "drawdown"):
-        checks.append(_chk(name, None, LOSS_LIMITS_SKIP))
+        ll = getattr(book, "loss_limits", None)
+        if ll is None:                 # a book without measures (Phase 1/2 callers): not judged, and said so
+            checks.append(_chk(name, None, LOSS_LIMITS_SKIP))
+        else:
+            hit = ll.get(name)
+            checks.append(_chk(name, hit is None, hit or f"{name.replace('_', ' ')} within the policy limit (ledger and marks)"))
 
     hard_fail = [c.name for c in checks if c.hard and c.outcome == CheckOutcome.FAIL]
     size_only = bool(hard_fail) and set(hard_fail) <= set(sizing.SIZE_CHECKS)

@@ -47,6 +47,21 @@ PHASE2_LIMITATIONS = [
     "Sector is the latest index-constituent industry, not point-in-time.",
 ]
 
+PHASE3_LIMITATIONS = PHASE2_LIMITATIONS[:3] + [
+    "Several-leg plans fill all-or-none at the open and close as one unit. Positions are managed from their fills to closure "
+    "(docs/autodesk/PHASE3_DESIGN.md): the invalidation level, objectives (partial in whole lots), the ATR trail, the holding "
+    "period, the sessions-before-expiry rule and settlement at expiry, each judged only on what the clock allows.",
+    "End-of-day rows cannot show when a level traded inside the session: a level touched inside the row closes shares and "
+    "futures at the level (an open through it at the open), option structures at their legs' closes; an objective fills "
+    "only if price traded through it; the level and an objective in one row count as the level.",
+    "Futures levels are the plan's underlying levels translated by the entry session's basis (future ÷ share previous "
+    "closes). Option final settlement uses the share's close on expiry day; missing settlement data is never assumed.",
+    PHASE2_LIMITATIONS[4], PHASE2_LIMITATIONS[5],
+    "Daily-loss, weekly-loss and drawdown limits act on P&L: a daily breach refuses new intents that session and the next, a "
+    "weekly one until the week ends, a drawdown breach suspends the account until a person lifts it.",
+    PHASE2_LIMITATIONS[7],
+]
+
 LIMITATIONS = [
     "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay "
     "(stored intraday history is about ten days and has no cash stocks).",
@@ -293,7 +308,8 @@ class SimulationManager:
             lat = a.pop("latency_ms")
             a["avg_latency_ms"] = round(sum(lat) / len(lat)) if lat else None
         pm_status = Counter(((r["outcome"] or {}).get("premarket") or {}).get("status", "UNKNOWN") for r in pm)
-        lim = list(LIMITATIONS if self.execution is None else PHASE2_LIMITATIONS)
+        lim = list(LIMITATIONS if self.execution is None else
+                   PHASE3_LIMITATIONS if getattr(self.execution, "lifecycle", None) is not None else PHASE2_LIMITATIONS)
         if sim["config"].get("universe", "FNO") != "FNO" and not sim["config"].get("symbols"):
             lim.append("Index universes use today's index members (membership has no history): survivorship bias.")
         out = {

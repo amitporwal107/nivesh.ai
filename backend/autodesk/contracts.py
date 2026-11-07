@@ -332,6 +332,18 @@ class EventType(str, Enum):
     ORDER_FILLED = "ORDER_FILLED"
     POSITION_OPENED = "POSITION_OPENED"
     SESSION_EXECUTION_SUMMARY = "SESSION_EXECUTION_SUMMARY"
+    # trade lifecycle (Phase 3)
+    LIFECYCLE_STATE_CHANGED = "LIFECYCLE_STATE_CHANGED"
+    POSITION_ACTIVATED = "POSITION_ACTIVATED"
+    POSITION_REDUCED = "POSITION_REDUCED"
+    POSITION_CLOSED = "POSITION_CLOSED"
+    POSITION_SETTLED = "POSITION_SETTLED"
+    CLOSING_DECIDED = "CLOSING_DECIDED"
+    LEVEL_TIGHTENED = "LEVEL_TIGHTENED"
+    LIMIT_BREACHED = "LIMIT_BREACHED"
+    LIFECYCLE_CONTROL_CHANGED = "LIFECYCLE_CONTROL_CHANGED"
+    RECONCILIATION_FAILED = "RECONCILIATION_FAILED"
+    MARK_CORRECTED = "MARK_CORRECTED"
 
 
 class DeskControl(str, Enum):
@@ -898,3 +910,97 @@ class PolicyBody(_Model):
         if not (1 <= self.max_legs <= 4):
             raise ValueError("max_legs must be 1..4 (initial builder limit)")
         return self
+
+
+# ── Trade lifecycle (Phase 3; docs/autodesk/PHASE3_DESIGN.md). Field VALUES keep the standard trading words; narrative text
+# built from them does not (AD-92). They live here so the lifecycle code holds no such literal. ────────────────────────
+
+class LifecycleState(str, Enum):
+    ACTIVE_POSITION = "ACTIVE_POSITION"
+    RISK_MANAGEMENT = "RISK_MANAGEMENT"
+    EXIT_PENDING = "EXIT_PENDING"
+    PARTIAL_EXIT = "PARTIAL_EXIT"
+    CLOSED = "CLOSED"
+    SETTLED = "SETTLED"
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
+    EXECUTION_ERROR = "EXECUTION_ERROR"
+
+
+_LS = LifecycleState
+LIFECYCLE_TRANSITIONS: dict[LifecycleState, set[LifecycleState]] = {
+    _LS.ACTIVE_POSITION: {_LS.RISK_MANAGEMENT, _LS.EXIT_PENDING, _LS.RECONCILIATION_REQUIRED, _LS.EXECUTION_ERROR},
+    _LS.RISK_MANAGEMENT: {_LS.ACTIVE_POSITION, _LS.PARTIAL_EXIT, _LS.EXIT_PENDING, _LS.RECONCILIATION_REQUIRED,
+                          _LS.EXECUTION_ERROR},
+    _LS.EXIT_PENDING: {_LS.PARTIAL_EXIT, _LS.CLOSED, _LS.RISK_MANAGEMENT, _LS.RECONCILIATION_REQUIRED,
+                       _LS.EXECUTION_ERROR},
+    _LS.PARTIAL_EXIT: {_LS.EXIT_PENDING, _LS.RISK_MANAGEMENT, _LS.RECONCILIATION_REQUIRED, _LS.EXECUTION_ERROR},
+    _LS.CLOSED: {_LS.SETTLED, _LS.RECONCILIATION_REQUIRED},
+    _LS.SETTLED: set(),
+    _LS.RECONCILIATION_REQUIRED: {_LS.ACTIVE_POSITION, _LS.PARTIAL_EXIT, _LS.EXIT_PENDING, _LS.CLOSED, _LS.SETTLED},
+    _LS.EXECUTION_ERROR: {_LS.ACTIVE_POSITION, _LS.PARTIAL_EXIT, _LS.EXIT_PENDING},
+}
+LIFECYCLE_OPEN_STATES = {_LS.ACTIVE_POSITION, _LS.RISK_MANAGEMENT, _LS.EXIT_PENDING, _LS.PARTIAL_EXIT,
+                         _LS.RECONCILIATION_REQUIRED, _LS.EXECUTION_ERROR}
+
+
+class OrderPurpose(str, Enum):
+    OPEN = "OPEN"      # an order that opens (or adds to) a position: Phase 2
+    CLOSE = "CLOSE"    # an order that reduces or closes one: Phase 3
+
+
+CLOSE_ACTION = "CLOSE"   # execution_intents.action of a closing intent ("ENTER" opens)
+
+
+class CloseReason(str, Enum):
+    """Why a position (or part of it) closed. The exit-rules-v1 reason names, plus the manager's own."""
+    STOP = "stop"                     # the invalidation level in force
+    TRAILING_STOP = "trailing_stop"   # a level the ATR trail raised
+    TARGET = "target"                 # a plan objective
+    TIME = "time"                     # holding period (sessions held)
+    PRE_EXPIRY = "pre_expiry"         # the plan's sessions-before-expiry rule
+    TREND = "trend"                   # trend-ema-v1
+    EXPIRY = "expiry"                 # settled at the contract's expiry
+    MANUAL = "manual"                 # a person asked
+    RISK_CONTROL = "risk_control"     # REDUCE_ONLY / a risk control
+
+
+CLOSE_REASON_TEXT = {
+    CloseReason.STOP: "the invalidation level", CloseReason.TRAILING_STOP: "the trailing level",
+    CloseReason.TARGET: "an objective level", CloseReason.TIME: "the holding period",
+    CloseReason.PRE_EXPIRY: "the sessions-before-expiry rule", CloseReason.TREND: "the trend rule",
+    CloseReason.EXPIRY: "contract expiry", CloseReason.MANUAL: "a person's request",
+    CloseReason.RISK_CONTROL: "a risk control"}
+
+# the approval scope's action that pre-authorises each automatic closing (agents/middle_office.ALLOWED_ACTIONS)
+CLOSE_AUTHORITY = {
+    CloseReason.STOP: "EXIT_AT_INVALIDATION", CloseReason.TRAILING_STOP: "TRAIL_TIGHTEN",
+    CloseReason.TARGET: "EXIT_AT_TARGET", CloseReason.TIME: "TIME_EXIT", CloseReason.PRE_EXPIRY: "TIME_EXIT",
+    CloseReason.TREND: "TIME_EXIT", CloseReason.EXPIRY: "CONTRACT_EXPIRY", CloseReason.MANUAL: "USER_AUTHORIZED",
+    CloseReason.RISK_CONTROL: "AUTOMATIC_RISK_CONTROL"}
+
+
+class PriceHow(str, Enum):
+    OPEN = "open"
+    LEVEL = "level"
+    OBJECTIVE = "objective"
+    CLOSE = "close"
+    QUOTE = "quote"
+    SETTLEMENT = "settlement"
+
+
+class LifecycleControl(str, Enum):
+    """Emergency controls beyond STOP_NEW_ENTRIES (PRD §10.4). None cancels a protective closing or removes a level."""
+    SUSPEND_AUTOMATED_MODIFICATIONS = "SUSPEND_AUTOMATED_MODIFICATIONS"
+    SUSPEND_ACCOUNT = "SUSPEND_ACCOUNT"
+    SUSPEND_STRATEGY = "SUSPEND_STRATEGY"
+    REDUCE_ONLY = "REDUCE_ONLY"
+
+
+class LossLimit(str, Enum):
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    DRAWDOWN = "drawdown"
+
+
+LOSS_LIMIT_CODE = {LossLimit.DAILY: "DAILY_LOSS_LIMIT", LossLimit.WEEKLY: "WEEKLY_LOSS_LIMIT",
+                   LossLimit.DRAWDOWN: "DRAWDOWN_LIMIT"}

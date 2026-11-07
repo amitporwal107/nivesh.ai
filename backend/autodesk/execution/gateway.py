@@ -19,7 +19,7 @@ from ..market.view import IST
 from . import adapters as ad
 from . import capital, journal, orders
 from .capital import ReservationRefused, ReserveRequest, rs
-from .fill_model import DEFAULT_PARAMS, FillParams
+from .fill_model import DEFAULT_PARAMS, TICK, FillParams
 
 log = logging.getLogger(__name__)
 
@@ -56,9 +56,10 @@ class ExecutionGateway:
     quotes. Either may be None (the account kind that needs it is then refused with MODE_NOT_ALLOWED)."""
 
     def __init__(self, pool, *, sim: Optional[ad.SimulationPaperAdapter] = None,
-                 live: Optional[ad.LivePaperAdapter] = None, params: FillParams = DEFAULT_PARAMS):
+                 live: Optional[ad.LivePaperAdapter] = None, params: FillParams = DEFAULT_PARAMS, lifecycle: Any = None):
         self.pool, self.sim, self.live, self.params = pool, sim, live, params
         self.shadow = ad.ShadowAdapter()
+        self.lifecycle = lifecycle      # lifecycle.manager.LifecycleManager; None = Phase 2 behaviour (positions stay open)
 
     # ── routing ───────────────────────────────────────────────────────────────────────────────────
 
@@ -331,6 +332,13 @@ class ExecutionGateway:
         chk("no_short_futures", not short_fut, "STRATEGY_NOT_ALLOWED", f"short futures are not supported ({short_fut})")
         expired = [lg.leg_id for lg in body.legs if lg.expiry is not None and lg.expiry < intent["session_date"]]
         chk("contracts_live", not expired, "CONTRACT_EXPIRED", f"legs {expired} expired before the session")
+        if self.lifecycle is not None:     # Phase 3: loss limits and lifecycle controls refuse new intents (never a closing)
+            blocks = await self.lifecycle.entry_blocks(c, tenant_id=tenant_id, account=account, strategy=body.strategy_type.value,
+                                                       session=intent["session_date"], as_of=as_of)
+            for name, code, detail in blocks:
+                chk(name, False, code, detail)
+            if not blocks:
+                chk("loss_limits_and_controls", True, "", "")
         if intent["simulation_id"] and not at_submission:
             chk("session_phase", as_of < session_open_utc(intent["session_date"]), "SESSION_PHASE_PASSED",
                 "the simulated session's open has passed; a daily row cannot price a later moment")
@@ -438,5 +446,36 @@ class ExecutionGateway:
                 from .settle import finish_intent    # late import: settle uses this module's constants
                 return await finish_intent(c, intent, as_of=as_of, sim_time=sim_time, why="withdrawn")
 
-    async def amend(self, *, tenant_id: str, order_id: str, changes: dict) -> dict:
-        raise ad.AdapterRefused("changing a working paper order is not available in Phase 2; withdraw it instead")
+    async def amend(self, *, tenant_id: str, order_id: str, changes: dict, as_of: Optional[datetime] = None) -> dict:
+        """MODIFY_PENDING (PHASE3_DESIGN §7.1): a working single-leg opening LIMIT order, towards less risk only: fewer lots
+        (not below what filled) and/or a less aggressive limit. Raises store.Conflict with the code otherwise."""
+        as_of = as_of or datetime.now(timezone.utc)
+        async with self.pool.acquire() as c:
+            async with c.transaction():
+                o = await orders.get_order(c, tenant_id, order_id)
+                await c.fetchrow("SELECT intent_id FROM autodesk.execution_intents WHERE intent_id=$1 FOR UPDATE", o["intent_id"])
+                o = await orders.get_order(c, tenant_id, order_id, for_update=True)
+                sim_time = as_of if o["simulation_id"] else None
+                if o.get("purpose", C.OrderPurpose.OPEN.value) != C.OrderPurpose.OPEN.value or o["order_type"] != "LIMIT" \
+                        or o["state"] != C.OrderState.OPEN.value:
+                    raise store.Conflict(f"AMEND_NOT_ALLOWED: only a working single-leg opening limit order can change "
+                                         f"(this one is {o['order_type']} {o['state']})")
+                lots = changes.get("lots")
+                limit = changes.get("limit_price")
+                new_qty = o["quantity"] if lots is None else int(lots) * o["lot_size"]
+                new_lim = o["limit_price"] if limit is None else Decimal(str(limit))
+                raises = new_qty > o["quantity"] or (new_lim > o["limit_price"] if o["side"] == "BUY" else new_lim < o["limit_price"])
+                if raises:
+                    raise store.Conflict("AMEND_RAISES_RISK: more lots or a more aggressive limit needs a new approved plan")
+                if new_qty <= 0 or new_qty < o["filled_qty"] or (new_lim / TICK) != (new_lim / TICK).to_integral_value():
+                    raise store.Conflict("AMEND_NOT_ALLOWED: lots must stay above what filled and the limit on the 0.05 tick")
+                account = await store.get_account(c, tenant_id, o["account_id"])
+                o = await orders.move(c, o, C.OrderState.MODIFY_PENDING, sim_time=sim_time,
+                                      reason=f"change requested: {new_qty} at {new_lim} (was {o['quantity']} at {o['limit_price']})")
+                await self.adapter_for(account).amend(o, {"quantity": new_qty, "limit_price": str(new_lim)},
+                                                      f"{o['idempotency_key']}:amend:{new_qty}:{new_lim}")
+                await c.execute("UPDATE autodesk.trade_orders SET quantity=$2, lots=$3, limit_price=$4, updated_at=now() "
+                                "WHERE order_id=$1", order_id, new_qty, new_qty // o["lot_size"], new_lim)
+                o = await orders.get_order(c, tenant_id, order_id)
+                return await orders.move(c, o, C.OrderState.OPEN, reason="the paper venue confirmed the change",
+                                         sim_time=sim_time, detail={"quantity": new_qty, "limit_price": str(new_lim)})

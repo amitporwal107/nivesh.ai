@@ -75,7 +75,7 @@ def test_adp2_35_withdraw_open_order_filled_order_and_amend(pg_pool):
         assert v.reserved_capital_rs == 0
         with pytest.raises(store.Conflict):
             await gw.withdraw(tenant_id=t, order_id=oid)
-        with pytest.raises(ad.AdapterRefused, match="not available"):
+        with pytest.raises(store.Conflict, match="AMEND_NOT_ALLOWED"):     # Phase 3: amend exists, never on an ended order
             await gw.amend(tenant_id=t, order_id=oid, changes={"limit_price": "1"})
         # a filled order cannot be withdrawn
         t2, sim2, acc2, plan2, gw2, it2 = await one_plan(pg_pool)

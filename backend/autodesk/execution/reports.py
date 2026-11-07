@@ -94,17 +94,28 @@ async def pnl(c, tenant_id: str, account_id: str) -> dict:
                             "FROM autodesk.trade_fills WHERE tenant_id=$1 AND account_id=$2", tenant_id, account_id)
     by_strategy: dict[str, Decimal] = {}
     for r in await c.fetch(
-            """SELECT p.strategy_type, COALESCE(sum(l.unrealized_rs - l.charges_rs),0) AS net
+            """SELECT p.strategy_type, COALESCE(sum(l.unrealized_rs + l.realized_gross_rs - l.charges_rs - l.closing_charges_rs),0) AS net
                FROM autodesk.trade_positions p JOIN autodesk.trade_position_legs l USING (position_id)
                WHERE p.tenant_id=$1 AND p.account_id=$2 GROUP BY p.strategy_type""", tenant_id, account_id):
         by_strategy[r["strategy_type"]] = r["net"]
+    by_reason = {r["reason"]: {"closings": r["n"], "gross_rs": r["gross"], "charges_rs": r["charges"]} for r in await c.fetch(
+        """SELECT reason, count(*) AS n, COALESCE(sum(realized_gross_rs),0) AS gross, COALESCE(sum(charges_rs),0) AS charges
+           FROM autodesk.trade_exit_records WHERE tenant_id=$1 AND account_id=$2 GROUP BY reason""", tenant_id, account_id)}
+    closed = await c.fetch(
+        """SELECT p.realized_gross_rs - p.closing_charges_rs - COALESCE(sum(l.charges_rs),0) AS net
+           FROM autodesk.trade_positions p JOIN autodesk.trade_position_legs l USING (position_id)
+           WHERE p.tenant_id=$1 AND p.account_id=$2 AND p.status='CLOSED' GROUP BY p.position_id""", tenant_id, account_id)
+    wins = sum(1 for r in closed if r["net"] > 0)
     worst, worst_pct, daily = await drawdown(c, account_id, start)
     return _s({"account_id": account_id, "gross_realized_rs": v.realized_gross_rs, "gross_unrealized_rs": v.unrealized_gross_rs,
                "charges_rs": v.fees_rs, "charges_by_component": await charges_by_component(c, tenant_id, account_id),
                "slippage_rs": slip["slip"], "spread_rs": slip["spread"], "net_realized_rs": v.net_realized_rs,
                "net_unrealized_rs": v.unrealized_gross_rs, "net_pnl_rs": v.net_pnl_rs, "by_strategy": by_strategy,
                "daily": daily, "max_drawdown_rs": -worst if worst else ZERO, "max_drawdown_pct": -worst_pct if worst_pct else ZERO,
-               "note": "realized P&L arrives with position closing in Phase 3; unrealized is marked at the session close or the live quote"})
+               "by_reason": by_reason, "closed_trades": len(closed), "winning_trades": wins,
+               "win_rate": (Decimal(wins) / len(closed)).quantize(Decimal("0.0001")) if closed else None,
+               "note": "realized P&L comes from closed quantity (Phase 3 lifecycle); unrealized is marked at the session close or "
+                       "the live quote; every fill is simulated"})
 
 
 async def fingerprint(c, simulation_id: str) -> str:
@@ -122,13 +133,23 @@ async def fingerprint(c, simulation_id: str) -> str:
            FROM autodesk.trade_position_legs l JOIN autodesk.trade_positions p USING (position_id)
            WHERE p.simulation_id=$1""", simulation_id)
     snaps = await c.fetch("""SELECT session_date, equity_rs, cash_balance_rs, used_margin_rs, reserved_rs, notional_rs, open_risk_rs,
-                                    fees_rs, unrealized_gross_rs, net_pnl_rs, stale_legs
+                                    fees_rs, unrealized_gross_rs, net_pnl_rs, stale_legs, realized_gross_rs
                              FROM autodesk.equity_snapshots WHERE simulation_id=$1""", simulation_id)
+    # Phase 3: closings, settlements, lifecycle moves and reconciliation results (id-free)
+    records = await c.fetch("""SELECT r.session_date, p.instrument, r.reason, r.how, r.trigger_price, r.level, r.gapped, r.both_in_range,
+                                      r.fraction, r.value_rs, r.charges_rs, r.realized_gross_rs, r.cash_rs
+                               FROM autodesk.trade_exit_records r JOIN autodesk.trade_positions p USING (position_id)
+                               WHERE r.simulation_id=$1""", simulation_id)
+    moves = await c.fetch("""SELECT e.session_date, p.instrument, e.from_state, e.to_state, e.reason FROM autodesk.trade_lifecycle_events e
+                             JOIN autodesk.trade_positions p USING (position_id) WHERE e.simulation_id=$1""", simulation_id)
+    recon = await c.fetch("SELECT session_date, moment, ok, checks FROM autodesk.reconciliation_runs WHERE simulation_id=$1",
+                          simulation_id)
 
     def canon(rows):
         return sorted(json.dumps([_s(x) for x in r.values()], sort_keys=True) for r in rows)
     return hashlib.sha256(json.dumps({"orders": canon(orders), "fills": canon(fills), "legs": canon(legs),
-                                      "snapshots": canon(snaps)}).encode()).hexdigest()
+                                      "snapshots": canon(snaps), "records": canon(records), "moves": canon(moves),
+                                      "reconciliation": canon(recon)}).encode()).hexdigest()
 
 
 async def execution_summary(c, tenant_id: str, simulation_id: str, params: Optional[fm.FillParams] = None) -> dict:
@@ -162,6 +183,17 @@ async def execution_summary(c, tenant_id: str, simulation_id: str, params: Optio
         "fill_model": (params or fm.DEFAULT_PARAMS).describe(), "cost_model": costs.COST_MODEL,
         "reconciliation": v.reconciliation(), "fingerprint": await fingerprint(c, simulation_id),
         "labels": "every fill is simulated; none is broker-confirmed",
+        # Phase 3 lifecycle
+        "closed_trades": p["closed_trades"], "win_rate": p["win_rate"],
+        "open_positions": await n("SELECT count(*) FROM autodesk.trade_positions WHERE simulation_id=$1 AND status='OPEN'"),
+        "realized_gross_rs": v.realized_gross_rs, "realized_net_rs": v.net_realized_rs,
+        "exits_by_reason": {k: x["closings"] for k, x in p["by_reason"].items()},
+        "lifecycle": {r["lifecycle_state"]: r["n"] for r in await c.fetch(
+            "SELECT lifecycle_state, count(*) AS n FROM autodesk.trade_positions WHERE simulation_id=$1 GROUP BY lifecycle_state",
+            simulation_id)},
+        "reconciliation_runs": dict(await c.fetchrow(
+            """SELECT count(*) AS runs, count(*) FILTER (WHERE NOT ok) AS failed FROM autodesk.reconciliation_runs
+               WHERE simulation_id=$1""", simulation_id)),
     })
 
 
