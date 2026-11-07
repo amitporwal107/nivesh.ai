@@ -33,7 +33,7 @@ test("AD-UI-20 header from real data: date, mode pill, computed headline and sub
   await expect(page.getByTestId("mode-pill")).toHaveText(["Auto paper · Desk A"]);
   await expect(page.getByTestId("headline")).toHaveText("All 5 agents are healthy. Two approvals are waiting on you; the first expires at 12:10.");
   await expect(page.getByTestId("headline").locator("em")).toHaveText("Two approvals");
-  await expect(page.getByTestId("subline")).toContainText("There is no P&L yet: orders and fills come with paper execution (Phase 2).");
+  await expect(page.getByTestId("subline")).toContainText("The desk records paper orders, fills and P&L for approved plans; this screen does not read them yet.");
   await expect(page.getByTestId("subline")).toContainText("The last pre-market check, for 5 Nov, was ready, with cash, futures, options allowed.");
   await expect(screen(page)).not.toContainText("Every position is inside its limits");
   await expect(page.getByTestId("activity-row").first()).toBeVisible();
@@ -72,7 +72,7 @@ test("AD-UI-22 nothing pending: empty state, headline and tile say so", async ({
   await expect(page.getByTestId("tile-pending")).toContainText("Queue is clear");
 });
 
-test("AD-UI-23 tiles: real values from the API, Phase 2 tiles say so, no sample figures", async ({ page }) => {
+test("AD-UI-23 tiles: real values from the API, tiles without a figure say Not shown here yet, no sample figures", async ({ page }) => {
   await setup(page, { agents: AGENTS_MIXED });
   await page.goto("/autodesk/");
   await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(12);
@@ -88,7 +88,8 @@ test("AD-UI-23 tiles: real values from the API, Phase 2 tiles say so, no sample 
   await expect(page.getByTestId("tile-workflows")).toContainText("2");
   for (const id of ["trades", "orders", "capital", "risk", "pnl", "exceptions"]) {
     await expect(page.getByTestId(`tile-${id}`)).toContainText("—");
-    await expect(page.getByTestId(`tile-${id}`)).toContainText("Phase 2");
+    await expect(page.getByTestId(`tile-${id}`)).toContainText("Not shown here yet");
+    await expect(page.getByTestId(`tile-${id}`)).not.toContainText("Phase");
   }
   await expect(page.getByTestId("tile-capital")).toContainText("starting capital ₹1.00 Cr");
   for (const sample of ["₹15.1 L", "₹77.4 L", "0.47%", "+₹9,888", "−₹1,470", "5 paper · 2 live"]) await expect(screen(page)).not.toContainText(sample);
@@ -96,17 +97,18 @@ test("AD-UI-23 tiles: real values from the API, Phase 2 tiles say so, no sample 
   await expect(page).toHaveURL(/\/autodesk\/agents$/);
 });
 
-test("AD-UI-24 P&L card is a Phase 2 note; feeds card rows come from the feed and desk status", async ({ page }) => {
+test("AD-UI-24 P&L card says the figure is not shown yet; feeds card rows come from the feed and desk status", async ({ page }) => {
   await setup(page);
   await page.goto("/autodesk/");
-  await expect(page.getByTestId("pnl-phase-note")).toContainText("Phase 2");
+  await expect(page.getByTestId("pnl-phase-note")).toContainText("The desk records paper P&L after estimated charges for approved plans. This card does not read it yet");
+  await expect(page.getByTestId("pnl-phase-note")).toContainText("Not shown yet");
   await expect(page.getByTestId("pnl-card")).not.toContainText(/₹\s?\d/);
   await expect(page.getByTestId("pnl-card").locator("svg")).toHaveCount(0);
   await expect(page.getByTestId("feed-kite-status")).toHaveText("LIVE · 2s");
   await expect(page.getByTestId("feed-cash-status")).toHaveText("SESSION 4 NOV");
   await expect(page.getByTestId("feed-fno-status")).toHaveText("SESSION 4 NOV");
   await expect(page.getByTestId("feed-premarket-status")).toHaveText("READY · 5 NOV");
-  await expect(page.getByTestId("feed-paper-status")).toHaveText("PHASE 2");
+  await expect(page.getByTestId("feed-paper-status")).toHaveText("PAPER ONLY · NO BROKER");
   await expect(page.getByTestId("feeds-broker-note")).toContainText("Broker connections are not part of Phase 1");
   await expect(page.getByTestId("feeds-card")).not.toContainText(/Zerodha|ICICI|ZX4821|IX2207/);
 });

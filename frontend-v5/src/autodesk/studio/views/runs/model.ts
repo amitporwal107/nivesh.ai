@@ -1,11 +1,11 @@
 /**
- * Run history — the data of two runs (A and B) and what can honestly be compared in Phase 1.
+ * Run history — the data of two runs (A and B) and what can honestly be compared.
  *
  * Sources per run (backend/autodesk/routers/api.py): GET /simulations/{sid}/results (counters, SimulationManager.results),
  * GET /simulations/{sid}/workflows (TRADE_PROPOSAL workflows: session_date, input.signal_id, outcome.result / trade_id /
  * plan_version), GET /trade-plans?simulation_id= (instrument, strategy_type), GET /signals?simulation_id= (instrument,
- * direction, category, session_date). Phase 1 has no trades, fills, P&L, drawdown, win rate or slippage (Phase 2) and no
- * assertions (scenarios, Phase 3); the comparison never shows a figure for those.
+ * direction, category, session_date). The comparison does not read trades, P&L, drawdown or slippage from execution_summary yet
+ * (the table of runs does), win rate needs closed trades (Phase 3) and assertions need scenarios (Phase 3); it never shows a figure for those.
  */
 import { useQueries } from "@tanstack/react-query";
 import { deskGet } from "../../../api";
@@ -112,9 +112,9 @@ const REAL: [string, (r: SimResults) => number][] = [
 
 const signed = (x: number): string => (x === 0 ? "0" : `${x > 0 ? "+" : "−"}${Math.abs(x).toLocaleString("en-IN")}`);
 
-/** The design's measures in its order: those Phase 1 records come from /results, the rest say which phase brings them. */
+/** The design's measures in its order: those the comparison reads come from /results, the rest say why they are not shown. */
 export function measures(a: SimResults | undefined, b: SimResults | undefined): Measure[] {
-  const later = (k: string, phase: 2 | 3): Measure => ({ k, a: "—", b: "—", d: `Phase ${phase}`, dc: "var(--ink-3)", later: phase });
+  const later = (k: string, phase: 2 | 3, text?: string): Measure => ({ k, a: "—", b: "—", d: text ?? `Phase ${phase}`, dc: "var(--ink-3)", later: phase });
   const real = (k: string, f: (r: SimResults) => number): Measure => {
     const x = a ? f(a) : null;
     const y = b ? f(b) : null;
@@ -122,7 +122,7 @@ export function measures(a: SimResults | undefined, b: SimResults | undefined): 
     return { k, a: x == null ? "—" : x.toLocaleString("en-IN"), b: y == null ? "—" : y.toLocaleString("en-IN"), d, dc: d === "0" || d === "—" ? "var(--ink-3)" : "var(--ink-2)" };
   };
   return [
-    later("Trades", 2), later("Net P&L after costs", 2), later("Max drawdown", 2), later("Win rate", 2), later("Slippage paid", 2),
+    later("Trades", 2, "Not shown yet"), later("Net P&L after costs", 2, "Not shown yet"), later("Max drawdown", 2, "Not shown yet"), later("Win rate", 3), later("Slippage paid", 2, "Not shown yet"),
     ...REAL.map(([k, f]) => real(k, f)),
     later("Assertions", 3),
     real("Policy violations", (r) => r.policy_violation_attempts ?? 0),

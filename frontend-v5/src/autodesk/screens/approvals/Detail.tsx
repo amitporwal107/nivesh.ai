@@ -88,7 +88,7 @@ export function ApprovalDetail({ id, mobile, now, halt, accounts, meId, meName, 
     const rsn = (decided.body?.reasons ?? []).join("; ");
     const closed = decided.decided_by?.startsWith("SYSTEM:session_close");
     const txt = closed ? `The approval window closed at the session close (${at}).`
-      : decided.status === "APPROVED" ? `Approved by ${who} at ${at}. Phase 1 has no execution: the plan ends at APPROVED and nothing is sent to a broker or a paper engine.`
+      : decided.status === "APPROVED" ? `Approved by ${who} at ${at}. Orders from here are paper only: nothing is sent to a broker.`
       : decided.status === "REJECTED" ? `Rejected by ${who} at ${at}. This plan version is closed.`
       : decided.status === "NEEDS_REVISION" ? `Sent back for revision by ${who} at ${at}. A new version needs a new approval.`
       : `${statusText(decided.status)} by ${who} at ${at}.`;
@@ -112,7 +112,7 @@ export function ApprovalDetail({ id, mobile, now, halt, accounts, meId, meName, 
     { k: "Instrument · strategy", v: `${b.instrument ?? DASH}${optStr ? ` ${optStr}` : ""} · ${humanize(b.strategy_type).toLowerCase()}` },
     { k: "Max quantity", v: legs.every((l) => l.kind === "EQ") ? `${qty ?? DASH} shares` : `${lots ?? DASH} lots · ${qty ?? DASH} per leg` },
     { k: "Max notional · risk", v: `${rs(notional(b), { decimals: 2 })} · ${rs(b.max_loss_rs, { decimals: 2 })}` },
-    { k: "Mode · actions", v: `${mode.label} · no orders in Phase 1` },
+    { k: "Mode · actions", v: `${mode.label} · paper orders only` },
     { k: "Expires", v: `${a.expires_at ? `${timeIST(a.expires_at)} IST · ${dateShort(a.expires_at)}` : DASH} · approver ${meName || "you"}` },
   ];
 
@@ -130,7 +130,7 @@ export function ApprovalDetail({ id, mobile, now, halt, accounts, meId, meName, 
   const sizing = (risk?.body?.sizing ?? {}) as Record<string, unknown>;
   const margin = b.margin_estimate ?? {};
   const capital: { k: string; v: ReactNode }[] = [
-    { k: "Reservation", v: <span data-testid="reservation-phase" style={{ color: "var(--ink-3)" }}><span className="nv-pill nv-pill-indigo" style={{ padding: "1px 7px", fontSize: 9, marginRight: 8 }}>Phase 2</span>Capital reservations arrive with paper execution.</span> },
+    { k: "Reservation", v: <span data-testid="reservation-phase" style={{ color: "var(--ink-3)" }}>Capital is reserved when the plan goes to paper execution.</span> },
     { k: "Capital required", v: `${rs(b.capital_required_rs, { decimals: 2 })}${margin.method ? ` · ${margin.method}` : ""}` },
     { k: "Sizing rule", v: risk ? [typeof sizing.method === "string" ? sizing.method : null, sizing.proposed_size != null ? `${sizing.proposed_size} ${sizing.unit ?? ""} proposed, ${sizing.allowed_size ?? DASH} allowed` : null, sizing.budget_rs ? `budget ${rs(sizing.budget_rs, { decimals: 2 })}` : null].filter(Boolean).join(" · ") || DASH : DASH },
   ];
@@ -152,7 +152,7 @@ export function ApprovalDetail({ id, mobile, now, halt, accounts, meId, meName, 
         ? { who: "Account owner · you", st: answer.decided_by?.startsWith("SYSTEM:session_close") ? "EXPIRED AT CLOSE" : statusText(answer.status), t: timeIST(answer.created_at), tone: answer.decided_by?.startsWith("SYSTEM:") ? "ink" : statusTone(answer.status) }
         : { who: "Account owner · you", st: expired ? "EXPIRED" : "WAITING", t: DASH, tone: expired ? "danger" : "ink" }
       : { who: "Account owner · you", st: "NOT NEEDED", t: DASH, tone: "ink" },
-    { who: "Paper engine", st: "PHASE 2 · NO EXECUTION", t: DASH, tone: "ink" },
+    { who: "Paper engine", st: "PAPER ONLY · NO BROKER", t: DASH, tone: "ink" },
   ];
 
   const audit: { at: string; who: string; x: string; c: string }[] = [];
@@ -319,7 +319,7 @@ export function ApprovalDetail({ id, mobile, now, halt, accounts, meId, meName, 
                 </div>
               ))}
             </div>
-            <PhaseNote testId="stress-phase-note">Stress rows (index moves, an IV change, a session passing) arrive with the Phase 2 risk engine; Phase 1 checks the plan's own maximum loss against the policy.</PhaseNote>
+            <PhaseNote label="Not built yet" testId="stress-phase-note">Stress rows (index moves, an IV change, a session passing) are not built yet; the risk check compares the plan's own maximum loss with the policy.</PhaseNote>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))", gap: 14 }}>

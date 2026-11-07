@@ -46,7 +46,9 @@ test("AD-UI-60 completed 2-session replay: header, clock, counters from /results
   await expect(page.getByTestId("ctr-violations")).toContainText("0");
   const p2 = page.getByTestId("ctr-p2");
   await expect(p2).toHaveCount(4);
-  for (let i = 0; i < 4; i++) { await expect(p2.nth(i)).toContainText("—"); await expect(p2.nth(i)).toContainText("Phase 2"); }
+  for (let i = 0; i < 4; i++) { await expect(p2.nth(i)).toContainText("—"); await expect(p2.nth(i)).not.toContainText("Phase 2"); }
+  for (const i of [0, 1, 3]) await expect(p2.nth(i)).toContainText("Not shown here yet");
+  await expect(p2.nth(2)).toContainText("Comes with Phase 3");
 
   const agents = page.getByTestId("sim-agent");
   await expect(agents).toHaveCount(5);
@@ -55,8 +57,9 @@ test("AD-UI-60 completed 2-session replay: header, clock, counters from /results
   await expect(agents.nth(0)).toContainText("2 TASKS · 2 COMPLETED · 0 FAILED · autodesk-ait-v1");
   await expect(agents.nth(3)).toContainText("Middle Office");
   await expect(agents.nth(3)).toContainText("APPROVED: within the autonomy rules of the policy; risk 0.44% of equity");
-  await expect(page.getByTestId("sim-limitations")).toContainText("Phase 1 has no execution: approved plans are not filled");
-  await expect(page.getByTestId("sim-limitations").locator("li")).toHaveCount(5);
+  await expect(page.getByTestId("sim-limitations")).toContainText("Daily-loss, weekly-loss and drawdown limits are not enforced: they act on P&L from Phase 3");
+  await expect(page.getByTestId("sim-limitations")).not.toContainText("approved plans are not filled");
+  await expect(page.getByTestId("sim-limitations").locator("li")).toHaveCount(8);
   await expect(page.getByTestId("badge-sim")).toHaveText("SIM");
   expect(desk.unmatched).toEqual([]);
   expect(errors).toEqual([]);
@@ -86,7 +89,7 @@ test("AD-UI-61 agent communication newest first, exceptions with recovery, depen
   await expect(ex.nth(0)).toContainText("Risk & Operations · Assess risk");
   await expect(ex.nth(0)).toContainText("RECOVERED");
   await expect(ex.nth(0)).toContainText("TimeoutError: the option chain read took 31 s (deadline 30 s)");
-  await expect(page.getByTestId("sim-recon")).toHaveText("Not in Phase 1 · there are no orders or fills to reconcile");
+  await expect(page.getByTestId("sim-recon")).toHaveText("Not shown here yet · each finished run's results record a capital reconciliation");
 
   await expect(page.getByTestId("graph-wf-id")).toHaveText(`${LATEST_TP} · TRD-dlf1 v1 · APPROVED_NO_EXECUTION`);
   const nodes = page.getByTestId("graph-node");
@@ -96,13 +99,14 @@ test("AD-UI-61 agent communication newest first, exceptions with recovery, depen
   await expect(nodes.nth(2)).toContainText("03 · DONE");
   await expect(nodes.nth(3)).toContainText("04 · NOT NEEDED");
   await expect(nodes.nth(4)).toContainText("05 · APPROVED");
-  for (let i = 5; i < 13; i++) await expect(nodes.nth(i)).toContainText("PHASE 2");
+  for (let i = 5; i < 13; i++) await expect(nodes.nth(i)).toContainText("NOT SHOWN YET");
   await expect(page.getByTestId("graph-wf").locator("option")).toHaveCount(6);
 });
 
 test("AD-UI-62 blocks the API cannot serve: notes, disabled controls, no sample figures", async ({ page }) => {
   await openSim(page, doneRoutes());
-  await expect(page.getByTestId("pnl-phase-note")).toContainText("Phase 2");
+  await expect(page.getByTestId("pnl-phase-note")).toContainText("is not drawn here yet");
+  await expect(page.getByTestId("pnl-phase-note")).not.toContainText("are not filled");
   await expect(page.getByTestId("policy-phase-note")).toContainText("Phase 4");
   await expect(page.getByTestId("policy-phase-note")).toContainText("This run used policy POL-1b7e93c4d05a4e2f9c61 v1");
   await expect(page.getByTestId("sim-policy")).toContainText("Policy v1 against a candidate");
@@ -280,7 +284,7 @@ test("AD-UI-69 phone 390×844: single column, no overflow; Export downloads the 
   const data = JSON.parse(fs.readFileSync((await download.path())!, "utf8"));
   expect(data.simulation.simulation_id).toBe(SID);
   expect(data.results.signals.total).toBe(476);
-  expect(data.results.limitations).toHaveLength(5);
+  expect(data.results.limitations).toHaveLength(8);
   expect(other).toEqual([]);
   expect(errors).toEqual([]);
 });

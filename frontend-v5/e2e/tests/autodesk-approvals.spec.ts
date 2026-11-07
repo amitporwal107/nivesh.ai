@@ -80,7 +80,7 @@ test("AD-UI-51 detail: header, trade, capital, risk report, impact, chain, check
   await expect(tr.nth(4)).toContainText("INVALIDATION 298.40");
 
   const cap = page.getByTestId("sec-capital");
-  await expect(page.getByTestId("reservation-phase")).toContainText("Phase 2");
+  await expect(page.getByTestId("reservation-phase")).toHaveText("Capital is reserved when the plan goes to paper execution.");
   await expect(cap).toContainText("₹48,260.00 · premium paid");
   await expect(cap).toContainText("fixed risk per trade (policy per_trade_risk_pct of equity) · 4 lots per leg proposed, 4 allowed · budget ₹50,000.00");
 
@@ -93,7 +93,7 @@ test("AD-UI-51 detail: header, trade, capital, risk report, impact, chain, check
   await expect(tiles.nth(1)).toContainText("R:R 1 : 2.92");
   await expect(tiles.nth(2)).toContainText("316.37");
   await expect(tiles.nth(3)).toContainText("₹48,260");
-  await expect(page.getByTestId("stress-phase-note")).toContainText("Phase 2");
+  await expect(page.getByTestId("stress-phase-note")).toContainText("are not built yet");
 
   const imp = page.getByTestId("impact-row");
   await expect(imp).toHaveCount(4);
@@ -109,7 +109,7 @@ test("AD-UI-51 detail: header, trade, capital, risk report, impact, chain, check
   await expect(imp.nth(3)).toContainText("Capital in this plan");
   await expect(imp.nth(3)).toContainText("₹10.00 L");
   await expect(page.getByTestId("book-now")).toHaveText("Book now: 1 approved plan · committed max loss ₹36,244.39.");
-  await expect(page.getByTestId("impact-note")).toContainText("Phase 1: commitments are approved, unexpired plans; there are no fills or positions yet");
+  await expect(page.getByTestId("impact-note")).toContainText("commitments are approved plans without an intent, active reservations and open positions (paper only)");
 
   const chain = page.getByTestId("chain-row");
   await expect(chain).toHaveCount(4);
@@ -119,7 +119,7 @@ test("AD-UI-51 detail: header, trade, capital, risk report, impact, chain, check
   await expect(chain.nth(1)).toContainText("09:01:11");
   await expect(chain.nth(2)).toContainText("Account owner · you");
   await expect(chain.nth(2)).toContainText("WAITING");
-  await expect(chain.nth(3)).toContainText("PHASE 2 · NO EXECUTION");
+  await expect(chain.nth(3)).toContainText("PAPER ONLY · NO BROKER");
 
   await expect(page.getByTestId("check-row")).toHaveCount(18);
   await expect(page.getByTestId("check-summary")).toHaveText("13 PASS · 1 WARNING · 0 FAIL · 4 SKIPPED");
@@ -127,7 +127,7 @@ test("AD-UI-51 detail: header, trade, capital, risk report, impact, chain, check
   await expect(ptr).toContainText("✓");
   await expect(ptr).toContainText("loss 48425.90 (0.484% of equity) vs limit 0.5%");
   await expect(page.getByTestId("check-row").filter({ hasText: "Sector" })).toContainText("!");
-  await expect(page.getByTestId("check-row").filter({ hasText: "Drawdown" })).toContainText("–");
+  await expect(page.getByTestId("check-row").filter({ hasText: /^–Drawdown/ })).toContainText("act on P&L from Phase 3");
 
   const audit = page.getByTestId("audit-row");
   await expect(audit).toHaveCount(4);
@@ -150,7 +150,7 @@ test("AD-UI-52 deep link to a decided request (and reload); unknown id shows the
   await openQueue(page, { path: `/autodesk/approvals/${APR_ADANI.approval_id}` });
   await expect(page.getByTestId("detail-id")).toContainText(APR_ADANI.approval_id as string);
   await expect(page.getByTestId("decided-banner")).toContainText("APPROVED");
-  await expect(page.getByTestId("decided-banner")).toContainText("Approved by Middle Office at 09:01:30. Phase 1 has no execution");
+  await expect(page.getByTestId("decided-banner")).toContainText("Approved by Middle Office at 09:01:30. Orders from here are paper only: nothing is sent to a broker.");
   await expect(page.getByTestId("decision-actions")).toHaveCount(0);
   await expect(page.getByTestId("nav-approvals")).toHaveAttribute("aria-current", "page");
   await page.reload();
@@ -181,11 +181,11 @@ test("AD-UI-54 approve: binding shown, contract body with the version's plan has
   await expect(bind).toContainText("PETRONET 310/335 · bull call spread");
   await expect(bind).toContainText("4 lots · 7600 per leg");
   await expect(bind).toContainText("₹1,00,700.00 · ₹48,425.90");
-  await expect(bind).toContainText("Assisted paper · no orders in Phase 1");
+  await expect(bind).toContainText("Assisted paper · paper orders only");
   await expect(bind).toContainText("15:30:00 IST · 5 Nov · approver Amit P");
   await page.getByTestId("confirm-approve").click();
   await expect(page.getByTestId("decided-banner")).toContainText("APPROVED");
-  await expect(page.getByTestId("decided-banner")).toContainText("Approved by You at 11:42:30. Phase 1 has no execution");
+  await expect(page.getByTestId("decided-banner")).toContainText("Approved by You at 11:42:30. Orders from here are paper only: nothing is sent to a broker.");
   expect(decisionPost(desk)).toHaveLength(1);
   expectContract(decisionPost(desk)[0], "approvals", "approve", { approval_id: APR_P.approval_id as string, plan_hash: HASH_P });
   await expect(page).toHaveURL(new RegExp(`/autodesk/approvals/${APR_P.approval_id}$`));

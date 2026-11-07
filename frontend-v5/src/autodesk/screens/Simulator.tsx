@@ -4,8 +4,8 @@
  * Phase 1 replays past NSE sessions phase by phase (PREMARKET 08:30 → SCAN → PROPOSALS → OPEN → CLOSE → EOD 18:00)
  * with the same agents and policy on point-in-time data. Every figure comes from the simulation API: the row (clock,
  * status), /results (counters, limitations), /agents, /workflows, /timeline (events) and the workflow detail of one
- * trade proposal. Blocks that need fills, scenario injection, policy A/B or live trading keep their place in the design
- * and say which phase brings them; they never show sample figures.
+ * trade proposal. Blocks for orders, positions and capital say they are not shown yet (paper execution records them); those for
+ * closing positions, scenario injection, policy A/B or live trading say which phase brings them. They never show sample figures.
  *
  * Routes /simulator (the most recent run) and /simulator/:simulationId.
  */
@@ -148,16 +148,17 @@ export default function SimulatorScreen() {
   const ag = res?.agents ?? {};
   const failedN = Object.values(ag).reduce((s, a) => s + (a.failed || 0) + (a.escalated || 0), 0);
   const retriedN = Object.values(ag).reduce((s, a) => s + (a.retried || 0), 0);
-  const p2 = "Phase 2 · needs paper execution";
+  const notShown = "Not shown here yet";
+  const p3 = "Comes with Phase 3";
   const counters: { k: string; v: string; s: string; c: string; testId: string }[] = res ? [
     { k: "Signals", v: String(res.signals.total), s: countsText(res.signals.by_status, true), c: "var(--ink)", testId: "ctr-signals" },
     { k: "Proposals", v: String(res.plans.total), s: countsText(res.plans.by_strategy), c: "var(--ink)", testId: "ctr-plans" },
     { k: "Risk checks", v: String(ag.RISK_OPS?.tasks ?? 0), s: `Risk & Operations · ${ag.RISK_OPS?.completed ?? 0} completed · ${ag.RISK_OPS?.failed ?? 0} failed`, c: "var(--ink)", testId: "ctr-risk" },
     { k: "Approvals", v: String(sum(res.approvals.by_status)), s: [countsText(res.approvals.by_status, true), Object.entries(res.approvals.by_decider).map(([k, n]) => `${n} by ${who(k === "user" ? "user:" : k)}`).join(" · ")].filter((x) => x && x !== DASH).join(" · ") || DASH, c: "var(--ink)", testId: "ctr-approvals" },
-    { k: "Orders", v: DASH, s: p2, c: "var(--ink-3)", testId: "ctr-p2" },
-    { k: "Positions", v: DASH, s: p2, c: "var(--ink-3)", testId: "ctr-p2" },
-    { k: "Stop · target · trail", v: DASH, s: p2, c: "var(--ink-3)", testId: "ctr-p2" },
-    { k: "Capital deployed", v: DASH, s: p2, c: "var(--ink-3)", testId: "ctr-p2" },
+    { k: "Orders", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
+    { k: "Positions", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
+    { k: "Stop · target · trail", v: DASH, s: p3, c: "var(--ink-3)", testId: "ctr-p2" },
+    { k: "Capital deployed", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
     { k: "Exceptions", v: String(failedN), s: `${retriedN} retried · ${res.premarket?.BLOCKED ?? 0} pre-market blocked`, c: failedN ? "var(--amber)" : "var(--ink)", testId: "ctr-exceptions" },
     { k: "Policy violations", v: String(res.policy_violation_attempts), s: "Tool or look-ahead refusals", c: res.policy_violation_attempts ? "var(--danger)" : "var(--mint)", testId: "ctr-violations" },
   ] : [];
@@ -204,7 +205,7 @@ export default function SimulatorScreen() {
         </h1>
         <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, color: "var(--ink-3)", maxWidth: 700 }}>
           The same agents, policies and approval rules run against a point-in-time replay of past sessions: each phase sees only the data
-          published by then. Phase 1 has no orders, so plans end at approval. Every record carries the simulation ID.
+          published by then. Approved plans become simulated orders and fills; none reaches a broker. Every record carries the simulation ID.
         </p>
       </section>
 
@@ -373,9 +374,9 @@ export default function SimulatorScreen() {
             <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
               <section data-testid="sim-pnl" style={{ ...box, gap: 12, padding: "18px 20px 14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                  <span style={h24}>Simulated P&amp;L</span><span className="nv-num" style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--ink-3)" }}>NO FILLS IN PHASE 1</span>
+                  <span style={h24}>Simulated P&amp;L</span><span className="nv-num" style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--ink-3)" }}>P&amp;L NOT SHOWN YET</span>
                 </div>
-                <PhaseNote testId="pnl-phase-note">The P&amp;L curve after simulated costs, slippage and latency needs paper fills, which come in Phase 2. Approved plans in this run are not filled.</PhaseNote>
+                <PhaseNote label="Not shown yet" testId="pnl-phase-note">The P&amp;L curve after simulated costs, slippage and latency is not drawn here yet. Approved plans in this run are filled in simulation; a finished run's trades, net P&amp;L and max drawdown are in Run history.</PhaseNote>
                 {res && res.limitations.length > 0 && (
                   <div data-testid="sim-limitations" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <span className="nv-eyebrow" style={{ fontSize: 9.5 }}>What this replay does not model</span>
@@ -404,7 +405,7 @@ export default function SimulatorScreen() {
                 })}
                 <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0 0", borderTop: "1px solid var(--line)", flexWrap: "wrap" }}>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", color: "var(--ink-3)" }}>FINAL RECONCILIATION</span>
-                  <span data-testid="sim-recon" style={{ fontSize: 12.5, color: "var(--ink-2)" }}>Not in Phase 1 · there are no orders or fills to reconcile</span>
+                  <span data-testid="sim-recon" style={{ fontSize: 12.5, color: "var(--ink-2)" }}>Not shown here yet · each finished run's results record a capital reconciliation</span>
                 </div>
               </section>
             </div>

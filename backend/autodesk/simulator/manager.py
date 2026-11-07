@@ -43,14 +43,15 @@ PHASE2_LIMITATIONS = [
     "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected. Price bands, ticks and spreads "
     "are proxies (no band file, one 0.05 tick).",
     "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN. Costs are desk-cost-v2.",
+    "Daily-loss, weekly-loss and drawdown limits are not enforced: they act on P&L from Phase 3, with the trade lifecycle.",
     "Sector is the latest index-constituent industry, not point-in-time.",
 ]
 
 LIMITATIONS = [
     "Decisions are made before the open on the previous session's end-of-day data; there is no intraday replay "
     "(stored intraday history is about ten days and has no cash stocks).",
-    "Phase 1 has no execution: approved plans are not filled, so there is no P&L, no capital reservation and the "
-    "daily-loss / weekly-loss / drawdown checks are skipped.",
+    "This run has no paper execution (no execution gateway was wired): approved plans are not filled, so there is no P&L, "
+    "no capital reservation and the daily-loss / weekly-loss / drawdown checks are skipped.",
     "Option premiums are the previous session's bhavcopy closes of contracts that traded; untraded strikes are skipped.",
     "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN.",
     "Sector is the latest index-constituent industry, not point-in-time.",

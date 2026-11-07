@@ -170,7 +170,7 @@ def test_adp2_69_no_gateway_is_phase_1_behaviour(pg_pool):
             ledger = await c.fetchval("SELECT count(*) FROM autodesk.capital_ledger_entries WHERE simulation_id=$1", sim["simulation_id"])
             res = (await store.get_simulation(c, t, sim["simulation_id"]))["results"]
         assert {w["outcome"]["result"] for w in wfs} == {"APPROVED_NO_EXECUTION"} and not any(n.values()) and ledger == 1
-        assert "execution_summary" not in res and "Phase 1 has no execution" in " ".join(res["limitations"])
+        assert "execution_summary" not in res and "approved plans are not filled" in " ".join(res["limitations"])
     run(go())
 
 

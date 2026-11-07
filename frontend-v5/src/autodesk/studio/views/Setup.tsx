@@ -3,8 +3,9 @@
  * header, nine numbered sections (Mode, Session, Universe, Capital and account, Agent versions, Policy, Execution model,
  * Playback and seed, Scenario injections) and a sticky Run summary with "Create and start".
  *
- * Phase 1 truth: the API runs HISTORICAL_REPLAY (stepped) and ACCELERATED_REPLAY (to the end in the background) of past
- * NSE sessions; SCENARIO (Phase 3) and LIVE_SHADOW (Phase 4) are refused, there is no execution model (Phase 2), no
+ * Truth: the API runs HISTORICAL_REPLAY (stepped) and ACCELERATED_REPLAY (to the end in the background) of past
+ * NSE sessions; SCENARIO (Phase 3) and LIVE_SHADOW (Phase 4) are refused, the execution model is fixed (simulated fills,
+ * no broker; its assumptions cannot be set per run), no
  * scenario injection or checkpoint (Phase 3), no speed multiplier and no agent-version pinning. Those blocks keep their
  * place in the design and say so; nothing about them is sent. "Create and start" POSTs /simulations (SimulationConfig),
  * then /start (and /run for an accelerated replay), and opens the Trading day of the new run (/studio?sim=…).
@@ -91,7 +92,7 @@ export default function StudioSetup() {
     ["Policy", policyRow ? `${policyRow.name} · v${policyRow.current_version}` : "Account default"],
     ["Agents", agents.size ? `${agents.size} current versions` : "Versions running at create time"],
     ["Plans per session", String(f.maxProposals)],
-    ["Execution", "None in Phase 1", "var(--ink-3)"],
+    ["Execution", "Simulated fills · no broker", "var(--ink-3)"],
     ["Injections", "None · Phase 3", "var(--ink-3)"],
     ["Seed", r.seed == null ? "—" : String(r.seed)],
     ["Playback", !replay ? "—" : accelerated ? "Runs to the end in the background" : "Stepped phase by phase"],
@@ -110,7 +111,7 @@ export default function StudioSetup() {
           Set up a run. <em style={{ color: "var(--indigo)" }}>Same inputs and seed</em> give the same result, every time.
         </h1>
         <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.55, color: "var(--ink-3)", maxWidth: 700 }}>
-          Every setting below is stored with the run, so it can be replayed or compared later. A Phase 1 run places no orders at all;
+          Every setting below is stored with the run, so it can be replayed or compared later. A run places simulated orders only;
           live broker adapters are unreachable from a simulation.
         </p>
       </section>
@@ -140,7 +141,7 @@ export default function StudioSetup() {
             </SetupRow>
             <SetupRow k="Include">
               <Opt on={false} disabled t="Pre-open auction" sub="Not in Phase 1" testId="setup-preopen" title="Decisions use the previous session's end-of-day data" />
-              <Opt on={false} disabled t="Post-close reconciliation" sub="Not in Phase 1" testId="setup-postclose" title="Reconciliation needs fills" />
+              <Opt on={false} disabled t="Post-close reconciliation" sub="Not in Phase 1" testId="setup-postclose" title="Not a setting yet: each run's results record a capital reconciliation" />
             </SetupRow>
             <span data-testid="setup-session-note" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--ink-3)" }}>
               Each session walks 08:30 pre-market → 08:45 scan → 09:00 proposals → 09:15 open → 15:30 close → 18:00 end of day, on the previous
@@ -209,9 +210,12 @@ export default function StudioSetup() {
 
           {/* 07 Execution model */}
           <SetupSection n="07" t="Execution model" s="Costs and frictions" testId="setup-execution">
-            <PhaseNote phase={2} testId="setup-execution-note">
-              Fill model, slippage per leg, latency, partial fills and reject rate apply to simulated orders, which arrive with Phase 2. A Phase 1 run
-              stops at the approval: no orders, fills or P&amp;L.
+            <PhaseNote label="Fixed for now" testId="setup-execution-note">
+              Approved plans become simulated orders, filled from each session's daily row; none is sent to a broker. These assumptions are fixed and
+              cannot be changed per run yet. Half spread: 0.05% on shares, 0.02% on futures, 0.50% on options (at least one tick). Slippage: 3, 2 and 20
+              basis points on shares, futures and options, scaled by a seeded factor between 0.5 and 1.5. At most 10% of the session's traded quantity
+              fills, in whole lots, so large orders fill in part. Latency: 50 to 400 ms on the simulated clock. Shares and futures that open more than
+              20% from the previous close, or more than 10% from the plan's price, are rejected. Costs follow the desk cost card. The same seed gives the same fills.
             </PhaseNote>
           </SetupSection>
 

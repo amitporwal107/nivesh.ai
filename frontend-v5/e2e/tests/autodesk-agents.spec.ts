@@ -141,7 +141,7 @@ test("AD-UI-33 permissions from the descriptor, model and config, human escalati
   await expect(page.getByTestId("agent-model")).toHaveText("autodesk-ait-v1 · deterministic · model — · prompt —");
 });
 
-test("AD-UI-34 workflows in flight against the 13-step workflow (desk only; Phase 1 ends at step 5)", async ({ page }) => {
+test("AD-UI-34 workflows in flight against the 13-step workflow (desk only; steps 6-13 are not drawn yet)", async ({ page }) => {
   await mockDesk(page, { routes: agentRoutes() });
   await page.goto("/autodesk/agents");
   const box = page.getByTestId("workflows-in-flight");
@@ -169,9 +169,11 @@ test("AD-UI-34 workflows in flight against the 13-step workflow (desk only; Phas
   const p = box.getByTestId(`flow-${WFP.PETRONET}`);
   await expect(p.getByTestId("flow-at")).toHaveText("Approved · Phase 1 ends at step 5");
   expect(await fills(WFP.PETRONET)).toEqual([...Array(5).fill("done"), ...Array(8).fill("none")]);
-  await expect(p.locator('[data-step="6"]')).toHaveAttribute("title", "Capital reservation · Phase 2");
-  await expect(page.getByTestId("flows-phase-note")).toContainText("Phase 1 ends at step 5");
-  await expect(page.getByTestId("flows-phase-note")).toContainText("Phase 2");
+  await expect(p.locator('[data-step="6"]')).toHaveAttribute("title", "Capital reservation · not shown yet");
+  await expect(page.getByTestId("flows-phase-note")).toContainText("Steps 6–13");
+  await expect(page.getByTestId("flows-phase-note")).toContainText("the desk now records the reservation, the intent, paper orders and fills, the position and the journal");
+  await expect(page.getByTestId("flows-phase-note")).toContainText("come with Phase 3");
+  await expect(page.getByTestId("flows-phase-note")).not.toContainText("Phase 1 ends");
 });
 
 test("AD-UI-35 empty states: an agent without desk tasks, no proposal workflows", async ({ page }) => {

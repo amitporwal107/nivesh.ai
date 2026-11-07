@@ -3,13 +3,15 @@
  * header with the run count, the runs table with A · B pickers, and the comparison of A and B (measures, the net P&L
  * chart place, "Where the two runs decided differently").
  *
- * Phase 1 runs record signals, plans, risk reports and approvals. Trades, net P&L, drawdown, win rate and slippage need
- * simulated fills (Phase 2) and assertions need scenarios (Phase 3): those cells and the chart keep their place and say
- * so. The decision comparison is computed from the two runs' own records (./runs/model.ts) — nothing is sampled.
+ * Runs record signals, plans, risk reports and approvals, and from paper execution on, simulated fills, costs and P&L.
+ * Trades, net P&L and max drawdown in the table come from the run's results.execution_summary (a dash for a run made
+ * before paper execution); the comparison measures and the chart do not read it yet, and assertions need scenarios
+ * (Phase 3): those cells keep their place and say so. The decision comparison is computed from the two runs' own
+ * records (./runs/model.ts) — nothing is sampled.
  */
 import { useState, type CSSProperties } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { DASH } from "../../format";
+import { DASH, num, rs } from "../../format";
 import { useIsMobile } from "../../hooks";
 import { usePolicies } from "../../screens/policies/data";
 import { rangeText, configOf } from "../../screens/simulator/model";
@@ -25,6 +27,19 @@ const COLS = "64px 120px minmax(0,1.3fr) minmax(0,1.1fr) 150px 70px 100px 100px 
 const HEAD = ["A · B", "Run", "Type · session", "Policy · seed", "Status", "Trades", "Net P&L", "Max DD", "Assertions"];
 const mono: CSSProperties = { fontFamily: "var(--mono)" };
 const DIFF_SHOWN = 12;
+const NO_FILLS = "No simulated fills are recorded for this run: it was made before paper execution, or has not finished";
+
+/** results.execution_summary of a finished run made with paper execution; null for any other run. Drawdown arrives as a negative amount. */
+function execFigures(r: SimulationRow): { trades: string; net: string; dd: string; neg: boolean } | null {
+  const s = (r.results as { execution_summary?: Record<string, unknown> } | null)?.execution_summary;
+  const t = num(s?.trades);
+  const n = num(s?.net_pnl_rs);
+  const d = num(s?.max_drawdown_rs);
+  if (!s || t == null || n == null || d == null) return null;
+  return { trades: t.toLocaleString("en-IN"), net: rs(n, { signed: true }), dd: rs(d), neg: n < 0 };
+}
+
+const cell = (x: ReturnType<typeof execFigures>): CSSProperties => ({ textAlign: "right", color: x ? (x.neg ? "var(--danger)" : "var(--ink)") : "var(--ink-3)" });
 
 function AB({ on, label, kind, onPick, testId }: { on: boolean; label: string; kind: "A" | "B"; onPick: () => void; testId: string }) {
   const s: CSSProperties = kind === "A"
@@ -112,6 +127,7 @@ export default function StudioRuns() {
                 const isB = r.simulation_id === bId;
                 const st = STATUS_PILL[r.status] ?? { t: r.status, c: "var(--ink-2)", l: "var(--line-2)" };
                 const c = configOf(r);
+                const x = execFigures(r);
                 return (
                   <div key={r.simulation_id} data-testid="runs-row" data-sim={r.simulation_id}
                     style={{ display: "grid", gridTemplateColumns: COLS, gap: 12, padding: "11px 18px", borderTop: "1px solid var(--line)", fontSize: 13, alignItems: "center", background: isA || isB ? "var(--bg-2)" : "transparent" }}>
@@ -132,9 +148,9 @@ export default function StudioRuns() {
                       <span style={{ ...mono, fontSize: 10.5, color: "var(--ink-3)" }}>SEED {c.seed ?? DASH} · {c.speed ?? DASH}</span>
                     </span>
                     <span><span className="nv-pill" data-testid="runs-status" style={{ padding: "2px 8px", fontSize: 9, color: st.c, borderColor: st.l }}>{st.t}</span></span>
-                    <span className="nv-num" style={{ textAlign: "right", color: "var(--ink-3)" }} title="Phase 2: needs fills">{DASH}</span>
-                    <span className="nv-num" style={{ textAlign: "right", color: "var(--ink-3)" }} title="Phase 2: needs fills">{DASH}</span>
-                    <span className="nv-num" style={{ textAlign: "right", color: "var(--ink-3)" }} title="Phase 2: needs fills">{DASH}</span>
+                    <span className="nv-num" data-testid="runs-trades" style={cell(x)} title={x ? undefined : NO_FILLS}>{x ? x.trades : DASH}</span>
+                    <span className="nv-num" data-testid="runs-net" style={cell(x)} title={x ? undefined : NO_FILLS}>{x ? x.net : DASH}</span>
+                    <span className="nv-num" data-testid="runs-dd" style={cell(x)} title={x ? undefined : NO_FILLS}>{x ? x.dd : DASH}</span>
                     <span className="nv-num" style={{ textAlign: "right", color: "var(--ink-3)" }} title="Phase 3: needs scenarios">{DASH}</span>
                   </div>
                 );
@@ -143,9 +159,9 @@ export default function StudioRuns() {
             </div>
           </div>
           <div style={{ padding: "10px 18px 14px", borderTop: "1px solid var(--line)" }}>
-            <PhaseNote phase={2} testId="runs-table-note">
-              Trades, net P&amp;L and max drawdown need simulated fills (Phase 2); assertions come with scenarios (Phase 3). Phase 1 runs record signals, plans,
-              risk reports and approvals — compared below.
+            <PhaseNote label="Note" testId="runs-table-note">
+              Trades, net P&amp;L and max drawdown come from the run's simulated fills. Runs made before paper execution show a dash. Assertions come
+              with scenarios (Phase 3). The decisions of each run — signals, plans, risk reports and approvals — are compared below.
             </PhaseNote>
           </div>
         </section>
@@ -190,7 +206,7 @@ export default function StudioRuns() {
               </div>
               <div style={{ minHeight: 190, display: "flex", alignItems: "center" }}>
                 <div style={{ width: "100%" }}>
-                  <PhaseNote phase={2} testId="runs-chart-note">Net P&amp;L through the session needs simulated fills. Phase 1 runs end at the approval, so there is no curve to draw.</PhaseNote>
+                  <PhaseNote label="Not shown yet" testId="runs-chart-note">Net P&amp;L through the session is not drawn here yet.</PhaseNote>
                 </div>
               </div>
               <span className="nv-eyebrow" style={{ paddingTop: 6 }}>Where the two runs decided differently</span>
@@ -217,8 +233,8 @@ export default function StudioRuns() {
             </div>
           </div>
           <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--ink-3)" }}>
-            Phase 1 runs record decisions only — signals, plans, risk reports and approvals; there are no fills, costs or P&amp;L yet. They are evidence for a
-            policy decision, not a forecast of live returns.
+            Runs record signals, plans, risk reports and approvals, and from paper execution on, simulated fills, costs and P&amp;L. Runs made before
+            that hold decisions only. They are evidence for a policy decision, not a forecast of live returns.
           </span>
         </section>
       )}
