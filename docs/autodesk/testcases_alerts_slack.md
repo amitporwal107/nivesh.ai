@@ -2,6 +2,11 @@
 
 Written 7 Nov 2026 by Account 2. Status: **test cases only, nothing is built.** Source: the owner's review of the desk checks board (items R12, Q4, Q5, Q7): every warning, alert and agent conversation of the Autonomous Trading Desk goes to one Slack channel (workspace `T0CFQR34X6W`, channel `C0CFKMTJNUD`).
 
+## 0. Owner decisions, 7 Nov 2026
+- **Scope now: support-related issues only.** Every support issue (BLOCKED, DEGRADED, ESCALATE, PAUSE, FREEZE, incidents, login needed, VM alerts) and its RESOLVED goes to the Slack channel so users are notified. Mirroring agent chat (Q7, cases AD-AL-20..22) is **deferred**.
+- **Inbound is deferred.** Claude receiving Slack messages is not built; the notifier stays send-only (AD-AL-23 stands).
+- **Transport: incoming webhook.** One was created and a hand-sent TEST message returned HTTP 200 (not seen in the channel by this session). Its URL was pasted in chat, so it must be rotated before the notifier goes live. The URL goes only into the staging environment.
+
 ## 1. What exists today (checked 7 Nov)
 
 - No Slack sender in the repo. A search for `slack` finds only the English word ("slack" meaning leeway) and one comment in `backend/nidp/deploy/prometheus_rules.yml`.
