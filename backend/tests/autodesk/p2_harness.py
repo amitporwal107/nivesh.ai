@@ -132,12 +132,19 @@ async def make_desk_account(pool, t: str, *, capital="1000000", policy: Optional
 
 
 async def make_approved_plan(pool, t: str, acc: dict, pol: dict, body: C.TradePlanBody, *, verdict="PASS", approved=True,
-                             approval_expires: Optional[datetime] = None, policy_version: Optional[int] = None) -> dict:
+                             approval_expires: Optional[datetime] = None, policy_version: Optional[int] = None,
+                             scope_body: Optional[C.TradePlanBody] = None, began_mode: Optional[str] = None) -> dict:
     """A plan row (status APPROVED) with a risk assessment and an APPROVED decision bound to its hash. -> {trade_id, approval_id, ...}"""
     sim_id = acc["simulation_id"]
     async with pool.acquire() as c:
         async with c.transaction():
-            plan = await store.create_plan(c, tenant_id=t, body=body, created_by="test", simulation_id=sim_id, workflow_id=None)
+            wid = None
+            if began_mode:                       # a workflow that began while the account was in `began_mode`
+                wf, _ = await store.create_workflow(c, tenant_id=t, account_id=acc["account_id"], kind=C.WorkflowKind.TRADE_PROPOSAL,
+                                                    producer="test", simulation_id=sim_id, session_date=SD, sim_time=None,
+                                                    idempotency_key=f"wf-{next(_n)}", input={"operating_mode": began_mode})
+                wid = wf["workflow_id"]
+            plan = await store.create_plan(c, tenant_id=t, body=body, created_by="test", simulation_id=sim_id, workflow_id=wid)
             tid = plan["trade_id"]
             a = C.RiskAssessment(trade_id=tid, plan_version=1, account_id=acc["account_id"], simulation_id=sim_id,
                                  verdict=C.RiskVerdict(verdict), checks=[], sizing={}, inputs_snapshot={},
@@ -147,7 +154,7 @@ async def make_approved_plan(pool, t: str, acc: dict, pol: dict, body: C.TradePl
             if approved:
                 d = C.ApprovalDecision(trade_id=tid, plan_version=1, account_id=acc["account_id"], simulation_id=sim_id,
                                        status=C.ApprovalStatus.APPROVED, decided_by="MIDDLE_OFFICE@test", reasons=["test"],
-                                       scope=build_scope(tenant_id=t, account=acc, trade_id=tid, plan_version=1, plan=body),
+                                       scope=build_scope(tenant_id=t, account=acc, trade_id=tid, plan_version=1, plan=scope_body or body),
                                        risk_assessment_id=a.assessment_id,
                                        expires_at=approval_expires or body.plan_expires_at)
                 await store.insert_approval(c, tenant_id=t, d=d, producer="test", workflow_id=None)

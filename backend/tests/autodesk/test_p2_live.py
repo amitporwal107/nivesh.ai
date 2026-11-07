@@ -153,15 +153,23 @@ def test_adp2_77_stop_new_entries_after_submission_blocks_the_fill(pg_pool):
     async def go():
         t, acc, plan, fq, gw, it = await desk_setup(pg_pool)
         fq.answer = QuoteAnswer(quotes={KEY: fresh(T1030)})
-        await settle.live_tick(gw, tenant_id=t, now=T1030 - timedelta(minutes=30))                 # submitted before the open: waits
+        before_open = datetime(2026, 11, 5, 9, 0, tzinfo=IST).astimezone(timezone.utc)
+        await settle.live_tick(gw, tenant_id=t, now=before_open)                      # submitted; waits for the session
+        assert (await order_of(pg_pool, plan["trade_id"]))["state"] == "OPEN" and fq.calls == 0
         async with pg_pool.acquire() as c:
             async with c.transaction():
                 await store.set_desk_control(c, tenant_id=t, control=C.DeskControl.STOP_NEW_ENTRIES, active=True,
                                              reason="halt", actor="u")
         await settle.live_tick(gw, tenant_id=t, now=T1030)
         o = await order_of(pg_pool, plan["trade_id"])
-        assert o["state"] in ("REJECTED", "OPEN")
-        assert o["filled_qty"] == 0
+        assert o["state"] == "OPEN" and o["filled_qty"] == 0 and "ENTRIES_STOPPED" in o["last_no_fill_reason"]
+        async with pg_pool.acquire() as c:
+            async with c.transaction():
+                await store.set_desk_control(c, tenant_id=t, control=C.DeskControl.STOP_NEW_ENTRIES, active=False,
+                                             reason="lifted", actor="u")
+        fq.answer = QuoteAnswer(quotes={KEY: fresh(T1030 + timedelta(seconds=5))})
+        await settle.live_tick(gw, tenant_id=t, now=T1030 + timedelta(seconds=5))
+        assert (await order_of(pg_pool, plan["trade_id"]))["state"] == "FILLED"       # lifted: it fills
     run(go())
 
 
