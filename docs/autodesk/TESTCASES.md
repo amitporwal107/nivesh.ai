@@ -477,3 +477,11 @@ Design: `PHASE2_DESIGN.md`. Layers as above: U unit, I integration on a throwawa
 | AD-P2-117 | U | `/health` and `/desk/status` `execution` text | "paper only" with a gateway; the Phase 1 text without one |
 | AD-P2-118 | E | Result APPROVED on the desk's screens | reads as approved everywhere APPROVED_NO_EXECUTION did (the screens' pure label functions) |
 | AD-P2-119 | I | Journal of a filled and of an expired plan | MARK per session; each order's end with its reason; the intent's result |
+
+### Screen wording before merge (7 Nov; written before the code, each fails on 2a06db55)
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-120 | E | Every screen that said the desk has no execution: approval detail, Studio Setup (summary row and Execution model note), Studio Trace note, Run history notes, Overview, Agents flows note, the placeholder screens, Simulator limitations | none says plans are not filled, that nothing is executed, that there are no orders in Phase 1, or that orders, fills or P&L arrive with Phase 2; each says paper only, no broker, and where a screen does not show recorded data yet, says that. What Phase 2 did not build (exits, realized P&L, stops, loss limits, UNKNOWN-order reconciliation) is said to come with Phase 3, never as recorded. Phase 3 and Phase 4 text is unchanged. `APPROVED_NO_EXECUTION` from older runs is still read |
+| AD-P2-121 | E | Run history table, a run with `results.execution_summary` (trades 3, net P&L −1,470, max drawdown 2,210) and a run without one (made before paper execution) | the first shows 3, −₹1,470 and ₹2,210 in Trades, Net P&L, Max DD; the second shows the dash in all three. The Assertions cell stays a dash |
+| AD-P2-122 | I | Simulation results with the execution gateway on, and with none | with the gateway, no stored limitation says plans are not filled or that nothing is executed, and the limitation that daily-loss, weekly-loss and drawdown checks are skipped until Phase 3 is still there; with none, the Phase 1 text is unchanged |
