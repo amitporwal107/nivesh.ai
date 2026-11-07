@@ -33,15 +33,17 @@ backend/autodesk/execution/        (new)
   positions.py    fills → positions and legs; marks; unrealized P&L
   journal.py      the §12.1 chain, one row per link
   adapters.py     ExecutionAdapter contract, mode router, SimulationPaperAdapter, LivePaperAdapter, ShadowAdapter
-  gateway.py      controls (§11.4), intents, submission, session open / close, live tick, withdraw
-  live_loop.py    background task of the desk process: the live tick
+  gateway.py      controls (§11.4), intents, submission, withdraw, start-up recovery
+  settle.py       fills → ledger, reservation, position, journal; simulation OPEN and CLOSE; the live tick; marks; snapshots
+  live_loop.py    background task of the desk process: the live tick (`AUTODESK_LIVE_LOOP`, default on)
   reports.py      capital view, P&L, simulation execution summary, determinism fingerprint
+backend/autodesk/routers/execution.py   the read APIs of §9 and the withdraw route
 backend/autodesk/market/
   session_bars.py the fill model's only historical data; separate from the agents' view; refuses any later session
   live_quotes.py  QuoteSource contract, freshness rule, Redis-then-REST source over ReadOnlyKite
 ```
 
-`Orchestrator(execution=…)` calls the gateway after an approval; `SimulationManager` calls it at OPEN and CLOSE. **With no gateway
+`Orchestrator(execution=…)` calls the gateway after an approval; `SimulationManager(execution=…)` calls `settle` at OPEN and CLOSE. **With no gateway
 wired, both behave exactly as in Phase 1** (the tests of that behaviour keep running); production wires it in `main.py`.
 
 ## 3. Data model (migration 003, schema `autodesk`)
@@ -131,7 +133,7 @@ When it happens: **simulation** the intent and reservation at approval (09:00), 
 | Idempotency: same key returns the same intent. Same trade, version and action under another key | `DUPLICATE_INTENT` |
 | Funds and limits (§4) | codes of §4 |
 
-The binding, stop and account controls run again at submission. A refused intent is kept, with its codes and no orders or reservation.
+The binding, stop and account controls run again at submission, and on the live desk before each pricing pass. A refused intent is kept, with its codes and no orders or reservation; a duplicate or an old version's refusal does not change the status of a plan another intent is working on. An intent left CREATED by a stopped process goes on at the next call for it; at start-up what is left is refused (`INTERRUPTED`).
 Idempotency key: `<trade_id>:v<version>:ENTER`. Same key, same intent, no new rows, also under concurrency.
 
 ### 5.3 State machines
@@ -175,14 +177,14 @@ At **OPEN (09:15)** the decision sees only `open`, `prev_close`, the lot size an
 | MARKET collar | filled price within ±3 % of plan (shares, futures), ±15 % (options) | `REJECTED COLLAR` |
 | LIMIT | marketable if the priced fill ≤ limit (BUY): fills at that price | else rests |
 | Volume | filled ≤ 10 % of the session's traded quantity, in whole lots | partial; 0 → no fill |
-| Funds | fill's funds ≤ buying power + its own reservation | `REJECTED INSUFFICIENT_FUNDS` |
+| Funds | fill's funds ≤ buying power + its own reservation, under the account lock | `REJECTED INSUFFICIENT_FUNDS` |
 | Latency | `fill_time` = 09:15 + 50..400 ms on the simulated clock | |
 
-At **CLOSE (15:30)** the whole bar has happened. A resting LIMIT fills **at the limit** only if price traded **through** it (`low < limit` for BUY; a touch does not fill), capped by the same volume share, with no spread or slippage (it was passive). Whatever is unfilled then `EXPIRES` and the remaining reservation is released. Then every open position leg is marked at the session's close (a leg that did not trade: exchange settlement price, labelled; no row at all: last mark kept, flagged stale) and the account's `equity_snapshots` row is written.
+At **CLOSE (15:30)** the whole bar has happened. A resting LIMIT fills **at the limit** only if price traded **through** it (`low < limit` for BUY; a touch does not fill), capped by the same volume share, with no spread or slippage (it was passive). Whatever is unfilled then `EXPIRES` and the remaining reservation is released. Then every open position leg is marked at the session's close (a leg with no row, no trade that session, or a failed read keeps its last mark, flagged stale: under the owner's rule a zero-volume row has no price that day) and the account's `equity_snapshots` row is written.
 
 Assumptions (`FillParams`, recorded in the results): half spread 0.05 % shares (the cost card's spread allowance), 0.02 % futures, 0.50 % options and at least one tick; slippage 3 / 2 / 20 bps × a seeded factor 0.5..1.5; volume share 10 %; latency 50..400 ms.
 
-**Seed.** `random.Random(f"{seed}|{session}|{instrument key}|{side}")`: one stream per order, independent of order ids and of the order orders are processed in. Same seed, same fills. Results carry a `fingerprint`: sha256 of the id-free canonical rows of every order and fill.
+**Seed.** `random.Random(f"{seed}|{session}|{instrument key}|{side}")`: one stream per order, independent of order ids and of the order orders are processed in. Same seed, same fills. Results carry a `fingerprint`: sha256 of the id-free canonical rows of every order, fill, position leg and session snapshot.
 
 **What OHLCV cannot tell (ARCH §10.6), stated in the results' limitations:** no queue position or depth; the time of a resting fill within the session; simultaneity of basket legs other than at the open; the session's volume is known to the fill engine at 09:15, as a capacity assumption only; spreads are proxies.
 
@@ -190,13 +192,13 @@ Assumptions (`FillParams`, recorded in the results): half spread 0.05 % shares (
 
 ### 6.2 Live desk: from the live quote
 
-Decision at each live tick (5 s in session):
+Each live tick (5 s in session, 60 s otherwise) makes **one** quote read, before any row is locked, for everything that can be priced or marked now. Then, per intent:
 
 | Condition | Outcome |
 |---|---|
 | Not a session day, or outside the fill window: cash 09:15–15:15 (F&O stocks' continuous trading ends at 15:15 since 3 Aug 2026), F&O 09:15–15:30 | waits; no quote is read |
 | `QUOTE_MISSING`, `QUOTE_STALE` (older than 120 s by `received_at`), `QUOTE_NOT_TODAY`, `QUOTE_NOT_TRADED_TODAY`, `QUOTE_NO_PRICE` | **no fill**; `attempts` + 1, `last_no_fill_reason`; retries next tick |
-| STOP_NEW_ENTRIES active | no fill; waits or expires |
+| The binding no longer holds: STOP_NEW_ENTRIES, account not active, mode or policy changed, approval expired | no fill; the reason names the code; waits or expires |
 | Price | BUY = ask (else LTP + half spread, labelled `ltp_spread`) × (1 + base slippage); SELL mirrored |
 | LIMIT | a price past the limit fills at the limit if the ask or bid itself is inside it; else no fill |
 | Collar / invalidation / lot | collar and invalidation: no fill this tick; lot differs from the exchange's: `REJECTED LOT_SIZE` |
@@ -204,7 +206,7 @@ Decision at each live tick (5 s in session):
 | Basket | every leg fresh, full quantity displayed (or unknown), net inside `net_limit_rs`, or nothing fills |
 | Past the session close | `EXPIRED`, reservation released |
 
-The fill says which quote priced it (`price_source`: source, symbol, `received_at`). Open positions are marked from fresh quotes on the same tick; a stale mark is flagged on read, not presented as live (`mark_age_s`, `mark_stale`). Session close writes the snapshot.
+The fill says which quote priced it (`price_source`: source, symbol, `received_at`). Open positions are marked from fresh quotes on the same tick while the market is open; a mark older than 120 s is flagged on read then, not presented as live (`mark_age_s`, `mark_stale`, `/capital` `marks.stale_legs`). The first tick after 15:31 on a session day writes the snapshot.
 
 ## 7. Live-price source (P2, P3): `market/live_quotes.py`
 
@@ -242,7 +244,7 @@ Lists follow `/trade-plans`: without `simulation_id` they show desk rows only; w
 | `GET /api/v1/execution/fills?account_id=&simulation_id=&trade_id=&order_id=` | fills, each with `fill_kind: SIMULATED`, `broker_confirmed: false` |
 | `GET /api/v1/positions?account_id=&simulation_id=&status=` · `GET /api/v1/positions/{id}` | positions with legs, marks, unrealized P&L, charges |
 | `GET /api/v1/journal?trade_id=&account_id=&simulation_id=&after_seq=&limit=` | the §12.1 chain in order |
-| `GET /api/v1/simulations/{id}/results` | as before, plus `execution_summary`: `trades`, `net_pnl_rs`, `max_drawdown_rs`, `max_drawdown_pct` (the Studio's Run history columns), `intents`, `orders`, `fills`, `reservations`, `positions`, `capital`, `pnl`, `fill_ratio`, `rejection_rate`, `fill_model`, `cost_model`, `reconciliation`, `fingerprint`, `seed` |
+| `GET /api/v1/simulations/{id}/results` | as before, plus `execution_summary`: `trades`, `net_pnl_rs`, `max_drawdown_rs`, `max_drawdown_pct` (the Studio's Run history columns), `intents`, `intents_refused`, `orders`, `orders_by_state`, `reject_codes`, `fills`, `reservations`, `positions`, `capital`, `pnl`, `fill_ratio`, `rejection_rate`, `fill_model`, `cost_model`, `reconciliation`, `fingerprint`, `seed` |
 
 One write: `POST /api/v1/execution/orders/{id}/cancel` (PRD §17.4) withdraws a working paper order and releases what it held. 409 once the order is terminal.
 

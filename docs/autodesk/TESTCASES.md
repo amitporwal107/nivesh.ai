@@ -453,3 +453,25 @@ Design: `PHASE2_DESIGN.md`. Layers as above: U unit, I integration on a throwawa
 | AD-P2-96 | R | Same replay, same seed | same fingerprint and figures |
 | AD-P2-97 | R | Each fill against the exchange row read again | price = its contract's open ± model, or the limit inside the low/high; quantity within the volume share; marks = closes |
 | AD-P2-98 | R | One real read-only quote through `KiteQuoteSource` | a real quote, or UNVERIFIED with the real reason (login not valid, market closed) |
+
+### Review of the takeover branch (7 Nov; each failed on d44ebc3c before its fix)
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-P2-101 | I | A person approves a plan in a simulation | the workflow's `outcome` stays an object with `result` and `execution` (it became a JSON array) |
+| AD-P2-102 | I | The gateway raises when an approved plan is handed over | the workflow still ends; its outcome says execution status ERROR with the error |
+| AD-P2-103 | I | One unscoped live tick; tenant A holds a position, tenant B has a working order | A's leg is marked too |
+| AD-P2-104 | I | Open position on a Saturday, a holiday, an evening | the quote source is not read; on the next session's market hours it is |
+| AD-P2-105 | I | Three working intents in one tick | one quote read; no intent row locked during it |
+| AD-P2-106 | I | Funds taken away between intent and fill | REJECTED INSUFFICIENT_FUNDS; no fill |
+| AD-P2-107 | I | Debit spread and iron condor fill | reservation consumed = net cash + width + charges; consumed + released = amount; position risk = plan risk exactly; margin posted once |
+| AD-P2-108 | I | Process stops after the intent is committed | next call goes on from CREATED; or start-up recovery refuses it with INTERRUPTED and the plan is EXECUTION_REFUSED |
+| AD-P2-109 | I | Same plan version under another key while the first intent works | DUPLICATE_INTENT; plan stays EXECUTING; the first intent still fills |
+| AD-P2-110 | I | After-close snapshot on a Saturday; on a session day | none; one |
+| AD-P2-111 | I | Account suspended, mode changed to RESEARCH, or policy changed while a live order works | no fill; order stays OPEN; reason names the code |
+| AD-P2-112 | I | Withdraw an UNKNOWN order | Conflict |
+| AD-P2-113 | I | A mark changes | fingerprint changes (it covers legs and snapshots); summary has `seed` and `reject_codes` |
+| AD-P2-114 | I | Data platform down at CLOSE | the run goes on; leg keeps its mark, flagged stale, listed by the capital view |
+| AD-P2-115 | I | Capital read with an old mark on the desk | listed stale while the market is open; not when it is shut |
+| AD-P2-116 | U | Every string literal in the execution code | none of the AD-92 words (BUY/SELL field values and Kite's depth field names apart) |
+| AD-P2-117 | U | `/health` and `/desk/status` `execution` text | "paper only" with a gateway; the Phase 1 text without one |
