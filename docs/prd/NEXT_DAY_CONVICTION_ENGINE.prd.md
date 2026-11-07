@@ -604,3 +604,18 @@ candidate inputs (§7.4).
    against the current SEBI RA regulations and master circular).
 7. **Q7 Screen.** You design the screen. Where should it live: Trading Desk, Scan dashboard or Market Desk?
 8. **Q8 Universes.** Run both the F&O and cash universes from P1, or F&O only first, as the proposal's four-pillar case?
+
+---
+
+## 13. Owner decisions log
+- **7 Nov 2026 — lookback:** "just look at last 10 session data only at max … one month". Every feature window is 10
+  sessions and no input is older than one month (21 sessions). Substitutions: 20-session averages and medians → 10;
+  RS20 → RS10; EMA20 / EMA50 → SMA5 / SMA10 (C > SMA10 3, SMA5 > SMA10 3, SMA5 rising vs its value 5 sessions earlier 2);
+  20-day high → 10-session high; OI and PCR percentiles over 10 sessions; ATR14 → ATR10; delivery quadrant baseline =
+  median of d−10..d−3. Rubric thresholds and points are otherwise unchanged. Code and first results:
+  `docs/next_day/` (look-back of 10 sessions: no evidence either way, ±0.9 % interval).
+- **7 Nov 2026 — special sessions:** "Sunday 8th there is a special trading session". A special session (Muhurat) is the
+  next session. Our bhavcopy, delivery and index ingesters run Monday–Friday only, so such a session needs a manual ingest
+  before it can be scored, and the calendar must include it (§5.3 follow-up).
+- **7 Nov 2026 — run now:** "let's do the prediction". The first prediction (signal 6 Nov, target 8 Nov) is frozen in
+  `docs/next_day/predictions/` before the session.

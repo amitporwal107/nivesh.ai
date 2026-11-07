@@ -1,0 +1,414 @@
+{
+ "study": "NIDP-ND rubric v0, 10-session variant (owner 7 Nov 2026: windows <= 10 sessions, data <= one month)",
+ "status": "shadow / research only, not advice, not published to users",
+ "signal_session": "2026-11-06",
+ "target_session": "2026-11-08 (Sunday special / Muhurat session, owner 7 Nov)",
+ "also_measured": "2026-11-09 (first full session; 10 Nov is a holiday)",
+ "outcome_rule": "target-session open -> close, equal-weight list vs equal-weight eligible universe; cost 0.204 % (futures) / 0.370 % (delivery)",
+ "created_at_utc": "2026-11-07T16:59:22Z",
+ "engine_sha256": "f3f278aea5b029f66de17d5b1670314b0558c9ae7418a72a42f4fe959d46814b",
+ "inputs": "staging NIDP warehouse, 2026-10-08 .. 2026-11-06 (21 sessions): prices_eod+adjusted EQ, index_eod Nifty 50, fno_bhavcopy STF/STO, event_calendar, security_reference_daily",
+ "universe_counts": {
+  "FNO": {
+   "eligible": 216,
+   "excluded": 2,
+   "aligned": {
+    "bull": 39,
+    "bear": 9,
+    "conflict": 15
+   }
+  },
+  "CASH": {
+   "eligible": 262,
+   "excluded": 20,
+   "aligned": {
+    "bull": 12,
+    "bear": 16,
+    "conflict": 10
+   }
+  }
+ },
+ "lists": {
+  "FNO_bullish": [
+   {
+    "rank": 1,
+    "symbol": "HDFCBANK",
+    "score": 85,
+    "trade_quality": 100,
+    "pillars": {
+     "cash": 27,
+     "delivery": 18,
+     "price_volume": 25,
+     "fno": 15
+    },
+    "setup": "short_covering",
+    "reference_level": 788.25,
+    "invalidation_level": 769.97,
+    "atr10_pct": 2.32,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 6,
+     "C3": 6,
+     "C4": 3,
+     "D1": 7,
+     "D2": 3,
+     "D3": 4,
+     "D4": 4,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4,
+     "F1": 6,
+     "F2": 2,
+     "F3": 0,
+     "F4": 3,
+     "F5": 4
+    }
+   },
+   {
+    "rank": 2,
+    "symbol": "ICICILIFE",
+    "score": 82,
+    "trade_quality": 90,
+    "pillars": {
+     "cash": 28,
+     "delivery": 20,
+     "price_volume": 17,
+     "fno": 17
+    },
+    "setup": "long_buildup",
+    "reference_level": 438.9,
+    "invalidation_level": 427.06,
+    "atr10_pct": 2.7,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 4,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 5,
+     "D3": 4,
+     "D4": 4,
+     "P1": 0,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4,
+     "F1": 8,
+     "F2": 0,
+     "F3": 0,
+     "F4": 5,
+     "F5": 4
+    }
+   },
+   {
+    "rank": 3,
+    "symbol": "KALYANKJIL",
+    "score": 81,
+    "trade_quality": 100,
+    "pillars": {
+     "cash": 23,
+     "delivery": 16,
+     "price_volume": 25,
+     "fno": 17
+    },
+    "setup": "short_covering",
+    "reference_level": 590.75,
+    "invalidation_level": 568.14,
+    "atr10_pct": 3.83,
+    "events_7_to_11_nov": [
+     "quarterly_results 2026-11-10"
+    ],
+    "points": {
+     "C1": 8,
+     "C2": 3,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 1,
+     "D3": 4,
+     "D4": 4,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4,
+     "F1": 6,
+     "F2": 2,
+     "F3": 2,
+     "F4": 3,
+     "F5": 4
+    }
+   },
+   {
+    "rank": 4,
+    "symbol": "MARUTI",
+    "score": 80,
+    "trade_quality": 100,
+    "pillars": {
+     "cash": 19,
+     "delivery": 20,
+     "price_volume": 25,
+     "fno": 16
+    },
+    "setup": "short_covering",
+    "reference_level": 12750.0,
+    "invalidation_level": 12447.1,
+    "atr10_pct": 2.38,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 8,
+     "C2": 2,
+     "C3": 6,
+     "C4": 3,
+     "D1": 7,
+     "D2": 5,
+     "D3": 4,
+     "D4": 4,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4,
+     "F1": 6,
+     "F2": 2,
+     "F3": 1,
+     "F4": 3,
+     "F5": 4
+    }
+   },
+   {
+    "rank": 5,
+    "symbol": "YESBANK",
+    "score": 80,
+    "trade_quality": 100,
+    "pillars": {
+     "cash": 27,
+     "delivery": 13,
+     "price_volume": 20,
+     "fno": 20
+    },
+    "setup": "long_buildup",
+    "reference_level": 17.2,
+    "invalidation_level": 16.61,
+    "atr10_pct": 3.4,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 3,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 0,
+     "D3": 4,
+     "D4": 2,
+     "P1": 3,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4,
+     "F1": 8,
+     "F2": 0,
+     "F3": 3,
+     "F4": 5,
+     "F5": 4
+    }
+   }
+  ],
+  "FNO_bearish_warning": [
+   {
+    "rank": 1,
+    "symbol": "ASTRAL",
+    "score": 76,
+    "trade_quality": 75,
+    "pillars": {
+     "cash": 23,
+     "delivery": 13,
+     "price_volume": 20,
+     "fno": 20
+    },
+    "setup": "short_buildup",
+    "reference_level": 1253.6,
+    "invalidation_level": 1307.3,
+    "atr10_pct": 4.28,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 8,
+     "C2": 3,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 0,
+     "D3": 4,
+     "D4": 2,
+     "P1": 8,
+     "P2": 3,
+     "P3": 5,
+     "P4": 4,
+     "F1": 8,
+     "F2": 2,
+     "F3": 3,
+     "F4": 3,
+     "F5": 4
+    }
+   }
+  ],
+  "CASH_bullish": [
+   {
+    "rank": 1,
+    "symbol": "SHYAMMETL",
+    "score": 94.7,
+    "trade_quality": 90,
+    "pillars": {
+     "cash": 28,
+     "delivery": 18,
+     "price_volume": 25,
+     "fno": null
+    },
+    "setup": null,
+    "reference_level": 1300.6,
+    "invalidation_level": 1252.08,
+    "atr10_pct": 3.73,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 4,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 3,
+     "D3": 4,
+     "D4": 4,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4
+    }
+   },
+   {
+    "rank": 2,
+    "symbol": "IIFL",
+    "score": 93.3,
+    "trade_quality": 85,
+    "pillars": {
+     "cash": 30,
+     "delivery": 15,
+     "price_volume": 25,
+     "fno": null
+    },
+    "setup": null,
+    "reference_level": 625.75,
+    "invalidation_level": 595.48,
+    "atr10_pct": 4.84,
+    "events_7_to_11_nov": [
+     "other 2026-11-10"
+    ],
+    "points": {
+     "C1": 12,
+     "C2": 6,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 0,
+     "D3": 4,
+     "D4": 4,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4
+    }
+   },
+   {
+    "rank": 3,
+    "symbol": "ACE",
+    "score": 92.0,
+    "trade_quality": 75,
+    "pillars": {
+     "cash": 30,
+     "delivery": 14,
+     "price_volume": 25,
+     "fno": null
+    },
+    "setup": null,
+    "reference_level": 1167.7,
+    "invalidation_level": 1119.04,
+    "atr10_pct": 4.17,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 6,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 1,
+     "D3": 4,
+     "D4": 2,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4
+    }
+   },
+   {
+    "rank": 4,
+    "symbol": "WABAG",
+    "score": 86.7,
+    "trade_quality": 85,
+    "pillars": {
+     "cash": 27,
+     "delivery": 13,
+     "price_volume": 25,
+     "fno": null
+    },
+    "setup": null,
+    "reference_level": 1988.2,
+    "invalidation_level": 1905.94,
+    "atr10_pct": 4.14,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 3,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 0,
+     "D3": 4,
+     "D4": 2,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4
+    }
+   },
+   {
+    "rank": 5,
+    "symbol": "AGIIL",
+    "score": 86.7,
+    "trade_quality": 60,
+    "pillars": {
+     "cash": 27,
+     "delivery": 13,
+     "price_volume": 25,
+     "fno": null
+    },
+    "setup": null,
+    "reference_level": 300.93,
+    "invalidation_level": 275.17,
+    "atr10_pct": 8.56,
+    "events_7_to_11_nov": [],
+    "points": {
+     "C1": 12,
+     "C2": 3,
+     "C3": 6,
+     "C4": 6,
+     "D1": 7,
+     "D2": 0,
+     "D3": 4,
+     "D4": 2,
+     "P1": 8,
+     "P2": 8,
+     "P3": 5,
+     "P4": 4
+    }
+   }
+  ]
+ }
+}
