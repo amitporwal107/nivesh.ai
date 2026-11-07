@@ -5,7 +5,7 @@ run in SHADOW: their scores are stored beside each signal (Signal.shadow_scores)
 comparison and walk-forward validation, and change nothing the desk does. Promoting a version is a code change made after its
 validation report (docs/signal_intelligence/SIGNAL_TIER_HIERARCHY.md §8, §11) — never a runtime switch.
 
-Environment: AUTODESK_SCORING_SHADOW = comma list of versions to run in shadow (default "v2-positional"; "" turns shadow
+Environment: AUTODESK_SCORING_SHADOW = comma list of versions to run in shadow (default "v2-positional,v21-positional"; "" turns shadow
 scoring off). AUTODESK_V2_BARS = daily bars read for v2 (default 500: the relative-strength breakout needs 251, the
 multi-year breakout 481).
 """
@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Optional
 
 ACTIVE = "v1"
+DEFAULT_SHADOW = ["v2-positional", "v21-positional"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,12 @@ VERSIONS: dict[str, Version] = {
                              dict(V2_WEIGHTS),
                              "Calibrated on daily data Apr 2024 – Sep 2025, judged Oct 2025 – Nov 2026 (study 5 Nov 2026); "
                              "shadow validation pending before any promotion."),
+    "v21-positional": Version("v21-positional", "POSITIONAL", "SHADOW",
+                              "v2-positional with two changes the shadow check supports: setup A (accumulation) is context "
+                              "only and earns no signal-quality points, and bearish warnings are listed but cost no points.",
+                              dict(V2_WEIGHTS),
+                              "Changes follow the 2.6-year shadow check of v2 (SIGNAL_TIER_HIERARCHY.md §12: setup A and the "
+                              "−10 added nothing); shadow validation pending before any promotion."),
     "v3-intraday": Version("v3-intraday", "INTRADAY", "DISABLED",
                            "Intraday hierarchy (first-5-minute volume, opening-range breakout, VWAP reclaim): off until its "
                            "study is complete.", {}, "Study running (Kite minute data)."),
@@ -63,7 +70,7 @@ def require_active(version: str) -> None:
 
 def shadow_versions() -> list[str]:
     raw = os.environ.get("AUTODESK_SCORING_SHADOW")
-    wanted = ["v2-positional"] if raw is None else [x.strip() for x in raw.split(",") if x.strip()]
+    wanted = DEFAULT_SHADOW if raw is None else [x.strip() for x in raw.split(",") if x.strip()]
     return [v for v in wanted if v in VERSIONS and VERSIONS[v].status == "SHADOW"]
 
 

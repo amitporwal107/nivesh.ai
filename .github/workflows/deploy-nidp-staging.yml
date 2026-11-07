@@ -9,6 +9,9 @@ name: Deploy → CloudPe NIDP VM [staging]
     branches: [dev]
     paths:
       - 'backend/nidp/**'
+      # The market-data switch is read by the NIDP jobs (backend/nidp/shared/market_data_source.py): a PR that
+      # flips it must reach this checkout too (30 Oct 2026: #416 set shadow, the NIDP VM stayed on current).
+      - 'backend/config/market_data_source.json'
       - 'deploy/cloudpe/nidp/**'
       - 'deploy/cloudpe/lib/**'
       - 'deploy/cloudpe/ci-deploy.sh'

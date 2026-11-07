@@ -238,6 +238,16 @@ class PitMarketView(RecordingMixin):
             raise DataUnavailable(f"build-up for {day} answered for {body.get('as_of')}")
         return body
 
+    async def index_members(self, name: str) -> list[str]:
+        """Today's members of an index. Membership has no history, so this is not point-in-time (survivorship caveat)."""
+        t0 = time.monotonic()
+        rows = await self._rows(f"/indices/{quote(name, safe='')}/constituents", {})
+        out = sorted({r["symbol"] for r in rows if r.get("symbol")})
+        if not out:
+            raise DataUnavailable(f"no constituents for {name}")
+        self._record("index_members", {"name": name}, t0=t0, rows=len(out))
+        return out
+
     async def fno_universe(self, day: Optional[date] = None) -> list[str]:
         t0 = time.monotonic()
         day = self._guard(day, "fno")

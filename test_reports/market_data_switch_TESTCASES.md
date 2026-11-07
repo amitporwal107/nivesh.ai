@@ -36,7 +36,7 @@ The switch is `backend/config/market_data_source.json` (`source`: current | shad
 | MS-15 | feed_reconciler feed list while TrueData serves | index_close dropped; bhavcopy, delivery, fii_dii, corporate_announcements, fno_bhavcopy kept |
 | MS-14b | NSE bhavcopy and fno_bhavcopy while TrueData serves | keep fetching (never switched off: raw prices, settle, delisted names) |
 | MS-16 | dlq_redrive while TrueData serves | entries for switched-off feeds are not re-run and stay PENDING (counted SWITCHED_OFF); others re-run |
-| MS-17 | kite_live_feed.start while TrueData serves | returns False, no task started |
+| MS-17 | kite_live_feed.start while TrueData serves | the Kite feed is not built or started; the feed starts on TrueData's socket instead (`serve.start_serving`, TS-10; changed with PR #420) |
 | MS-18 | kite_live_feed.start at `current` | starts as before (returns True) |
 
 ## Staging (read only, on both VMs, from a scratch copy of this branch)

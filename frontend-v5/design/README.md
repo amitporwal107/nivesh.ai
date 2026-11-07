@@ -94,6 +94,7 @@ holds the sample data and the view logic.
 | `NVIndex.dc.html` | F&O analyser card for an index or stock (levels, open interest, heavyweights). |
 | `NVTrader.dc.html` | Trader desk. |
 | `NVOptionsLab.dc.html` | Options lab: option chain, open interest, strategy builder. Trader mode only. |
+| `NVStrategies.dc.html` | Simplified AI strategy shortlist — shared V5 tokens, compact filters, ranked recommendations, payoff/risk summary, and backtest handoff. Sample values only; no live execution. |
 | `NVPages.dc.html` | Workspace pages: watchlist and alerts, saved, action plan, portfolio ledger, paper trades, settings. |
 | `NVBrokers.dc.html` | Broker connections. |
 | `NVAdvisor.dc.html` | Advisor home: client book and mandate drift. |

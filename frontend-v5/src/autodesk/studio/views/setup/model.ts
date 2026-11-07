@@ -9,7 +9,14 @@ import { previousWeekday } from "../../../screens/simulator/model";
 import type { OperatingMode } from "../../../types";
 
 export type RunMode = "HISTORICAL_REPLAY" | "ACCELERATED_REPLAY" | "SCENARIO" | "LIVE_SHADOW";
-export type UniverseChoice = "FNO" | "SYMBOLS";
+export type UniverseChoice = "FNO" | "NIFTY500" | "TOTAL_MARKET" | "SYMBOLS";
+
+/** Index universes scan today's members of the index (membership has no history). Non-F&O members scan as cash only. */
+export const INDEX_UNIVERSES: Partial<Record<UniverseChoice, string>> = { NIFTY500: "Nifty 500", TOTAL_MARKET: "Nifty Total Market" };
+export const SURVIVORSHIP_NOTE =
+  "Index universes use today's index members (membership has no history), so results carry survivorship bias. Stocks without futures scan as cash only.";
+export const universeLabel = (u: UniverseChoice, symbols: number): string =>
+  u === "FNO" ? "F&O underlyings of each session" : INDEX_UNIVERSES[u] ? `${INDEX_UNIVERSES[u]} · today's members` : `${symbols} symbol${symbols === 1 ? "" : "s"}`;
 
 /** Phase 1 runs these two; SCENARIO is Phase 3 and LIVE_SHADOW Phase 4 (the API answers 422). */
 export const REPLAY_MODES = new Set<RunMode>(["HISTORICAL_REPLAY", "ACCELERATED_REPLAY"]);
@@ -123,6 +130,7 @@ export function createBody(f: SetupForm, r: Resolved, policyId: string | null): 
     speed: accelerated ? "ACCELERATED" : "STEP",
   };
   if (policyId) b.policy_id = policyId;
+  if (INDEX_UNIVERSES[f.universe]) b.universe = f.universe;
   if (r.symbols.length) b.symbols = r.symbols;
   return b;
 }
