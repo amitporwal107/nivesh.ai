@@ -239,3 +239,86 @@ validation before promotion. Spec: docs/signal_intelligence/SIGNAL_TIER_HIERARCH
 | AD-SC-13 | A | GET /api/v1/scoring/versions | 401 signed out; lists versions, status, weights, horizon, validation state | §11 |
 | AD-SC-14 | U | Old signal bodies | a stored signal without `shadow_scores` still parses | §11 |
 | AD-SC-15 | S | Walk-forward shadow check (study data) | v2 bands sort 20-session excess returns in the test period (Oct 2025 – Nov 2026), reported before any promotion | §8 |
+
+## Desk fixes from the 5 Nov walk-through [core+ui] (7 Nov, before the code)
+
+Source: test_reports/autodesk_staging_walkthrough_20261105.md (Findings 1-4 and the "where can I see the plans" gap) plus
+the unbounded-list finding. Six fixes, F1..F6. Layers: U unit, I integration (throwaway Postgres), A API (FastAPI app),
+E Playwright on the production build with route mocks (MOCK, shapes of the real API). Owner rule behind F1/F2: no stale
+market data; the point-in-time rule stays strict (no look-ahead) for simulations.
+
+### F1 - data-arrival times (cash 19:30 IST, F&O 22:45 IST)
+
+Real loads on the data platform: cash bhavcopy 19:00:04 IST, F&O bhavcopy 22:15:21 IST (nidp.v_feed_status); the desk
+used 18:30 / 19:30 and a cycle at 18:50 IST was BLOCKED for "0 cash rows for 2026-11-05".
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-FX-01 | U | `published_at(D, "cash")` and `published_at(D, "fno")`; constants | cash D 19:30 IST, F&O D 22:45 IST (UTC 14:00 and 17:15) |
+| AD-FX-02 | U | Pit view on D at 19:29 / 19:31 IST (cash) and 22:44 / 22:46 IST (F&O); also 18:50 IST for cash; FrozenMarketView at the same instants | D's cash is LookAheadError until 19:30, visible after; D's F&O until 22:45; at 18:50 `latest_session("cash")` is the previous session; a Monday-morning view sees Friday for both kinds (rewrites AD-10's instants) |
+| AD-FX-03 | I | Simulations after the change: AD-70..77 (replay, no look-ahead, identical reruns) | all still pass; every stored tool call reads data <= D-1 (AD-72) |
+
+### F2 - F&O and cash freshness against the session being prepared
+
+Rule: the data must be for the session immediately before the session being prepared. F&O older than that -> `fno_eod`
+DEGRADED, cash only. Cash older than that -> `cash_eod` BLOCKED, with the date in the detail. The detail never says
+"target" or other banned narrative words (AD-92).
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-FX-04 | U | Pre-market for 6 Nov at 08:45 IST, cash and F&O for 5 Nov, enough rows | READY [CASH, FUTURES, OPTIONS] (AD-25 unchanged) |
+| AD-FX-05 | U | Same, F&O day is 4 Nov (two sessions before 6 Nov) with >= 50 underlyings | `fno_eod` DEGRADED, detail "F&O data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05", status DEGRADED, allowed [CASH] |
+| AD-FX-06 | U | Pre-market for 6 Nov at 5 Nov 18:50 IST (cash for 5 Nov is not published yet, latest cash is 4 Nov) | `cash_eod` BLOCKED, detail "Cash data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05", status BLOCKED, allowed [] |
+| AD-FX-07 | U | Session after a weekend (Mon 9 Nov needs Fri 6 Nov) and after a holiday (Wed 11 Nov after the 10 Nov holiday needs Mon 9 Nov) | Friday's / Monday's data READY; the session before that is stale in both kinds |
+| AD-FX-08 | U | The session before the one being prepared cannot be determined (calendar unavailable) | `cash_eod` BLOCKED "cannot tell which session precedes ...", `fno_eod` DEGRADED; never READY by default |
+| AD-FX-09 | U | `previous_session` on the Pit view and on the Frozen view; Pit with a holiday between | the last session before the day (holiday skipped), never a look-ahead read; recorded as a tool call |
+
+### F3 - a blocked cycle must not use up the session
+
+Idempotency key stays `{account}:{session}:cycle` for the first attempt; a new request after a cycle that ended BLOCKED
+with no scan and no proposals opens `...:cycle:attempt-2`, then `:attempt-3`. The earlier workflow stays for audit.
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-FX-10 | I | Desk cycle ends BLOCKED at pre-market; request the cycle again for the same account and session | a new SESSION_CYCLE workflow (key `...:cycle:attempt-2`); the first stays BLOCKED with its outcome; two workflows listed |
+| AD-FX-11 | I | The second attempt is BLOCKED too; request again | third attempt (`:attempt-3`); then a COMPLETED attempt: a further request returns that same workflow (no attempt-4) |
+| AD-FX-12 | I | COMPLETED cycle, or one still RUNNING; request again (AD-65 stays) | the same workflow, nothing created |
+| AD-FX-13 | U+I | Which cycles may be re-attempted | only state BLOCKED with neither `scan` nor `proposals` in the outcome; FAILED, COMPLETED, RUNNING and a BLOCKED row that has a scan are not; a cycle opened with an explicit idempotency key (simulations) is never re-attempted |
+| AD-FX-14 | A | POST /desk/workflows (wait) with a pre-market that BLOCKS, then again | second answer has another workflow_id; GET /desk/workflows lists both; the second is not the first's id |
+| AD-FX-15 | E | Scanner whose newest cycle is BLOCKED | "Run session cycle" is enabled; click posts `{kind, account_id}` (contract unchanged); the new attempt shows as running; the "already ran" message is not shown |
+| AD-FX-16 | E | POST answers with a BLOCKED, scan-less cycle in a terminal state (nothing re-opened) | no "already ran" text; the blocked panel (AD-FX-20) is shown for it; COMPLETED still says it already ran (AD-UI-46 unchanged) |
+
+### F4 - why a cycle was blocked
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-FX-20 | E | Latest cycle BLOCKED; `outcome.premarket.checks` = cash_eod BLOCKED ("Cash data is for 2026-11-04; ..."), fno_eod DEGRADED, vix DEGRADED, desk_db READY | a panel "Pre-market check blocked this session" lists the three failed or degraded checks, each with its plain name (Cash end-of-day data, F&O end-of-day data, India VIX), its state word and its detail text; the READY check is not listed; says nothing was scanned and no plan made, and that Run session cycle can be used again once the data is in |
+| AD-FX-21 | E | Same cycle right after the run (cycle-status watch) and after a reload (newest cycle from the list) | same panel in both; the one-line status keeps "BLOCKED" |
+| AD-FX-22 | E | BLOCKED cycle whose premarket has a `reason` and no checks (the check did not complete) | the reason is shown as written |
+| AD-FX-23 | E | COMPLETED cycle whose premarket is DEGRADED (cash only) | the degraded checks are shown as a note ("Pre-market degraded ..."), not as blocked; a READY cycle shows no panel |
+| AD-FX-24 | U | Tech Support detail strings | none of the banned narrative words (AD-92 extended to the new details) |
+
+### F5 - "Open full plan" link in the Simulation studio
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-FX-30 | E | Agent trace of a run; approvals of the run answer GET /approvals?simulation_id=SIM | each card whose proposal made a plan shows "Open full plan"; its href is /autodesk/approvals/{approval_id} of the NEWEST approval row of that trade; a NO_TRADE card has no link; one approvals request for the run, not one per card |
+| AD-FX-31 | E | Click the link | the URL becomes /autodesk/approvals/APR-..., the approval detail renders labelled as a simulation; the click does not change the selected card |
+| AD-FX-32 | E | The selected chain's detail | the link is also in the chain's outcome box |
+| AD-FX-33 | E | Trading day feed rows of APPROVAL_* events (payload has approval_id) | "Open full plan" on the row, href as above; rows without an approval id have none |
+| AD-FX-34 | E | The approvals request fails (500) | cards and replay still work; a visible note names the failure; no link guessed |
+| AD-FX-35 | A | GET /approvals?simulation_id=&trade_id= for a simulated plan | the approval rows of that trade, newest first (the id the UI links to) |
+
+### F6 - lists return the newest rows
+
+Choice: `/desk/workflows` newest-first (like /approvals, /trade-plans, /signals); `/events` and `/simulations/{id}/timeline`
+keep ascending order but, with no `after_seq`, return the NEWEST `limit` rows; with `after_seq` (the cursor the UI always
+sends) they return the next rows after the cursor, oldest first, exactly as before.
+
+| ID | Layer | Case | Expected |
+|---|---|---|---|
+| AD-FX-40 | I | `store.list_events` with 30 events, limit 10 | no cursor: seq 21..30 ascending; `after_seq=0`: seq 1..10; `after_seq=10`: 11..20; walking the cursor until a short page reads all 30 |
+| AD-FX-41 | A | GET /events?limit=N and GET /events?after_seq=0&limit=N on a tenant with more than N events | newest N ascending; oldest N ascending |
+| AD-FX-42 | A | GET /simulations/{id}/timeline?limit=N (no after_seq) and with after_seq=0 | events as AD-FX-41; `clock` rows unchanged (all of them, ascending) |
+| AD-FX-43 | I+A | `store.list_workflows(newest_first)` and GET /desk/workflows?limit=2 with 3 session cycles for different sessions | the two newest, newest first; account and kind filters apply; children of a workflow (GET /desk/workflows/{id}) stay in creation order |
+| AD-FX-44 | E | UI consumers: scanner (newest cycle first), agents screen, Trading day / simulator timeline | existing specs pass unchanged; the timeline requests carry `after_seq` (cursor mode), so the UI still reads a run from its first event |
