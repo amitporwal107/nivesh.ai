@@ -321,7 +321,7 @@ export default function StudioDay() {
         <section data-testid="day-positions" style={box}>
           <span style={{ ...h24, paddingBottom: 8 }}>Positions</span>
           <PhaseNote label="Not shown yet" testId="day-positions-note">
-            Positions from this run's simulated fills are recorded but not listed here yet. They stay open until closing positions arrives with Phase 3.
+            Positions from this run's simulated fills are recorded but not listed here yet; the desk manages and closes them by their plan's rules.
           </PhaseNote>
         </section>
       </div>

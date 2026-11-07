@@ -47,8 +47,7 @@ test("AD-UI-60 completed 2-session replay: header, clock, counters from /results
   const p2 = page.getByTestId("ctr-p2");
   await expect(p2).toHaveCount(4);
   for (let i = 0; i < 4; i++) { await expect(p2.nth(i)).toContainText("—"); await expect(p2.nth(i)).not.toContainText("Phase 2"); }
-  for (const i of [0, 1, 3]) await expect(p2.nth(i)).toContainText("Not shown here yet");
-  await expect(p2.nth(2)).toContainText("Comes with Phase 3");
+  for (const i of [0, 1, 2, 3]) await expect(p2.nth(i)).toContainText("Not shown here yet");   // Phase 3A records them
 
   const agents = page.getByTestId("sim-agent");
   await expect(agents).toHaveCount(5);

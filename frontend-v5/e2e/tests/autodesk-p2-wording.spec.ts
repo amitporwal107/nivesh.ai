@@ -114,13 +114,13 @@ test("AD-P2-120 trades and P&L placeholders say Phase 3 for what Phase 2 did not
   await mockDesk(page);
   await page.goto("/autodesk/trades");
   await expect(page.getByTestId("screen-trades")).toContainText("The desk records paper orders, fills and positions for approved plans, but this screen does not read them yet.");
-  await expect(page.getByTestId("screen-trades")).toContainText("Closing a position comes with Phase 3.");
+  await expect(page.getByTestId("screen-trades")).toContainText("closes each position by its plan's rules");
   await page.goto("/autodesk/pnl");
-  await expect(page.getByTestId("screen-pnl")).toContainText("Positions stay open until Phase 3");
+  await expect(page.getByTestId("screen-pnl")).toContainText("realized P&L of closed positions");
   await page.goto("/autodesk/risk");
-  await expect(page.getByTestId("screen-risk")).toContainText("Daily-loss, weekly-loss and drawdown limits do not act on P&L until Phase 3.");
+  await expect(page.getByTestId("screen-risk")).toContainText("Daily-loss, weekly-loss and drawdown limits act on paper P&L");
   await page.goto("/autodesk/middle");
-  await expect(page.getByTestId("screen-middle")).toContainText("Reconciling orders of unknown state comes with Phase 3.");
+  await expect(page.getByTestId("screen-middle")).toContainText("Orders of unknown state are reconciled by the desk.");
 });
 
 test("AD-P2-120 Simulator limitations, P&L note, counters and graph", async ({ page }) => {

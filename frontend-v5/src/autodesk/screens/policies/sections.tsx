@@ -162,7 +162,7 @@ export function AgentsMatrix({ body, loading }: { body: PolicyBodyJson | undefin
       ))}
       <div style={{ paddingTop: 10 }}>
         <PhaseNote phase={3} testId="matrix-phase-note">
-          Opening a position is a paper order placed after approval. Trailing and closing a position come with Phase 3; rolling and resizing are not built yet.
+          Opening a position is a paper order placed after approval. The desk trails and closes positions by each plan's rules; rolling and resizing are not built yet.
           Auto live is locked: live trading awaits the owner's decision.
         </PhaseNote>
       </div>
@@ -249,11 +249,11 @@ export const LIFT_REASON = "Lifted from Policies & permissions";
 
 const UNAVAILABLE: [string, string, string][] = [
   ["gen", "Suspend strategy generation", "Not a separate control in Phase 1; Stop new entries already holds back new plans."],
-  ["mods", "Suspend automated modifications", "Acts on resting orders; amending an order comes with Phase 3."],
-  ["cancel", "Cancel eligible pending entries", "Acts on unfilled orders; cancelling them in bulk comes with Phase 3."],
-  ["strat", "Suspend a strategy", "Not a control in Phase 1; the strategies the desk may use are part of the policy."],
-  ["acct", "Suspend an account", "Not available in Phase 1: the API has no call to suspend an account yet."],
-  ["exits", "Controlled risk-reducing exits", "Acts on positions; closing positions comes with Phase 3."],
+  ["mods", "Suspend automated modifications", "The desk API has this control; this screen has no button for it yet."],
+  ["cancel", "Cancel eligible pending entries", "The desk API can withdraw every pending opening order; this screen has no button for it yet."],
+  ["strat", "Suspend a strategy", "The desk API has this control; this screen has no button for it yet."],
+  ["acct", "Suspend an account", "The desk API has this control; this screen has no button for it yet."],
+  ["exits", "Controlled risk-reducing exits", "The desk API has this control (reduce only); this screen has no button for it yet."],
   ["broker", "Disable a broker adapter", "There is no broker adapter: brokers are read-only and live trading awaits the owner's decision."],
 ];
 

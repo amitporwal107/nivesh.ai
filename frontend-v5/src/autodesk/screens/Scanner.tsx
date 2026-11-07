@@ -147,7 +147,7 @@ function Expanded({ r, halted }: { r: Row; halted: boolean }) {
           <span data-testid="row-close">Close <span className="nv-num" style={{ color: "var(--ink)" }}>{px(b.reference_price)}</span> · liquidity {liquidityDetail(s)}</span>
           {evidence.map((e) => <span key={e} data-testid="evidence-text" style={{ overflowWrap: "anywhere" }}>{e}</span>)}
           {missing.length > 0 && <span data-testid="missing-inputs" style={{ color: "var(--ink-3)" }}>Missing inputs (earn no points): {missing.join(", ")}</span>}
-          <span style={{ color: "var(--ink-3)" }}>Similar-setup history needs closed paper trades, which come with Phase 3.</span>
+          <span style={{ color: "var(--ink-3)" }}>Similar-setup history is not built yet; it will read closed paper trades.</span>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -260,7 +260,7 @@ function SignalCards({ rows, open, toggle, now, halted }: { rows: Row[]; open: s
               <div data-testid="row-expanded" style={{ display: "flex", flexDirection: "column", gap: 7, paddingTop: 10, borderTop: "1px solid var(--line)" }}>
                 <Breakdown sig={s} score={r.score} compact />
                 <ShadowBreakdown sig={s} compact />
-                <span style={{ fontSize: 12, color: "var(--ink-3)", overflowWrap: "anywhere" }}>{confirmation(s)} · similar-setup history needs closed paper trades (Phase 3)</span>
+                <span style={{ fontSize: 12, color: "var(--ink-3)", overflowWrap: "anywhere" }}>{confirmation(s)} · similar-setup history is not built yet</span>
                 <ActionButton st={r.status} halted={halted} big />
               </div>
             )}
@@ -563,7 +563,7 @@ export default function ScannerScreen() {
         <span className="nv-eyebrow">Signal history · last 30 sessions · after costs, point-in-time</span>
         <PhaseNote phase={3} testId="history-phase-note">
           Hit rates and average R after costs per setup need closed paper trades. The desk records paper fills now, but
-          positions stay open until Phase 3, so there is no history to score yet.
+          the per-setup history is not built yet, so there is nothing to score here.
         </PhaseNote>
       </section>
     </div>

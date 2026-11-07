@@ -149,7 +149,6 @@ export default function SimulatorScreen() {
   const failedN = Object.values(ag).reduce((s, a) => s + (a.failed || 0) + (a.escalated || 0), 0);
   const retriedN = Object.values(ag).reduce((s, a) => s + (a.retried || 0), 0);
   const notShown = "Not shown here yet";
-  const p3 = "Comes with Phase 3";
   const counters: { k: string; v: string; s: string; c: string; testId: string }[] = res ? [
     { k: "Signals", v: String(res.signals.total), s: countsText(res.signals.by_status, true), c: "var(--ink)", testId: "ctr-signals" },
     { k: "Proposals", v: String(res.plans.total), s: countsText(res.plans.by_strategy), c: "var(--ink)", testId: "ctr-plans" },
@@ -157,7 +156,7 @@ export default function SimulatorScreen() {
     { k: "Approvals", v: String(sum(res.approvals.by_status)), s: [countsText(res.approvals.by_status, true), Object.entries(res.approvals.by_decider).map(([k, n]) => `${n} by ${who(k === "user" ? "user:" : k)}`).join(" · ")].filter((x) => x && x !== DASH).join(" · ") || DASH, c: "var(--ink)", testId: "ctr-approvals" },
     { k: "Orders", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
     { k: "Positions", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
-    { k: "Stop · target · trail", v: DASH, s: p3, c: "var(--ink-3)", testId: "ctr-p2" },
+    { k: "Stop · target · trail", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
     { k: "Capital deployed", v: DASH, s: notShown, c: "var(--ink-3)", testId: "ctr-p2" },
     { k: "Exceptions", v: String(failedN), s: `${retriedN} retried · ${res.premarket?.BLOCKED ?? 0} pre-market blocked`, c: failedN ? "var(--amber)" : "var(--ink)", testId: "ctr-exceptions" },
     { k: "Policy violations", v: String(res.policy_violation_attempts), s: "Tool or look-ahead refusals", c: res.policy_violation_attempts ? "var(--danger)" : "var(--mint)", testId: "ctr-violations" },

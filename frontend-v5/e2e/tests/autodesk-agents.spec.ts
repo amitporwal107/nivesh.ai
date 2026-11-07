@@ -172,7 +172,7 @@ test("AD-UI-34 workflows in flight against the 13-step workflow (desk only; step
   await expect(p.locator('[data-step="6"]')).toHaveAttribute("title", "Capital reservation · not shown yet");
   await expect(page.getByTestId("flows-phase-note")).toContainText("Steps 6–13");
   await expect(page.getByTestId("flows-phase-note")).toContainText("the desk now records the reservation, the intent, paper orders and fills, the position and the journal");
-  await expect(page.getByTestId("flows-phase-note")).toContainText("come with Phase 3");
+  await expect(page.getByTestId("flows-phase-note")).toContainText("it closes and reconciles positions");   // Phase 3A
   await expect(page.getByTestId("flows-phase-note")).not.toContainText("Phase 1 ends");
 });
 

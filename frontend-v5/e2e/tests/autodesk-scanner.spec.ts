@@ -39,7 +39,7 @@ test("AD-UI-40/41 header, headline and the six scanner statistics come from the 
   await expect(page.getByTestId("stat-above-v")).toHaveText("5");
   await expect(page.getByTestId("stat-dupes-v")).toHaveText("2");
   await expect(page.getByTestId("stat-expired-v")).toHaveText("0");
-  await expect(page.getByTestId("history-phase-note")).toContainText("positions stay open until Phase 3");
+  await expect(page.getByTestId("history-phase-note")).toContainText("the per-setup history is not built yet");
   await expect(page.getByTestId("history-phase-note")).not.toContainText("starts with paper execution");
   await expect(page.getByTestId("history-phase-note")).not.toContainText(/T1 HIT|\+0\.\d+R/);
 
@@ -119,7 +119,7 @@ test("AD-UI-43 expanded row: eight dimensions, evidence, missing inputs, provena
   await expect(x.getByTestId("evidence-chip")).toHaveText(["LONG BUILDUP", "OIL GAS & CONSUMABLE FUELS", "F&O ELIGIBLE"]);
   await expect(x.getByTestId("evidence-text")).toHaveText(["futures long buildup on 2026-11-04"]);
   await expect(x.getByTestId("row-close")).toHaveText("Close 318.45 · liquidity 20-session average traded value ₹38.2 cr");
-  await expect(x).toContainText("Similar-setup history needs closed paper trades, which come with Phase 3.");
+  await expect(x).toContainText("Similar-setup history is not built yet; it will read closed paper trades.");
   const prov = x.getByTestId("provenance");
   for (const t of [SIG.PETRONET, "DATA AS OF 4 Nov 22:45 IST", "MODEL autodesk-ait-v1/ait-rules-v1", "RULES ait-rules-v1", "SESSION 5 Nov", "EXPIRES 5 Nov 15:30", `WORKFLOW ${SCAN_WF}`, `TASK ${SCAN_TASK}`]) {
     await expect(prov).toContainText(t);

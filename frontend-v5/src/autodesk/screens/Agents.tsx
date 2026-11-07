@@ -290,7 +290,7 @@ function WorkflowsInFlight({ mobile }: { mobile: boolean }) {
       <PhaseNote label="Not shown yet" testId="flows-phase-note">
         Steps 6–13 (capital reservation, execution intent, orders and fills, the active position, risk events, position actions,
         reconciliation, journal) are not drawn here yet. For an approved plan the desk now records the reservation, the intent, paper
-        orders and fills, the position and the journal. Risk events, closing actions and reconciling orders of unknown state come with Phase 3.
+        orders and fills, the position and the journal, and it closes and reconciles positions; those steps are not drawn here yet.
       </PhaseNote>
     </section>
   );
