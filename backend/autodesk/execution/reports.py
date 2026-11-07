@@ -85,7 +85,7 @@ async def pnl(c, tenant_id: str, account_id: str) -> dict:
                "slippage_rs": slip["slip"], "spread_rs": slip["spread"], "net_realized_rs": v.net_realized_rs,
                "net_unrealized_rs": v.unrealized_gross_rs, "net_pnl_rs": v.net_pnl_rs, "by_strategy": by_strategy,
                "daily": daily, "max_drawdown_rs": -worst if worst else ZERO, "max_drawdown_pct": -worst_pct if worst_pct else ZERO,
-               "note": "realized P&L arrives with exits in Phase 3; unrealized is marked at the session close or the live quote"})
+               "note": "realized P&L arrives with position closing in Phase 3; unrealized is marked at the session close or the live quote"})
 
 
 async def fingerprint(c, simulation_id: str) -> str:

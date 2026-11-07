@@ -175,8 +175,8 @@ class ExecutionGateway:
                                      data={"amount_rs": str(reservation["amount_rs"]), "risk_rs": str(reservation["risk_rs"])})
                 for o in made:
                     await journal.record(c, **base, kind="ORDER", ref_id=o["order_id"],
-                                         summary=f"{o['side']} {o['quantity']} {o['underlying']} {o['kind']} "
-                                                 f"({o['order_type'].lower().replace('_', ' ')}) validated",
+                                         summary=f"{'long' if o['side'] == 'BUY' else 'short'} order for {o['quantity']} {o['underlying']} "
+                                                 f"{o['kind']} ({o['order_type'].lower().replace('_', ' ')}) validated",
                                          data={"leg_id": o["leg_id"], "limit_price": str(o["limit_price"] or "")})
                 return intent
 

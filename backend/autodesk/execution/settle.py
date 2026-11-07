@@ -65,7 +65,7 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
     base = dict(tenant_id=tenant_id, account_id=order["account_id"], simulation_id=order["simulation_id"],
                 trade_id=order["trade_id"], ref_type="FILL", ref_id=fill_id, sim_time=sim_time)
     await capital.post(c, **base, entry_type=C.LedgerEntry.POSITION_FUNDS, cash=cash, notional=value,
-                       memo=f"{side.lower()} {qty} {order['underlying']} {kind} at {price}")
+                       memo=f"{'bought' if side == 'BUY' else 'sold'} {qty} {order['underlying']} {kind} at {price}")
     if margin:
         await capital.post(c, **base, entry_type=C.LedgerEntry.MARGIN_UTILIZED, margin=margin,
                            memo=f"futures margin estimate {policy.futures_margin_pct}% of {value}")
@@ -94,7 +94,7 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
     jb = dict(tenant_id=tenant_id, account_id=order["account_id"], simulation_id=order["simulation_id"],
               trade_id=order["trade_id"], sim_time=sim_time)
     await journal.record(c, **jb, kind="FILL", ref_id=fill_id,
-                         summary=f"{qty} {order['underlying']} {kind} {side.lower()} filled at {price} (simulated), "
+                         summary=f"{qty} {order['underlying']} {kind} {'bought' if side == 'BUY' else 'sold'} at {price} (simulated), "
                                  f"charges {fees}", data={"price": str(price), "quantity": qty, "source": d.source})
     if created:
         await journal.record(c, **jb, kind="POSITION", ref_id=pos_row["position_id"],

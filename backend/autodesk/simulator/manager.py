@@ -34,8 +34,8 @@ PHASE2_LIMITATIONS = [
     "(stored intraday history is about ten days and has no cash stocks).",
     "Every fill is simulated from the session's daily row (open, high, low, close, traded quantity): no order book, no "
     "queue position, spreads are proxies. A resting limit fills only if price traded through it, at the limit.",
-    "Several-leg plans fill all-or-none. Exits, stops, targets and trailing are Phase 3: positions stay open and are "
-    "marked at each session's close, so P&L is unrealized only.",
+    "Several-leg plans fill all-or-none. Closing positions (stops, goals, trailing) is Phase 3: positions stay open and "
+    "are marked at each session's close, so P&L is unrealized only.",
     "Option premiums are the contract's own bhavcopy open; untraded strikes are rejected.",
     "Futures margin is an estimate (policy futures_margin_pct), not exchange SPAN. Costs are desk-cost-v2.",
     "Sector is the latest index-constituent industry, not point-in-time.",
