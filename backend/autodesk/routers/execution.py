@@ -109,7 +109,7 @@ async def get_order(order_id: str, request: Request, user: dict = Depends(curren
 
 
 @router.post("/execution/orders/{order_id}/cancel")
-async def cancel_order(order_id: str, request: Request, user: dict = Depends(current_user)):
+async def withdraw_working_order(order_id: str, request: Request, user: dict = Depends(current_user)):
     t = tenant_of(user)
     st = _state(request)
     if st.execution is None:
