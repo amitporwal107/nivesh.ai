@@ -669,3 +669,98 @@ def test_adp3_88_results_text_says_positions_close():
     from autodesk.simulator.manager import PHASE3_LIMITATIONS
     text = " ".join(PHASE3_LIMITATIONS)
     assert "positions stay open" not in text and "not enforced" not in text and "managed from their fills to closure" in text
+
+
+# ── more of G, H and F ──────────────────────────────────────────────────────────────────────────────────────────
+
+async def _desk_position(pool, fq, *, T):
+    """A desk account with one share position opened from a fresh FakeQuotes quote (TEST DOUBLE) and activated."""
+    t = H.tenant()
+    acc, pol = await H.make_desk_account(pool, t)
+    plan = await H.make_approved_plan(pool, t, acc, pol, eq_plan(acc["account_id"]))
+    gw = ExecutionGateway(pool, live=ad.LivePaperAdapter(fq, DEFAULT_PARAMS), lifecycle=LifecycleManager(pool))
+    await gw.create_intent(tenant_id=t, trade_id=plan["trade_id"], plan_version=1, as_of=T, approval_id=plan["approval_id"])
+    k = H.key_eq()
+    fq.answer = QuoteAnswer(quotes={k: H.quote(k, "ACME", "1000", bid=999.9, ask=1000.1, at=T - timedelta(seconds=5))})
+    await settle.live_tick(gw, tenant_id=t, now=T)
+    T2 = T + timedelta(seconds=5)
+    fq.answer = QuoteAnswer(quotes={k: H.quote(k, "ACME", "1001", bid=1000.9, ask=1001.1, at=T2)})
+    await settle.live_tick(gw, tenant_id=t, now=T2)
+    return t, acc, plan, gw, k
+
+
+def test_adp3_61_close_request_closes_at_the_next_fresh_quote_once(pg_pool, cal2026):
+    async def go():
+        T = datetime(2026, 11, 5, 10, 30, tzinfo=IST).astimezone(timezone.utc)
+        fq = H.FakeQuotes()
+        t, acc, plan, gw, k = await _desk_position(pg_pool, fq, T=T)
+        async with pg_pool.acquire() as c:
+            pos = dict(await c.fetchrow("SELECT * FROM autodesk.trade_positions WHERE trade_id=$1", plan["trade_id"]))
+            async with c.transaction():
+                r1 = await controls.request_close(c, pos=pos, reason=C.CloseReason.MANUAL, note="test", actor="user:test")
+                r2 = await controls.request_close(c, pos=pos, reason=C.CloseReason.MANUAL, note="test", actor="user:test")
+        assert r1["changed"] and not r2["changed"]
+        T3 = T + timedelta(minutes=1)
+        fq.answer = QuoteAnswer(quotes={k: H.quote(k, "ACME", "1003", bid=1002.9, ask=1003.1, at=T3)})
+        await settle.live_tick(gw, tenant_id=t, now=T3)
+        f = await facts(pg_pool, plan["trade_id"])
+        assert [r["reason"] for r in f["recs"]] == ["manual"] and f["pos"]["lifecycle_state"] == "SETTLED"
+        async with pg_pool.acquire() as c:
+            assert await c.fetchval("SELECT status FROM autodesk.close_requests WHERE trade_id=$1", plan["trade_id"]) == "DONE"
+        assert all_zero(f["checks"])[0]
+    run(go())
+
+
+def test_adp3_58_cancel_pending_entries_withdraws_openings_only(pg_pool):
+    async def go():
+        T = datetime(2026, 11, 5, 10, 30, tzinfo=IST).astimezone(timezone.utc)
+        t = H.tenant()
+        acc, pol = await H.make_desk_account(pg_pool, t)
+        plan = await H.make_approved_plan(pg_pool, t, acc, pol, eq_plan(acc["account_id"]))
+        fq = H.FakeQuotes()
+        gw = ExecutionGateway(pg_pool, live=ad.LivePaperAdapter(fq, DEFAULT_PARAMS), lifecycle=LifecycleManager(pg_pool))
+        it = await gw.create_intent(tenant_id=t, trade_id=plan["trade_id"], plan_version=1, as_of=T, approval_id=plan["approval_id"])
+        ids = await controls.cancel_pending_openings(gw, tenant_id=t, reason="test", as_of=T)
+        async with pg_pool.acquire() as c:
+            st = await c.fetchval("SELECT state FROM autodesk.trade_orders WHERE trade_id=$1", plan["trade_id"])
+            res = await capital.get_reservation(c, t, it["reservation_id"])
+        assert len(ids) == 1 and st == "CANCELLED" and res["status"] == "RELEASED"
+    run(go())
+
+
+def test_adp3_68_69_final_mark_then_exchange_close_correction(pg_pool, cal2026):
+    async def go():
+        from autodesk.lifecycle import marks
+        T = datetime(2026, 11, 5, 10, 30, tzinfo=IST).astimezone(timezone.utc)
+        fq = H.FakeQuotes()
+        t, acc, plan, gw, k = await _desk_position(pg_pool, fq, T=T)
+        T41 = datetime(2026, 11, 5, 15, 41, tzinfo=IST).astimezone(timezone.utc)
+        fq.answer = QuoteAnswer(quotes={k: H.quote(k, "ACME", "1004", bid=1003.9, ask=1004.1, at=T41 - timedelta(seconds=10))})
+        out = await marks.final_mark(gw, now=T41)
+        async with pg_pool.acquire() as c:
+            snap = dict(await c.fetchrow("SELECT * FROM autodesk.equity_snapshots WHERE account_id=$1", acc["account_id"]))
+        assert out["kite_close"] >= 1 and snap["mark_basis"] == "KITE_CLOSE"
+        T22 = datetime(2026, 11, 5, 22, 50, tzinfo=IST).astimezone(timezone.utc)
+        eod = H.FrozenSessionBars({k: {S1: H.bar(1001, 1010, 998, 1006.5, session=S1)}})
+        out = await marks.eod_correction(gw, now=T22, bars=eod)
+        async with pg_pool.acquire() as c:
+            snap2 = dict(await c.fetchrow("SELECT * FROM autodesk.equity_snapshots WHERE account_id=$1", acc["account_id"]))
+            rev = await c.fetchrow("SELECT * FROM autodesk.equity_snapshot_revisions WHERE account_id=$1", acc["account_id"])
+            mark = await c.fetchrow("SELECT l.mark_price, l.mark_source FROM autodesk.trade_position_legs l JOIN autodesk.trade_positions p "
+                                    "USING (position_id) WHERE p.trade_id=$1", plan["trade_id"])
+            j = await c.fetchval("SELECT summary FROM autodesk.trade_journal_entries WHERE trade_id=$1 AND kind='MARK' ORDER BY seq DESC LIMIT 1",
+                                 plan["trade_id"])
+        assert out["corrected_legs"] == 1 and snap2["mark_basis"] == "EXCHANGE_EOD" and mark["mark_price"] == D("1006.5")
+        assert rev["old_basis"] == "KITE_CLOSE" and rev["new_basis"] == "EXCHANGE_EOD" and snap2["equity_rs"] != snap["equity_rs"]
+        assert "1004" in j and "1006.5" in j and "exchange close" in j
+    run(go())
+
+
+def test_adp3_51_weekly_measure_and_a_new_week():
+    pol = C.PolicyBody()
+    snaps = [{"session_date": date(2026, 11, 2), "equity_rs": D("990000")}, {"session_date": date(2026, 11, 3), "equity_rs": D("975000")},
+             {"session_date": date(2026, 11, 4), "equity_rs": D("962000")}]
+    m = limits.measure_from(snaps, D("1000000"), date(2026, 11, 4), D("958000"), pol)
+    assert m["weekly"]["loss_pct"] == "4.200" and m["weekly"]["breached"] and not m["daily"]["breached"]
+    m2 = limits.measure_from(snaps, D("1000000"), date(2026, 11, 9), D("958000"), pol)       # next week: reference = last week's close
+    assert not m2["weekly"]["breached"] and m2["drawdown"]["loss_pct"] == "4.200"
