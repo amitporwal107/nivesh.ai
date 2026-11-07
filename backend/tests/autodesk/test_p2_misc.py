@@ -194,3 +194,48 @@ def test_adp2_91_generated_text_avoids_the_advice_words(pg_pool):
         bad = [(x, ADVICE.search(x).group(0)) for x in texts if ADVICE.search(x)]
         assert texts and bad == [], bad
     run(go())
+
+
+def test_adp2_01_migration_gives_an_existing_account_its_opening_row(pg_pool):
+    """An account that existed before migration 003 (its ledger row removed to simulate that) gets one when the migration's INSERT … SELECT runs."""
+    async def go():
+        from autodesk.db.migrate import MIGRATIONS_DIR
+        t = H.tenant()
+        acc, pol = await H.make_desk_account(pg_pool, t)
+        sql = next(p for p in sorted(MIGRATIONS_DIR.glob("003_*.sql"))).read_text()
+        insert = sql[sql.index("INSERT INTO autodesk.capital_ledger_entries"):sql.index("-- ── Reservations")]
+        async with pg_pool.acquire() as c:
+            await c.execute("ALTER TABLE autodesk.capital_ledger_entries DISABLE TRIGGER capital_ledger_append_only")
+            try:
+                await c.execute("DELETE FROM autodesk.capital_ledger_entries WHERE account_id=$1", acc["account_id"])
+            finally:
+                await c.execute("ALTER TABLE autodesk.capital_ledger_entries ENABLE TRIGGER capital_ledger_append_only")
+            assert await c.fetchval("SELECT count(*) FROM autodesk.capital_ledger_entries WHERE account_id=$1", acc["account_id"]) == 0
+            await c.execute(insert)
+            await c.execute(insert)                                              # idempotent
+            v = await capital.balances(c, t, acc["account_id"])
+            n = await c.fetchval("SELECT count(*) FROM autodesk.capital_ledger_entries WHERE account_id=$1", acc["account_id"])
+        assert n == 1 and v.equity_rs == v.cash_balance_rs == v.available_buying_power_rs == D("1000000.00")
+    run(go())
+
+
+def test_adp2_02_append_only_tables_refuse_changes_to_real_rows(pg_pool):
+    async def go():
+        import asyncpg
+        t, sim, acc, plan, gw, it = await one_plan(pg_pool)
+        await settle.run_open(gw, tenant_id=t, simulation_id=sim["simulation_id"], session=H.SD, as_of=H.AT_0915)
+        async with pg_pool.acquire() as c:
+            for sql in ("UPDATE autodesk.trade_fills SET price=1 WHERE trade_id=$1", "DELETE FROM autodesk.trade_fills WHERE trade_id=$1",
+                        "UPDATE autodesk.trade_journal_entries SET summary='x' WHERE trade_id=$1",
+                        "DELETE FROM autodesk.trade_journal_entries WHERE trade_id=$1",
+                        "UPDATE autodesk.trade_order_events SET reason='x' WHERE order_id=(SELECT order_id FROM autodesk.trade_orders WHERE trade_id=$1)",
+                        "DELETE FROM autodesk.trade_order_events WHERE order_id=(SELECT order_id FROM autodesk.trade_orders WHERE trade_id=$1)"):
+                with pytest.raises(asyncpg.PostgresError):
+                    await c.execute(sql, plan["trade_id"])
+            with pytest.raises(asyncpg.CheckViolationError):                     # a fill can only ever be simulated
+                await c.execute("INSERT INTO autodesk.trade_fills (fill_id, order_id, intent_id, tenant_id, account_id, trade_id, leg_id, side, "
+                                "quantity, price, arrival_price, value_rs, charges, charges_rs, cost_model, price_source, fill_model, fill_kind, "
+                                "fill_time, session_date) SELECT 'F-x', order_id, intent_id, tenant_id, account_id, trade_id, leg_id, side, 1, 1, 1, 1, "
+                                "'{}'::jsonb, 0, 'x', 'x', 'x', 'BROKER_CONFIRMED', now(), session_date FROM autodesk.trade_orders WHERE trade_id=$1",
+                                plan["trade_id"])
+    run(go())
