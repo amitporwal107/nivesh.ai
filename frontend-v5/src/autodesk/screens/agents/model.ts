@@ -333,6 +333,8 @@ export function flowView(w: WorkflowRow, tasks?: TaskFull[]): FlowView {
   switch (result) {
     case "APPROVED_NO_EXECUTION":
       return { done: PHASE1_STEPS, cur: null, color: "var(--mint)", label: "Approved · Phase 1 ends at step 5", revised };
+    case "APPROVED":
+      return { done: PHASE1_STEPS, cur: null, color: "var(--mint)", label: "Approved · handed to paper execution", revised };
     case "NO_TRADE": {
       const i = o.stage === "risk" ? 2 : o.stage === "revision" ? 3 : 1;
       return at(i, "var(--ink-3)", `Step ${i + 1} · no plan (${result})`);

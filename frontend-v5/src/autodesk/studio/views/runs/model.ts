@@ -163,6 +163,7 @@ export function decisionsOf(wfs: WorkflowRow[], plans: TradePlanRow[], signals: 
 
 const RESULT_WORDS: Record<string, string> = {
   APPROVED_NO_EXECUTION: "approved it",
+  APPROVED: "approved it",
   WAITING_HUMAN: "sent it to a person",
   NO_TRADE: "made no plan",
   RESEARCH_ONLY: "kept it as research",
