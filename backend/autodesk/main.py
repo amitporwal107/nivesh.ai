@@ -131,6 +131,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
             from .execution import live_loop
             st.background["live_execution"] = asyncio.create_task(live_loop.run(st.execution, stop=stop_live))
         app.state.desk = st
+        from .notify.runtime import start as start_notifier
+        start_notifier(st)
         try:
             yield
         finally:
@@ -158,6 +160,8 @@ def create_app(state_factory: Optional[Callable[[], Awaitable[DeskState]]] = Non
     app.include_router(execution_router)
     from .routers.health_status import router as health_status_router   # GET /api/v1/health/status: public, read only
     app.include_router(health_status_router)
+    from .routers.alerts import router as alerts_router
+    app.include_router(alerts_router)
     return app
 
 
