@@ -72,8 +72,9 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
     await capital.post(c, **base, entry_type=C.LedgerEntry.FEES_BOOKED, cash=-fees, fees=fees, memo="charges on the fill")
     total_ref = sum((s["ref_price"] * s["quantity"] for s in siblings), ZERO) or Decimal("1")
     share = (order["ref_price"] * qty) / total_ref
-    risk_moved = rs(res["risk_rs"] * share)
-    commit_done = rs(res["commitment_rs"] * share)
+    # shares of several legs are rounded to the paisa each; never move more than what the reservation still holds
+    risk_moved = min(rs(res["risk_rs"] * share), res["risk_rs"] - res["risk_moved_rs"])
+    commit_done = min(rs(res["commitment_rs"] * share), res["commitment_rs"] - res["commitment_done_rs"])
     used = max(ZERO, -cash) + margin + fees
     await capital.consume(c, res, used_rs=used, risk_moved_rs=risk_moved, commitment_done_rs=commit_done, ref_id=fill_id,
                           sim_time=sim_time)
@@ -83,7 +84,7 @@ async def apply_fill(c, *, intent: dict, order: dict, d: fm.Decision, plan: dict
         c, plan={"trade_id": order["trade_id"], "instrument": plan["instrument"], "strategy_type": plan["strategy_type"]},
         order=order, qty=qty, price=price, value_rs=value, charges_rs=fees, margin_rs=margin,
         open_risk_rs=(pos["open_risk_rs"] if pos else ZERO) + risk_moved,
-        capital_rs=(pos["capital_rs"] if pos else ZERO) + rs(res["capital_rs"] * share), sector=res["sector"], fno=res["fno"],
+        capital_rs=min((pos["capital_rs"] if pos else ZERO) + rs(res["capital_rs"] * share), res["capital_rs"]), sector=res["sector"], fno=res["fno"],
         at=fill_time, sim_time=sim_time)
     await store.emit(c, C.EventType.ORDER_FILLED, tenant_id=tenant_id, producer=PRODUCER, account_id=order["account_id"],
                      simulation_id=order["simulation_id"], correlation_id=order["trade_id"], sim_time=sim_time,

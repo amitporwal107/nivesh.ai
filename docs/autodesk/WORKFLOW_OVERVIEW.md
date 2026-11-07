@@ -91,3 +91,71 @@ Merge order: package 1 → Phase 2 → Phase 3 → Phase 4. Each package is its 
 - Owner decisions still on defaults: first-release strategy list, autonomy thresholds, default limits, LLM provider, screen wording, app URL (`DESIGN.md` §10).
 - What a daily bar cannot show: queue position, intraday timing of resting fills, basket simultaneity. Fill results state these limits.
 - The Total Market scan timing (64.6 s for 754 names) was measured once on real data; a full multi-session replay has not been done.
+
+## 9. The complete logical workflow (all phases built)
+
+This is the end state: Phases 1–4 done. Today only Phase 1 is merged and Phase 2 is in progress; Phase 3 items (the lifecycle manager, loss limits, scenarios) and Phase 4 (live shadow) are from the PRD (§8, §12, §13) and `DESIGN.md` §7 and are **not built yet**. Words here are neutral; API fields keep the PRD names.
+
+### 9.1 One picture
+
+```
+ ┌──────────────────────────── CONTROL PLANE (policy, limits, modes, emergency controls) ────────────────────────────┐
+ │                                                                                                                    │
+ │  DATA ──► [1 Tech Support] ──► [2 AI Trader] ──► [3 Trading Assistant] ──► [4 Risk & Ops] ──► [5 Middle Office]   │
+ │  health      READY?            signals (v1)       trade plan v1..vN         PASS/REDUCE/FAIL    approve / human   │
+ │                                shadow v2, v2.1         ▲                         │                    │           │
+ │                                                       └──── revise (≤2) ◄───────┘                    ▼           │
+ │                                                                                         EXECUTION GATEWAY          │
+ │                                                                       controls ► capital reservation ► orders      │
+ │                                                                                         │                          │
+ │                                              SIMULATION: daily-bar fills   │   LIVE DESK: fresh Kite quote fills   │
+ │                                                                                         ▼                          │
+ │                                                                              POSITION (opens on fills only)       │
+ │                                                                                         ▼                          │
+ │                                         TRADE LIFECYCLE MANAGER (rules, no AI): monitor ► protect ► reduce ► close │
+ │                                                                                         ▼                          │
+ │                                       LEDGER ► P&L ► JOURNAL ► PERFORMANCE ANALYTICS ► LEARNING (versioned, shadow) │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+        LIVE SHADOW: the same chain on the live Kite feed with a hypothetical book and no order capability
+```
+
+### 9.2 Stages in order
+
+| # | Stage | Who | Logic | Output |
+|---|---|---|---|---|
+| 1 | **Configure** | Owner / admin | Set account mode, policy version, risk limits, allowed strategies. Tightening is free; loosening needs an admin | Versioned policy, account |
+| 2 | **Prepare** | Tech Support | Check last session's data, data API, desk DB | READY / DEGRADED / BLOCKED |
+| 3 | **Find** | AI Trader | Scan the universe, score, dedupe, keep top N above the minimum | Signals with evidence; v1 active, v2/v2.1 shadow |
+| 4 | **Plan** | Trading Assistant | Build alternatives, rank, choose; or say NO_TRADE | Plan with reason, levels, size, max loss |
+| 5 | **Check** | Risk & Ops | Hard rules, no override. Daily loss, weekly loss and drawdown now live | PASS / REDUCE / FAIL, stored |
+| 6 | **Decide** | Middle Office | Policy match; bind scope and expiry; person decides if outside policy | APPROVED / WAITING_HUMAN / REJECTED |
+| 7 | **Authorize and reserve** | Gateway + capital engine | Exact version and hash match, mode, stop switches; atomic reservation | Intent, reservation, orders |
+| 8 | **Fill** | Paper adapter | Simulation from the session bar, live desk from a fresh quote only; partial fills, rejections, costs | Fills labelled simulated |
+| 9 | **Activate** | Lifecycle manager | Starts only on confirmed fills, with the filled quantity and average price. Sets the protective level | ACTIVE position |
+| 10 | **Monitor** | Lifecycle manager | Price, P&L, protective and profit levels, trailing state, margin, data freshness, expiry, event by event | Marks, alerts |
+| 11 | **Act** | Lifecycle manager | Rule-based: close the remainder at the protective level, partial close at the first profit level, close more at the second, tighten the trailing level. Never widens the original loss limit, adds size or adds leverage without fresh approval | Close orders, realized P&L |
+| 12 | **Protect the desk** | Control plane | Daily loss limit blocks new risk; drawdown limit suspends trading and escalates; emergency stop-new-entries switch | Suspended or blocked state |
+| 13 | **Settle** | Ledger | Release reservation and margin, book fees, settle expiries, reconcile | Position CLOSED / SETTLED |
+| 14 | **Record** | Journal | Signal → plan versions → risk → approval → intent → orders → fills → position events → closes → final P&L | Complete audit chain |
+| 15 | **Measure** | Analytics | Win rate, expectancy, profit factor, drawdown, realized reward:risk, return on risk, slippage, charges, signal-to-trade conversion | Performance views |
+| 16 | **Learn** | Research | Propose scoring or parameter changes; they run in shadow, get historical and out-of-sample checks, and need owner approval before any change to live rules | Versioned change proposals |
+
+### 9.3 Three kinds of run, same chain
+
+| Run type | Data | Fills | Purpose |
+|---|---|---|---|
+| **Historical replay / accelerated replay** (simulation) | Past sessions, no look-ahead | Daily-bar model, seeded, reproducible (fingerprint) | Test strategies and agent versions |
+| **Scenario** (Phase 3) | Replay plus injected events: gap, volatility spike, partial fill, leg rejected, stale data, agent timeout | As above | Prove the desk behaves under stress |
+| **Live desk / live shadow** | Today's data; Kite live quotes only | Paper fills from fresh quotes; live shadow keeps a hypothetical book and compares outcomes | Run alongside the market with no order capability |
+
+Run comparison (Phase 3) sets two runs side by side on the same sessions: versions, P&L, drawdown, fill ratio, rejections.
+
+### 9.4 Rules that hold at every stage
+
+- **AI proposes, code decides.** Agents produce plans; only deterministic code approves, reserves, fills and closes.
+- **Nothing real moves.** No order-placement code exists; Zerodha is read-only quotes.
+- **Exact version binding.** An approval covers one plan version and hash; any change needs a new check and approval.
+- **Capital is a ledger.** Balances are derived from append-only entries, never edited; equity must equal cash plus position value.
+- **Failures stop, not guess.** A stale or missing quote means no fill; blocked data means no new risk; an unknown order state is reconciled, never retried blindly.
+- **Everything is traceable.** Each decision stores its inputs, policy version, agent version and the data it read.
+- **Restart safe.** Active positions, orders and pending actions are recovered from durable state and reconciled before anything resumes.
