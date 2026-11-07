@@ -44,6 +44,7 @@ configured.
 | LT-2 | LTP off the tick-size grid (tick size from TrueData's symbol master) | OFF_TICK |
 | LT-3 | LTP outside the circuit band | CIRCUIT_BREACH |
 | LT-4 | bid > ask (both > 0) | CROSSED_BOOK |
+| LT-4b | Added 30 Oct, after 2,065 in-session CROSSED_BOOK whose "bid"/"ask" sat at ±3% of the price. The samples had no `ltp`, so they came from `bidask` messages. | Every CROSSED_BOOK sample names its message `kind` (bidask, trade or touchline). A bidask sample also keeps the raw bidask fields, the last price, and the bid/ask from before the message, so the next session shows exactly what TrueData sent. |
 | LT-5 | high < max(open, LTP) or low > min(open, LTP) | OHLC_INCONSISTENT |
 | LT-6 | day high falls / day low rises versus the previous tick (counted once, then the new value is the baseline: added 30 Oct after INDIA VIX flagged every tick) | HIGH_DECREASED / LOW_INCREASED |
 | LT-7 | total volume falls | VOLUME_DECREASED |
