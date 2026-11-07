@@ -197,3 +197,57 @@ def _plan_body(account_id):
         max_loss_rs=Decimal("420"), max_profit_rs=None, loss_defined=False, breakevens=[], expected_payoff={},
         capital_required_rs=Decimal("15000"), margin_estimate={}, liquidity={}, holding={}, exit_rules={},
         risk_warnings=[], plan_expires_at=datetime.now(timezone.utc) + timedelta(hours=6), provenance={})
+
+
+# ── desk fixes from the 5 Nov walk-through: AD-FX-40, AD-FX-43 (lists return the newest rows) ────────────────────────
+
+def test_adfx40_list_events_cursor_and_newest(pg_pool):
+    async def go():
+        t = "tenant-fx40"
+        async with pg_pool.acquire() as c:
+            acc = await _account(c, tenant=t)
+            seqs = [await store.emit(c, C.EventType.ACCOUNT_MODE_CHANGED, tenant_id=t, producer="test",
+                                     account_id=acc["account_id"], payload={"n": i}) for i in range(30)]
+            mine = [e["seq"] for e in await store.list_events(c, t, limit=5000)]
+            assert mine[-30:] == seqs and mine == sorted(mine)
+            n = len(mine)
+            # no cursor: the NEWEST 10, still ascending
+            newest = await store.list_events(c, t, limit=10)
+            assert [e["seq"] for e in newest] == mine[-10:] and newest[-1]["seq"] == seqs[-1]
+            # a cursor (0 included) reads forward from it, oldest first
+            assert [e["seq"] for e in await store.list_events(c, t, after_seq=0, limit=10)] == mine[:10]
+            assert [e["seq"] for e in await store.list_events(c, t, after_seq=mine[9], limit=10)] == mine[10:20]
+            # walking the cursor until a short page reads every event once
+            got, cur = [], 0
+            while True:
+                page = await store.list_events(c, t, after_seq=cur, limit=7)
+                got += [e["seq"] for e in page]
+                if len(page) < 7:
+                    break
+                cur = page[-1]["seq"]
+            assert got == mine and len(got) == n
+            # other tenants' events are never mixed in
+            assert await store.list_events(c, "tenant-fx40-other", limit=5) == []
+    run(go())
+
+
+def test_adfx43_list_workflows_newest_first(pg_pool):
+    async def go():
+        t = "tenant-fx43"
+        async with pg_pool.acquire() as c:
+            acc = await _account(c, tenant=t)
+            ids = []
+            for i in range(3):
+                wf, _ = await store.create_workflow(c, tenant_id=t, account_id=acc["account_id"],
+                                                    kind=C.WorkflowKind.SESSION_CYCLE, producer="test",
+                                                    session_date=date(2026, 11, 3 + i), idempotency_key=f"fx43-{i}")
+                ids.append(wf["workflow_id"])
+            await store.create_workflow(c, tenant_id=t, account_id=acc["account_id"],
+                                        kind=C.WorkflowKind.TRADE_PROPOSAL, producer="test", idempotency_key="fx43-p")
+            asc = await store.list_workflows(c, t, kind="SESSION_CYCLE")
+            assert [w["workflow_id"] for w in asc] == ids                                   # default: creation order
+            two = await store.list_workflows(c, t, kind="SESSION_CYCLE", limit=2, newest_first=True)
+            assert [w["workflow_id"] for w in two] == [ids[2], ids[1]]                      # the two newest, newest first
+            allw = await store.list_workflows(c, t, account_id=acc["account_id"], newest_first=True)
+            assert allw[0]["kind"] == "TRADE_PROPOSAL" and len(allw) == 4
+    run(go())

@@ -40,6 +40,14 @@ def session_close_utc(d: date) -> datetime:
     return datetime.combine(d, SESSION_CLOSE_IST, tzinfo=IST).astimezone(timezone.utc)
 
 
+def reattemptable(wf: dict) -> bool:
+    """A session cycle that ended BLOCKED at the pre-market stage — no scan, no proposals — produced nothing, so it
+    must not use up the account's cycle for the session: a new request opens another attempt. Cycles that are
+    RUNNING, COMPLETED or FAILED, or that got as far as a scan, are final (idempotent as before)."""
+    out = wf.get("outcome") or {}
+    return wf["state"] == C.WorkflowState.BLOCKED.value and "scan" not in out and "proposals" not in out
+
+
 def _j(v: Any) -> Any:
     """JSON-mode view of a model / value."""
     return v.model_dump(mode="json") if hasattr(v, "model_dump") else v
@@ -147,16 +155,27 @@ class Orchestrator:
                     raise store.Conflict(f"account is {account['status']}")
                 pol = await store.get_policy(c, tenant_id, account["policy_id"])
                 body = C.PolicyBody.model_validate(pol["body"])
+                key = idempotency_key or f"{simulation_id or account_id}:{session_date.isoformat()}:cycle"
+                attempt = 1
+                if idempotency_key is None and simulation_id is None:
+                    # A desk cycle that ended BLOCKED before any scan can be asked for again: attempt-2, attempt-3, …
+                    # (the earlier workflows stay for the audit trail). One request at a time decides which key is next.
+                    await c.execute("SELECT pg_advisory_xact_lock(hashtext($1))", key)
+                    base, existing = key, await store.get_workflow_by_key(c, tenant_id, key)
+                    while existing is not None and reattemptable(existing):
+                        attempt += 1
+                        key = f"{base}:attempt-{attempt}"
+                        existing = await store.get_workflow_by_key(c, tenant_id, key)
                 wf, created = await store.create_workflow(
                     c, tenant_id=tenant_id, account_id=account_id, kind=C.WorkflowKind.SESSION_CYCLE,
                     producer=producer, simulation_id=simulation_id, session_date=session_date,
-                    sim_time=as_of if simulation_id else None,
-                    idempotency_key=idempotency_key or f"{simulation_id or account_id}:{session_date.isoformat()}:cycle",
+                    sim_time=as_of if simulation_id else None, idempotency_key=key,
                     input={"session_date": session_date.isoformat(), "policy_id": pol["policy_id"],
                            "policy_version": pol["version"], "universe": universe, "symbols": symbols,
                            "max_proposals": max_proposals if max_proposals is not None
                            else body.max_proposals_per_session,
-                           "operating_mode": account["operating_mode"]})
+                           "operating_mode": account["operating_mode"],
+                           **({"attempt": attempt} if attempt > 1 else {})})
                 if created:
                     wf = await store.set_workflow_state(c, tenant_id=tenant_id, workflow_id=wf["workflow_id"],
                                                         state=C.WorkflowState.RUNNING, producer=producer)

@@ -107,7 +107,7 @@ async def next_session_for(now: datetime) -> date:
 
 
 def latest_published(as_of: datetime, kind: str = "cash") -> date:
-    """The latest session whose `kind` end-of-day data is published at `as_of` (cash 18:30 IST, F&O 19:30 IST)."""
+    """The latest session whose `kind` end-of-day data is published at `as_of` (cash 19:30 IST, F&O 22:45 IST)."""
     d = as_of.astimezone(IST).date()
     for _ in range(20):
         try:

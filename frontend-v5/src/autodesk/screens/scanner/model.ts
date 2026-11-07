@@ -40,8 +40,11 @@ export interface ProposalsSummary {
   held_back?: string;
 }
 
+/** One pre-market check as Tech Support writes it (contracts.HealthCheck). */
+export interface PremarketCheck { name: string; status: string; detail?: string; as_of?: string | null }
+
 export interface CycleOutcome {
-  premarket?: { status?: string; allowed_segments?: string[]; reason?: string; [k: string]: unknown };
+  premarket?: { status?: string; allowed_segments?: string[]; reason?: string; checks?: PremarketCheck[]; [k: string]: unknown };
   scan?: ScanSummary;
   proposals?: ProposalsSummary;
   result?: string;
@@ -49,6 +52,47 @@ export interface CycleOutcome {
 }
 
 export const outcomeOf = (w: WorkflowRow | null | undefined): CycleOutcome => (w?.outcome ?? {}) as CycleOutcome;
+
+/** A cycle that ended BLOCKED at the pre-market stage: nothing scanned, nothing proposed. The desk lets it be run again. */
+export const isBlockedEarly = (w: WorkflowRow | null | undefined): boolean => {
+  const o = outcomeOf(w);
+  return w?.state === "BLOCKED" && !o.scan && !o.proposals;
+};
+
+const CHECK_LABEL: Record<string, string> = {
+  desk_db: "Desk database", cash_eod: "Cash end-of-day data", fno_eod: "F&O end-of-day data", vix: "India VIX",
+};
+
+export interface PremarketIssue { name: string; label: string; status: "BLOCKED" | "DEGRADED"; state: string; detail: string }
+
+export interface PremarketView {
+  /** The pre-market report's own status, as written. */
+  status: string;
+  /** Checks that failed (BLOCKED) or ran degraded, in the order Tech Support listed them. */
+  issues: PremarketIssue[];
+  /** The report's reason when the check itself did not complete (it has no checks then). */
+  reason: string | null;
+  /** Segments new risk is allowed in, humanised ("Cash, Futures"); null when the report names none. */
+  allowed: string | null;
+}
+
+/** What the pre-market check found wrong in a cycle's outcome; null when it ran clean or did not run. */
+export function premarketView(o: CycleOutcome): PremarketView | null {
+  const pm = o.premarket;
+  if (!pm) return null;
+  const issues: PremarketIssue[] = [];
+  for (const c of pm.checks ?? []) {
+    if (c.status !== "BLOCKED" && c.status !== "DEGRADED") continue;
+    issues.push({
+      name: c.name, label: CHECK_LABEL[c.name] ?? humanize(c.name), status: c.status,
+      state: c.status === "BLOCKED" ? "blocked" : "degraded", detail: (c.detail ?? "").trim() || "no detail recorded",
+    });
+  }
+  const reason = typeof pm.reason === "string" && pm.reason.trim() ? pm.reason.trim() : null;
+  if (!issues.length && !reason) return null;
+  const segs = Array.isArray(pm.allowed_segments) ? pm.allowed_segments.map((x) => humanize(x)) : [];
+  return { status: String(pm.status ?? ""), issues, reason, allowed: segs.length ? segs.join(", ") : null };
+}
 
 // ── queries ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -187,7 +231,8 @@ export interface StatusCtx {
   plansReady: boolean;
 }
 
-const approvalPath = (id: string) => `${screenById("approvals").path}/${encodeURIComponent(id)}`;
+/** The approval page of an approval id (the full plan, its checks and its decision), under the router basename. */
+export const approvalPath = (id: string) => `${screenById("approvals").path}/${encodeURIComponent(id)}`;
 const workbench = (t: string): RowAction => ({ t, to: screenById("workbench").path, workbench: true });
 
 /** Where a signal stands: its plan's status and the plan's latest approval (Phase 1 ends at approval). */

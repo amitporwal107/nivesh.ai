@@ -15,7 +15,8 @@ import { deskGet } from "../../api";
 import { DASH } from "../../format";
 import { useIsMobile } from "../../hooks";
 import { useSignalsById, workflowQuery, type WorkflowDetail } from "../../screens/agents/model";
-import type { SignalRow, TradePlanRow, WorkflowRow } from "../../types";
+import { approvalPath } from "../../screens/scanner/model";
+import type { ApprovalRow, SignalRow, TradePlanRow, WorkflowRow } from "../../types";
 import { Empty, ErrorBox, Loading, PhaseNote } from "../../ui";
 import { useStudioRun } from "../run";
 import {
@@ -57,6 +58,25 @@ export default function StudioTrace() {
     return v;
   }, [proposals, selected]);
   const details = useQueries({ queries: visible.map((w) => workflowQuery(w.workflow_id)) });
+  // The plan's own page (/approvals/{id}) is opened from its newest approval row; simulation approvals are not in the
+  // approval queue, so this is the only way in. One small lookup per visible card that made a plan.
+  const approvalQs = useQueries({
+    queries: visible.map((w) => {
+      const tid = tradeIdOf(w);
+      return {
+        queryKey: ["desk", "studio", "run", simId, "approvals", tid] as const,
+        queryFn: () => deskGet<ApprovalRow[]>("/approvals", { simulation_id: simId, trade_id: tid, limit: 20 }),
+        enabled: !!simId && !!tid,
+      };
+    }),
+  });
+  const planLinkOf = (i: number): string | null => {
+    const rows = approvalQs[i]?.data;
+    if (!rows?.length) return null;
+    const newest = [...rows].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))[0];
+    return approvalPath(newest.approval_id);
+  };
+  const linkError = approvalQs.find((q) => q.error)?.error ?? null;
   const sigIds = useMemo(() => Array.from(new Set(visible.map(signalIdOf).filter((x): x is string => !!x))), [visible]);
   const sigQs = useSignalsById(sigIds);
   const sigById = new Map<string, SignalRow>();
@@ -123,23 +143,28 @@ export default function StudioTrace() {
 
       {proposals.length > 0 && (
         <>
+          {linkError && <ErrorBox error={linkError} what="the links to the plans' pages" onRetry={() => approvalQs.forEach((q) => q.refetch())} />}
           <section data-testid="trace-cards" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))", gap: 10 }}>
             {visible.map((w, i) => {
               const on = w.workflow_id === selected;
               const tid = tradeIdOf(w);
               const c = cardText(w, tid ? planById.get(tid) : undefined, sigById.get(signalIdOf(w) ?? ""));
               const dd = details[i]?.data as WorkflowDetail | undefined;
+              const planLink = planLinkOf(i);
               return (
-                <div key={w.workflow_id} role="button" tabIndex={0} aria-pressed={on} data-testid="trace-card" data-wf={w.workflow_id} className="ad-hover-line"
-                  onClick={() => setPick(w.workflow_id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPick(w.workflow_id); } }}
-                  style={{ cursor: "pointer", display: "flex", flexDirection: "column", gap: 6, padding: "14px 16px", borderRadius: 14, border: `1px solid ${on ? "var(--indigo-line)" : "var(--line)"}`, background: on ? "var(--indigo-soft)" : "var(--bg-1)", transition: "all .15s ease", minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ ...mono, fontSize: 10.5, color: "var(--ink-3)" }} title={tid ?? w.workflow_id}>{c.id}</span>
-                    <span style={{ flex: 1 }} />
-                    <span style={{ ...mono, fontSize: 10, color: "var(--ink-3)" }}>{dd ? `${stepCount(dd)} STEPS` : details[i]?.error ? "— STEPS" : "… STEPS"}</span>
+                <div key={w.workflow_id} style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                  <div role="button" tabIndex={0} aria-pressed={on} data-testid="trace-card" data-wf={w.workflow_id} className="ad-hover-line"
+                    onClick={() => setPick(w.workflow_id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPick(w.workflow_id); } }}
+                    style={{ cursor: "pointer", display: "flex", flexDirection: "column", gap: 6, padding: "14px 16px", borderRadius: 14, border: `1px solid ${on ? "var(--indigo-line)" : "var(--line)"}`, background: on ? "var(--indigo-soft)" : "var(--bg-1)", transition: "all .15s ease", minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ ...mono, fontSize: 10.5, color: "var(--ink-3)" }} title={tid ?? w.workflow_id}>{c.id}</span>
+                      <span style={{ flex: 1 }} />
+                      <span style={{ ...mono, fontSize: 10, color: "var(--ink-3)" }}>{dd ? `${stepCount(dd)} STEPS` : details[i]?.error ? "— STEPS" : "… STEPS"}</span>
+                    </div>
+                    <span style={{ fontSize: 14.5, fontWeight: 500 }}>{c.title}</span>
+                    <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{c.sub}</span>
                   </div>
-                  <span style={{ fontSize: 14.5, fontWeight: 500 }}>{c.title}</span>
-                  <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{c.sub}</span>
+                  {planLink && <Link to={planLink} data-testid="trace-open-plan" data-wf={w.workflow_id} className="ad-link" style={{ padding: "0 4px", textDecoration: "none" }}>Open full plan ›</Link>}
                 </div>
               );
             })}
@@ -206,10 +231,12 @@ export default function StudioTrace() {
                 )}
                 {last && selWf && (() => {
                   const o = outcomeText(detail.workflow ?? selWf);
+                  const selLink = planLinkOf(selIdx);
                   return (
                     <div data-testid="trace-outcome" style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", borderRadius: 14, border: "1px dashed var(--line-2)", fontSize: 12.5, color: "var(--ink-3)" }}>
                       <span style={{ ...mono, fontSize: 10.5, letterSpacing: "0.05em", color: "var(--ink-2)" }}>{o.head}</span>
                       {o.detail && <span style={{ lineHeight: 1.5 }}>{o.detail}</span>}
+                      {selLink && <span><Link to={selLink} data-testid="trace-outcome-plan" className="ad-link" style={{ textDecoration: "none" }}>Open full plan ›</Link></span>}
                       {o.approvalPath && <PhaseNote phase={2} testId="trace-phase2">Capital reservation, orders and fills after the decision arrive with Phase 2; a Phase 1 chain ends here.</PhaseNote>}
                     </div>
                   );

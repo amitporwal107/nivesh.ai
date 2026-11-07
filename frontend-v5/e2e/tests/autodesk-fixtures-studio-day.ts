@@ -22,7 +22,7 @@ export const POLICY = { policy_id: "POL-1b7e93c4d05a4e2f9c61", version: 1, sha25
 export const VERSIONS = {
   app: "0.1.0",
   agents: { AI_TRADER: "autodesk-ait-v1", TRADING_ASSISTANT: "autodesk-ta-v1", RISK_OPS: "autodesk-risk-v1", MIDDLE_OFFICE: "autodesk-mo-v1", TECH_SUPPORT: "autodesk-ts-v1" },
-  market_view: "point-in-time; cash EOD visible 18:30 IST, F&O EOD 19:30 IST", risk_engine: "autodesk-risk-v1", scan_rules: "ait-rules-v1", policy: POLICY,
+  market_view: "point-in-time; cash EOD visible 19:30 IST, F&O EOD 22:45 IST", risk_engine: "autodesk-risk-v1", scan_rules: "ait-rules-v1", policy: POLICY,
 };
 
 const config = (name: string, sessions: string[]) => ({

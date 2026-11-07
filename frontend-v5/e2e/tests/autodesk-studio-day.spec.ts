@@ -310,3 +310,30 @@ test("AD-UI-119 no sample ids or figures, no forbidden words in the view's own t
   expect(desk.requests.every((r) => r.path.startsWith("/simulations") || r.path.startsWith("/api/"))).toBe(true);
   expect(errors).toEqual([]);
 });
+
+
+// ── desk fixes from the 5 Nov walk-through: F5 on the Trading day feed (AD-FX-33) and F6 (AD-FX-44) ──────────────────
+
+test("AD-FX-33 approval rows of the feed link to the plan's page; other rows and folded rows do not", async ({ page }) => {
+  await openDay(page, doneRoutes());
+  const rows = page.getByTestId("day-feed-row");
+  await expect(rows.nth(2)).toContainText("SESSION CLOSE · APPROVAL EXPIRED");
+  await expect(rows.nth(2).getByTestId("day-feed-plan")).toHaveText("Open full plan ›");
+  await expect(rows.nth(2).getByTestId("day-feed-plan")).toHaveAttribute("href", "/autodesk/approvals/APR-dlf1x");
+  for (const i of [0, 1, 3, 4]) await expect(rows.nth(i).getByTestId("day-feed-plan")).toHaveCount(0);   // clock, state, folded signal expiries
+  await page.getByTestId("day-jump-PROPOSALS").click();
+  await expect(rows.nth(2)).toContainText("MIDDLE OFFICE · NEEDS HUMAN APPROVAL");
+  await expect(rows.nth(2).getByTestId("day-feed-plan")).toHaveAttribute("href", /^\/autodesk\/approvals\/APR-[a-z]+1$/);
+  await rows.nth(2).getByTestId("day-feed-plan").click();
+  await expect(page).toHaveURL(/\/autodesk\/approvals\/APR-[a-z]+1$/);
+  await expect(page.getByTestId("screen-approvals")).toBeVisible();
+});
+
+test("AD-FX-44 the timeline is read from its first event: every request carries after_seq", async ({ page }) => {
+  const desk = await openDay(page, doneRoutes());
+  await expect(page.getByTestId("day-feed-row").first()).toBeVisible();
+  const reads = desk.requests.filter((r) => r.path.startsWith(`/simulations/${SID}/timeline`)).map((r) => r.path);
+  expect(reads.length).toBeGreaterThan(0);
+  expect(reads[0]).toBe(`/simulations/${SID}/timeline?after_seq=0&limit=2000`);
+  for (const r of reads) expect(r).toMatch(/[?&]after_seq=\d+&limit=2000$/);
+});

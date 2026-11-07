@@ -1,8 +1,10 @@
 """The point-in-time market view every agent reads through (PRD §28.4, architecture §10.5).
 
 A view is bound to an instant `as_of` (UTC). It only shows data that had been PUBLISHED by then:
-- cash end-of-day bars for session d become visible at d 18:30 IST (CASH_EOD_PUBLISHED_IST)
-- F&O end-of-day rows for session d become visible at d 19:30 IST (FNO_EOD_PUBLISHED_IST)
+- cash end-of-day bars for session d become visible at d 19:30 IST (CASH_EOD_PUBLISHED_IST)
+- F&O end-of-day rows for session d become visible at d 22:45 IST (FNO_EOD_PUBLISHED_IST)
+The two times sit after the real loads on the data platform (cash bhavcopy about 19:00 IST, F&O bhavcopy about 22:15 IST,
+nidp.v_feed_status, 4 Nov 2026) with a safety margin, so a desk cycle never reads a day that has not landed.
 Asking for a later session raises LookAheadError. This is the replay's no-future-data guarantee, and the same rule
 applies to the live desk (as_of = now).
 
@@ -25,8 +27,8 @@ from zoneinfo import ZoneInfo
 from ..contracts import ToolCall
 
 IST = ZoneInfo("Asia/Kolkata")
-CASH_EOD_PUBLISHED_IST = dtime(18, 30)
-FNO_EOD_PUBLISHED_IST = dtime(19, 30)
+CASH_EOD_PUBLISHED_IST = dtime(19, 30)
+FNO_EOD_PUBLISHED_IST = dtime(22, 45)
 
 
 class LookAheadError(RuntimeError):
@@ -98,6 +100,7 @@ class MarketView(Protocol):
     as_of: datetime
 
     def latest_session(self, kind: str = "cash") -> date: ...
+    async def previous_session(self, day: date) -> date: ...
     async def sessions_between(self, start: date, end: date) -> list[date]: ...
     async def daily_bars(self, symbol: str, *, sessions: int) -> list[Bar]: ...
     async def day_snapshot(self, day: date) -> dict[str, Bar]: ...
@@ -204,6 +207,15 @@ class FrozenMarketView(RecordingMixin):
         if day > latest:
             raise LookAheadError(f"{kind} data for {day} is not published at {self.as_of.isoformat()}")
         return day
+
+    async def previous_session(self, day: date) -> date:
+        t0 = time.monotonic()
+        prior = [d for d in self._sessions if d < day]
+        if not prior:
+            self._record("previous_session", {"day": day}, t0=t0, rows=0, ok=False, error="no earlier session")
+            raise DataUnavailable(f"no session before {day} in the session list")
+        self._record("previous_session", {"day": day}, t0=t0, rows=1)
+        return prior[-1]
 
     async def sessions_between(self, start: date, end: date) -> list[date]:
         t0 = time.monotonic()

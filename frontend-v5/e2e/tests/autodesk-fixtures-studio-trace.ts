@@ -189,6 +189,27 @@ export function detail(id: string) {
 
 const nf = (id: string) => reply(404, { error: "NOT_FOUND", message: `not found: ${id}` });
 
+/** Approval id of a plan's n-th approval row (the studio links to the newest). */
+export const aprId = (p: P, n: number) => `APR-${low(p.inst)}-r${n}`;
+
+/**
+ * GET /approvals?simulation_id=&trade_id= — the approval rows of one simulated plan, newest first, as the API lists them.
+ * TATASTEEL has two (a request that waited on a person, then the person's approval); a plan whose risk task failed has none.
+ */
+export function approvalRows(tradeId: string | null) {
+  const p = PROPS.find((x) => trdId(x) === tradeId);
+  if (!p || p.kind === "no_trade" || p.kind === "risk_failed") return [];
+  const version = p.kind === "revised_human" ? 2 : 1;
+  const row = (n: number, status: string, decidedBy: string, at: string, supersedes: string | null) => ({
+    approval_id: aprId(p, n), tenant_id: TENANT, trade_id: trdId(p), plan_version: version, account_id: ACC, simulation_id: SID, status, decided_by: decidedBy,
+    body: { status, decided_by: decidedBy, reasons: ["within the autonomy rules of the policy"], scope: null, expires_at: `${p.day}T10:00:00+00:00` },
+    risk_assessment_id: `RSK-${low(p.inst)}${version}`, supersedes_id: supersedes, expires_at: `${p.day}T10:00:00+00:00`, created_at: at,
+  });
+  if (p.inst === "TATASTEEL") return [row(2, "APPROVED", `user:${TENANT}`, "2026-11-05T05:24:30.000+00:00", aprId(p, 1)), row(1, "NEEDS_HUMAN_APPROVAL", "MIDDLE_OFFICE@autodesk-mo-v1", "2026-11-05T05:24:10.000+00:00", null)];
+  const status = p.kind === "approved" ? "APPROVED" : "NEEDS_HUMAN_APPROVAL";
+  return [row(1, status, "MIDDLE_OFFICE@autodesk-mo-v1", "2026-11-05T05:24:10.000+00:00", null)];
+}
+
 export function traceRoutes(over: Record<string, RouteValue> = {}): Record<string, RouteValue> {
   return {
     "GET /simulations": [RUN, EMPTY_RUN],
@@ -196,6 +217,7 @@ export function traceRoutes(over: Record<string, RouteValue> = {}): Record<strin
     "GET /trade-plans": ((r: Req) => (r.query.get("simulation_id") === SID ? PLANS : [])) as Handler,
     "GET /signals/:id": ((r: Req) => { const p = PROPS.find((x) => sigId(x) === r.params.id); return p ? signalRow(p) : nf(r.params.id); }) as Handler,
     "GET /desk/workflows/:id": ((r: Req) => detail(r.params.id) ?? nf(r.params.id)) as Handler,
+    "GET /approvals": ((r: Req) => (r.query.get("simulation_id") === SID ? approvalRows(r.query.get("trade_id")) : [])) as Handler,
     ...over,
   };
 }

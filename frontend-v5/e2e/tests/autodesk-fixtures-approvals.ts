@@ -25,7 +25,7 @@ function optLeg(id: string, under: string, strike: string, side: "LONG" | "SHORT
 function body(o: { instrument: string; account_id: string; signal_id: string; legs: unknown[]; max_loss: string; max_profit: string; breakeven: string; capital: string; rr: string; sector: string; thesis: string; rationale: string[]; invalidation: string }) {
   return {
     thesis: o.thesis, rationale: o.rationale, signal_id: o.signal_id,
-    market_context: { direction: "BULLISH", category: "LONG_BUILDUP", signal_score: "72.50", sector: o.sector, vix: "15.19", data_as_of: "2026-11-04T14:00:00+00:00", fno_session: "2026-11-04" },
+    market_context: { direction: "BULLISH", category: "LONG_BUILDUP", signal_score: "72.50", sector: o.sector, vix: "15.19", data_as_of: "2026-11-04T17:15:00+00:00", fno_session: "2026-11-04" },
     account_id: o.account_id, instrument: o.instrument, segment: "OPTIONS", strategy_type: "BULL_CALL_SPREAD", legs: o.legs,
     entry: { order_type: "LIMIT", reference_price: null, zone_low: null, zone_high: null, valid_until: "2026-11-05T10:00:00+00:00", max_slippage_pct: "0.5" },
     invalidation: { underlying_level: o.invalidation, rule: "close the position when the underlying closes beyond the invalidation level", max_loss_rs: o.max_loss },
@@ -36,7 +36,7 @@ function body(o: { instrument: string; account_id: string; signal_id: string; le
     holding: { timeframe: "POSITIONAL", max_holding_days: 10, expiry: "2026-11-24", close_days_before_expiry: 2 },
     exit_rules: { trailing: "trail-atr-v1 (2 × ATR14), tighten only", time: "after 10 sessions", emergency: "close every leg together if any leg cannot be managed" },
     risk_warnings: [], plan_expires_at: "2026-11-05T10:00:00+00:00",
-    provenance: { agent: "TRADING_ASSISTANT", agent_version: "autodesk-ta-v1", rule_version: "ta-rules-v1", data_as_of: "2026-11-04T14:00:00+00:00", chain_as_of: "2026-11-04", inputs: [`signal://${o.signal_id}`], tried: ["BULL_CALL_SPREAD"] },
+    provenance: { agent: "TRADING_ASSISTANT", agent_version: "autodesk-ta-v1", rule_version: "ta-rules-v1", data_as_of: "2026-11-04T17:15:00+00:00", chain_as_of: "2026-11-04", inputs: [`signal://${o.signal_id}`], tried: ["BULL_CALL_SPREAD"] },
     costs_estimate: {}, alternatives_considered: [],
   };
 }

@@ -8,7 +8,7 @@ from autodesk import contracts as C
 from autodesk.agents import ai_trader, tech_support
 from autodesk.agents.ai_trader import AITrader
 from autodesk.agents.tech_support import TechSupport
-from autodesk.market.view import IST, Bar, BuildupRow, FnoContract, FrozenMarketView
+from autodesk.market.view import IST, Bar, BuildupRow, DataUnavailable, FnoContract, FrozenMarketView
 from tests.autodesk import marketdata as md
 from tests.autodesk.conftest import run
 
@@ -143,8 +143,8 @@ def test_score_floor_suppresses():
 
 # ── Tech Support ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def premarket(d: dict) -> C.PremarketReport:
-    ctx = md.ctx(FrozenMarketView(AS_OF, d), {"session_date": SD.isoformat(), "db_ok": True})
+def premarket(d: dict, *, as_of: datetime = AS_OF, session: date = SD) -> C.PremarketReport:
+    ctx = md.ctx(FrozenMarketView(as_of, d), {"session_date": session.isoformat(), "db_ok": True})
     return C.PremarketReport.model_validate(run(TechSupport().run(md.task(C.TaskType.PREMARKET_HEALTH_CHECK), ctx)).output)
 
 
@@ -162,3 +162,103 @@ def test_ad25_ready_degraded_blocked(monkeypatch):
     assert r.status == C.HealthStatus.BLOCKED and r.allowed_segments == []
     names = {c.name: c.status for c in r.checks}
     assert names["cash_eod"] == C.HealthStatus.BLOCKED
+
+
+# ── desk fixes from the 5 Nov walk-through: AD-FX-04..08 (data must be for the session just before the one prepared) ──
+
+def at(day: date, hhmm: str) -> datetime:
+    h, m = (int(x) for x in hhmm.split(":"))
+    return datetime(day.year, day.month, day.day, h, m, tzinfo=IST)
+
+
+def checks_of(r: C.PremarketReport) -> dict[str, C.HealthCheck]:
+    return {c.name: c for c in r.checks}
+
+
+def on_day(rows: list[FnoContract], day: date) -> list[FnoContract]:
+    return [FnoContract(**{**r.__dict__, "day": day}) for r in rows]
+
+
+def test_adfx04_previous_session_data_is_ready(monkeypatch):
+    monkeypatch.setattr(tech_support, "MIN_CASH_ROWS", 2)
+    monkeypatch.setattr(tech_support, "MIN_FNO_UNDERLYINGS", 2)
+    r = premarket(data())                                           # 6 Nov 08:45 IST, data for 5 Nov
+    assert r.status == C.HealthStatus.READY
+    assert checks_of(r)["cash_eod"].detail.endswith("for 2026-11-05 (need 2)")
+    assert checks_of(r)["fno_eod"].status == C.HealthStatus.READY
+
+
+def test_adfx05_fno_two_sessions_old_is_degraded_even_with_enough_underlyings(monkeypatch):
+    monkeypatch.setattr(tech_support, "MIN_CASH_ROWS", 2)
+    monkeypatch.setattr(tech_support, "MIN_FNO_UNDERLYINGS", 2)
+    stale = {k: on_day(v, date(2026, 11, 4)) for k, v in data()["fno"].items()}       # F&O rows exist, but for 4 Nov
+    r = premarket(data(), as_of=at(D, "20:00"))                      # 5 Nov 20:00: cash 5 Nov published, F&O only 4 Nov
+    assert r.status == C.HealthStatus.DEGRADED and r.allowed_segments == [C.Segment.CASH]
+    fno = checks_of(r)["fno_eod"]
+    assert fno.status == C.HealthStatus.DEGRADED
+    assert fno.detail == "F&O data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05"
+    assert checks_of(r)["cash_eod"].status == C.HealthStatus.READY
+    # same verdict when the 4 Nov F&O day holds plenty of underlyings (the old code called this READY)
+    d = data(); d["fno"] = stale
+    r = premarket(d, as_of=at(D, "20:00"))
+    assert r.status == C.HealthStatus.DEGRADED and checks_of(r)["fno_eod"].detail.startswith("F&O data is for 2026-11-04")
+    assert r.data_as_of == {"cash_eod": "2026-11-05", "fno_eod": "2026-11-04"}
+
+
+def test_adfx06_cash_older_than_the_previous_session_is_blocked(monkeypatch):
+    monkeypatch.setattr(tech_support, "MIN_CASH_ROWS", 2)
+    monkeypatch.setattr(tech_support, "MIN_FNO_UNDERLYINGS", 2)
+    r = premarket(data(), as_of=at(D, "18:50"))                      # the walk-through: 5 Nov 18:50 for the 6 Nov session
+    assert r.status == C.HealthStatus.BLOCKED and r.allowed_segments == []
+    cash = checks_of(r)["cash_eod"]
+    assert cash.status == C.HealthStatus.BLOCKED
+    assert cash.detail == "Cash data is for 2026-11-04; the 2026-11-06 session needs 2026-11-05"
+    assert checks_of(r)["fno_eod"].status == C.HealthStatus.DEGRADED
+    # a minute after the cash cut-off the cash file is the right day again
+    assert premarket(data(), as_of=at(D, "19:31")).status == C.HealthStatus.DEGRADED     # cash READY, F&O still 4 Nov
+
+
+def _mini(last: date, sessions: list[date]) -> dict:
+    """Three cash symbols and three F&O underlyings on `last` only (TEST DATA)."""
+    bar = lambda s, d: Bar(day=d, open=Decimal(99), high=Decimal(102), low=Decimal(98), close=Decimal(100), volume=1000)  # noqa: E731
+    fut = lambda u: FnoContract(day=last, underlying=u, kind="FUT", expiry=date(2026, 11, 24), strike=None,   # noqa: E731
+                                close=Decimal(100), settle=Decimal(100), underlying_price=Decimal(100),
+                                open_interest=1, change_in_oi=0, traded_volume=1, lot_size=10)
+    syms = ["AAA", "BBB", "CCC"]
+    return {"sessions": sessions, "bars": {s: [bar(s, last)] for s in syms}, "fno": {s: [fut(s)] for s in syms},
+            "vix": {last: Decimal("13")}}
+
+
+def test_adfx07_weekend_and_holiday(monkeypatch):
+    monkeypatch.setattr(tech_support, "MIN_CASH_ROWS", 2)
+    monkeypatch.setattr(tech_support, "MIN_FNO_UNDERLYINGS", 2)
+    fri, mon, wed = date(2026, 11, 6), date(2026, 11, 9), date(2026, 11, 11)     # 10 Nov (Tue) is a holiday
+    sess = [date(2026, 11, 5), fri, mon, wed]
+    r = premarket(_mini(fri, sess), as_of=at(mon, "08:45"), session=mon)          # Monday needs Friday
+    assert r.status == C.HealthStatus.READY and r.data_as_of == {"cash_eod": "2026-11-06", "fno_eod": "2026-11-06"}
+    r = premarket(_mini(mon, sess), as_of=at(wed, "08:45"), session=wed)          # Wednesday needs Monday
+    assert r.status == C.HealthStatus.READY and r.data_as_of == {"cash_eod": "2026-11-09", "fno_eod": "2026-11-09"}
+    # Wednesday with only Friday's data: both are stale, cash blocks
+    r = premarket(_mini(fri, sess), as_of=at(wed, "08:45"), session=wed)
+    assert r.status == C.HealthStatus.BLOCKED
+    assert checks_of(r)["cash_eod"].detail == "0 cash rows for 2026-11-09 (need 2)"       # Monday's file never landed
+
+
+class _NoCalendarView(FrozenMarketView):
+    """TEST DOUBLE: the data is there but the calendar cannot say which session precedes the one prepared."""
+    async def previous_session(self, day: date) -> date:
+        raise DataUnavailable("the NSE holiday list for 2026 is not loaded")
+
+
+def test_adfx08_unknown_previous_session_never_defaults_to_ready(monkeypatch):
+    monkeypatch.setattr(tech_support, "MIN_CASH_ROWS", 2)
+    monkeypatch.setattr(tech_support, "MIN_FNO_UNDERLYINGS", 2)
+    ctx = md.ctx(_NoCalendarView(AS_OF, data()), {"session_date": SD.isoformat(), "db_ok": True})
+    r = C.PremarketReport.model_validate(
+        run(TechSupport().run(md.task(C.TaskType.PREMARKET_HEALTH_CHECK), ctx)).output)
+    assert r.status == C.HealthStatus.BLOCKED and r.allowed_segments == []
+    for name in ("cash_eod", "fno_eod"):
+        assert checks_of(r)[name].detail == ("cannot tell which session precedes 2026-11-06: "
+                                             "the NSE holiday list for 2026 is not loaded"), checks_of(r)[name]
+    assert checks_of(r)["cash_eod"].status == C.HealthStatus.BLOCKED
+    assert checks_of(r)["fno_eod"].status == C.HealthStatus.DEGRADED

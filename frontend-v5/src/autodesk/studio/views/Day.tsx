@@ -15,6 +15,7 @@ import { errorText } from "../../api";
 import { DASH, dateLong, humanize, timeIST } from "../../format";
 import { useIsMobile } from "../../hooks";
 import { TONE_COLOR, describe, rangeText, sessionsOf, simTimeOf, type SimVersions } from "../../screens/simulator/model";
+import { approvalPath } from "../../screens/scanner/model";
 import { useSimActions, useSimResults, useSimulation } from "../../screens/simulator/queries";
 import type { EventRow, SimulationRow } from "../../types";
 import { ErrorBox, Loading, PhaseNote } from "../../ui";
@@ -350,6 +351,9 @@ export default function StudioDay() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.06em", color: TONE_COLOR[d.tone], overflowWrap: "anywhere" }}>{d.route.toUpperCase()} · {d.type}{it.count > 1 ? ` ×${it.count}` : ""}</span>
                   {text && <span style={{ fontSize: 13, lineHeight: 1.45, overflowWrap: "anywhere" }}>{text}</span>}
+                  {it.count === 1 && it.e.event_type.startsWith("APPROVAL_") && typeof p.approval_id === "string" && p.approval_id && (
+                    <Link to={approvalPath(p.approval_id)} data-testid="day-feed-plan" className="ad-link" style={{ textDecoration: "none", alignSelf: "flex-start" }}>Open full plan ›</Link>
+                  )}
                 </div>
               </div>
             );
